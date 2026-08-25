@@ -154,6 +154,39 @@ def aplanar_margenes(crudo: Any) -> tuple[list[dict], dict[str, int]]:
     return filas, stats
 
 
+def por_cuenta_de_neteo(filas: list[dict]) -> list[dict]:
+    """Una fila por (cuenta de neteo, cuenta de compensación, moneda).
+
+    ⚠️ **La clave es el PAR, no la cuenta sola** (REGLA #9(A), medido 2026-08-25):
+    `149667` cuelga de la compensación `1172` y `218115` cuelga de sí misma. Con
+    la cuenta de neteo sola, el día que un comitente aparezca bajo dos
+    compensaciones las dos se colapsarían en una **sin fallar** — un total de
+    menos y una tabla que se ve impecable.
+
+    `referencias` cuenta cuántas `References` se sumaron. No es decorativo: un
+    margen armado con 1 referencia y otro con 40 no son el mismo grado de
+    evidencia, y el día que la cámara deje de mandar `References` el total daría
+    0, que sin el conteo se ve idéntico a un 0 real.
+    """
+    por: dict[tuple[str, str, str], dict] = {}
+    for f in filas:
+        k = (f.get("cuenta") or "", f.get("cuenta_compensacion_codigo") or "",
+             f.get("moneda") or "")
+        d = por.setdefault(k, {
+            "cuenta": k[0], "cuenta_compensacion": k[1], "moneda": k[2],
+            "margen": 0.0, "referencias": 0,
+            "titular": f.get("cuenta_nombre") or "",
+        })
+        d["margen"] += f.get("margen") or 0.0
+        d["referencias"] += 1
+        if not d["titular"]:
+            d["titular"] = f.get("cuenta_nombre") or ""
+    return [{**d, "margen": round(d["margen"], 2)}
+            for d in sorted(por.values(),
+                            key=lambda x: (x["cuenta"], x["cuenta_compensacion"],
+                                           x["moneda"]))]
+
+
 def totales_por_moneda(filas: list[dict]) -> list[dict]:
     """Σ de cada importe, POR MONEDA. Nunca un total único.
 

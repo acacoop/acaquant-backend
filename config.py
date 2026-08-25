@@ -243,3 +243,22 @@ GUARDRAILS_UMBRALES: dict[str, float | None] = {
 # persiste: así no hay job que pueda doble-contar ni backfill que revertir.
 # Si algún día se recarga el cupo, hay que mover esta fecha al día de la carga.
 CUPO_BASE_FECHA = "2026-06-01"
+
+# --- AP5 · REQUERIMIENTO DE MÁRGENES ---
+# Las cuentas cuyo margen SUMA en la card de la cabecera. El job guarda TODAS
+# las que devuelve la cámara en `ap5.margenes` (sirven para otra cosa y son
+# gratis: ya vinieron en la misma respuesta); esta lista es solo el recorte que
+# se MUESTRA.
+#
+# ⚠️ **Es un PAR (cuenta de neteo, cuenta de compensación), no una cuenta.**
+# REGLA #9(A): las dos se emparejan distinto — `149667` cuelga de la compensación
+# `1172` y `218115` cuelga de sí misma. Con la cuenta sola, el día que un mismo
+# comitente aparezca bajo dos compensaciones la card sumaría de más sin fallar.
+#
+# Cambiar esta lista cambia el número de la pantalla y nada más: la tabla sigue
+# guardando todo, así que agregar o sacar una cuenta no pierde historia ni
+# obliga a un backfill.
+AP5_CUENTAS_REQUERIMIENTO: tuple[tuple[str, str], ...] = (
+    ("149667", "1172"),
+    ("218115", "218115"),
+)

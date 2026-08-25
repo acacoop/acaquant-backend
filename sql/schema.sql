@@ -5421,6 +5421,64 @@ BEGIN
     END IF;
 END $ap5_acum$;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ap5.margenes — el REQUERIMIENTO DE MÁRGENES, abierto por comitente.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- **Por qué existe esta tabla y no se lee `AccountBalance`** (medido 2026-08-25):
+-- `PosTrade/AccountBalance` devuelve un AGREGADO — un `Balance` por cuenta de
+-- compensación y moneda — y **no se puede abrir**. Se sondearon los cinco
+-- nombres posibles de filtro por cuenta y las diez grafías de expansión
+-- (`viewDetails`, `includeSubAccounts`, `breakdown`…): las quince responden
+-- 200 y devuelven exactamente lo mismo. La fila es atómica; el
+-- `AccountingAccountCode 4141721172` es un único número con muchas cuentas
+-- adentro que no se ven.
+--
+-- `MarginRequirementReport` sí trae el desglose, de fábrica, en cuatro niveles:
+--
+--     Value[]                ← agente (ClearingMember) + fecha
+--       └ Accounts[]         ← cuenta de COMPENSACIÓN
+--           └ SubAccounts[]  ← cuenta de NETEO  ← el comitente
+--               └ References[] ← el importe, con su MONEDA
+--
+-- ⚠️ **La identidad es el PAR (cuenta de neteo, cuenta de compensación), no la
+-- cuenta sola.** Es REGLA #9(A): las dos cuentas del reporte se emparejan
+-- distinto — `149667` cuelga de la compensación `1172`, y `218115` de sí misma.
+-- Con la cuenta de neteo sola como clave, el día que un mismo comitente aparezca
+-- bajo dos compensaciones el UPSERT pisaría una con la otra **sin fallar**: el
+-- total daría de menos y la tabla se vería perfecta.
+--
+-- ⚠️ **`margen` conserva el SIGNO que manda la cámara** (vienen negativos). Darlo
+-- vuelta acá sería meter una decisión de presentación en la capa que guarda el
+-- dato, y el día que llegue un positivo real nadie entendería el cambio.
+--
+-- ⚠️ **La MONEDA es parte de la PK y no se suma con otra.** Misma regla que rige
+-- toda la vista AP5: sumar Pesos con Dólar da un número que no significa nada.
+--
+-- Idempotente: re-correr el job el mismo día hace UPSERT y no acumula.
+CREATE TABLE IF NOT EXISTS ap5.margenes (
+    fecha               date    NOT NULL,
+    -- NettingAccountCode — el comitente. Une con `ap5.cuentas.account`.
+    cuenta              text    NOT NULL,
+    -- CompensationAccountCode — de qué cuenta de compensación cuelga.
+    cuenta_compensacion text    NOT NULL DEFAULT '',
+    moneda              text    NOT NULL,
+    margen              numeric NOT NULL DEFAULT 0,
+    -- Cuántas References se sumaron para llegar a ese margen. Un margen armado
+    -- con 1 referencia y otro con 40 no son el mismo grado de evidencia, y el
+    -- día que la cámara deje de mandar References el total daría 0 — sin este
+    -- conteo, un 0 por ausencia se ve igual que un 0 real.
+    referencias         integer NOT NULL DEFAULT 0,
+    titular             text,
+    actualizado_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, cuenta, cuenta_compensacion, moneda)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ap5_margenes_fecha
+    ON ap5.margenes (fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_ap5_margenes_cuenta
+    ON ap5.margenes (cuenta, fecha DESC);
+
 -- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
 -- Pedido del user: *«que el agente aprenda a sugerir, y que si le das OK

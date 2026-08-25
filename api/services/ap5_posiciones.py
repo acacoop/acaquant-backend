@@ -34,6 +34,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
+from config import AP5_CUENTAS_REQUERIMIENTO
 from core.postgres import get_pool
 
 # Familias del reporte, derivadas de `unit_of_measure`. Es lo que separa los dos
@@ -585,6 +586,56 @@ def _faltantes(fecha: str) -> dict:
     }
 
 
+def requerimiento_margenes(fecha: str) -> dict:
+    """La card REQUERIMIENTO DE MÁRGENES: Σ de las cuentas elegidas, por moneda.
+
+    ⚠️ **El filtro es por PAR (cuenta de neteo, cuenta de compensación)**, que es
+    como está declarado en `config.AP5_CUENTAS_REQUERIMIENTO`. Filtrar por la
+    cuenta sola sumaría de más el día que un comitente aparezca bajo dos
+    compensaciones — y no fallaría: daría un número más grande y creíble.
+
+    ⚠️ **Nunca un total único.** Se devuelve una entrada por moneda, igual que
+    todo el resto de la vista. Si la cámara manda ARS y USD, son DOS números.
+
+    ⚠️ **`cuentas_encontradas` viaja en la respuesta.** Sin eso, una cuenta que
+    dejó de venir se ve exactamente igual que una cuenta en cero: la card
+    muestra un número menor y nadie se entera. La pantalla puede avisar «faltan
+    1 de 2» porque el backend lo cuenta, no porque el navegador lo derive.
+    """
+    pares = list(AP5_CUENTAS_REQUERIMIENTO)
+    if not fecha or not pares:
+        return {"fecha": fecha, "por_moneda": [], "detalle": [],
+                "cuentas_pedidas": len(pares), "cuentas_encontradas": 0,
+                "cuentas_faltantes": [c for c, _ in pares]}
+
+    filas = _q(
+        "SELECT cuenta, cuenta_compensacion, moneda, margen, referencias, titular "
+        "FROM ap5.margenes "
+        "WHERE fecha = %(f)s AND (cuenta, cuenta_compensacion) IN "
+        "  (SELECT * FROM unnest(%(ctas)s::text[], %(comps)s::text[])) "
+        "ORDER BY cuenta, moneda",
+        {"f": fecha, "ctas": [c for c, _ in pares], "comps": [k for _, k in pares]},
+    )
+
+    por: dict[str, dict] = {}
+    for x in filas:
+        m = x["moneda"] or "(sin moneda)"
+        d = por.setdefault(m, {"moneda": m, "margen": 0.0, "cuentas": 0})
+        d["margen"] += float(x["margen"] or 0)
+        d["cuentas"] += 1
+
+    hallada = {(x["cuenta"], x["cuenta_compensacion"]) for x in filas}
+    return {
+        "fecha": fecha,
+        "por_moneda": [{**d, "margen": round(d["margen"], 2)}
+                       for d in sorted(por.values(), key=lambda x: x["moneda"])],
+        "detalle": [{**x, "margen": float(x["margen"] or 0)} for x in filas],
+        "cuentas_pedidas": len(pares),
+        "cuentas_encontradas": len(hallada),
+        "cuentas_faltantes": [c for c, k in pares if (c, k) not in hallada],
+    }
+
+
 def vista(fecha: str | None = None) -> dict:
     """TODO lo que la pantalla necesita, en UN request.
 
@@ -600,6 +651,10 @@ def vista(fecha: str | None = None) -> dict:
             "diferencias_hoy": [], "rankings": [], "por_instrumento": [],
             "consolidado": [],
             "acumulado": [], "grupos": [], "faltantes": {},
+            "requerimiento_margenes": {"fecha": None, "por_moneda": [],
+                                       "detalle": [], "cuentas_pedidas": 0,
+                                       "cuentas_encontradas": 0,
+                                       "cuentas_faltantes": []},
         }
 
     # UNA sola vez, y de ahí salen las DOS cosas que hablan de lo mismo: la tabla
@@ -616,6 +671,7 @@ def vista(fecha: str | None = None) -> dict:
         "por_instrumento": por_instrumento(hoy, anterior),
         "consolidado": consolidado(hoy, anterior),
         "acumulado": filas_acum,
+        "requerimiento_margenes": requerimiento_margenes(hoy),
         "grupos": [
             r["grupo"] for r in _q(
                 "SELECT DISTINCT grupo FROM ap5.cuentas "

@@ -50,6 +50,25 @@ SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"
 _ULT_OP_WHERE = "anulado_en IS NULL"
 
 
+def _act_where(alias: str = "") -> str:
+    """`_ULT_OP_WHERE` aliasable (`o.anulado_en IS NULL`). Es la MISMA definición de
+    "boleto que cuenta como operación" — la usan la tabla de ESTADO COMERCIAL, su
+    modal y la tab PROFUNDIDAD DE CLIENTES, que necesita el alias porque joinea
+    `operaciones` contra una CTE de meses. Un test congela que las dos digan lo mismo."""
+    a = f"{alias}." if alias else ""
+    return f"{a}anulado_en IS NULL"
+
+
+def _arancel_where(alias: str = "") -> str:
+    """Qué boleto SUMA arancel, en UN solo lugar: `arancel > 0` y `etapa <> 'solicitud'`
+    (la liquidación CL ya cuenta). NO excluye los cierres: el arancel de caución vive
+    SOLO en el cierre (ver CLAUDE.md → "El arancel y el bruto NO comparten filtro de
+    cierre"). El `anulado_en IS NULL` va aparte porque en algunas queries es condición
+    de JOIN y no de WHERE."""
+    a = f"{alias}." if alias else ""
+    return f"{a}arancel > 0 AND {a}etapa IS DISTINCT FROM 'solicitud'"
+
+
 def _f(x) -> float:
     return float(x or 0)
 
@@ -764,8 +783,7 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
 
     w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s) "
              f"AND anulado_en IS NULL{ub_vol}{lo_vol}")
-    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
-            f"AND anulado_en IS NULL{ub_ar}{lo_ar}")
+    w_ar = f"{_arancel_where()} AND anulado_en IS NULL{ub_ar}{lo_ar}"
     if scope:
         w_vol += f" AND {scope}"
         w_ar += f" AND {scope}"

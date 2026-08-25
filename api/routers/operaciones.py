@@ -14,6 +14,7 @@ from api.services import control_comercial_sql as _cc
 from api.services import financiamiento as _fin
 from api.services import financiamiento_calc as _fin_calc
 from api.services import operaciones_sql as _ops_sql
+from api.services import profundidad_sql as _prof
 from api.services._grupos_scope import (
     scope_cuentas,
     verificar_cuenta_str,
@@ -607,6 +608,61 @@ def comercial_analisis_detalle(
     historial reciente y los boletos que NO cuentan con su motivo (anulados,
     posteriores al corte). No recalcula nada: usa el mismo predicado que la tabla."""
     return _com_sql.detalle_ultima_op(id_cuenta=id_cuenta, fecha=fecha, limite=limite)
+
+
+# ── PROFUNDIDAD DE CLIENTES (tab de OPERADORES) ──────────────────────────────
+# Serie MENSUAL de la base de clientes: cuántos hay, cuántos con AuM, cuántos
+# operaron y cuánto arancel dejaron. NO usa el Desde/Hasta de la barra a propósito
+# (su eje ES el tiempo); sí hereda los filtros madre. Lógica: profundidad_sql.
+
+@router.get("/comercial/profundidad")
+@cached(ttl=300)
+def comercial_profundidad(
+    moneda: str = Query("ARS", description="ARS | USD (USD = al MEP del último día de CADA mes)"),
+    desde: str | None = Query(None, description=f"primer mes YYYY-MM (default {_prof.PROFUNDIDAD_INICIO})"),
+    hasta: str | None = Query(None, description="último mes YYYY-MM (default: mes en curso; nunca lo supera)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """Una fila por mes (mm-aa) con clientes · con AuM · sin AuM · activos · ratio de
+    actividad · aranceles · arancel por activo · AuM. Todo medido al ÚLTIMO día del mes;
+    los flujos, sobre el mes completo. Los ratios y los labels vienen calculados."""
+    return _prof.profundidad_clientes(
+        moneda=moneda, desde=desde, hasta=hasta, operador=operador, nivel_1=nivel_1,
+        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5,
+        referido=referido, division=division)
+
+
+@router.get("/comercial/profundidad/detalle")
+@cached(ttl=120)
+def comercial_profundidad_detalle(
+    mes: str = Query(..., description="mes de la celda clickeada, YYYY-MM"),
+    metrica: str = Query("clientes", description="|".join(_prof.METRICAS)),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    limite: int = Query(500, ge=1, le=5000, description="cuentas listadas (los totales NO se capean)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """Auditoría de UNA celda (mes × métrica): las cuentas que la componen, con su AuM,
+    sus boletos y su arancel del mes. Mismos predicados y mismo snapshot que la tabla —
+    los totales se calculan sobre TODAS las cuentas y recién después se capea la lista,
+    así el límite no puede hacer que el modal contradiga al número."""
+    return _prof.detalle_mes(
+        mes=mes, metrica=metrica, moneda=moneda, limite=limite, operador=operador,
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4,
+        nivel_5=nivel_5, referido=referido, division=division)
 
 
 @router.get("/comercial/cobros-futuros")

@@ -100,6 +100,7 @@ from datetime import timedelta  # noqa: E402
 from api.services.comercial import _arancel_expr, _valor_expr  # noqa: E402
 from api.services.comercial_sql import (  # noqa: E402
     _CATS_VOLUMEN,
+    _arancel_where,
     _cv,
     _f,
     _factor_usd,
@@ -198,7 +199,7 @@ def _agg_totales_batch(defs: list[tuple], moneda: str, mep_hoy: float | None,
            f"AND anulado_en IS NULL "
            f"AND fecha >= %(dmin)s AND fecha <= %(hmax)s{scope}", p)[0]
     c = _q(f"SELECT {', '.join(sel_c)} FROM operaciones "
-           f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+           f"WHERE {_arancel_where()} "
            f"AND anulado_en IS NULL "
            f"AND concertacion >= %(dmin)s AND concertacion <= %(hmax)s{scope}", pc)[0]
     idx = {r: i for i, r in enumerate(ranges)}
@@ -304,7 +305,7 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
         s["activos"] += 1
         s["volumen"] += _f(r["vol"])
     for r in _q(f"SELECT id_cuenta, COALESCE(SUM({arax}),0) AS com FROM operaciones "
-                f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+                f"WHERE {_arancel_where()} "
                 f"AND anulado_en IS NULL "
                 f"AND concertacion >= %(d)s AND concertacion <= %(h)s{scope} GROUP BY id_cuenta",
                 pc):

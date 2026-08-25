@@ -66,17 +66,35 @@ def test_cada_tab_y_cada_lado_es_un_bloque_propio():
 
 
 # ── Los DOS bugs del 2026-08-25, congelados ────────────────────────────────
-def test_la_familia_otros_NO_duplica_el_bloque_del_grupo():
-    """BUG REAL: se agrupaba por (familia, grupo) y la tab AGRO junta `agro` y
-    `otros` — el mismo grupo salía DOS VECES, con el mismo título, una debajo de
-    la otra. No fallaba nada: dibujaba de más."""
+def test_la_familia_OTROS_no_entra_en_ninguna_tab():
+    """AGRO es trigo, soja y maíz — lo que se mide en TONELADAS.
+
+    El WTI (unidad `Bl`) se plegaba adentro de AGRO y estaba mal: un barril no
+    es una tonelada y sumarlo daba un ranking que parece bien. Queda fuera de
+    las dos tabs y se declara en `faltantes` — no desaparece, pero tampoco
+    infla toneladas que no lo son.
+    """
     r = rankings([
         _f(familia="agro", grupo="COOPERATIVAS", cuenta="A", acumulado=10.0),
-        _f(familia="otros", grupo="COOPERATIVAS", cuenta="B", acumulado=20.0),
+        _f(familia="otros", grupo="COOPERATIVAS", cuenta="B", acumulado=999.0),
     ])
-    assert len(r) == 1, "el WTI abrió un segundo panel para el mismo grupo"
+    assert len(r) == 1
     assert r[0]["tab"] == "agro"
-    assert r[0]["cuentas"] == 2
+    assert r[0]["cuentas"] == 1, "el WTI se coló en el ranking de agro"
+    assert [i["cuenta"] for i in r[0]["positivos"]] == ["A"]
+
+
+def test_un_grupo_abre_UN_solo_panel_por_tab():
+    """BUG REAL: se agrupaba por (familia, grupo), así que un grupo con
+    posiciones en dos familias de la misma tab abría DOS paneles con el mismo
+    título, uno debajo del otro. No fallaba nada: dibujaba de más."""
+    r = rankings([
+        _f(familia="agro", grupo="COOPERATIVAS", cuenta="A", acumulado=10.0),
+        _f(familia="agro", grupo="COOPERATIVAS", cuenta="B", acumulado=20.0),
+        _f(familia="dolar", grupo="COOPERATIVAS", cuenta="C", acumulado=30.0),
+    ])
+    assert len(r) == 2, "el mismo grupo abrió más de un panel por tab"
+    assert {b["tab"] for b in r} == {"agro", "dolar"}
 
 
 def test_el_grupo_se_compara_NORMALIZADO_no_por_el_string_crudo():

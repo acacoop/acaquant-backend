@@ -73,10 +73,18 @@ TOP = 10
 
 SIN_GRUPO = "(sin grupo)"
 
-# La familia decide la TAB. `otros` (hoy el WTI, unidad `Bl`) NO tiene tab propia
-# y tampoco desaparece: va con el agro, pero conserva su etiqueta de familia para
-# que se vea que no son toneladas.
-TAB_DE_FAMILIA = {AGRO: "agro", OTROS: "agro", DOLAR: "dolar"}
+# La familia decide la TAB — y son SOLO DOS: agro (trigo, soja, maíz: todo lo
+# que se mide en toneladas) y dólar futuro.
+#
+# ⚠️ `otros` (hoy el WTI, unidad `Bl`) **NO entra en ninguna de las dos** (regla
+# del user, 2026-08-25: *«van a ser solo para los futuros de trigo soja y maíz;
+# en agro no va a haber otros»*). Antes se plegaba adentro de AGRO y estaba mal:
+# un barril no es una tonelada, y sumarlo ahí daría un ranking que parece bien.
+#
+# Pero NO desaparece en silencio: lo que queda fuera de las dos tabs se DECLARA
+# en `faltantes` (ver `_faltantes`). Omitirlo sería peor que mostrarlo mal —
+# una posición que no está en ninguna pantalla es una posición que nadie mira.
+TAB_DE_FAMILIA = {AGRO: "agro", DOLAR: "dolar"}
 
 # Los dos lados del reporte, y de qué lado va cada uno en la pantalla.
 IZQUIERDA, DERECHA, OTRO_LADO = "izq", "der", "otro"
@@ -220,7 +228,11 @@ def rankings(filas: list[dict]) -> list[dict]:
     for r in filas:
         if not r["acumulado"]:
             continue
-        tab = TAB_DE_FAMILIA.get(r["familia"], "agro")
+        tab = TAB_DE_FAMILIA.get(r["familia"])
+        if tab is None:
+            # Familia sin tab (hoy `otros`: el WTI). No se cuela en el agro
+            # inflando toneladas — se cuenta en `faltantes` y se ve ahí.
+            continue
         clave = (tab, normalizar_grupo(r["grupo"]))
         # La etiqueta que se muestra es la de la BASE, no la normalizada: el
         # normalizado es para comparar, no para dibujar.
@@ -422,8 +434,22 @@ def _faltantes(fecha: str) -> dict:
         "WHERE c.account IN (SELECT account FROM ap5.portfolio WHERE business_date = %(f)s)",
         {"f": fecha},
     )
+    # Lo que NO entra en ninguna tab (hoy `otros`: el WTI, que se mide en
+    # barriles). Se cuenta para que una posición sin pantalla no quede invisible.
+    fuera = _q(
+        f"SELECT {_FAMILIA_SQL} AS familia, count(DISTINCT p.account) AS cuentas, "
+        "count(DISTINCT p.symbol) AS simbolos "
+        "FROM ap5.portfolio p WHERE p.business_date = %(f)s "
+        "GROUP BY 1 HAVING " + _FAMILIA_SQL.strip() + " NOT IN ('agro', 'dolar')",
+        {"f": fecha},
+    )
+
     r = resto[0] if resto else {}
     return {
+        "fuera_de_tabs": [
+            {"familia": x["familia"], "cuentas": x["cuentas"], "simbolos": x["simbolos"]}
+            for x in fuera
+        ],
         "simbolos_sin_multiplicador": [
             {"symbol": s["symbol"], "unidad": s["unidad"], "filas": s["filas"]}
             for s in sin_mult

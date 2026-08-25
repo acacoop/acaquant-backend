@@ -47,6 +47,10 @@ def test_el_total_es_de_TODAS_las_cuentas_no_solo_del_top():
     assert len(r["positivos"]) == 10
     assert r["total_positivo"] == sum(float(i + 1) for i in range(25))
     assert r["cuentas"] == 25
+    # El tope viaja en el payload: la pantalla reserva ESE alto aunque haya
+    # menos filas, así los dos paneles quedan parejos. Escribirlo a mano en el
+    # front sería una segunda copia del mismo número (REGLA #9(B)).
+    assert r["top"] == 10
 
 
 def test_cada_tab_y_cada_lado_es_un_bloque_propio():

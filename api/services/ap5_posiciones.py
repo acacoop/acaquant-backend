@@ -291,6 +291,15 @@ def rankings(filas: list[dict]) -> list[dict]:
             "total_negativo": round(sum(i["importe"] for i in negativos), 2),
             "cuentas": len(items),
             "sin_cargar": sum(1 for i in items if not i["cargado"]),
+            # Cuántas filas tiene el ranking COMO MÁXIMO. Viaja para que la
+            # pantalla reserve ese alto aunque haya menos cuentas: si cada panel
+            # se encogiera a su cantidad de filas, Cooperativas y MUNDO ACA
+            # quedarían de altos distintos y las tablas se desalinean.
+            #
+            # Va en el payload y no como un 10 escrito en el front: dos copias
+            # del mismo número se separan solas (REGLA #9(B)) y el día que se
+            # cambie el tope acá, la pantalla seguiría reservando el viejo.
+            "top": TOP,
         })
     # Orden de la PANTALLA, fijado acá: izquierda, derecha, y lo no clasificado
     # último. Que lo decida el backend es lo que evita que la vista lo deduzca.

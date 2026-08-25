@@ -263,23 +263,35 @@ AP5_CUENTAS_REQUERIMIENTO: tuple[tuple[str, str], ...] = (
     ("218115", "218115"),
 )
 
-# --- AP5 · QUÉ CONCEPTOS SUMA CADA CARD ---
+# --- AP5 · QUÉ SUMA CADA CARD ---
 # `Reference` es el NOMBRE del concepto, no un id. Medido el 2026-08-25 sobre
 # 31 referencias: `Márgenes` (×28), `Inicial A3`, `Inicial FGIMC`, `Cauciones $`.
 #
-# **El activo integrado lo verificó el user contra el número real de la mesa:
-# `Márgenes + Inicial A3`.** No se dedujo — se comparó.
+# **Las dos cards se recortan distinto, y no sólo por concepto: también por si
+# filtran cuentas o no.** Lo determinó el user contra los números reales de la
+# mesa (2026-08-25), y tiene sentido con lo que es cada cosa:
 #
-# ⚠️ **El requerimiento NO está verificado todavía.** Arranca en `Márgenes` sola
-# porque es lo literal, pero eso es una HIPÓTESIS: si el número de la card no
-# coincide con el del mail, el que hay que cambiar es este renglón y nada más.
-# Está escrito acá justamente para que corregirlo no sea tocar código.
+#   REQUERIMIENTO    `Márgenes`               SÍ filtra → es lo exigido a NUESTRAS
+#                                             dos cuentas
+#   ACTIVO INTEGRADO `Márgenes + Inicial A3`  NO filtra → es lo depositado por el
+#                                             ALyC entero. `Inicial A3` es UNA
+#                                             sola fila y no cuelga de ningún
+#                                             comitente: filtrarla la tiraba, y
+#                                             por eso las dos cards daban IGUAL.
 #
-# Los conceptos que NO están en ninguna lista igual se guardan en `ap5.margenes`
-# — la tabla es el registro completo y estas listas son sólo el recorte que se
-# muestra.
+# ⚠️ Sin filtro, el activo integrado suma el `Márgenes` de TODAS las cuentas, no
+# sólo las dos. Es a propósito: son dos preguntas distintas —«cuánto me exigen a
+# mí» y «cuánto hay integrado»— y responderlas con el mismo recorte fue el error.
+#
+# Los conceptos que no están en ninguna lista (`Inicial FGIMC`, `Cauciones $`)
+# igual se guardan en `ap5.margenes`: la tabla es el registro completo y estas
+# listas son sólo el recorte que se muestra. Cambiarlas cambia el número de la
+# pantalla y nada más — no pierde historia ni obliga a un backfill.
 AP5_CONCEPTOS_REQUERIMIENTO: tuple[str, ...] = ("Márgenes",)
+AP5_REQUERIMIENTO_FILTRA_CUENTAS = True
+
 AP5_CONCEPTOS_ACTIVO_INTEGRADO: tuple[str, ...] = ("Márgenes", "Inicial A3")
+AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS = False
 
 # La cámara manda estos importes en NEGATIVO y la mesa los lee en positivo. Se
 # guardan con el signo original (dar vuelta el dato en la capa que lo trae es

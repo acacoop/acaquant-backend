@@ -99,17 +99,23 @@ def main() -> None:
     print("LAS DOS CARDS, CALCULADAS DE CUATRO FORMAS")
     print("=" * 88)
     combos = [
-        ("REQUERIMIENTO", config.AP5_CONCEPTOS_REQUERIMIENTO),
-        ("ACTIVO INTEGR.", config.AP5_CONCEPTOS_ACTIVO_INTEGRADO),
+        ("REQUERIMIENTO", config.AP5_CONCEPTOS_REQUERIMIENTO,
+         config.AP5_REQUERIMIENTO_FILTRA_CUENTAS),
+        ("ACTIVO INTEGR.", config.AP5_CONCEPTOS_ACTIVO_INTEGRADO,
+         config.AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS),
     ]
-    print(f"  {'card':<16} {'conceptos':<28} {'CON filtro cuenta':>20} "
-          f"{'SIN filtro':>18}")
-    for nombre, conceptos in combos:
+    print(f"  {'card':<16} {'conceptos':<26} {'filtra?':<8} "
+          f"{'CON filtro':>18} {'SIN filtro':>18}   ← el que USA va marcado")
+    for nombre, conceptos, filtra in combos:
         con = [x for x in filas if x["concepto"] in conceptos
                and (x["cuenta"], x["cuenta_compensacion"]) in pedidos]
         sin = [x for x in filas if x["concepto"] in conceptos]
-        print(f"  {nombre:<16} {'+'.join(conceptos)[:28]:<28} "
-              f"{_total(con):>20,.2f} {_total(sin):>18,.2f}")
+        m_con = " *" if filtra else "  "
+        m_sin = "  " if filtra else " *"
+        print(f"  {nombre:<16} {'+'.join(conceptos)[:26]:<26} "
+              f"{('sí' if filtra else 'NO'):<8} "
+              f"{_total(con):>16,.2f}{m_con} {_total(sin):>16,.2f}{m_sin}")
+    print("\n  (*) = el criterio que la card usa hoy, según config.py")
 
     print("\n  Cómo leerlo:")
     print("   · Si las DOS cards dan igual CON filtro y distinto SIN filtro →")

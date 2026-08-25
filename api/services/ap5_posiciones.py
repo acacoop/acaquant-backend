@@ -35,10 +35,12 @@ import unicodedata
 from typing import Any
 
 from config import (
+    AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS,
     AP5_CONCEPTOS_ACTIVO_INTEGRADO,
     AP5_CONCEPTOS_REQUERIMIENTO,
     AP5_CUENTAS_REQUERIMIENTO,
     AP5_MARGENES_INVERTIR_SIGNO,
+    AP5_REQUERIMIENTO_FILTRA_CUENTAS,
 )
 from core.postgres import get_pool
 
@@ -593,50 +595,56 @@ def _faltantes(fecha: str) -> dict:
 
 _CARD_VACIA: dict[str, Any] = {
     "fecha": None, "por_moneda": [], "detalle": [], "conceptos": [],
-    "conceptos_faltantes": [], "cuentas_pedidas": 0,
+    "conceptos_faltantes": [], "filtra_cuentas": False, "cuentas_pedidas": 0,
     "cuentas_encontradas": 0, "cuentas_faltantes": [],
 }
 
 
-def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
-    """Σ de `ap5.margenes` para las cuentas elegidas y ESTOS conceptos, por moneda.
+def _card_margenes(fecha: str, conceptos: tuple[str, ...], *,
+                   filtra_cuentas: bool) -> dict:
+    """Σ de `ap5.margenes` para estos conceptos, por moneda.
 
     Una sola función para las dos cards porque son **la misma cuenta con otro
-    recorte de conceptos**: el requerimiento suma `Márgenes`, el activo integrado
-    suma `Márgenes + Inicial A3`. Escribirlas dos veces sería garantizar que un
-    día se arreglen distinto.
+    recorte**. Pero el recorte tiene DOS ejes, no uno, y ahí estuvo el error:
+
+        REQUERIMIENTO    `Márgenes`               filtra cuentas → lo exigido a
+                                                  NUESTRAS dos cuentas
+        ACTIVO INTEGRADO `Márgenes + Inicial A3`  NO filtra → lo depositado por
+                                                  el ALyC entero
+
+    ⚠️ **Por qué el activo integrado no filtra**: `Inicial A3` es UNA sola fila y
+    no cuelga de ningún comitente. Filtrándola se caía, y la card quedaba
+    sumando exactamente lo mismo que el requerimiento — **un número correcto
+    para las filas que encontró**, que es la peor forma de estar mal.
 
     ⚠️ **Se suma `margen` (`Margin`) y NADA MÁS.** `primas` e `inter_temporal`
     se guardan pero no cuentan: `Márgenes` trae un `InterTempAmount` no nulo que
-    NO es parte del número, y sumarlo inflaba el total sin fallar. Determinado
-    por el user contra el número real de la mesa (2026-08-25).
-
-    ⚠️ **El filtro de cuenta es por PAR** (neteo, compensación) — REGLA #9(A).
+    NO es parte del número.
 
     ⚠️ **`conceptos_faltantes` viaja en la respuesta.** Si la cámara renombra
-    `Inicial A3`, la card seguiría dibujando el número de los conceptos que sí
-    quedaron y nadie lo notaría. Lo cuenta el backend contra lo que hay en la
-    base, no el navegador.
+    `Inicial A3`, la card seguiría dibujando el total de los que sí quedaron y
+    nadie lo notaría. Lo cuenta el backend contra la base, no el navegador.
     """
-    pares = list(AP5_CUENTAS_REQUERIMIENTO)
+    pares = list(AP5_CUENTAS_REQUERIMIENTO) if filtra_cuentas else []
     vacia = {"fecha": fecha, "por_moneda": [], "detalle": [],
              "conceptos": list(conceptos), "conceptos_faltantes": list(conceptos),
+             "filtra_cuentas": filtra_cuentas,
              "cuentas_pedidas": len(pares), "cuentas_encontradas": 0,
              "cuentas_faltantes": [c for c, _ in pares]}
-    if not fecha or not pares or not conceptos:
+    if not fecha or not conceptos or (filtra_cuentas and not pares):
         return vacia
 
-    filas = _q(
-        "SELECT cuenta, cuenta_compensacion, concepto, moneda, "
-        "       margen, primas, inter_temporal, referencias, titular "
-        "FROM ap5.margenes "
-        "WHERE fecha = %(f)s AND concepto = ANY(%(conc)s::text[]) "
-        "  AND (cuenta, cuenta_compensacion) IN "
-        "      (SELECT * FROM unnest(%(ctas)s::text[], %(comps)s::text[])) "
-        "ORDER BY cuenta, concepto, moneda",
-        {"f": fecha, "conc": list(conceptos),
-         "ctas": [c for c, _ in pares], "comps": [k for _, k in pares]},
-    )
+    sql = ("SELECT cuenta, cuenta_compensacion, concepto, moneda, "
+           "       margen, primas, inter_temporal, referencias, titular "
+           "FROM ap5.margenes "
+           "WHERE fecha = %(f)s AND concepto = ANY(%(conc)s::text[]) ")
+    params: dict[str, Any] = {"f": fecha, "conc": list(conceptos)}
+    if filtra_cuentas:
+        sql += ("  AND (cuenta, cuenta_compensacion) IN "
+                "      (SELECT * FROM unnest(%(ctas)s::text[], %(comps)s::text[])) ")
+        params["ctas"] = [c for c, _ in pares]
+        params["comps"] = [k for _, k in pares]
+    filas = _q(sql + "ORDER BY cuenta, concepto, moneda", params)
 
     signo = -1.0 if AP5_MARGENES_INVERTIR_SIGNO else 1.0
     por: dict[str, dict] = {}
@@ -659,28 +667,34 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
                     for x in filas],
         "conceptos": list(conceptos),
         "conceptos_faltantes": [c for c in conceptos if c not in presentes],
+        "filtra_cuentas": filtra_cuentas,
+        # Sin filtro no hay «cuentas pedidas»: cero, y por lo tanto ninguna
+        # puede faltar. Mandar la lista igual haría que la pantalla avise por
+        # cuentas que esta card nunca miró.
         "cuentas_pedidas": len(pares),
-        "cuentas_encontradas": len(hallada),
-        "cuentas_faltantes": [c for c, k in pares if (c, k) not in hallada],
+        "cuentas_encontradas": len(hallada) if filtra_cuentas else 0,
+        "cuentas_faltantes": ([c for c, k in pares if (c, k) not in hallada]
+                              if filtra_cuentas else []),
     }
 
 
 def requerimiento_margenes(fecha: str) -> dict:
-    """La card REQUERIMIENTO DE MÁRGENES."""
-    return _card_margenes(fecha, AP5_CONCEPTOS_REQUERIMIENTO)
+    """La card REQUERIMIENTO DE MÁRGENES: lo exigido a NUESTRAS dos cuentas."""
+    return _card_margenes(fecha, AP5_CONCEPTOS_REQUERIMIENTO,
+                          filtra_cuentas=AP5_REQUERIMIENTO_FILTRA_CUENTAS)
 
 
 def activo_integrado(fecha: str) -> dict:
-    """La card ACTIVO INTEGRADO.
+    """La card ACTIVO INTEGRADO: lo depositado, a nivel ALyC.
 
-    Sale de la MISMA respuesta que los márgenes, sumando otros conceptos:
-    `Márgenes + Inicial A3`. **No se dedujo — el user lo comparó contra el número
-    real de la mesa** (2026-08-25). `AccountBalance`, que parecía el método
-    natural, quedó descartado: da un agregado por cuenta de compensación que no
-    se puede abrir por comitente (5 filtros y 10 grafías de expansión, las 15
-    devuelven lo mismo).
+    Sale de la MISMA respuesta que los márgenes (`MarginRequirementReport`),
+    sumando `Márgenes + Inicial A3` y **sin filtrar cuentas**. `AccountBalance`,
+    que parecía el método natural, quedó descartado: da un agregado por cuenta
+    de compensación que no se puede abrir por comitente (5 filtros y 10 grafías
+    de expansión, las 15 devuelven lo mismo).
     """
-    return _card_margenes(fecha, AP5_CONCEPTOS_ACTIVO_INTEGRADO)
+    return _card_margenes(fecha, AP5_CONCEPTOS_ACTIVO_INTEGRADO,
+                          filtra_cuentas=AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS)
 
 
 def vista(fecha: str | None = None) -> dict:

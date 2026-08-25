@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from core.postrade_margenes import (
     aplanar_margenes,
-    conceptos_ambiguos,
     por_cuenta_de_neteo,
     totales_por_moneda,
 )
@@ -200,17 +199,16 @@ def test_el_CONCEPTO_es_parte_de_la_identidad():
     assert {f["concepto"] for f in filas} == {"Márgenes", "Inicial A3"}
 
 
-def test_el_importe_no_siempre_esta_en_margen():
-    """`Cauciones $` llega con `Margin = 0.0` y el número en `InterTempAmount`.
-
-    Sumar sólo `margen` devuelve un total más chico y **no falla nada**: el
-    concepto existe y suma 0.
-    """
+def test_guarda_los_tres_importes_pero_el_que_cuenta_es_margen():
+    """`Márgenes` trae un `InterTempAmount` no nulo que **NO es parte del
+    número**. Una versión anterior sumaba los tres campos —generalizando desde
+    una fila de `Cauciones $`— e inflaba el total sin fallar."""
     f = por_cuenta_de_neteo([
-        _fila("149667", "1172", "Cauciones $", "Pesos", inter=-5_000_000.0)])[0]
-    assert f["margen"] == 0.0
-    assert f["importe"] == -5_000_000.0, "el importe efectivo se perdió"
-    assert f["campos"] == "inter_temporal"
+        _fila("149667", "1172", "Márgenes", "Pesos",
+              margen=-4_000_000.0, inter=-9_999.0)])[0]
+    assert f["margen"] == -4_000_000.0, "el importe que cuenta"
+    assert f["inter_temporal"] == -9_999.0, "se guarda igual, para poder mirarlo"
+    assert "importe" not in f, "no debe existir un campo que sume los tres"
 
 
 def test_no_suma_entre_monedas():
@@ -219,7 +217,7 @@ def test_no_suma_entre_monedas():
         _fila("218115", "218115", "Márgenes", "USD", margen=-12_000.0),
     ])
     assert len(filas) == 2
-    assert {(f["moneda"], f["importe"]) for f in filas} == {
+    assert {(f["moneda"], f["margen"]) for f in filas} == {
         ("ARS", -1_500_000.0), ("USD", -12_000.0)}
 
 
@@ -233,7 +231,7 @@ def test_suma_las_referencias_del_mismo_grupo_y_las_cuenta():
         _fila("149667", "1172", "Márgenes", "Pesos", margen=-500.0),
     ])
     assert len(filas) == 1
-    assert filas[0]["importe"] == -3_500.0
+    assert filas[0]["margen"] == -3_500.0
     assert filas[0]["referencias"] == 3
 
 
@@ -241,20 +239,7 @@ def test_preserva_el_signo_negativo_de_la_camara():
     """Dar vuelta el signo es presentación y vive en la vista, no acá."""
     f = por_cuenta_de_neteo([
         _fila("1", "1", "Márgenes", "ARS", margen=-16_800_000.0)])[0]
-    assert f["importe"] == -16_800_000.0
-
-
-def test_una_fila_con_DOS_importes_no_nulos_se_marca_ambigua():
-    """Sumarlos podría estar mal y no fallaría: daría un número creíble."""
-    filas = por_cuenta_de_neteo([
-        _fila("1", "1", "X", "ARS", margen=-100.0, inter=-50.0)])
-    assert filas[0]["campos"] == "margen,inter_temporal"
-    assert len(conceptos_ambiguos(filas)) == 1
-
-
-def test_lo_normal_no_es_ambiguo():
-    filas = por_cuenta_de_neteo([_fila("1", "1", "X", "ARS", margen=-100.0)])
-    assert conceptos_ambiguos(filas) == []
+    assert f["margen"] == -16_800_000.0
 
 
 def test_titular_se_toma_del_primero_que_lo_traiga():

@@ -5480,19 +5480,23 @@ CREATE TABLE IF NOT EXISTS ap5.margenes (
     PRIMARY KEY (fecha, cuenta, cuenta_compensacion, concepto, moneda)
 );
 
--- Los OTROS DOS importes que manda la cámara, y de cuál salió el efectivo.
+-- Los OTROS DOS importes que manda la cámara. **Se guardan y NO se suman.**
 --
--- ⚠️ **El importe NO siempre viene en `Margin`**: `Cauciones $` llega con
--- `Margin = 0.0` y el número en `InterTempAmount`. Sumar sólo `margen` devuelve
--- un total más chico y **no falla nada** — el concepto existe y suma 0. Por eso
--- `importe` es la suma de los tres: para un concepto dado sólo uno viene
--- distinto de cero. `campos` deja escrito de cuál salió, así el día que una fila
--- traiga dos no nulos se ve en la propia tabla en vez de desaparecer en la suma.
+-- ⚠️ **El importe de cada concepto es `margen` (`Margin`), y sólo ése**
+-- (determinado por el user contra el número real de la mesa, 2026-08-25). Hubo
+-- una versión que sumaba los tres: se generalizó desde una fila de
+-- `Cauciones $` que traía el número en `InterTempAmount`, y fue una invención,
+-- no una medición. **`Márgenes` trae un `InterTempAmount` no nulo que no
+-- cuenta**, así que sumar los tres inflaba el total — sin fallar, con un número
+-- creíble. Se guardan igual porque son lo que mandó el proveedor y tirarlos
+-- sería no poder auditarlos nunca.
 ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS primas numeric NOT NULL DEFAULT 0;
 ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS inter_temporal numeric NOT NULL DEFAULT 0;
-ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS importe numeric NOT NULL DEFAULT 0;
-ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS campos text NOT NULL DEFAULT '';
 ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS concepto text NOT NULL DEFAULT '';
+-- Las de la versión que sumaba los tres. Se van: una columna que guarda un
+-- criterio equivocado es peor que no tenerla, porque alguien la va a leer.
+ALTER TABLE ap5.margenes DROP COLUMN IF EXISTS importe;
+ALTER TABLE ap5.margenes DROP COLUMN IF EXISTS campos;
 
 -- La PK vieja no tenía `concepto`. Una tabla creada antes del 2026-08-25 tiene
 -- una fila por cuenta con el margen de UN concepto (el último que escribió el

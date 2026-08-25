@@ -606,9 +606,10 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
     suma `Márgenes + Inicial A3`. Escribirlas dos veces sería garantizar que un
     día se arreglen distinto.
 
-    ⚠️ **Se suma `importe`, no `margen`.** El importe efectivo no siempre viene
-    en `Margin`: `Cauciones $` llega con `Margin = 0` y el número en
-    `InterTempAmount`. Sumar `margen` daría un total más chico sin fallar.
+    ⚠️ **Se suma `margen` (`Margin`) y NADA MÁS.** `primas` e `inter_temporal`
+    se guardan pero no cuentan: `Márgenes` trae un `InterTempAmount` no nulo que
+    NO es parte del número, y sumarlo inflaba el total sin fallar. Determinado
+    por el user contra el número real de la mesa (2026-08-25).
 
     ⚠️ **El filtro de cuenta es por PAR** (neteo, compensación) — REGLA #9(A).
 
@@ -626,8 +627,8 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
         return vacia
 
     filas = _q(
-        "SELECT cuenta, cuenta_compensacion, concepto, moneda, importe, "
-        "       margen, primas, inter_temporal, campos, referencias, titular "
+        "SELECT cuenta, cuenta_compensacion, concepto, moneda, "
+        "       margen, primas, inter_temporal, referencias, titular "
         "FROM ap5.margenes "
         "WHERE fecha = %(f)s AND concepto = ANY(%(conc)s::text[]) "
         "  AND (cuenta, cuenta_compensacion) IN "
@@ -642,7 +643,7 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
     for x in filas:
         m = x["moneda"] or "(sin moneda)"
         d = por.setdefault(m, {"moneda": m, "importe": 0.0, "filas": 0})
-        d["importe"] += float(x["importe"] or 0) * signo
+        d["importe"] += float(x["margen"] or 0) * signo
         d["filas"] += 1
 
     hallada = {(x["cuenta"], x["cuenta_compensacion"]) for x in filas}
@@ -651,7 +652,7 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
         "fecha": fecha,
         "por_moneda": [{**d, "importe": round(d["importe"], 2)}
                        for d in sorted(por.values(), key=lambda x: x["moneda"])],
-        "detalle": [{**x, "importe": round(float(x["importe"] or 0) * signo, 2),
+        "detalle": [{**x, "importe": round(float(x["margen"] or 0) * signo, 2),
                      "margen": float(x["margen"] or 0),
                      "primas": float(x["primas"] or 0),
                      "inter_temporal": float(x["inter_temporal"] or 0)}

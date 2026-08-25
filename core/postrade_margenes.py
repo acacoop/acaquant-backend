@@ -154,10 +154,18 @@ def aplanar_margenes(crudo: Any) -> tuple[list[dict], dict[str, int]]:
     return filas, stats
 
 
-# Los tres importes que la cámara manda por referencia. Están acá y no sueltos
-# porque el CONJUNTO es lo que importa: el importe efectivo de una fila es el que
-# NO viene en cero, y cuál es depende del concepto.
+# Los tres importes que la cámara manda por referencia. Se guardan los tres —
+# son el registro de lo que mandó el proveedor y tirarlos sería no poder
+# auditarlos nunca— pero **el importe que cuenta es `margen`**.
 IMPORTES = ("margen", "primas", "inter_temporal")
+
+# ⚠️ **EL IMPORTE ES `Margin`, y sólo `Margin`** (determinado por el user contra
+# el número real de la mesa, 2026-08-25). Hubo una versión que sumaba los tres
+# campos: se generalizó desde una fila de `Cauciones $` que traía el número en
+# `InterTempAmount`, y fue una invención mía, no una medición. **`Márgenes` trae
+# un `InterTempAmount` no nulo que NO se cuenta**, así que sumar los tres inflaba
+# el total — y no fallaba: daba un número creíble.
+CAMPO_IMPORTE = "margen"
 
 
 def por_cuenta_de_neteo(filas: list[dict]) -> list[dict]:
@@ -170,14 +178,9 @@ def por_cuenta_de_neteo(filas: list[dict]) -> list[dict]:
     los conceptos en un total por cuenta haría imposible separarlos después, y
     la única forma de recuperar el número sería volver a pegarle a la cámara.
 
-    ⚠️ **El importe NO siempre viene en `Margin`.** `Cauciones $` llega con
-    `Margin = 0.0` y el número en `InterTempAmount`. Por eso `importe` es la
-    suma de los tres: para un concepto dado sólo uno viene distinto de cero, así
-    que sumarlos devuelve el que hay sin tener que saber de antemano cuál es.
-
-    ⚠️ **`campos` dice de dónde salió.** Si algún día una fila trae DOS importes
-    no nulos, sumarlos podría estar mal —y no fallaría—, así que queda escrito
-    en la propia fila cuál se usó y `ambiguas` lo cuenta aparte.
+    ⚠️ **`primas` e `inter_temporal` se GUARDAN pero no se suman.** Están para
+    poder mirarlos el día que alguien pregunte; el importe de cada concepto es
+    `margen`. Ver `CAMPO_IMPORTE`.
 
     ⚠️ **El signo se preserva** (vienen negativos). Darlo vuelta es una decisión
     de presentación y vive en la vista, no acá.
@@ -198,27 +201,10 @@ def por_cuenta_de_neteo(filas: list[dict]) -> list[dict]:
         if not d["titular"]:
             d["titular"] = f.get("cuenta_nombre") or ""
 
-    salida = []
-    for d in sorted(por.values(), key=lambda x: (x["cuenta"], x["cuenta_compensacion"],
-                                                 x["concepto"], x["moneda"])):
-        usados = [c for c in IMPORTES if d[c]]
-        salida.append({
-            **d,
-            **{c: round(d[c], 2) for c in IMPORTES},
-            "importe": round(sum(d[c] for c in IMPORTES), 2),
-            "campos": ",".join(usados),
-        })
-    return salida
-
-
-def conceptos_ambiguos(filas: list[dict]) -> list[dict]:
-    """Las filas con MÁS DE UN importe no nulo — las que la suma podría romper.
-
-    Se devuelven aparte en vez de avisarse con un log: un log lo lee el que
-    justo mira, y esto tiene que poder contarse en `manager.job_runs` y
-    aparecer el día que la cámara cambie de forma.
-    """
-    return [f for f in filas if f.get("campos", "").count(",") >= 1]
+    return [{**d, **{c: round(d[c], 2) for c in IMPORTES}}
+            for d in sorted(por.values(),
+                            key=lambda x: (x["cuenta"], x["cuenta_compensacion"],
+                                           x["concepto"], x["moneda"]))]
 
 
 def totales_por_moneda(filas: list[dict]) -> list[dict]:

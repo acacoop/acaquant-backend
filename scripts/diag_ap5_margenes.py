@@ -461,6 +461,118 @@ def _buscar(f: str, agujas: list[str], contables: list[str]) -> None:
         print("      segunda cuenta que buscás es de otra numeración — no está acá.")
 
 
+# Grafías con que la API PODRÍA abrir el detalle de una cuenta. Ninguna está
+# documentada para `AccountBalance` — pero `MarginRequirementReport` sí tiene
+# `viewDetails`, así que la familia de métodos conoce el concepto. Se prueban de
+# a una: un parámetro inexistente puede voltear la llamada entera (1816, otra
+# vez: `margen`/`margin` daban HTTP 400 y el campo era `spread`).
+EXPANSIONES = ("viewDetails", "details", "detail", "viewDetail", "expand",
+               "includeDetails", "showDetails", "includeSubAccounts",
+               "viewSubAccounts", "breakdown")
+
+
+def _claves(v, prefijo: str = "") -> set[str]:
+    """Las claves de TODA la estructura, incluidas las anidadas.
+
+    Una lista de sub-cuentas adentro de la fila no se ve mirando `x.keys()`: se
+    ve como una clave más, y lo que hay adentro queda invisible. Se recorre en
+    profundidad para que «qué trae» sea una respuesta completa y no la primera
+    capa.
+    """
+    out: set[str] = set()
+    if isinstance(v, dict):
+        for k, w in v.items():
+            p = f"{prefijo}.{k}" if prefijo else str(k)
+            out.add(p)
+            out |= _claves(w, p)
+    elif isinstance(v, list):
+        for w in v[:5]:
+            out |= _claves(w, f"{prefijo}[]")
+    return out
+
+
+def _adentro(f: str, cuenta: str, cod: str) -> None:
+    """TODO lo que devuelve una cuenta en una contable, y si se puede abrir.
+
+    Dos preguntas distintas, y la segunda es la que importa acá:
+
+    1. **Qué trae la fila** — el JSON entero, con las claves anidadas listadas
+       aparte para que nada quede invisible adentro de una lista.
+    2. **¿Se puede ABRIR?** Si `1172` agrupa a otras cuentas, tiene que haber una
+       forma de pedir el desglose. Se prueban las grafías de expansión y se
+       compara contra la respuesta pelada: **más filas o claves nuevas = se
+       abrió**; lo mismo = el parámetro se ignora, que es lo más probable
+       (los cinco filtros de cuenta ya se ignoraron igual).
+    """
+    nombre = CUENTAS_CONTABLES.get(cod, "(desconocida)")
+    print("\n" + "=" * 74)
+    print(f"6) ADENTRO DE {cuenta} — contable {cod} ({nombre})")
+    print("=" * 74)
+
+    base = {"date": f, "accountTypeCode": cod}
+    try:
+        r = postrade.leer("AccountBalance", base)
+    except Exception as e:
+        print(f"  ✗ {type(e).__name__}: {str(e)[:200]}")
+        return
+
+    todas = _filas(r)
+    mias = [x for x in todas
+            if str(x.get("ClearingAccountCode", "")).strip() == str(cuenta)]
+    print(f"  {len(todas)} filas en la contable · {len(mias)} con "
+          f"ClearingAccountCode == {cuenta}")
+
+    if not mias:
+        print(f"\n  {cuenta} no está en esta contable. Lo que hay:")
+        for x in todas:
+            print(f"    {x.get('ClearingAccountCode','')!s:<12} "
+                  f"{str(x.get('AccountOwner',''))[:40]}")
+        return
+
+    print("\n  ── EL JSON COMPLETO " + "─" * 50)
+    for i, x in enumerate(mias, 1):
+        print(f"\n  fila {i}/{len(mias)}:")
+        print("  " + json.dumps(x, ensure_ascii=False, indent=2,
+                                default=str).replace("\n", "\n  "))
+
+    base_claves = _claves(mias[0])
+    print(f"\n  ── TODAS las claves ({len(base_claves)}), anidadas incluidas ──")
+    for k in sorted(base_claves):
+        print(f"     {k}")
+
+    print(f"\n  ── ¿SE PUEDE ABRIR {cuenta}? ── ({len(EXPANSIONES)} grafías)")
+    abrio = False
+    for clave in EXPANSIONES:
+        try:
+            rr = postrade.leer("AccountBalance", {**base, clave: "true"})
+        except Exception as e:
+            print(f"     ✗ «{clave}» → {type(e).__name__} (el parámetro no existe)")
+            continue
+        fl = _filas(rr)
+        sus = [x for x in fl
+               if str(x.get("ClearingAccountCode", "")).strip() == str(cuenta)]
+        nuevas = set()
+        for x in sus:
+            nuevas |= _claves(x)
+        extra = nuevas - base_claves
+        if len(fl) != len(todas) or extra:
+            abrio = True
+            print(f"     ✔ «{clave}» CAMBIA la respuesta: {len(todas)}→{len(fl)} "
+                  f"filas · claves nuevas: {sorted(extra) or '(ninguna)'}")
+            for x in sus[:3]:
+                print("       " + json.dumps(x, ensure_ascii=False, indent=2,
+                                             default=str).replace("\n", "\n       "))
+        else:
+            print(f"     ~ «{clave}» devuelve lo mismo: lo ignora")
+
+    if not abrio:
+        print(f"\n  ⇒ Ninguna grafía abre {cuenta}. En `AccountBalance` la fila es")
+        print("    ATÓMICA: un saldo por cuenta de compensación y moneda, sin")
+        print("    desglose por comitente. Si el reporte necesita ver adentro, el")
+        print("    dato NO está en este método — hay que pedirle a la cámara cuál")
+        print("    lo abre (o cruzarlo por otro lado, p.ej. la posición).")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
     ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
@@ -481,6 +593,9 @@ def main() -> None:
     ap.add_argument("--contables", default="11,14,21,22",
                     help="en qué cuentas contables mirar el --crudo "
                          "(default 11,14,21,22).")
+    ap.add_argument("--adentro", default="",
+                    help="TODO lo que devuelve ESTA cuenta en --contables (la "
+                         "primera), y si se la puede abrir por sub-cuenta.")
     ap.add_argument("--buscar", default="",
                     help="buscar este/estos código(s) en TODOS los campos de "
                          "todas las filas (ej. 149667). Recorre LAS 29 "
@@ -502,7 +617,9 @@ def main() -> None:
 
     # `--crudo` es EXCLUYENTE: cuando se pide el volcado, se pide eso y nada
     # más. Mezclarlo con los otros bloques entierra el JSON en 300 líneas.
-    if args.buscar:
+    if args.adentro:
+        _adentro(f, args.adentro, contables[0] if contables else "14")
+    elif args.buscar:
         agujas = [a.strip() for a in args.buscar.split(',') if a.strip()]
         # Sin --contables explícito, buscar es buscar EN TODAS: acotar el
         # barrido a cuatro y después decir «no está» sería exactamente el error
@@ -520,7 +637,7 @@ def main() -> None:
         if args.barrer or args.solo_barrido:
             _barrer(f, cuentas)
 
-    if args.crudo or args.buscar:
+    if args.crudo or args.buscar or args.adentro:
         return
     print("\n" + "=" * 74)
     print("Qué mirar:")

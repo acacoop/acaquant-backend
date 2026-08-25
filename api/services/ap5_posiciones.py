@@ -371,6 +371,93 @@ def por_instrumento(fecha: str, fecha_anterior: str | None) -> list[dict]:
     return salida
 
 
+def _suma(items: list[dict], campo: str) -> float:
+    """Σ de un campo, tratando el NULL como 0.
+
+    Recibe `items` por parámetro y no lo captura del loop: una closure sobre la
+    variable del ciclo se lee como si cada iteración tuviera la suya, y no es
+    así (lo marcó ruff B023). Hoy anda porque se llama en la misma vuelta —
+    justo la clase de bug que aguanta hasta que alguien mueve una línea.
+    """
+    return round(sum(x[campo] or 0 for x in items), 2)
+
+
+def consolidado(fecha: str, fecha_anterior: str | None) -> list[dict]:
+    """El bloque POR INSTRUMENTO del reporte: **un cuadro por tab**, con su TOTAL.
+
+    Es la tabla que la mesa manda en el mail — FUTUROS AGRÍCOLAS arriba y
+    FUTUROS U$S abajo — con la POSICIÓN (compra, venta, neta) y las diferencias
+    acumuladas al día y al día anterior.
+
+    **La posición es la sumatoria de las cantidades**, convertidas a su unidad:
+    `Σ long_qty × multiplicador` y `Σ short_qty × multiplicador`. La neta es la
+    resta. No es un importe — se mide en toneladas (agro) y en dólares (dólar
+    futuro), que es justamente por qué cada tab tiene su cuadro y no hay uno solo.
+
+    ⚠️ **El TOTAL se calcula ACÁ, no en el navegador.** Es la misma regla que
+    rige en toda la vista: un contador sumado en el browser no se puede
+    verificar del lado del servidor, y este cuadro se imprime.
+
+    ⚠️ **Se agrupa por (tab, MONEDA).** Dentro de una tab la moneda suele ser
+    una sola, pero no se asume: si aparecieran dos, salen dos cuadros en vez de
+    un total que suma pesos con dólares. Un total mezclado da un número, no
+    falla, y está mal.
+
+    ⚠️ **"Acum. al día anterior" NO se guarda: se deriva** (Σ de las diferencias
+    con `business_date < fecha`). Persistirlo sería un total que puede
+    contradecir a sus propios insumos: el job es idempotente y re-corre, así que
+    si un día se corrige el guardado no se entera. Derivado, corregir un día
+    arregla todos los números de golpe. Misma decisión que el histórico de `/aca`.
+    """
+    # Se construye sobre las filas de `por_instrumento`: la MISMA query que ya
+    # calcula posición y acumulados. Correr una propia abriría la puerta a que
+    # el cuadro y el resto de la vista digan cosas distintas.
+    return agrupar_consolidado(por_instrumento(fecha, fecha_anterior))
+
+
+def agrupar_consolidado(filas: list[dict]) -> list[dict]:
+    """La parte PURA de `consolidado()`: agrupar y totalizar, sin tocar la base.
+
+    Está separada para poder congelarla con tests — es donde vive el criterio
+    (qué se suma con qué) y donde un error no grita: un total mal agrupado sale
+    prolijo y da otro número.
+    """
+    bloques: dict[tuple[str, str], list[dict]] = {}
+    for r in filas:
+        tab = TAB_DE_FAMILIA.get(r["familia"])
+        if tab is None:
+            continue  # `otros` (el WTI) no entra en ninguna tab — ver TAB_DE_FAMILIA
+        bloques.setdefault((tab, r["moneda"] or "(sin moneda)"), []).append(r)
+
+    salida = []
+    for (tab, moneda), items in bloques.items():
+        items.sort(key=lambda x: x["etiqueta"])
+        # Las unidades que conviven en el cuadro. Si hay más de una, el total de
+        # la posición no se puede afirmar y la vista tiene que poder decirlo.
+        unidades = sorted({x["unidad"] for x in items if x["unidad"]})
+
+        salida.append({
+            "tab": tab,
+            "moneda": moneda,
+            "unidad": unidades[0] if len(unidades) == 1 else None,
+            "unidades": unidades,
+            "filas": items,
+            "total": {
+                "compra": _suma(items, "compra"),
+                "venta": _suma(items, "venta"),
+                "neta": _suma(items, "neta"),
+                "acum_hoy": _suma(items, "acum_hoy"),
+                "acum_ayer": _suma(items, "acum_ayer"),
+                "diaria": _suma(items, "diaria"),
+                # Si algún símbolo quedó sin multiplicador, la posición del
+                # TOTAL está incompleta: se cuenta para poder decirlo.
+                "sin_multiplicador": sum(x["sin_multiplicador"] for x in items),
+            },
+        })
+    salida.sort(key=lambda b: (b["tab"] != "agro", b["moneda"]))
+    return salida
+
+
 def acumulado(fecha: str) -> list[dict]:
     """El acumulado por cuenta y moneda: el ARRASTRE cargado + Σ de lo posterior.
 
@@ -502,6 +589,7 @@ def vista(fecha: str | None = None) -> dict:
         return {
             "fecha": None, "fecha_anterior": None, "fechas": [],
             "diferencias_hoy": [], "rankings": [], "por_instrumento": [],
+            "consolidado": [],
             "acumulado": [], "grupos": [], "faltantes": {},
         }
 
@@ -517,6 +605,7 @@ def vista(fecha: str | None = None) -> dict:
         "diferencias_hoy": diferencias_del_dia(hoy),
         "rankings": rankings(filas_acum),
         "por_instrumento": por_instrumento(hoy, anterior),
+        "consolidado": consolidado(hoy, anterior),
         "acumulado": filas_acum,
         "grupos": [
             r["grupo"] for r in _q(

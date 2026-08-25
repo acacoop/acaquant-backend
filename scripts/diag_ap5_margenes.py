@@ -573,6 +573,75 @@ def _adentro(f: str, cuenta: str, cod: str) -> None:
         print("    lo abre (o cruzarlo por otro lado, p.ej. la posición).")
 
 
+def _perfil(f: str, contables: list[str]) -> None:
+    """Por cada CLAVE, los valores DISTINTOS que toma. El perfil de la respuesta.
+
+    ⚠️ **Por qué hace falta, y qué se nos venía escapando** (2026-08-25): la fila
+    trae DOS pares de campos de cuenta que veníamos leyendo como si fueran uno:
+
+        AccountTypeCode      / AccountType         ← lo que pedimos por parámetro
+        AccountingAccountCode / AccountingAccount  ← OTRA numeración
+
+    Toda la exploración anterior los trató como sinónimos —`_mostrar` incluso
+    rotula `AccountingAccountCode` como «cta. contable»— y eso importa porque
+    `149667` matcheó justamente ahí. Mientras los dos digan lo mismo no pasa
+    nada, y por eso no se notó: es REGLA #9(B) otra vez, dos campos sin árbitro.
+
+    Un perfil por valores distintos lo contesta de una: si los dos pares tienen
+    siempre el mismo valor, son lo mismo y no hay nada; si difieren, ahí vive la
+    segunda numeración y ahí hay que buscar.
+    """
+    print("\n" + "=" * 74)
+    print("7) PERFIL — qué valores toma CADA campo")
+    print("=" * 74)
+
+    for cod in contables:
+        nombre = CUENTAS_CONTABLES.get(cod, "(desconocida)")
+        print("\n" + "-" * 74)
+        print(f"  contable {cod} — {nombre}")
+        print("-" * 74)
+        try:
+            r = postrade.leer("AccountBalance", {"date": f, "accountTypeCode": cod})
+        except Exception as e:
+            print(f"  ✗ {type(e).__name__}: {str(e)[:200]}")
+            continue
+
+        filas = _filas(r)
+        if not filas:
+            print("  (vacía)")
+            continue
+        print(f"  {len(filas)} filas\n")
+
+        claves: list[str] = []
+        for x in filas:
+            for k in x:
+                if k not in claves:
+                    claves.append(k)
+
+        for k in claves:
+            vals = sorted({str(x.get(k)) for x in filas if x.get(k) is not None})
+            n = len(vals)
+            muestra = ", ".join(vals[:8]) + (f" … +{n-8}" if n > 8 else "")
+            print(f"    {k:<24} {n:>4} distinto(s)  {muestra[:120]}")
+
+        # El chequeo que motivó todo esto: ¿los dos pares dicen lo mismo?
+        pares = [("AccountTypeCode", "AccountingAccountCode"),
+                 ("AccountType", "AccountingAccount")]
+        for a, b in pares:
+            difs = [x for x in filas
+                    if str(x.get(a, "")).strip() != str(x.get(b, "")).strip()]
+            if difs:
+                print(f"\n    ⚠️ `{a}` y `{b}` DIFIEREN en {len(difs)}/{len(filas)} "
+                      f"filas — son campos distintos, no sinónimos:")
+                for x in difs[:5]:
+                    print(f"       {a}={x.get(a)!r}  {b}={x.get(b)!r}  "
+                          f"cta={x.get('ClearingAccountCode')!r}  "
+                          f"titular={str(x.get('AccountOwner',''))[:26]}")
+            else:
+                print(f"\n    · `{a}` == `{b}` en las {len(filas)} filas "
+                      f"(son el mismo dato duplicado)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
     ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
@@ -593,6 +662,9 @@ def main() -> None:
     ap.add_argument("--contables", default="11,14,21,22",
                     help="en qué cuentas contables mirar el --crudo "
                          "(default 11,14,21,22).")
+    ap.add_argument("--perfil", action="store_true",
+                    help="por cada campo, los valores distintos que toma en "
+                         "--contables. Es el mapa de qué significa cada clave.")
     ap.add_argument("--adentro", default="",
                     help="TODO lo que devuelve ESTA cuenta en --contables (la "
                          "primera), y si se la puede abrir por sub-cuenta.")
@@ -617,7 +689,9 @@ def main() -> None:
 
     # `--crudo` es EXCLUYENTE: cuando se pide el volcado, se pide eso y nada
     # más. Mezclarlo con los otros bloques entierra el JSON en 300 líneas.
-    if args.adentro:
+    if args.perfil:
+        _perfil(f, contables)
+    elif args.adentro:
         _adentro(f, args.adentro, contables[0] if contables else "14")
     elif args.buscar:
         agujas = [a.strip() for a in args.buscar.split(',') if a.strip()]
@@ -637,7 +711,7 @@ def main() -> None:
         if args.barrer or args.solo_barrido:
             _barrer(f, cuentas)
 
-    if args.crudo or args.buscar or args.adentro:
+    if args.crudo or args.buscar or args.adentro or args.perfil:
         return
     print("\n" + "=" * 74)
     print("Qué mirar:")

@@ -35,9 +35,8 @@ cuenta, o una sola ya consolidada para todo el ALyC?) y (b) cuáles son los dos
 códigos, que se leen de la columna `cta.compens.`.
 
 Uso:
-    python -m scripts.diag_ap5_margenes                       # el universo completo
-    python -m scripts.diag_ap5_margenes --cuentas 149667,155235
-    python -m scripts.diag_ap5_margenes --fecha 20260825
+    python -m scripts.diag_ap5_margenes --cuentas 149667,218115 --barrer
+    python -m scripts.diag_ap5_margenes --solo-barrido --cuentas 149667,218115
     python -m scripts.diag_ap5_margenes --cuenta-contable 14
 """
 from __future__ import annotations
@@ -48,6 +47,7 @@ from datetime import date
 from typing import Any
 
 from core import postrade
+from core.calendario import restar_habiles
 from core.postrade_margenes import (
     CUENTA_GARANTIA_INICIAL,
     CUENTAS_CONTABLES,
@@ -81,28 +81,49 @@ def _leer(nombre: str, params: dict, etiqueta: str) -> Any | None:
     return r
 
 
-def _margenes(f: str) -> None:
+def _margenes(f: str, habil: str) -> None:
     print("\n" + "=" * 74)
     print("1) REQUERIMIENTO DE MÁRGENES — PosTrade/MarginRequirementReport")
     print("=" * 74)
 
-    # Las dos grafías del parámetro. El manual usa las dos y no son
-    # necesariamente equivalentes del lado del servidor.
+    # ⚠️ Una lista VACÍA **no es un error**: el método contestó 200 y no tiene
+    # nada para esa fecha. Un método DESHABILITADO tira excepción. Desde la card
+    # los dos se ven igual (un número que no está) y son cosas muy distintas:
+    # uno se espera, el otro se pide. Por eso, si HOY viene vacío, se reintenta
+    # con el ÚLTIMO DÍA HÁBIL — si ahí hay datos, el método anda y lo que pasa
+    # es que los márgenes de hoy todavía no se calcularon.
     crudo = None
-    for clave in ("date", "Date"):
-        crudo = _leer("MarginRequirementReport", {clave: f},
-                      f"sin desglose, parámetro «{clave}»")
+    cual = ""
+    for etiqueta, fecha in ((f"HOY {f}", f), (f"último hábil {habil}", habil)):
+        if fecha == f and etiqueta.startswith("último"):
+            continue
+        for clave in ("date", "Date"):
+            r = _leer("MarginRequirementReport", {clave: fecha},
+                      f"{etiqueta}, parámetro «{clave}»")
+            if r is None:
+                print(f"    ⇒ «{clave}» TIRÓ ERROR (no es que no haya datos)")
+                continue
+            if not r:
+                print(f"    ⇒ «{clave}» contestó bien pero VACÍO para {fecha}")
+                continue
+            print(f"    ⇒ anduvo: grafía «{clave}», fecha {fecha}")
+            crudo, cual = r, fecha
+            break
         if crudo:
-            print(f"    ⇒ la grafía que anda es «{clave}»")
             break
 
     if not crudo:
-        print("\n  No respondió con datos. Puede ser que hoy no haya márgenes, o")
-        print("  que el método no esté habilitado para nuestro usuario.")
+        print("\n  Ni hoy ni el último día hábil devuelven márgenes.")
+        print("  Ojo con la conclusión: contestó VACÍO, no dio error. O sea que")
+        print("  el método ESTÁ habilitado — lo que no hay es dato. Puede ser")
+        print("  que los márgenes se publiquen más tarde en el día, o que la")
+        print("  cuenta que los tiene sea otra. Es una pregunta para la cámara,")
+        print("  no un bug nuestro.")
         return
 
     filas, stats = aplanar_margenes(crudo)
-    print(f"\n    aplanado: {len(filas)} filas")
+    print(f"\n    fecha con datos: {cual}")
+    print(f"    aplanado: {len(filas)} filas")
     print(f"    niveles : {stats}")
     if filas:
         print("\n    muestra de una fila:")
@@ -113,9 +134,7 @@ def _margenes(f: str) -> None:
                   f"primas={t['primas']:>14,.2f}  inter={t['inter_temporal']:>12,.2f}  "
                   f"({t['cuentas']} cuentas)")
 
-    # Con desglose: sirve para ver si el total cambia (y por lo tanto si las dos
-    # respuestas se pueden mezclar o no — no se pueden).
-    det = _leer("MarginRequirementReport", {"date": f, "viewDetails": "true"},
+    det = _leer("MarginRequirementReport", {"date": cual, "viewDetails": "true"},
                 "CON desglose por grupo de producto (viewDetails=true)")
     if det:
         fd, _ = aplanar_margenes(det)
@@ -170,21 +189,13 @@ def _saldos(f: str, cuenta_contable: str, cuentas: list[str]) -> None:
     _mostrar(todas, "universo completo")
 
     if todas:
-        # El GRANO: si hay una fila por cuenta, filtrar es quedarse con dos. Si
-        # hay UNA sola para todo, el número ya viene consolidado y no hay nada
-        # que filtrar — son dos mundos distintos y hay que saber cuál es.
         ctas = {str(x.get("ClearingAccountCode", "")) for x in todas}
         mon = {str(x.get("Currency", "")) for x in todas}
         print(f"\n    → cuentas distintas en la respuesta: {len(ctas)}  {sorted(ctas)}")
         print(f"    → monedas distintas: {sorted(mon)}")
         if len(todas) == 1:
             print("    ⚠️ UNA sola fila: el saldo ya viene CONSOLIDADO para el ALyC.")
-            print("       Si el reporte necesita dos cuentas por separado, hay que")
-            print("       pedirlas de a una (ver el sondeo de filtros de abajo).")
 
-    # ¿Filtra el servidor? Si sí, es más barato y trae solo lo nuestro. Si no,
-    # filtramos acá: la fila YA trae `ClearingAccountCode`, así que el filtro
-    # nunca dependió de que la API lo soporte.
     if cuentas:
         print(f"\n    ¿La API filtra por cuenta? (probando con {cuentas[0]})")
         anduvo = None
@@ -193,9 +204,6 @@ def _saldos(f: str, cuenta_contable: str, cuentas: list[str]) -> None:
             if rr is None:
                 continue
             fl = _filas(rr)
-            # Que responda no alcanza: si devuelve LO MISMO que sin filtro, el
-            # parámetro se está ignorando en silencio — que es peor que un 400,
-            # porque parece que anduvo.
             if len(fl) < len(todas):
                 print(f"      ⇒ «{clave}» FILTRA de verdad ({len(todas)} → {len(fl)})")
                 anduvo = clave
@@ -206,7 +214,6 @@ def _saldos(f: str, cuenta_contable: str, cuentas: list[str]) -> None:
             print("      ⇒ ninguno filtra: el filtro va de NUESTRO lado, por")
             print("        `ClearingAccountCode`. La fila ya lo trae, así que alcanza.")
 
-        # Y el número que iría en la card, filtrando acá.
         elegidas = [x for x in todas
                     if str(x.get("ClearingAccountCode", "")) in set(cuentas)]
         _mostrar(elegidas, f"filtrado NUESTRO por {cuentas}")
@@ -219,9 +226,57 @@ def _saldos(f: str, cuenta_contable: str, cuentas: list[str]) -> None:
             for m, v in sorted(por.items()):
                 print(f"      {m:<14} {v:>18,.2f}")
         else:
-            print(f"\n    ⚠️ Ninguna de {cuentas} aparece en la respuesta.")
-            print("       Puede ser que el código sea otro (mirá la columna cta.compens.)")
-            print("       o que hoy no tengan saldo en esta cuenta contable.")
+            print(f"\n    ⚠️ Ninguna de {cuentas} aparece en esta cuenta contable.")
+            print("       Antes de concluir que no existen: probá --barrer, que")
+            print("       recorre LAS 29 cuentas contables y dice en cuál está cada")
+            print("       código. Una cuenta que no está en la 12 puede estar en la")
+            print("       13 o la 14 (las otras dos de integración).")
+
+
+def _barrer(f: str, cuentas: list[str]) -> None:
+    """Las 29 cuentas contables, de a una, para saber DÓNDE vive cada cuenta.
+
+    Son 29 llamadas y el throttle es 1/seg, así que tarda ~30 s. Vale la pena:
+    es la única forma de contestar «¿en qué cuenta contable está 149667?» sin
+    adivinar, y el resultado se escribe una vez y no se vuelve a preguntar.
+
+    ⚠️ Lo que se busca acá NO es un total. Sumar cuentas contables distintas
+    entre sí no significa nada — la 12 es garantía inicial y la 22 son
+    diferencias. El barrido es un MAPA, no un balance.
+    """
+    print("\n" + "=" * 74)
+    print("3) BARRIDO — las 29 cuentas contables, ¿dónde vive cada cuenta?")
+    print("=" * 74)
+    print(f"   {'cód':<5} {'nombre':<30} {'filas':>6}  cuentas / monedas")
+
+    donde: dict[str, list[str]] = {}
+    for cod, nombre in CUENTAS_CONTABLES.items():
+        try:
+            r = postrade.leer("AccountBalance", {"date": f, "accountTypeCode": cod})
+        except Exception as e:
+            print(f"   {cod:<5} {nombre[:30]:<30} {'✗':>6}  {type(e).__name__}")
+            continue
+        filas = _filas(r)
+        ctas = sorted({str(x.get("ClearingAccountCode", "")) for x in filas if x})
+        mon = sorted({str(x.get("Currency", "")) for x in filas if x})
+        for c in ctas:
+            donde.setdefault(c, []).append(cod)
+        detalle = f"{','.join(ctas)}  [{','.join(mon)}]" if filas else ""
+        print(f"   {cod:<5} {nombre[:30]:<30} {len(filas):>6}  {detalle}")
+
+    print(f"\n   → cuentas de compensación vistas en TODO el barrido: {len(donde)}")
+    for c, cods in sorted(donde.items()):
+        marca = "  ← la buscabas" if c in set(cuentas) else ""
+        print(f"      {c:<12} en cuentas contables {','.join(cods)}{marca}")
+
+    faltan = [c for c in cuentas if c not in donde]
+    if faltan:
+        print(f"\n   ⚠️ {faltan} NO aparece en NINGUNA de las 29 cuentas contables.")
+        print("      Eso ya no es «no supimos filtrar»: `AccountBalance` trabaja a")
+        print("      nivel CUENTA DE COMPENSACIÓN del ALyC, y esos códigos parecen")
+        print("      ser de COMITENTE (los de `ap5.cuentas`). Son dos numeraciones")
+        print("      distintas y no se cruzan — hay que preguntarle a la cámara")
+        print("      cuál es el método que abre el integrado por comitente.")
 
 
 def main() -> None:
@@ -231,28 +286,37 @@ def main() -> None:
                     help=f"default {CUENTA_GARANTIA_INICIAL} (Gtía inicial)")
     ap.add_argument("--cuentas", default="",
                     help="las cuentas del ACTIVO INTEGRADO, separadas por coma "
-                         "(ej. 149667,155235). Sin esto muestra el universo completo.")
+                         "(ej. 149667,218115).")
+    ap.add_argument("--barrer", action="store_true",
+                    help="recorre LAS 29 cuentas contables y dice en cuál está "
+                         "cada cuenta de compensación (~30 s por el throttle).")
+    ap.add_argument("--solo-barrido", action="store_true",
+                    help="saltea márgenes y el bloque 2: solo el mapa.")
     args = ap.parse_args()
 
-    f = postrade.fecha_api(args.fecha) if args.fecha else date.today().strftime("%Y%m%d")
+    hoy = date.today()
+    f = postrade.fecha_api(args.fecha) if args.fecha else hoy.strftime("%Y%m%d")
+    habil = restar_habiles(hoy, 1).strftime("%Y%m%d")
+
     print("=" * 74)
     print("AP5 · las dos cosas que faltan en la cabecera del reporte")
-    print(f"fecha: {f}   (HOY — márgenes y garantías son el estado de hoy,")
-    print("             a diferencia de la posición, que es de cierre)")
+    print(f"fecha: {f}   (último día hábil de referencia: {habil})")
     print("=" * 74)
     print("\nREAD-ONLY. Un ✗ NO es un problema: es el dato que vinimos a buscar.")
 
     cuentas = [c.strip() for c in args.cuentas.split(',') if c.strip()]
-    _margenes(f)
-    _saldos(f, args.cuenta_contable, cuentas)
+    if not args.solo_barrido:
+        _margenes(f, habil)
+        _saldos(f, args.cuenta_contable, cuentas)
+    if args.barrer or args.solo_barrido:
+        _barrer(f, cuentas)
 
     print("\n" + "=" * 74)
     print("Qué mirar:")
-    print("  · Qué grafía del parámetro anduvo (queda escrita en el job).")
-    print("  · El GRANO de AccountBalance: ¿una fila para todo, o una por cuenta?")
+    print("  · VACÍO ≠ ERROR. Vacío es «el método anda y no hay dato».")
+    print("  · El GRANO de AccountBalance: la fila es del ALyC, no del comitente.")
     print("  · La MONEDA de cada importe — no se suman entre sí.")
-    print("  · Si el total con y sin `viewDetails` coincide.")
-    print("\nCon eso se decide qué persistir y se arma el job, igual que ap5_portfolio.")
+    print("  · Cuentas contables distintas TAMPOCO se suman entre sí.")
 
 
 if __name__ == "__main__":

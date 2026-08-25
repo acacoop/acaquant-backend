@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 
 from api.services.ap5_posiciones import _fecha_valida, acumulado, fechas
+from scripts.sembrar_ap5_acumulado import NOTA_PENDIENTE
 
 
 def main() -> None:
@@ -45,14 +46,23 @@ def main() -> None:
     print(f"Nuestra serie arranca el {primer_dia} ({len(dias)} días guardados).")
     print("Sin semilla, el acumulado de una cuenta cuenta SOLO desde esa fecha.\n")
 
-    sin = [f for f in filas if not f["semilla_cargada"]]
-    con = [f for f in filas if f["semilla_cargada"]]
-    print(f"  con semilla : {len(con):>4}")
-    print(f"  SIN semilla : {len(sin):>4}   ← estas van incompletas al PDF")
+    # "Sin cargar" es DOS cosas, y desde que existe `sembrar_ap5_acumulado` hay
+    # que mirar las dos: la fila que no existe, y la que existe con semilla 0 y
+    # la nota de pendiente. Mirar solo `semilla_cargada` daría todo en verde el
+    # día después de sembrar la grilla, sin que nadie hubiera cargado nada.
+    def pendiente(f: dict) -> bool:
+        return not f["semilla_cargada"] or (f["nota"] or "") == NOTA_PENDIENTE
+
+    sin = [f for f in filas if pendiente(f)]
+    con = [f for f in filas if not pendiente(f)]
+    print(f"  con arrastre cargado : {len(con):>4}")
+    print(f"  PENDIENTES           : {len(sin):>4}   ← estas van incompletas al PDF")
+    print("     (sin fila en ap5.acumulado, o con la nota "
+          f"'{NOTA_PENDIENTE}')")
     print(f"  total       : {len(filas):>4} (cuenta × moneda)\n")
 
     if not sin:
-        print("✅ Todas tienen semilla: el acumulado del PDF es el arrastre completo.")
+        print("✅ Todas tienen el arrastre cargado: el acumulado del PDF es el completo.")
         return
 
     # Las que más pesan primero: son las que pueden mover el top 10.
@@ -64,8 +74,9 @@ def main() -> None:
               f"{f['familia']:<7} {f['acumulado']:>16,.2f}  {f['nombre'][:44]}")
 
     print("\nQué hacer con esto:")
-    print("  · Cargar la semilla de cada una (click en su fila en la vista, o")
-    print("    INSERT en ap5.acumulado) tomando el arrastre de la planilla de la mesa.")
+    print("  · Crear la grilla con `python -m scripts.sembrar_ap5_acumulado` y cargar")
+    print("    la semilla de cada una en Supabase (borrando la nota al hacerlo), o")
+    print("    click en su fila en la vista. El arrastre sale de la planilla de la mesa.")
     print("  · O, si el informe es 'desde que medimos', decirlo en el título del PDF")
     print(f"    ('Acumulado desde {primer_dia}') — así el número no afirma de más.")
 

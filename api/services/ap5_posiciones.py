@@ -594,7 +594,8 @@ def _faltantes(fecha: str) -> dict:
 
 
 _CARD_VACIA: dict[str, Any] = {
-    "fecha": None, "por_moneda": [], "detalle": [], "conceptos": [],
+    "fecha": None, "por_moneda": [], "por_concepto": [], "detalle": [],
+    "conceptos": [],
     "conceptos_faltantes": [], "filtra_cuentas": False, "cuentas_pedidas": 0,
     "cuentas_encontradas": 0, "cuentas_faltantes": [],
 }
@@ -626,7 +627,7 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...], *,
     nadie lo notaría. Lo cuenta el backend contra la base, no el navegador.
     """
     pares = list(AP5_CUENTAS_REQUERIMIENTO) if filtra_cuentas else []
-    vacia = {"fecha": fecha, "por_moneda": [], "detalle": [],
+    vacia = {"fecha": fecha, "por_moneda": [], "por_concepto": [], "detalle": [],
              "conceptos": list(conceptos), "conceptos_faltantes": list(conceptos),
              "filtra_cuentas": filtra_cuentas,
              "cuentas_pedidas": len(pares), "cuentas_encontradas": 0,
@@ -654,12 +655,26 @@ def _card_margenes(fecha: str, conceptos: tuple[str, ...], *,
         d["importe"] += float(x["margen"] or 0) * signo
         d["filas"] += 1
 
+    # Cuánto aportó CADA concepto. Sin esto, «`Inicial A3` sumó 0» y «`Inicial
+    # A3` no entró en la query» dan el mismo total y se ven idénticos en la
+    # pantalla — que es exactamente cómo se perdieron dos vueltas acá.
+    porcon: dict[tuple[str, str], dict] = {}
+    for x in filas:
+        k = (x["concepto"], x["moneda"] or "(sin moneda)")
+        d = porcon.setdefault(k, {"concepto": k[0], "moneda": k[1],
+                                  "importe": 0.0, "filas": 0})
+        d["importe"] += float(x["margen"] or 0) * signo
+        d["filas"] += 1
+
     hallada = {(x["cuenta"], x["cuenta_compensacion"]) for x in filas}
     presentes = {x["concepto"] for x in filas}
     return {
         "fecha": fecha,
         "por_moneda": [{**d, "importe": round(d["importe"], 2)}
                        for d in sorted(por.values(), key=lambda x: x["moneda"])],
+        "por_concepto": [{**d, "importe": round(d["importe"], 2)}
+                         for d in sorted(porcon.values(),
+                                         key=lambda x: (x["moneda"], x["concepto"]))],
         "detalle": [{**x, "importe": round(float(x["margen"] or 0) * signo, 2),
                      "margen": float(x["margen"] or 0),
                      "primas": float(x["primas"] or 0),

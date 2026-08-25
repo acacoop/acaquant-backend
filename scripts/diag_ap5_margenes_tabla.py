@@ -74,6 +74,32 @@ def main() -> None:
               f"{float(x['inter_temporal'] or 0):>14,.2f} "
               f"{x['referencias']:>5}  {(x['titular'] or '')[:24]}")
 
+    # ── 1b) LOS CONCEPTOS, EN CRUDO ───────────────────────────────────────
+    # ⚠️ Se imprimen con `repr()` a propósito. Si el que está en la base tiene un
+    # espacio al final, una mayúscula distinta o un carácter invisible, en
+    # pantalla se ve IDÉNTICO al de config y el `=` de SQL no matchea. Es la
+    # única forma de ver la diferencia sin adivinar.
+    print("\n" + "=" * 88)
+    print("LOS CONCEPTOS TAL CUAL ESTÁN EN LA BASE (repr) vs LOS DE CONFIG")
+    print("=" * 88)
+    en_base = sorted({x["concepto"] for x in filas})
+    declarados = sorted(set(config.AP5_CONCEPTOS_REQUERIMIENTO)
+                        | set(config.AP5_CONCEPTOS_ACTIVO_INTEGRADO))
+    print("  en la base:")
+    for c in en_base:
+        n = sum(1 for x in filas if x["concepto"] == c)
+        ok = "✔ coincide con config" if c in declarados else ""
+        print(f"      {c!r:<28} {n:>3} fila(s)  {ok}")
+    print("\n  declarados en config:")
+    for c in declarados:
+        ok = "✔ está en la base" if c in en_base else "✗ NO ESTÁ ASÍ EN LA BASE"
+        print(f"      {c!r:<28} {ok}")
+    huerfanos = [c for c in declarados if c not in en_base]
+    if huerfanos:
+        print(f"\n  ⚠️ {huerfanos} no matchea NINGÚN concepto de la base.")
+        print("     Comparalo carácter por carácter con la lista de arriba: un")
+        print("     espacio al final o un guión distinto se ven iguales y no son.")
+
     # ── 2) dónde vive cada concepto ───────────────────────────────────────
     print("\n" + "=" * 88)
     print("DE QUÉ PARES (cuenta, compensación) CUELGA CADA CONCEPTO")

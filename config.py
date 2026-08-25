@@ -262,3 +262,27 @@ AP5_CUENTAS_REQUERIMIENTO: tuple[tuple[str, str], ...] = (
     ("149667", "1172"),
     ("218115", "218115"),
 )
+
+# --- AP5 · QUÉ CONCEPTOS SUMA CADA CARD ---
+# `Reference` es el NOMBRE del concepto, no un id. Medido el 2026-08-25 sobre
+# 31 referencias: `Márgenes` (×28), `Inicial A3`, `Inicial FGIMC`, `Cauciones $`.
+#
+# **El activo integrado lo verificó el user contra el número real de la mesa:
+# `Márgenes + Inicial A3`.** No se dedujo — se comparó.
+#
+# ⚠️ **El requerimiento NO está verificado todavía.** Arranca en `Márgenes` sola
+# porque es lo literal, pero eso es una HIPÓTESIS: si el número de la card no
+# coincide con el del mail, el que hay que cambiar es este renglón y nada más.
+# Está escrito acá justamente para que corregirlo no sea tocar código.
+#
+# Los conceptos que NO están en ninguna lista igual se guardan en `ap5.margenes`
+# — la tabla es el registro completo y estas listas son sólo el recorte que se
+# muestra.
+AP5_CONCEPTOS_REQUERIMIENTO: tuple[str, ...] = ("Márgenes",)
+AP5_CONCEPTOS_ACTIVO_INTEGRADO: tuple[str, ...] = ("Márgenes", "Inicial A3")
+
+# La cámara manda estos importes en NEGATIVO y la mesa los lee en positivo. Se
+# guardan con el signo original (dar vuelta el dato en la capa que lo trae es
+# cómo se pierde de vista qué mandó de verdad el proveedor) y se invierten UNA
+# vez, acá, al mostrarlos.
+AP5_MARGENES_INVERTIR_SIGNO = True

@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 from datetime import date
 
+import config
 from core import (
     postrade,
     postrade_cuentas,
@@ -219,14 +220,21 @@ def _guardar_margenes(fecha: str, filas: list[dict]) -> int:
         return 0
     sql = """
         INSERT INTO ap5.margenes (
-            fecha, cuenta, cuenta_compensacion, moneda, margen, referencias,
-            titular, actualizado_at
+            fecha, cuenta, cuenta_compensacion, concepto, moneda,
+            margen, primas, inter_temporal, importe, campos,
+            referencias, titular, actualizado_at
         ) VALUES (
-            %(fecha)s, %(cuenta)s, %(cuenta_compensacion)s, %(moneda)s,
-            %(margen)s, %(referencias)s, %(titular)s, now()
+            %(fecha)s, %(cuenta)s, %(cuenta_compensacion)s, %(concepto)s,
+            %(moneda)s, %(margen)s, %(primas)s, %(inter_temporal)s,
+            %(importe)s, %(campos)s, %(referencias)s, %(titular)s, now()
         )
-        ON CONFLICT (fecha, cuenta, cuenta_compensacion, moneda) DO UPDATE SET
+        ON CONFLICT (fecha, cuenta, cuenta_compensacion, concepto, moneda)
+        DO UPDATE SET
             margen         = EXCLUDED.margen,
+            primas         = EXCLUDED.primas,
+            inter_temporal = EXCLUDED.inter_temporal,
+            importe        = EXCLUDED.importe,
+            campos         = EXCLUDED.campos,
             referencias    = EXCLUDED.referencias,
             titular        = EXCLUDED.titular,
             actualizado_at = now()
@@ -263,10 +271,37 @@ def _margenes(f: str, run_log, *, dry: bool = False) -> None:
         run_log.set_stat(f"margenes_{k}", v)
 
     filas = postrade_margenes.por_cuenta_de_neteo(planas)
+    conceptos = sorted({x["concepto"] for x in filas})
     run_log.set_stat("margenes_filas", len(filas))
     run_log.set_stat("margenes_cuentas", len({x["cuenta"] for x in filas}))
+    run_log.set_stat("margenes_conceptos", len(conceptos))
     run_log.log(f"  márgenes: {len(planas)} referencias → {len(filas)} "
-                f"(cuenta, compensación, moneda)")
+                f"(cuenta, compensación, concepto, moneda)")
+    run_log.log(f"  conceptos: {', '.join(conceptos) or '(ninguno)'}")
+
+    # Una fila con DOS importes no nulos rompería la suma, y no fallaría: daría
+    # un número creíble. Se cuenta y se canta, no se loguea al pasar.
+    ambiguas = postrade_margenes.conceptos_ambiguos(filas)
+    run_log.set_stat("margenes_ambiguas", len(ambiguas))
+    if ambiguas:
+        run_log.error(
+            f"{len(ambiguas)} fila(s) con MÁS DE UN importe no nulo — el "
+            f"`importe` las suma y eso puede estar mal: "
+            + " | ".join(f"{x['cuenta']}/{x['concepto']}={x['campos']}"
+                         for x in ambiguas[:6]))
+
+    # ⚠️ Los conceptos que las cards suman tienen que EXISTIR. Si la cámara
+    # renombra `Inicial A3`, la card seguiría dibujando un número —el de los
+    # conceptos que sí quedaron— y nadie se enteraría. Por eso se comparan acá,
+    # contra la respuesta real, y no en la pantalla.
+    declarados = set(config.AP5_CONCEPTOS_REQUERIMIENTO) | set(
+        config.AP5_CONCEPTOS_ACTIVO_INTEGRADO)
+    faltan = sorted(declarados - set(conceptos))
+    run_log.set_stat("margenes_conceptos_faltantes", len(faltan))
+    if faltan:
+        run_log.error(
+            f"conceptos declarados en config que NO vinieron: {faltan} — las "
+            f"cards que los suman van a mostrar de menos. Vinieron: {conceptos}")
 
     if dry:
         for x in filas[:10]:

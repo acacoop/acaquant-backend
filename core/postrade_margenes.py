@@ -154,37 +154,71 @@ def aplanar_margenes(crudo: Any) -> tuple[list[dict], dict[str, int]]:
     return filas, stats
 
 
+# Los tres importes que la cámara manda por referencia. Están acá y no sueltos
+# porque el CONJUNTO es lo que importa: el importe efectivo de una fila es el que
+# NO viene en cero, y cuál es depende del concepto.
+IMPORTES = ("margen", "primas", "inter_temporal")
+
+
 def por_cuenta_de_neteo(filas: list[dict]) -> list[dict]:
-    """Una fila por (cuenta de neteo, cuenta de compensación, moneda).
+    """Una fila por (cuenta de neteo, cuenta de compensación, CONCEPTO, moneda).
 
-    ⚠️ **La clave es el PAR, no la cuenta sola** (REGLA #9(A), medido 2026-08-25):
-    `149667` cuelga de la compensación `1172` y `218115` cuelga de sí misma. Con
-    la cuenta de neteo sola, el día que un comitente aparezca bajo dos
-    compensaciones las dos se colapsarían en una **sin fallar** — un total de
-    menos y una tabla que se ve impecable.
+    ⚠️ **`Reference` es el nombre del CONCEPTO, no un identificador** (medido
+    2026-08-25: `Márgenes` ×28, `Inicial A3`, `Inicial FGIMC`, `Cauciones $`).
+    Es parte de la identidad porque las cards suman conceptos DISTINTOS — el
+    activo integrado es `Márgenes + Inicial A3` y el requerimiento no. Colapsar
+    los conceptos en un total por cuenta haría imposible separarlos después, y
+    la única forma de recuperar el número sería volver a pegarle a la cámara.
 
-    `referencias` cuenta cuántas `References` se sumaron. No es decorativo: un
-    margen armado con 1 referencia y otro con 40 no son el mismo grado de
-    evidencia, y el día que la cámara deje de mandar `References` el total daría
-    0, que sin el conteo se ve idéntico a un 0 real.
+    ⚠️ **El importe NO siempre viene en `Margin`.** `Cauciones $` llega con
+    `Margin = 0.0` y el número en `InterTempAmount`. Por eso `importe` es la
+    suma de los tres: para un concepto dado sólo uno viene distinto de cero, así
+    que sumarlos devuelve el que hay sin tener que saber de antemano cuál es.
+
+    ⚠️ **`campos` dice de dónde salió.** Si algún día una fila trae DOS importes
+    no nulos, sumarlos podría estar mal —y no fallaría—, así que queda escrito
+    en la propia fila cuál se usó y `ambiguas` lo cuenta aparte.
+
+    ⚠️ **El signo se preserva** (vienen negativos). Darlo vuelta es una decisión
+    de presentación y vive en la vista, no acá.
     """
-    por: dict[tuple[str, str, str], dict] = {}
+    por: dict[tuple[str, str, str, str], dict] = {}
     for f in filas:
         k = (f.get("cuenta") or "", f.get("cuenta_compensacion_codigo") or "",
-             f.get("moneda") or "")
+             f.get("referencia") or "", f.get("moneda") or "")
         d = por.setdefault(k, {
-            "cuenta": k[0], "cuenta_compensacion": k[1], "moneda": k[2],
-            "margen": 0.0, "referencias": 0,
+            "cuenta": k[0], "cuenta_compensacion": k[1], "concepto": k[2],
+            "moneda": k[3], "referencias": 0,
             "titular": f.get("cuenta_nombre") or "",
+            **{c: 0.0 for c in IMPORTES},
         })
-        d["margen"] += f.get("margen") or 0.0
         d["referencias"] += 1
+        for c in IMPORTES:
+            d[c] += f.get(c) or 0.0
         if not d["titular"]:
             d["titular"] = f.get("cuenta_nombre") or ""
-    return [{**d, "margen": round(d["margen"], 2)}
-            for d in sorted(por.values(),
-                            key=lambda x: (x["cuenta"], x["cuenta_compensacion"],
-                                           x["moneda"]))]
+
+    salida = []
+    for d in sorted(por.values(), key=lambda x: (x["cuenta"], x["cuenta_compensacion"],
+                                                 x["concepto"], x["moneda"])):
+        usados = [c for c in IMPORTES if d[c]]
+        salida.append({
+            **d,
+            **{c: round(d[c], 2) for c in IMPORTES},
+            "importe": round(sum(d[c] for c in IMPORTES), 2),
+            "campos": ",".join(usados),
+        })
+    return salida
+
+
+def conceptos_ambiguos(filas: list[dict]) -> list[dict]:
+    """Las filas con MÁS DE UN importe no nulo — las que la suma podría romper.
+
+    Se devuelven aparte en vez de avisarse con un log: un log lo lee el que
+    justo mira, y esto tiene que poder contarse en `manager.job_runs` y
+    aparecer el día que la cámara cambie de forma.
+    """
+    return [f for f in filas if f.get("campos", "").count(",") >= 1]
 
 
 def totales_por_moneda(filas: list[dict]) -> list[dict]:

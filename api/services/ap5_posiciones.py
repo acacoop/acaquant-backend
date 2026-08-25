@@ -34,7 +34,12 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
-from config import AP5_CUENTAS_REQUERIMIENTO
+from config import (
+    AP5_CONCEPTOS_ACTIVO_INTEGRADO,
+    AP5_CONCEPTOS_REQUERIMIENTO,
+    AP5_CUENTAS_REQUERIMIENTO,
+    AP5_MARGENES_INVERTIR_SIGNO,
+)
 from core.postgres import get_pool
 
 # Familias del reporte, derivadas de `unit_of_measure`. Es lo que separa los dos
@@ -586,54 +591,95 @@ def _faltantes(fecha: str) -> dict:
     }
 
 
-def requerimiento_margenes(fecha: str) -> dict:
-    """La card REQUERIMIENTO DE MÁRGENES: Σ de las cuentas elegidas, por moneda.
+_CARD_VACIA: dict[str, Any] = {
+    "fecha": None, "por_moneda": [], "detalle": [], "conceptos": [],
+    "conceptos_faltantes": [], "cuentas_pedidas": 0,
+    "cuentas_encontradas": 0, "cuentas_faltantes": [],
+}
 
-    ⚠️ **El filtro es por PAR (cuenta de neteo, cuenta de compensación)**, que es
-    como está declarado en `config.AP5_CUENTAS_REQUERIMIENTO`. Filtrar por la
-    cuenta sola sumaría de más el día que un comitente aparezca bajo dos
-    compensaciones — y no fallaría: daría un número más grande y creíble.
 
-    ⚠️ **Nunca un total único.** Se devuelve una entrada por moneda, igual que
-    todo el resto de la vista. Si la cámara manda ARS y USD, son DOS números.
+def _card_margenes(fecha: str, conceptos: tuple[str, ...]) -> dict:
+    """Σ de `ap5.margenes` para las cuentas elegidas y ESTOS conceptos, por moneda.
 
-    ⚠️ **`cuentas_encontradas` viaja en la respuesta.** Sin eso, una cuenta que
-    dejó de venir se ve exactamente igual que una cuenta en cero: la card
-    muestra un número menor y nadie se entera. La pantalla puede avisar «faltan
-    1 de 2» porque el backend lo cuenta, no porque el navegador lo derive.
+    Una sola función para las dos cards porque son **la misma cuenta con otro
+    recorte de conceptos**: el requerimiento suma `Márgenes`, el activo integrado
+    suma `Márgenes + Inicial A3`. Escribirlas dos veces sería garantizar que un
+    día se arreglen distinto.
+
+    ⚠️ **Se suma `importe`, no `margen`.** El importe efectivo no siempre viene
+    en `Margin`: `Cauciones $` llega con `Margin = 0` y el número en
+    `InterTempAmount`. Sumar `margen` daría un total más chico sin fallar.
+
+    ⚠️ **El filtro de cuenta es por PAR** (neteo, compensación) — REGLA #9(A).
+
+    ⚠️ **`conceptos_faltantes` viaja en la respuesta.** Si la cámara renombra
+    `Inicial A3`, la card seguiría dibujando el número de los conceptos que sí
+    quedaron y nadie lo notaría. Lo cuenta el backend contra lo que hay en la
+    base, no el navegador.
     """
     pares = list(AP5_CUENTAS_REQUERIMIENTO)
-    if not fecha or not pares:
-        return {"fecha": fecha, "por_moneda": [], "detalle": [],
-                "cuentas_pedidas": len(pares), "cuentas_encontradas": 0,
-                "cuentas_faltantes": [c for c, _ in pares]}
+    vacia = {"fecha": fecha, "por_moneda": [], "detalle": [],
+             "conceptos": list(conceptos), "conceptos_faltantes": list(conceptos),
+             "cuentas_pedidas": len(pares), "cuentas_encontradas": 0,
+             "cuentas_faltantes": [c for c, _ in pares]}
+    if not fecha or not pares or not conceptos:
+        return vacia
 
     filas = _q(
-        "SELECT cuenta, cuenta_compensacion, moneda, margen, referencias, titular "
+        "SELECT cuenta, cuenta_compensacion, concepto, moneda, importe, "
+        "       margen, primas, inter_temporal, campos, referencias, titular "
         "FROM ap5.margenes "
-        "WHERE fecha = %(f)s AND (cuenta, cuenta_compensacion) IN "
-        "  (SELECT * FROM unnest(%(ctas)s::text[], %(comps)s::text[])) "
-        "ORDER BY cuenta, moneda",
-        {"f": fecha, "ctas": [c for c, _ in pares], "comps": [k for _, k in pares]},
+        "WHERE fecha = %(f)s AND concepto = ANY(%(conc)s::text[]) "
+        "  AND (cuenta, cuenta_compensacion) IN "
+        "      (SELECT * FROM unnest(%(ctas)s::text[], %(comps)s::text[])) "
+        "ORDER BY cuenta, concepto, moneda",
+        {"f": fecha, "conc": list(conceptos),
+         "ctas": [c for c, _ in pares], "comps": [k for _, k in pares]},
     )
 
+    signo = -1.0 if AP5_MARGENES_INVERTIR_SIGNO else 1.0
     por: dict[str, dict] = {}
     for x in filas:
         m = x["moneda"] or "(sin moneda)"
-        d = por.setdefault(m, {"moneda": m, "margen": 0.0, "cuentas": 0})
-        d["margen"] += float(x["margen"] or 0)
-        d["cuentas"] += 1
+        d = por.setdefault(m, {"moneda": m, "importe": 0.0, "filas": 0})
+        d["importe"] += float(x["importe"] or 0) * signo
+        d["filas"] += 1
 
     hallada = {(x["cuenta"], x["cuenta_compensacion"]) for x in filas}
+    presentes = {x["concepto"] for x in filas}
     return {
         "fecha": fecha,
-        "por_moneda": [{**d, "margen": round(d["margen"], 2)}
+        "por_moneda": [{**d, "importe": round(d["importe"], 2)}
                        for d in sorted(por.values(), key=lambda x: x["moneda"])],
-        "detalle": [{**x, "margen": float(x["margen"] or 0)} for x in filas],
+        "detalle": [{**x, "importe": round(float(x["importe"] or 0) * signo, 2),
+                     "margen": float(x["margen"] or 0),
+                     "primas": float(x["primas"] or 0),
+                     "inter_temporal": float(x["inter_temporal"] or 0)}
+                    for x in filas],
+        "conceptos": list(conceptos),
+        "conceptos_faltantes": [c for c in conceptos if c not in presentes],
         "cuentas_pedidas": len(pares),
         "cuentas_encontradas": len(hallada),
         "cuentas_faltantes": [c for c, k in pares if (c, k) not in hallada],
     }
+
+
+def requerimiento_margenes(fecha: str) -> dict:
+    """La card REQUERIMIENTO DE MÁRGENES."""
+    return _card_margenes(fecha, AP5_CONCEPTOS_REQUERIMIENTO)
+
+
+def activo_integrado(fecha: str) -> dict:
+    """La card ACTIVO INTEGRADO.
+
+    Sale de la MISMA respuesta que los márgenes, sumando otros conceptos:
+    `Márgenes + Inicial A3`. **No se dedujo — el user lo comparó contra el número
+    real de la mesa** (2026-08-25). `AccountBalance`, que parecía el método
+    natural, quedó descartado: da un agregado por cuenta de compensación que no
+    se puede abrir por comitente (5 filtros y 10 grafías de expansión, las 15
+    devuelven lo mismo).
+    """
+    return _card_margenes(fecha, AP5_CONCEPTOS_ACTIVO_INTEGRADO)
 
 
 def vista(fecha: str | None = None) -> dict:
@@ -651,10 +697,8 @@ def vista(fecha: str | None = None) -> dict:
             "diferencias_hoy": [], "rankings": [], "por_instrumento": [],
             "consolidado": [],
             "acumulado": [], "grupos": [], "faltantes": {},
-            "requerimiento_margenes": {"fecha": None, "por_moneda": [],
-                                       "detalle": [], "cuentas_pedidas": 0,
-                                       "cuentas_encontradas": 0,
-                                       "cuentas_faltantes": []},
+            "requerimiento_margenes": _CARD_VACIA,
+            "activo_integrado": _CARD_VACIA,
         }
 
     # UNA sola vez, y de ahí salen las DOS cosas que hablan de lo mismo: la tabla
@@ -672,6 +716,7 @@ def vista(fecha: str | None = None) -> dict:
         "consolidado": consolidado(hoy, anterior),
         "acumulado": filas_acum,
         "requerimiento_margenes": requerimiento_margenes(hoy),
+        "activo_integrado": activo_integrado(hoy),
         "grupos": [
             r["grupo"] for r in _q(
                 "SELECT DISTINCT grupo FROM ap5.cuentas "

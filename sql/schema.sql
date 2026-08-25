@@ -5462,6 +5462,12 @@ CREATE TABLE IF NOT EXISTS ap5.margenes (
     cuenta              text    NOT NULL,
     -- CompensationAccountCode — de qué cuenta de compensación cuelga.
     cuenta_compensacion text    NOT NULL DEFAULT '',
+    -- `Reference` — el NOMBRE DEL CONCEPTO, no un id (medido 2026-08-25:
+    -- `Márgenes` ×28, `Inicial A3`, `Inicial FGIMC`, `Cauciones $`). Es parte de
+    -- la PK porque las dos cards suman conceptos DISTINTOS: el activo integrado
+    -- es `Márgenes + Inicial A3` y el requerimiento no. Colapsarlos haría
+    -- imposible separarlos sin volver a pegarle a la cámara.
+    concepto            text    NOT NULL DEFAULT '',
     moneda              text    NOT NULL,
     margen              numeric NOT NULL DEFAULT 0,
     -- Cuántas References se sumaron para llegar a ese margen. Un margen armado
@@ -5471,8 +5477,42 @@ CREATE TABLE IF NOT EXISTS ap5.margenes (
     referencias         integer NOT NULL DEFAULT 0,
     titular             text,
     actualizado_at      timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (fecha, cuenta, cuenta_compensacion, moneda)
+    PRIMARY KEY (fecha, cuenta, cuenta_compensacion, concepto, moneda)
 );
+
+-- Los OTROS DOS importes que manda la cámara, y de cuál salió el efectivo.
+--
+-- ⚠️ **El importe NO siempre viene en `Margin`**: `Cauciones $` llega con
+-- `Margin = 0.0` y el número en `InterTempAmount`. Sumar sólo `margen` devuelve
+-- un total más chico y **no falla nada** — el concepto existe y suma 0. Por eso
+-- `importe` es la suma de los tres: para un concepto dado sólo uno viene
+-- distinto de cero. `campos` deja escrito de cuál salió, así el día que una fila
+-- traiga dos no nulos se ve en la propia tabla en vez de desaparecer en la suma.
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS primas numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS inter_temporal numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS importe numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS campos text NOT NULL DEFAULT '';
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS concepto text NOT NULL DEFAULT '';
+
+-- La PK vieja no tenía `concepto`. Una tabla creada antes del 2026-08-25 tiene
+-- una fila por cuenta con el margen de UN concepto (el último que escribió el
+-- UPSERT) — no hay nada que preservar, pero la PK sí hay que ampliarla o el
+-- próximo job pisaría los cuatro conceptos entre sí, en silencio.
+DO $ap5_marg$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        WHERE c.relname = 'margenes_pkey' AND i.indnatts = 4
+    ) THEN
+        DELETE FROM ap5.margenes WHERE concepto = '';
+        ALTER TABLE ap5.margenes DROP CONSTRAINT margenes_pkey;
+        ALTER TABLE ap5.margenes
+            ADD CONSTRAINT margenes_pkey
+            PRIMARY KEY (fecha, cuenta, cuenta_compensacion, concepto, moneda);
+        RAISE NOTICE 'ap5.margenes: PK ampliada con concepto';
+    END IF;
+END $ap5_marg$;
 
 CREATE INDEX IF NOT EXISTS idx_ap5_margenes_fecha
     ON ap5.margenes (fecha DESC);

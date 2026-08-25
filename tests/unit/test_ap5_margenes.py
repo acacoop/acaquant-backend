@@ -6,7 +6,12 @@ antes de ver la respuesta real de nuestro usuario.
 """
 from __future__ import annotations
 
-from core.postrade_margenes import aplanar_margenes, por_cuenta_de_neteo, totales_por_moneda
+from core.postrade_margenes import (
+    aplanar_margenes,
+    conceptos_ambiguos,
+    por_cuenta_de_neteo,
+    totales_por_moneda,
+)
 
 # Manual pág. 117 — SIN desglose por grupo de producto.
 SIN_DESGLOSE = [
@@ -161,62 +166,103 @@ def test_respuesta_vacia_o_rara_no_revienta():
 # --------------------------------------------------------------------------- #
 # por_cuenta_de_neteo — el desglose que `AccountBalance` NO tiene
 # --------------------------------------------------------------------------- #
-def _fila(cuenta, comp, moneda, margen, nombre=""):
+def _fila(cuenta, comp, ref, moneda, margen=0.0, primas=0.0, inter=0.0, nombre=""):
     return {"cuenta": cuenta, "cuenta_compensacion_codigo": comp,
-            "moneda": moneda, "margen": margen, "cuenta_nombre": nombre}
+            "referencia": ref, "moneda": moneda, "margen": margen,
+            "primas": primas, "inter_temporal": inter, "cuenta_nombre": nombre}
 
 
 def test_agrupa_por_par_cuenta_y_compensacion():
-    """**La clave es el PAR, no la cuenta sola** (REGLA #9(A)).
+    """**La clave incluye el PAR, no la cuenta sola** (REGLA #9(A)).
 
     El mismo comitente puede colgar de dos cuentas de compensación distintas.
-    Agrupando por la cuenta sola las dos se colapsan en una: el total da de
-    MENOS y la tabla se ve impecable — no falla nada.
+    Agrupando por la cuenta sola las dos se colapsan: el total da de MENOS y la
+    tabla se ve impecable — no falla nada.
     """
     filas = por_cuenta_de_neteo([
-        _fila("149667", "1172", "ARS", -4_000_000.0, "COOP"),
-        _fila("149667", "999000", "ARS", -7_777_777.0, "COOP OTRA"),
+        _fila("149667", "1172", "Márgenes", "Pesos", margen=-4_000_000.0),
+        _fila("149667", "999000", "Márgenes", "Pesos", margen=-7_777_777.0),
     ])
-    assert len(filas) == 2, "se colapsaron dos pares distintos en uno"
+    assert len(filas) == 2
     assert {f["cuenta_compensacion"] for f in filas} == {"1172", "999000"}
+
+
+def test_el_CONCEPTO_es_parte_de_la_identidad():
+    """`Reference` es el NOMBRE del concepto y las cards suman conceptos
+    distintos: el activo integrado es `Márgenes + Inicial A3` y el requerimiento
+    no. Colapsarlos haría imposible separarlos sin volver a pegarle a la cámara.
+    """
+    filas = por_cuenta_de_neteo([
+        _fila("149667", "1172", "Márgenes", "Pesos", margen=-4_000_000.0),
+        _fila("149667", "1172", "Inicial A3", "Pesos", margen=-900_000.0),
+    ])
+    assert len(filas) == 2
+    assert {f["concepto"] for f in filas} == {"Márgenes", "Inicial A3"}
+
+
+def test_el_importe_no_siempre_esta_en_margen():
+    """`Cauciones $` llega con `Margin = 0.0` y el número en `InterTempAmount`.
+
+    Sumar sólo `margen` devuelve un total más chico y **no falla nada**: el
+    concepto existe y suma 0.
+    """
+    f = por_cuenta_de_neteo([
+        _fila("149667", "1172", "Cauciones $", "Pesos", inter=-5_000_000.0)])[0]
+    assert f["margen"] == 0.0
+    assert f["importe"] == -5_000_000.0, "el importe efectivo se perdió"
+    assert f["campos"] == "inter_temporal"
 
 
 def test_no_suma_entre_monedas():
     filas = por_cuenta_de_neteo([
-        _fila("218115", "218115", "ARS", -1_500_000.0),
-        _fila("218115", "218115", "USD", -12_000.0),
+        _fila("218115", "218115", "Márgenes", "ARS", margen=-1_500_000.0),
+        _fila("218115", "218115", "Márgenes", "USD", margen=-12_000.0),
     ])
     assert len(filas) == 2
-    assert {(f["moneda"], f["margen"]) for f in filas} == {
+    assert {(f["moneda"], f["importe"]) for f in filas} == {
         ("ARS", -1_500_000.0), ("USD", -12_000.0)}
 
 
-def test_suma_las_referencias_del_mismo_par_y_las_cuenta():
+def test_suma_las_referencias_del_mismo_grupo_y_las_cuenta():
     """El conteo no es decorativo: el día que la cámara deje de mandar
     `References` el total daría 0, y sin el conteo un 0 por ausencia se ve
     idéntico a un 0 real."""
     filas = por_cuenta_de_neteo([
-        _fila("149667", "1172", "ARS", -1_000.0, "COOP"),
-        _fila("149667", "1172", "ARS", -2_000.0, "COOP"),
-        _fila("149667", "1172", "ARS", -500.0, "COOP"),
+        _fila("149667", "1172", "Márgenes", "Pesos", margen=-1_000.0),
+        _fila("149667", "1172", "Márgenes", "Pesos", margen=-2_000.0),
+        _fila("149667", "1172", "Márgenes", "Pesos", margen=-500.0),
     ])
     assert len(filas) == 1
-    assert filas[0]["margen"] == -3_500.0
+    assert filas[0]["importe"] == -3_500.0
     assert filas[0]["referencias"] == 3
 
 
 def test_preserva_el_signo_negativo_de_la_camara():
-    filas = por_cuenta_de_neteo([_fila("1", "1", "ARS", -16_800_000.0)])
-    assert filas[0]["margen"] == -16_800_000.0
+    """Dar vuelta el signo es presentación y vive en la vista, no acá."""
+    f = por_cuenta_de_neteo([
+        _fila("1", "1", "Márgenes", "ARS", margen=-16_800_000.0)])[0]
+    assert f["importe"] == -16_800_000.0
+
+
+def test_una_fila_con_DOS_importes_no_nulos_se_marca_ambigua():
+    """Sumarlos podría estar mal y no fallaría: daría un número creíble."""
+    filas = por_cuenta_de_neteo([
+        _fila("1", "1", "X", "ARS", margen=-100.0, inter=-50.0)])
+    assert filas[0]["campos"] == "margen,inter_temporal"
+    assert len(conceptos_ambiguos(filas)) == 1
+
+
+def test_lo_normal_no_es_ambiguo():
+    filas = por_cuenta_de_neteo([_fila("1", "1", "X", "ARS", margen=-100.0)])
+    assert conceptos_ambiguos(filas) == []
 
 
 def test_titular_se_toma_del_primero_que_lo_traiga():
-    """Una referencia sin nombre no debe borrar el que ya vino."""
     filas = por_cuenta_de_neteo([
-        _fila("149667", "1172", "ARS", -1.0, ""),
-        _fila("149667", "1172", "ARS", -1.0, "COOP 149667 LTDA"),
+        _fila("149667", "1172", "Márgenes", "ARS", margen=-1.0, nombre=""),
+        _fila("149667", "1172", "Márgenes", "ARS", margen=-1.0, nombre="COOP LTDA"),
     ])
-    assert filas[0]["titular"] == "COOP 149667 LTDA"
+    assert filas[0]["titular"] == "COOP LTDA"
 
 
 def test_sin_filas_devuelve_lista_vacia():

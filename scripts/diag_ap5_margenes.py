@@ -768,6 +768,119 @@ def _claves_margenes(f: str, habil: str) -> None:
         print("     en esta respuesta — hay que buscarlo en otro método.")
 
 
+IMPORTES = ("margen", "primas", "inter_temporal")
+
+
+def _referencias(f: str, habil: str, cuentas: list[str]) -> None:
+    """Los CONCEPTOS de `Reference`, y en qué campo viaja el importe de cada uno.
+
+    ⚠️ **`Reference` no es un identificador: es el NOMBRE del concepto**
+    (`"Cauciones $"`). Y el importe **no siempre está en `Margin`** — se vio una
+    fila con `Margin = 0.0` y el número en `InterTempAmount`.
+
+    Las dos cosas juntas rompen la suma ingenua: totalizar `Margin` sobre todas
+    las referencias devuelve un número **más chico**, y como los conceptos con
+    margen 0 igual existen y suman 0, **no falla nada**. Sale un requerimiento
+    creíble al que le falta la mitad.
+
+    Así que antes de decidir qué suma la card hay que ver la grilla completa:
+    qué conceptos hay, cuántas filas trae cada uno, y **cuáles de los tres
+    importes usa** — porque de eso depende si «requerimiento de márgenes» es
+    `Σ Margin`, `Σ(Margin+primas+inter)`, o solo algunos conceptos.
+
+    Y de paso: si alguno de los conceptos ES el activo integrado, está acá.
+    """
+    print("\n" + "=" * 74)
+    print("9) CONCEPTOS (`Reference`) — qué hay y en qué campo viene el importe")
+    print("=" * 74)
+
+    crudo, usada = None, ""
+    for fecha in (f, habil):
+        try:
+            r = postrade.leer("MarginRequirementReport", {"date": fecha})
+        except Exception as e:
+            print(f"  ✗ {fecha}: {type(e).__name__}")
+            continue
+        if r:
+            crudo, usada = r, fecha
+            break
+        print(f"  ~ {fecha}: VACÍO")
+    if not crudo:
+        print("  Sin datos.")
+        return
+
+    filas, _ = aplanar_margenes(crudo)
+    print(f"  fecha {usada} · {len(filas)} referencias\n")
+
+    # concepto → moneda → {campo: total, n}
+    grilla: dict[tuple[str, str], dict] = {}
+    for x in filas:
+        k = (x.get("referencia") or "(sin nombre)", x.get("moneda") or "(sin moneda)")
+        d = grilla.setdefault(k, {"n": 0, **{c: 0.0 for c in IMPORTES},
+                                  "nonulo": {c: 0 for c in IMPORTES}})
+        d["n"] += 1
+        for c in IMPORTES:
+            v = x.get(c)
+            if v:
+                d[c] += float(v)
+                d["nonulo"][c] += 1
+
+    print(f"  {'concepto':<26} {'moneda':<10} {'filas':>6} "
+          f"{'margen':>17} {'primas':>15} {'inter_temporal':>17}")
+    for (ref, mon), d in sorted(grilla.items()):
+        print(f"  {ref[:26]:<26} {mon:<10} {d['n']:>6} "
+              f"{d['margen']:>17,.2f} {d['primas']:>15,.2f} "
+              f"{d['inter_temporal']:>17,.2f}")
+
+    print("\n  ── QUÉ CAMPO USA CADA CONCEPTO ──")
+    for (ref, mon), d in sorted(grilla.items()):
+        usa = [c for c in IMPORTES if d["nonulo"][c]]
+        aviso = "  ⚠️ el importe NO está en `margen`" if usa and "margen" not in usa else ""
+        print(f"  {ref[:26]:<26} {mon:<10} → {', '.join(usa) or 'TODOS EN CERO'}{aviso}")
+
+    # Lo que la card muestra HOY contra lo que mostraría sumando los tres.
+    print("\n  ── LO QUE CAMBIA EL CRITERIO ──")
+    por_mon: dict[str, dict] = {}
+    for x in filas:
+        d = por_mon.setdefault(x.get("moneda") or "(sin moneda)",
+                               {c: 0.0 for c in IMPORTES})
+        for c in IMPORTES:
+            d[c] += float(x.get(c) or 0)
+    print(f"  {'moneda':<12} {'solo margen (HOY)':>22} {'margen+primas+inter':>24}")
+    for mon, d in sorted(por_mon.items()):
+        print(f"  {mon:<12} {d['margen']:>22,.2f} "
+              f"{sum(d[c] for c in IMPORTES):>24,.2f}")
+    print("\n  Si las dos columnas dan distinto, la card de hoy está incompleta.")
+
+    if cuentas:
+        print(f"\n  ── SOLO LAS CUENTAS PEDIDAS {cuentas} ──")
+        mias = [x for x in filas if str(x.get("cuenta")) in set(cuentas)]
+        print(f"  {len(mias)} referencias")
+        print(f"  {'cuenta':<10} {'comp.':<9} {'concepto':<24} {'moneda':<9} "
+              f"{'margen':>15} {'primas':>13} {'inter':>15}")
+        for x in sorted(mias, key=lambda y: (y["cuenta"], y["moneda"],
+                                             y["referencia"] or "")):
+            print(f"  {x['cuenta']:<10} "
+                  f"{(x.get('cuenta_compensacion_codigo') or '')[:9]:<9} "
+                  f"{(x.get('referencia') or '')[:24]:<24} "
+                  f"{x['moneda']:<9} {float(x.get('margen') or 0):>15,.2f} "
+                  f"{float(x.get('primas') or 0):>13,.2f} "
+                  f"{float(x.get('inter_temporal') or 0):>15,.2f}")
+
+        # El total de ESAS cuentas con los dos criterios, que es la decisión.
+        print(f"\n  {'moneda':<10} {'solo margen (la card HOY)':>28} "
+              f"{'los tres importes':>22}")
+        pm: dict[str, dict] = {}
+        for x in mias:
+            d = pm.setdefault(x["moneda"] or "(sin moneda)",
+                              {c: 0.0 for c in IMPORTES})
+            for c in IMPORTES:
+                d[c] += float(x.get(c) or 0)
+        for mon, d in sorted(pm.items()):
+            print(f"  {mon:<10} {d['margen']:>28,.2f} "
+                  f"{sum(d[c] for c in IMPORTES):>22,.2f}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
     ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
@@ -788,6 +901,9 @@ def main() -> None:
     ap.add_argument("--contables", default="11,14,21,22",
                     help="en qué cuentas contables mirar el --crudo "
                          "(default 11,14,21,22).")
+    ap.add_argument("--referencias", action="store_true",
+                    help="los CONCEPTOS de `Reference` y en qué campo viene el "
+                         "importe de cada uno. Combinar con --cuentas.")
     ap.add_argument("--claves", action="store_true",
                     help="inventario de TODAS las claves de "
                          "MarginRequirementReport en sus 4 niveles, marcando "
@@ -819,7 +935,9 @@ def main() -> None:
 
     # `--crudo` es EXCLUYENTE: cuando se pide el volcado, se pide eso y nada
     # más. Mezclarlo con los otros bloques entierra el JSON en 300 líneas.
-    if args.claves:
+    if args.referencias:
+        _referencias(f, habil, cuentas)
+    elif args.claves:
         _claves_margenes(f, habil)
     elif args.perfil:
         _perfil(f, contables)
@@ -843,7 +961,7 @@ def main() -> None:
         if args.barrer or args.solo_barrido:
             _barrer(f, cuentas)
 
-    if args.crudo or args.buscar or args.adentro or args.perfil or args.claves:
+    if args.crudo or args.buscar or args.adentro or args.perfil or args.claves or args.referencias:
         return
     print("\n" + "=" * 74)
     print("Qué mirar:")

@@ -279,6 +279,54 @@ def _barrer(f: str, cuentas: list[str]) -> None:
         print("      cuál es el método que abre el integrado por comitente.")
 
 
+def _crudo(f: str, cuenta: str, contables: list[str]) -> None:
+    """El JSON **tal cual lo devuelve la API**, sin aplanar ni interpretar.
+
+    Es a propósito que no pase por `_mostrar`: esa función elige cinco campos y
+    los alinea, y elegir campos es ya una interpretación. Acá lo que hace falta
+    es ver la fila ENTERA — el nombre exacto de cada clave, los tipos, los nulos
+    y los campos que ni sabíamos que venían. De ahí sale el modelo de la tabla,
+    y un campo que no se vio nunca es un campo que la tabla no va a tener.
+    """
+    print("\n" + "=" * 74)
+    print(f"4) RESPONSE CRUDO — cuenta {cuenta}")
+    print("=" * 74)
+
+    for cod in contables:
+        nombre = CUENTAS_CONTABLES.get(cod, "(desconocida)")
+        print("\n" + "-" * 74)
+        print(f"  cuenta contable {cod} — {nombre}")
+        print("-" * 74)
+        try:
+            r = postrade.leer("AccountBalance", {"date": f, "accountTypeCode": cod})
+        except Exception as e:
+            print(f"  ✗ {type(e).__name__}: {str(e)[:200]}")
+            continue
+
+        todas = _filas(r)
+        mias = [x for x in todas
+                if str(x.get("ClearingAccountCode", "")) == str(cuenta)]
+        print(f"  {len(todas)} filas en total · {len(mias)} de la cuenta {cuenta}")
+        if not mias:
+            print(f"  (la cuenta {cuenta} no aparece en esta contable)")
+            continue
+
+        for i, x in enumerate(mias, 1):
+            print(f"\n  ── fila {i}/{len(mias)} " + "─" * 50)
+            print(json.dumps(x, ensure_ascii=False, indent=2, default=str))
+
+        # El total de la cuenta EN ESTA contable, por moneda. Nunca entre
+        # contables: la 21 son márgenes y la 22 diferencias — sumarlas no es
+        # un número, es dos cosas distintas apiladas.
+        por: dict[str, float] = {}
+        for x in mias:
+            m = str(x.get("Currency", "") or "(sin moneda)")
+            por[m] = por.get(m, 0.0) + float(x.get("Balance") or 0)
+        print(f"\n  TOTAL de {cuenta} en la contable {cod} ({nombre}):")
+        for m, v in sorted(por.items()):
+            print(f"    {m:<14} {v:>18,.2f}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
     ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
@@ -292,6 +340,12 @@ def main() -> None:
                          "cada cuenta de compensación (~30 s por el throttle).")
     ap.add_argument("--solo-barrido", action="store_true",
                     help="saltea márgenes y el bloque 2: solo el mapa.")
+    ap.add_argument("--crudo", default="",
+                    help="volcar el JSON CRUDO de ESTA cuenta de compensación "
+                         "(ej. 218115), fila por fila y sin interpretar.")
+    ap.add_argument("--contables", default="11,14,21,22",
+                    help="en qué cuentas contables mirar el --crudo "
+                         "(default 11,14,21,22).")
     args = ap.parse_args()
 
     hoy = date.today()
@@ -305,12 +359,21 @@ def main() -> None:
     print("\nREAD-ONLY. Un ✗ NO es un problema: es el dato que vinimos a buscar.")
 
     cuentas = [c.strip() for c in args.cuentas.split(',') if c.strip()]
-    if not args.solo_barrido:
-        _margenes(f, habil)
-        _saldos(f, args.cuenta_contable, cuentas)
-    if args.barrer or args.solo_barrido:
-        _barrer(f, cuentas)
+    contables = [c.strip() for c in args.contables.split(',') if c.strip()]
 
+    # `--crudo` es EXCLUYENTE: cuando se pide el volcado, se pide eso y nada
+    # más. Mezclarlo con los otros bloques entierra el JSON en 300 líneas.
+    if args.crudo:
+        _crudo(f, args.crudo, contables)
+    else:
+        if not args.solo_barrido:
+            _margenes(f, habil)
+            _saldos(f, args.cuenta_contable, cuentas)
+        if args.barrer or args.solo_barrido:
+            _barrer(f, cuentas)
+
+    if args.crudo:
+        return
     print("\n" + "=" * 74)
     print("Qué mirar:")
     print("  · VACÍO ≠ ERROR. Vacío es «el método anda y no hay dato».")

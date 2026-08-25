@@ -1,140 +1,174 @@
-"""scripts/diag_ap5_margenes.py — ¿de dónde salen "Márgenes" y "Activo Integrado"?
+"""scripts/diag_ap5_margenes.py — probar MÁRGENES y ACTIVO INTEGRADO.
 
-READ-ONLY. Solo GET, nada de escritura (`postrade.leer`, nunca `escribir`).
+READ-ONLY. Solo GET (`postrade.leer`), nunca escritura.
 
-**Qué contesta.** El reporte de la mesa tiene tres números en la cabecera:
+Las dos cosas que le faltan a la cabecera del reporte de la mesa:
 
-    Diferencias ACA HOY  ·  Requerimiento de Márgenes  ·  Activo Integrado
+    Requerimiento de Márgenes  →  PosTrade/MarginRequirementReport
+    Activo Integrado           →  PosTrade/AccountBalance, cuenta contable 12
 
-El primero ya lo tenemos (`ap5.portfolio.daily_settlement`). Los otros dos NO
-están en ninguna tabla nuestra: la API los publica, pero **nunca los pedimos**.
+**La fecha es HOY**, no el último día hábil. Es lo que pidió el user y tiene
+sentido: a diferencia de la posición —que es de CIERRE (`SettlSessID = EOD`) y
+por eso se pide del día anterior— un requerimiento de márgenes y una garantía
+integrada son el estado de HOY.
 
-Y no se puede elegir el método leyendo el manual: el manual documenta ~40
-lecturas y **qué contesta NUESTRO usuario es otra cosa** (REGLA #2). Por eso
-esto sondea los candidatos y muestra qué devuelve cada uno, para decidir con el
-dato en la mano en vez de con una hipótesis.
+⚠️ **El nombre del parámetro no se adivina.** El manual escribe `Date` en la
+tabla y `date=` en el ejemplo de URL. Un parámetro mal escrito puede hacer que
+la API rechace la llamada entera (ya pasó con 1816: `margen`/`margin` daban HTTP
+400 y el campo era `spread`). Así que se prueban las dos grafías y se reporta
+cuál anduvo — el resultado queda escrito acá y no hay que volver a averiguarlo.
 
-**Los candidatos, y por qué cada uno.** Del índice del manual (sección
-Garantías, pág. 103-121) y del catálogo `core/postrade_catalogo.py`:
+⚠️ **`viewDetails` NO es "lo mismo con más detalle".** Con `true` la MISMA
+cuenta aparece una vez por grupo de producto (DLR, SOJ…). Sumar las dos
+respuestas juntas contaría todo dos veces. Se prueban las dos por separado y se
+comparan los totales: si dan distinto, esa es la razón.
 
-    MarginRequirementReport          márgenes requeridos          ← el candidato
-    DeliveryMarginRequirementReport  márgenes por entrega
-    MarginBalance (Risk/)            saldos por finalidad
-    AccountBalance                   balance de saldos            ← el candidato
-    MT506                            garantías
-    CollateralList                   activos aceptados en garantía
-    CollateralAssignment             distribución de activos
-
-⚠️ Cada llamada cuesta. La API de Postrade tiene throttle de **1 petición por
-segundo** (lo aplica `core/postrade.py` global entre procesos), así que sondear
-los siete tarda unos segundos — no es gratis pero es una sola vez.
+Throttle: 1 petición/segundo (lo aplica `core/postrade` entre procesos), así que
+el sondeo tarda unos segundos.
 
 Uso:
     python -m scripts.diag_ap5_margenes
-    python -m scripts.diag_ap5_margenes --fecha 20260824
-    python -m scripts.diag_ap5_margenes --cuenta 155235
+    python -m scripts.diag_ap5_margenes --fecha 20260825
+    python -m scripts.diag_ap5_margenes --cuenta-contable 14
 """
 from __future__ import annotations
 
 import argparse
 import json
+from datetime import date
 from typing import Any
 
 from core import postrade
-from jobs.ap5_portfolio import ultimo_dia_habil
-
-# Qué sondear y con qué. `None` = probar sin parámetros primero.
-CANDIDATOS: list[tuple[str, str]] = [
-    ("MarginRequirementReport", "márgenes requeridos — el candidato para REQUERIMIENTO DE MÁRGENES"),
-    ("DeliveryMarginRequirementReport", "márgenes por entrega de mercadería"),
-    ("MarginBalance", "saldos por finalidad (Risk/)"),
-    ("AccountBalance", "balance de saldos — el candidato para ACTIVO INTEGRADO"),
-    ("MT506", "garantías"),
-    ("CollateralList", "activos aceptados en garantía"),
-    ("CollateralAssignment", "distribución de activos"),
-]
+from core.postrade_margenes import (
+    CUENTA_GARANTIA_INICIAL,
+    CUENTAS_CONTABLES,
+    aplanar_margenes,
+    totales_por_moneda,
+)
 
 
-def _forma(v: Any, prof: int = 0) -> str:
-    """Describe la FORMA de la respuesta sin volcarla entera.
-
-    Lo que hace falta para decidir es el grano (¿una fila? ¿una por cuenta?) y
-    los nombres de los campos — no 400 filas de contenido.
-    """
+def _forma(v: Any) -> str:
+    """La FORMA de la respuesta, sin volcarla entera: lo que hace falta para
+    decidir es el grano y los nombres de los campos, no 400 filas."""
     if isinstance(v, list):
-        if not v:
-            return "lista VACÍA"
-        return f"lista de {len(v)} → cada elemento: {_forma(v[0], prof + 1)}"
+        return "lista VACÍA" if not v else f"lista de {len(v)} → {_forma(v[0])}"
     if isinstance(v, dict):
         if not v:
             return "dict vacío"
-        claves = list(v)[:14]
-        cola = "" if len(v) <= 14 else f" … (+{len(v) - 14})"
-        return "{" + ", ".join(claves) + cola + "}"
+        ks = list(v)[:16]
+        return "{" + ", ".join(ks) + ("" if len(v) <= 16 else f" … +{len(v)-16}") + "}"
     return type(v).__name__
 
 
-def _numericos(v: Any) -> list[str]:
-    """Los campos NUMÉRICOS del primer elemento: son los candidatos a ser el
-    número de la card. Un campo de texto no es un importe."""
-    d = v[0] if isinstance(v, list) and v else v
-    if not isinstance(d, dict):
-        return []
-    return [f"{k}={d[k]}" for k in d
-            if isinstance(d[k], (int, float)) and not isinstance(d[k], bool)]
-
-
-def _sondear(nombre: str, para_que: str, params: dict) -> None:
-    print(f"\n─── {nombre} ─────────────────────────────────────────")
-    print(f"    {para_que}")
-    print(f"    params: {params or '(ninguno)'}")
+def _leer(nombre: str, params: dict, etiqueta: str) -> Any | None:
+    print(f"\n  → {etiqueta}")
+    print(f"    params: {params}")
     try:
-        r = postrade.leer(nombre, params or None)
+        r = postrade.leer(nombre, params)
     except Exception as e:  # el objetivo ES ver qué falla: un ✗ acá es el dato
-        # Un 404/403 acá NO es un incidente: es el dato que vinimos a buscar
-        # (qué nos habilitaron de verdad).
-        print(f"    ✗ {type(e).__name__}: {str(e)[:220]}")
+        print(f"    ✗ {type(e).__name__}: {str(e)[:200]}")
+        return None
+    print(f"    ✓ {_forma(r)}")
+    return r
+
+
+def _margenes(f: str) -> None:
+    print("\n" + "=" * 74)
+    print("1) REQUERIMIENTO DE MÁRGENES — PosTrade/MarginRequirementReport")
+    print("=" * 74)
+
+    # Las dos grafías del parámetro. El manual usa las dos y no son
+    # necesariamente equivalentes del lado del servidor.
+    crudo = None
+    for clave in ("date", "Date"):
+        crudo = _leer("MarginRequirementReport", {clave: f},
+                      f"sin desglose, parámetro «{clave}»")
+        if crudo:
+            print(f"    ⇒ la grafía que anda es «{clave}»")
+            break
+
+    if not crudo:
+        print("\n  No respondió con datos. Puede ser que hoy no haya márgenes, o")
+        print("  que el método no esté habilitado para nuestro usuario.")
         return
 
-    print(f"    ✓ forma: {_forma(r)}")
-    nums = _numericos(r)
-    if nums:
-        print(f"    números: {', '.join(nums[:10])}")
-    muestra = (r[0] if isinstance(r, list) and r else r)
-    if isinstance(muestra, dict):
-        print("    muestra:")
-        print("      " + json.dumps(muestra, ensure_ascii=False, default=str)[:600])
+    filas, stats = aplanar_margenes(crudo)
+    print(f"\n    aplanado: {len(filas)} filas")
+    print(f"    niveles : {stats}")
+    if filas:
+        print("\n    muestra de una fila:")
+        print("      " + json.dumps(filas[0], ensure_ascii=False, default=str)[:500])
+        print("\n    TOTALES POR MONEDA  ← el número de la card:")
+        for t in totales_por_moneda(filas):
+            print(f"      {t['moneda']:<12} margen={t['margen']:>18,.2f}  "
+                  f"primas={t['primas']:>14,.2f}  inter={t['inter_temporal']:>12,.2f}  "
+                  f"({t['cuentas']} cuentas)")
+
+    # Con desglose: sirve para ver si el total cambia (y por lo tanto si las dos
+    # respuestas se pueden mezclar o no — no se pueden).
+    det = _leer("MarginRequirementReport", {"date": f, "viewDetails": "true"},
+                "CON desglose por grupo de producto (viewDetails=true)")
+    if det:
+        fd, _ = aplanar_margenes(det)
+        grupos = sorted({x["grupo_producto"] for x in fd if x["grupo_producto"]})
+        print(f"    aplanado: {len(fd)} filas · grupos: {grupos or '(ninguno)'}")
+        for t in totales_por_moneda(fd):
+            print(f"      {t['moneda']:<12} margen={t['margen']:>18,.2f}")
+        print("    ⚠️ Si este total NO coincide con el de arriba, las dos respuestas")
+        print("       NO se pueden sumar juntas: la misma cuenta viene repetida por grupo.")
+
+
+def _saldos(f: str, cuenta_contable: str) -> None:
+    print("\n" + "=" * 74)
+    print("2) ACTIVO INTEGRADO — PosTrade/AccountBalance")
+    print("=" * 74)
+    print(f"   cuenta contable {cuenta_contable} = "
+          f"{CUENTAS_CONTABLES.get(cuenta_contable, '(desconocida)')}")
+
+    for clave in ("date", "Date"):
+        r = _leer("AccountBalance", {clave: f, "accountTypeCode": cuenta_contable},
+                  f"cuenta {cuenta_contable}, parámetro «{clave}»")
+        if r:
+            print(f"    ⇒ la grafía que anda es «{clave}»")
+            muestra = r[0] if isinstance(r, list) and r else r
+            if isinstance(muestra, dict):
+                print("\n    muestra:")
+                print("      " + json.dumps(muestra, ensure_ascii=False, default=str)[:700])
+                nums = [f"{k}={v}" for k, v in muestra.items()
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)]
+                if nums:
+                    print(f"    números: {', '.join(nums[:12])}")
+            break
+    else:
+        # Sin la cuenta: si el universo completo SÍ responde, el problema es el
+        # filtro y no el método — distinguirlo ahorra media hora.
+        _leer("AccountBalance", {"date": f}, "SIN filtrar por cuenta contable")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(
-        description="Sondea los métodos de Garantías/Saldos de Postrade (read-only).")
-    ap.add_argument("--fecha", help="AAAAMMDD (default: último día hábil)")
-    ap.add_argument("--cuenta", help="probar además con accountCode")
+    ap = argparse.ArgumentParser(description="Márgenes y activo integrado (read-only).")
+    ap.add_argument("--fecha", help="AAAAMMDD (default: HOY)")
+    ap.add_argument("--cuenta-contable", default=CUENTA_GARANTIA_INICIAL,
+                    help=f"default {CUENTA_GARANTIA_INICIAL} (Gtía inicial)")
     args = ap.parse_args()
 
-    f = postrade.fecha_api(args.fecha) if args.fecha else ultimo_dia_habil()
+    f = postrade.fecha_api(args.fecha) if args.fecha else date.today().strftime("%Y%m%d")
     print("=" * 74)
-    print("AP5 · de dónde salen REQUERIMIENTO DE MÁRGENES y ACTIVO INTEGRADO")
-    print(f"fecha de prueba: {f}" + (f" · cuenta: {args.cuenta}" if args.cuenta else ""))
+    print("AP5 · las dos cosas que faltan en la cabecera del reporte")
+    print(f"fecha: {f}   (HOY — márgenes y garantías son el estado de hoy,")
+    print("             a diferencia de la posición, que es de cierre)")
     print("=" * 74)
-    print("\nSondeo READ-ONLY. Un ✗ NO es un problema: es el dato que buscamos")
-    print("(qué métodos nos habilitaron de verdad). Throttle: 1 req/s.\n")
+    print("\nREAD-ONLY. Un ✗ NO es un problema: es el dato que vinimos a buscar.")
 
-    for nombre, para_que in CANDIDATOS:
-        # Sin parámetros primero: si el método los necesita, el error lo dice y
-        # eso también es información — mejor que adivinar qué pedirle.
-        _sondear(nombre, para_que, {})
-        if args.cuenta:
-            _sondear(nombre, para_que + "  [con cuenta]", {"accountCode": args.cuenta})
-        _sondear(nombre, para_que + "  [con fecha]", {"clearingBusinessDate": postrade.fecha_api(f)})
+    _margenes(f)
+    _saldos(f, args.cuenta_contable)
 
     print("\n" + "=" * 74)
-    print("Qué mirar en la salida:")
-    print("  · Cuál responde con datos (✓ y una lista NO vacía).")
-    print("  · El GRANO: ¿una fila para todo, o una por cuenta/moneda?")
-    print("  · Los campos NUMÉRICOS: ahí está el importe de la card.")
-    print("  · La MONEDA de cada importe — el reporte no suma Pesos con Dólar MtR.")
+    print("Qué mirar:")
+    print("  · Qué grafía del parámetro anduvo (queda escrita en el job).")
+    print("  · El GRANO de AccountBalance: ¿una fila para todo, o una por cuenta?")
+    print("  · La MONEDA de cada importe — no se suman entre sí.")
+    print("  · Si el total con y sin `viewDetails` coincide.")
     print("\nCon eso se decide qué persistir y se arma el job, igual que ap5_portfolio.")
 
 

@@ -27,7 +27,7 @@ def test_el_arancel_INCLUYE_los_cierres():
 
 
 def test_las_dos_reglas_no_son_la_misma():
-    assert P._VOL_WHERE != _arancel_where("o")
+    assert _arancel_where("o") != P._VOL_WHERE
 
 
 # ── Pesificación: una sola definición ───────────────────────────────────────
@@ -45,7 +45,7 @@ def test_la_pesificacion_de_negocio_movimientos_no_cambio():
     refactor a función tiene que dar EXACTAMENTE el mismo SQL."""
     assert _PESIF == ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
                       "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
-    assert _PESIF == _pesif()
+    assert _pesif() == _PESIF
 
 
 # ── La ventana de meses ─────────────────────────────────────────────────────

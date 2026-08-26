@@ -97,10 +97,22 @@ _OP_LABEL = {
 
 
 def _op_label(v: str) -> str:
-    """Etiqueta legible de un valor de `operacion`. Sin entrada en `_OP_LABEL` se
-    prettifica el valor crudo (`futuro_dlr` → `Futuro dlr`) en vez de esconderlo:
-    un valor sin etiqueta tiene que poder filtrarse igual."""
-    return _OP_LABEL.get(v) or str(v).replace("_", " ").strip().capitalize()
+    """Etiqueta legible de un valor de `operacion`.
+
+    ⚠️ **Solo se prettifica lo que viene como token técnico** (`futuro_dlr` →
+    `Futuro dlr`). Si el valor ya es texto para mostrar —y en esta base lo es:
+    `Caución tomadora`, `Ventas PPT`— se devuelve TAL CUAL. `.capitalize()` sobre
+    un string ya lindo lo rompe: `"Ventas PPT"` salía `"Ventas ppt"`.
+    """
+    if not v:
+        return ""
+    txt = str(v)
+    if txt in _OP_LABEL:
+        return _OP_LABEL[txt]
+    # Token técnico = todo minúscula, sin espacios, separado por guiones bajos.
+    if "_" in txt and txt == txt.lower() and " " not in txt:
+        return txt.replace("_", " ").strip().capitalize()
+    return txt.strip()
 
 
 def _ops_lista(operacion) -> list[str]:

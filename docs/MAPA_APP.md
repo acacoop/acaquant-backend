@@ -1261,7 +1261,7 @@ que en esa tab está oculto): AUM · CLIENTES · VOL. MTD · VOL. YTD.
 | **Portfolio & Operaciones** (def.) | Izq: gráfico de evolución + **Ficha del cliente**. Der: tabla de clientes (60 %) + panel Tenencia/Operaciones (40 %) | `/comercial/operador`, `/serie`, `/portafolio`, `/operaciones`, `/clientes-por-fecha` | Métrica **Volumen**/**AuM**; agregación DIARIO/SEMANAL/MENSUAL; rango `1W/1M/3M/6M/YTD/1A/ALL` con **pan ◀▶**; click en una barra abre los clientes que operaron ese período; tab del panel derecho tenencia/operaciones | **Export a Excel** (Clientes vuelca TODA la ficha, columnas generadas de `FICHA_DATOS`; Tenencia/Operaciones según el tab). No escribe en la DB |
 | **Análisis Comercial** | KPIs de cupo (transaccional/usado/libre USD al MEP), **Distribución por Nivel 1**, desglose por **Nivel 3**, y la tabla **ESTADO COMERCIAL** (cuenta, cliente, estado, días sin operar, AuM, cupo trans., cupo usado, última op, niveles) | `/comercial/analisis`, `/comercial/analisis/detalle` (modal) | Orden por columna (persistido); **3 filtros aditivos por click**: nivel_1 + nivel_3 + estado; los pseudo-estados `SIN_AUM` (aum≤0) y `SIN_OP_YTD` también filtran. Hereda barra madre + Desde/Hasta ("foto al día X") | **Export a Excel** (Estado comercial + Distribución nivel 1) |
 | **Profundidad de Clientes** | UNA tabla a ancho completo, **una fila por mes** (`jul-25`, `ago-25`, …) desde `PROFUNDIDAD_INICIO` hasta el mes en curso: CLIENTES · CON AuM · SIN AuM · ACTIVOS · RATIO ACTIV. · ARANCELES · ARANC./ACTIVO · AuM. **Todo medido al ÚLTIMO día del mes**; los flujos, sobre el mes completo. La plata va **entera y sin decimales** (`$1.234.567`), no con el compacto del resto de Comercial | `/comercial/profundidad`, `/comercial/profundidad/detalle` (modal) | **NO usa el Desde/Hasta** (su eje ES el tiempo → el control se esconde). Sí hereda la barra madre completa, y los filtros activos se dibujan como **chips arriba de la tabla**. **MultiSelect OPERACIÓN propio de la vista** (no de la barra madre): acota SOLO activos/ratio/aranceles/aranc.-por-activo; clientes, con AuM, sin AuM y AuM siguen siendo la base entera. Moneda ARS/USD — en USD, **al MEP del mes**, no al de hoy | **Export a Excel** (la tabla; y otro dentro del modal) |
-| **Profundidad → Análisis Cuantitativo** (solapa DENTRO de Profundidad, no tab propia) | **Tres listas de llamadas por CLIENTE** con sub-nav horizontal estilo AV AGENT (nombre + contador + bajada): **QUIÉNES IMPORTAN** (cuadrado de 4 — núcleo / grande irregular / habitual / ocasional — + los que hacen el 80 % del arancel), **SE ESTÁN APAGANDO** (rompieron su propio ritmo), **PERDIERON AuM** (tienen mucho menos que hace N meses, con el veredicto *se llevó los títulos / se está yendo / fue mercado*). Arriba, la franja de contexto del mes (operaron · el del medio vs el promedio · top-10 · cuántos hacen el 80 %) | `/comercial/cuantitativo` (una sola llamada) | **Todos los cortes son editables en pantalla** y los contadores de la sub-nav se mueven con ellos. Mes + moneda + barra madre | **Export a Excel** |
+| **Profundidad → Análisis Cuantitativo** (solapa DENTRO de Profundidad, no tab propia) | **Tres listas de llamadas por CLIENTE** con sub-nav horizontal estilo AV AGENT (nombre + contador + bajada): **QUIÉNES IMPORTAN** (cuadrado de 4 — núcleo / grande irregular / habitual / ocasional — + los que hacen el 80 % del arancel), **SE ESTÁN APAGANDO** (rompieron su propio ritmo), **PERDIERON AuM** (tienen mucho menos que hace N meses: tenía, tiene, cuánto cayó y si retiró). Arriba, la franja de contexto del mes (operaron · el del medio vs el promedio · top-10 · cuántos hacen el 80 %) | `/comercial/cuantitativo` (una sola llamada) | **Todos los cortes son editables en pantalla** y los contadores de la sub-nav se mueven con ellos. Mes + moneda + barra madre | **Export a Excel** |
 | **Cobros Futuros** | Acreencias del scope: serie diaria acumulable + totales por cliente + detalle por título | `/comercial/cobros-futuros`, `/cobros-futuros/cliente` | Rango propio de fecha de cobro (def hoy → hoy+60), agg, escala `lin`/`log`, moneda, selección de cliente/ticker/bucket. **Oculta el Desde/Hasta global.** Los filtros madre se degradan a **single** | Ninguna |
 | **Informe** | 4 cuadrantes de toda la mesa: **Q1** cuentas por segmento (modos `cuentas`/`operativas`/`aranceles`), **Q2** ranking volumen+aranceles por comercial, **Q3** aranceles por segmento, **Q4** detalle del segmento | `/comercial/informe`, `/informe-segmento`, `/informe-aranceles-segmento`, `/informe-segmento-detalle` | Desde/Hasta, moneda, filtros madre (**el `operador` madre va SOLO al ranking Q2**; en Q1/Q3/Q4 `operador` es el drill-down del comercial clickeado). Click en comercial re-scopea Q1/Q3/Q4; click en segmento filtra Q4; tab de Q4 clientes/operaciones; botón `?` de ayuda | Ninguna |
 | **Control Comercial** (solo con `me.control_comercial`) | **Tabla 1** totales ALyC por períodos fijos; **Tabla 2** por comercial en [Desde,Hasta] (activos/inactivos/AuM/volumen/comisiones, cada uno con % vs rango anterior de igual largo); **Tabla 3** Actual vs Objetivo + % alcanzado | `/comercial/control/totales`, `/por-operador`, `/objetivos-vs-actual`, `/objetivos`, `/comercial/operadores` | Desde/Hasta propios (def mes en curso), moneda, filtros madre. **La Tabla 1 NO depende de Desde/Hasta** (períodos fijos Día/Semana/Mes/YTD/12M/2025/2024/Total, anclados a la última fecha con operaciones) | **SÍ — `PATCH /comercial/control/objetivos`**: editor inline (año + mes + inputs volumen/comisiones por comercial, botón guardar por fila). **Export**: un Excel con 3 hojas |
@@ -1361,10 +1361,13 @@ ordenadas **por plata**, no por gravedad de la señal.
 - **El ritmo son DÍAS OPERADOS, no boletos** (cinco boletos el mismo día son una sola
   aparición) y es la **mediana** de los gaps del último año. Sin `min_dias_op` días
   distintos la cuenta NO entra: una mediana sobre 2 datos es basura.
-- **El veredicto de PERDIERON AuM no es un modelo, son dos hechos**: cuánto cayó y si
-  retiró (`cashflow_sql.neto_por_cuenta`, con `hasta`). Cayó a cero **sin retirar un
-  peso** = transferencia de títulos a otro agente, o sea la competencia — y hoy no
-  aparece en ninguna pantalla porque no movió plata, movió papeles.
+- **PERDIERON AuM muestra hechos y NO los rotula.** Hubo una columna "QUÉ PASÓ" que
+  etiquetaba cada fila (*se está yendo* / *fue mercado* / *se llevó los títulos*); se
+  sacó porque eran inferencias con el mismo aspecto que los datos de al lado. Los cuatro
+  números —tenía, tiene, cuánto cayó y **si retiró** (`cashflow_sql.neto_por_cuenta`, con
+  `hasta`)— dicen lo mismo sin pedirle a nadie que confíe en el rótulo. El caso de
+  interés sigue siendo legible solo: cayó a cero **sin retirar un peso** es una
+  transferencia de títulos a otro agente.
 - El contexto (`n_operaron`, **mediana y promedio juntos**, top-10 %, `cuantos_80`) viaja
   siempre: *"SE ESTÁN APAGANDO 5"* no significa nada si no sabés que 17 clientes hacen el
   80 % de la facturación.
@@ -1379,7 +1382,7 @@ Service: `api/services/perfil_cliente_sql.py`. **Módulo aparte y genérico a pr
 nace para el detalle de SE ESTÁN APAGANDO, pero el share por tipo de operación se va a
 reusar en otras pantallas, así que no recibe nada de esa vista — solo `id_cuenta`.
 
-Devuelve tres cosas de una cuenta en la ventana de los últimos N meses (def 12, máx 60):
+Devuelve, de una cuenta y en la ventana de los últimos N meses (def 12, máx 60):
 1. **`ultima_op`** — el boleto que la fija, crudo (fecha, días, operación, instrumento,
    mercado, bruto, arancel, etapa, es_cierre). **Sin tope de ventana**: la última es la
    última aunque sea de hace dos años; acotarla haría que un cliente dormido muestre "—"
@@ -1388,10 +1391,31 @@ Devuelve tres cosas de una cuenta en la ventana de los últimos N meses (def 12,
    de barras. **La lista de meses se arma en Python, no sale de la query**: un mes sin
    operaciones tiene que dibujar una barra en CERO, porque un mes ausente y un mes en
    cero no se ven igual en un gráfico.
-3. **`share_operacion`** — `[{operacion, label, volumen, pct, n_boletos, arancel}]`, el
-   reparto del volumen por tipo de operación. El `%` se calcula en el backend: es el
-   número que se va a reusar, y dos lugares que lo derivan terminan mostrando dos
-   porcentajes distintos del mismo cliente.
+3. **`share_operacion`** — el reparto del volumen por tipo de operación. El `%` se
+   calcula en el backend: es el número que se va a reusar, y dos lugares que lo derivan
+   terminan mostrando dos porcentajes distintos del mismo cliente.
+4. **`serie_aum`** — el AuM del cliente a fin de cada mes. **Un mes sin foto de tenencia
+   vale `null`, no 0**: que el cliente no tenga filas en una foto que SÍ existe es cero
+   (no tenía nada); que no haya foto es "no pude mirar", y dibujarlo en cero sería
+   inventar una caída.
+5. **`tenencia`** — la cartera de HOY, reusando `comercial_sql.portafolio_cliente`: es
+   la misma que muestra Portfolio & Operaciones, así las dos pantallas no pueden mostrar
+   carteras distintas del mismo cliente.
+
+⚠️ **El CIERRE se junta con su APERTURA.** En esta base `operacion` trae valores
+separados (`Caución tomadora` / `Caución tomadora cierre`): el cierre nunca tiene volumen
+—la apertura ya lo contó— pero se lleva **todo el arancel**, así que separados una fila
+muestra 0 % con toda la plata y la otra todo el volumen con arancel cero. La fusión
+empareja por nombre normalizado (sin acentos, sin la palabra «cierre») **con las guardas
+de la REGLA #9**: solo se fusiona una fila cuyos boletos sean TODOS de cierre, la apertura
+tiene que EXISTIR en el mismo resultado, y el destino no puede ser otro cierre. Lo que no
+se pudo emparejar queda solo y marcado `solo_arancel` — «no pude» ≠ «lo invento». Las
+fusiones aplicadas viajan en `fusiones` para poder auditarlas.
+
+⚠️ **`ultima_op` no se acota al período NI cuenta los días contra él.** Los días van
+contra HOY: contra el fin del mes elegido, un mes en curso da días de más (el 31 todavía
+no llegó) y uno viejo devuelve "cuánto había pasado en ese momento", que no es lo que
+nadie lee ahí.
 
 ⚠️ **VOLUMEN y ARANCEL no se filtran igual, y confundirlos devuelve un número plausible
 y equivocado:**

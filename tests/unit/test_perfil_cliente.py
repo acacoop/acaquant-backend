@@ -83,3 +83,81 @@ def test_una_ventana_absurda_no_dispara_un_scan_de_toda_la_historia():
 def test_cada_mes_trae_su_fin_de_mes():
     _, meses = P._ventana(2, date(2026, 3, 31))
     assert [f for _, _, f in meses] == [date(2026, 2, 28), date(2026, 3, 31)]
+
+
+# ── Juntar el CIERRE con su APERTURA ────────────────────────────────────────
+# El cierre de una caución nunca tiene volumen (la apertura ya lo contó) pero se
+# lleva TODO el arancel. Separados, una fila muestra 0% y toda la plata y la otra
+# todo el volumen y arancel cero: las dos mienten sobre el mismo negocio.
+
+def test_la_clave_saca_la_palabra_cierre():
+    assert P._clave("Caución tomadora cierre") == P._clave("Caución tomadora")
+    assert P._clave("CAUCIÓN TOMADORA CIERRE") == P._clave("caucion tomadora")
+    assert P._clave("Caución colocadora") != P._clave("Caución tomadora")
+
+
+def _fila(v, vol, ar, solo_cierre, n=1):
+    return {"v": v, "volumen": vol, "arancel": ar, "n_boletos": n, "n_todos": n,
+            "_solo_cierre": solo_cierre}
+
+
+def test_el_cierre_se_junta_con_su_apertura():
+    filas, fus = P._fusionar_cierres([
+        _fila("Caución tomadora", 5_000_000.0, 0.0, False),
+        _fila("Caución tomadora cierre", 0.0, 900.0, True),
+    ])
+    assert len(filas) == 1
+    assert filas[0]["volumen"] == 5_000_000.0 and filas[0]["arancel"] == 900.0
+    assert [(f["de"], f["a"]) for f in fus] == [("Caución tomadora cierre", "Caución tomadora")]
+
+
+def test_un_cierre_SIN_apertura_no_se_inventa_un_destino():
+    """«No pude emparejar» no es «lo mando a cualquier lado»: la fila queda sola
+    y se ve, que es lo que permite darse cuenta de que falta algo."""
+    filas, fus = P._fusionar_cierres([
+        _fila("Compras PPT", 2_000_000.0, 800.0, False),
+        _fila("Rescate cierre", 0.0, 120.0, True),
+    ])
+    assert len(filas) == 2 and fus == []
+    huerfana = next(f for f in filas if f["v"] == "Rescate cierre")
+    assert huerfana["arancel"] == 120.0
+
+
+def test_una_fila_con_volumen_PROPIO_nunca_se_fusiona():
+    """Si tiene volumen propio es un negocio aparte, aunque se llame «cierre»."""
+    filas, fus = P._fusionar_cierres([
+        _fila("Caución tomadora", 5_000_000.0, 0.0, False),
+        _fila("Caución tomadora cierre", 3_000_000.0, 900.0, False),
+    ])
+    assert len(filas) == 2 and fus == []
+
+
+def test_el_destino_no_puede_ser_otro_cierre():
+    filas, fus = P._fusionar_cierres([
+        _fila("Algo cierre", 0.0, 100.0, True),
+        _fila("Algo cierres", 0.0, 50.0, True),
+    ])
+    assert len(filas) == 2 and fus == []
+
+
+def test_la_fusion_no_pierde_ni_un_peso_de_arancel():
+    entrada = [
+        _fila("Caución tomadora", 5_000_000.0, 10.0, False),
+        _fila("Caución tomadora cierre", 0.0, 900.0, True),
+        _fila("Rescate cierre", 0.0, 120.0, True),
+        _fila("Compras PPT", 2_000_000.0, 800.0, False),
+    ]
+    total_antes = sum(f["arancel"] for f in entrada)
+    filas, _ = P._fusionar_cierres(entrada)
+    assert sum(f["arancel"] for f in filas) == total_antes
+
+
+# ── Los nombres que ya vienen lindos no se tocan ────────────────────────────
+def test_no_se_destroza_un_nombre_ya_legible():
+    """En esta base `operacion` ya trae texto para mostrar. `.capitalize()` sobre
+    «Ventas PPT» devolvía «Ventas ppt»."""
+    from api.services.profundidad_sql import _op_label
+    assert _op_label("Ventas PPT") == "Ventas PPT"
+    assert _op_label("Caución tomadora") == "Caución tomadora"
+    # Un token técnico sí se prettifica.
+    assert _op_label("futuro_dlr") == "Futuro dlr"

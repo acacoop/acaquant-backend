@@ -329,19 +329,16 @@ def _perdieron_aum(fin: date, ids_where: str, p0: dict, caida_pct: float,
             continue
         ret = retiros.get(idc, 0.0)
         retiro = -ret if ret < 0 else 0.0
-        # El veredicto sale de dos hechos, no de un modelo.
-        if retiro <= 0 and hoy <= 0:
-            que_paso, alerta = "Se llevó los títulos", True
-        elif retiro > 0:
-            que_paso, alerta = "Se está yendo", True
-        else:
-            que_paso, alerta = "Fue mercado", False
+        # Acá había una columna "QUÉ PASÓ" que rotulaba cada fila ("se está yendo",
+        # "fue mercado", "se llevó los títulos"). Se sacó: eran INFERENCIAS mías
+        # presentadas con el mismo aspecto que los hechos de al lado. Los cuatro
+        # números —tenía, tiene, cuánto cayó y si retiró— dicen lo mismo y no
+        # obligan a nadie a creerme.
         filas.append({
             **_base(idc, fi),
             "aum_antes": _cv(antes, factor), "aum_hoy": _cv(hoy, factor),
             "caida_pct": round(caida, 1),
             "retiro": _cv(retiro, factor) if retiro > 0 else None,
-            "que_paso": que_paso, "alerta": alerta,
         })
     filas.sort(key=lambda r: (r["aum_antes"] - r["aum_hoy"]), reverse=True)
 

@@ -380,40 +380,6 @@ def ops_dolar_futuro(
                                      scope=scope, nivel5=nivel5)
 
 
-@router.get("/ops/diferencias-diarias")
-@cached(ttl=300)
-def ops_diferencias_diarias(
-    desde: str = Query(..., description="YYYY-MM-DD"),
-    hasta: str = Query(..., description="YYYY-MM-DD"),
-    moneda: str = Query("USDL", description="USDL | ARS (no se pueden sumar juntas)"),
-    producto: str | None = Query(None, description="Prefijo del instrumento (cross-filter)"),
-    cuenta: str | None = Query(None, description="Cuenta exacta (cross-filter)"),
-    instrumento: str | None = Query(None, description="Instrumento exacto (cross-filter)"),
-    nivel5: str | None = Query(None, description="Filtra por nivel_5 de Clientes.Comitentes"),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-):
-    """Diferencias diarias de futuros (liquidación mark-to-market) desde
-    operaciones.negocio_movimientos. La métrica es `importe` (± ARS o USDL —
-    filtradas por `moneda`, nunca sumadas juntas); NO hay tipo ni instrumento
-    nativos (el instrumento se parsea del texto `informacion`). Devuelve
-    `por_producto`, `por_cuenta`, `por_instrumento`, `serie` (Σ importe por día)
-    y `total` — todo acotado a [desde,hasta] con cross-filter 3-way."""
-    return _ops_sql.ops_diferencias_diarias(desde=desde, hasta=hasta, moneda=moneda,
-                                             producto=producto, cuenta=cuenta,
-                                             instrumento=instrumento, scope=scope, nivel5=nivel5)
-
-
-@router.get("/ops/diferencias-fechas")
-@cached(ttl=300)
-def ops_diferencias_fechas(
-    moneda: str = Query("USDL", description="USDL | ARS"),
-):
-    """Fechas (desc) con Diferencias Diarias para la moneda dada — el universo
-    de fechas PROPIO de esta vista (no el de operaciones.operaciones). Ancla los
-    botones ULTIMA/SEMANA/MES sobre fechas que realmente tienen datos."""
-    return _ops_sql.ops_diferencias_fechas(moneda=moneda)
-
-
 @router.get("/ops/aranceles")
 @cached(ttl=300)
 def ops_aranceles(

@@ -400,23 +400,23 @@ CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cu
 -- cada una de las ~361k llamadas = 2,3 hs acumuladas (#2 consumidor de toda la DB).
 -- Índice dedicado por comprobante → lookup directo (seq scan → index scan).
 CREATE INDEX IF NOT EXISTS ix_nm_comprobante ON operaciones.negocio_movimientos(comprobante);
--- DIFERENCIAS DIARIAS (perf 2026-07-28, medido con EXPLAIN): el planner elegía la PKEY
--- (fecha, comprobante) para el rango → 89k buffers y 5 queries de ~290ms por request.
--- Parcial que calza EXACTO con la vista (moneda + fecha, solo filas de diferencias).
--- ops_diferencias_diarias/_fechas llevan el ILIKE literal inline para matchear.
-CREATE INDEX IF NOT EXISTS ix_nm_dif ON operaciones.negocio_movimientos(moneda, fecha)
-    WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%';
--- MATERIALIZACIÓN (2026-07-28): el instrumento/producto de una diferencia diaria vivía
--- atrapado en el texto `informacion` ("Diferencias diarias - [SOJ.ROS/MAY26] - ...") →
--- cada query lo re-extraía con regex sobre ~45k filas. Columnas GENERADAS: Postgres las
--- calcula en cada INSERT/UPDATE y en el ALTER inicial (backfill automático) — una sola
--- fuente de verdad, sin cambios en el job de ingesta. NULL para filas no-diferencia.
-ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_instrumento text
-    GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
-        THEN substring(informacion from '\[([^\]]+)\]') END) STORED;
-ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_producto text
-    GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
-        THEN substring(informacion from '\[([A-Za-z]+)') END) STORED;
+-- DIFERENCIAS DIARIAS — BORRADO 2026-08-26. La vista se reemplazó por AP5
+-- POSICIONES Y DIFERENCIAS, que lee de `ap5.portfolio` (lo que dice la CÁMARA)
+-- en vez de parsear el texto `informacion` de los movimientos. Con la vista se
+-- fueron sus dos endpoints, sus ~110 líneas de service y esto:
+--
+--   · `ix_nm_dif`     — índice parcial que sólo servía a esas dos queries
+--   · `dif_instrumento` / `dif_producto` — columnas GENERADAS que materializaban
+--     el instrumento parseado del texto
+--
+-- Se borran y no se dejan «por las dudas»: un índice sin lector se paga en cada
+-- INSERT del job de ingesta, y una columna generada se recalcula en cada UPDATE
+-- de las ~400k filas. Son DERIVADAS —salen de `informacion` con un regex— así
+-- que recrearlas es volver a pegar estas líneas del historial de git; no hay
+-- ningún dato que se pierda.
+DROP INDEX IF EXISTS operaciones.ix_nm_dif;
+ALTER TABLE operaciones.negocio_movimientos DROP COLUMN IF EXISTS dif_instrumento;
+ALTER TABLE operaciones.negocio_movimientos DROP COLUMN IF EXISTS dif_producto;
 -- ANULADOS (2026-08-04): Aunesa a veces carga un boleto mal, lo ANULA y emite uno
 -- corregido. La ingesta hace upsert y NUNCA borraba → el anulado quedaba pegado para
 -- siempre inflando volumen (medido: 855 fantasmas YTD, $591 MM falsos). Ahora

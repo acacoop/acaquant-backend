@@ -5364,100 +5364,20 @@ CREATE TABLE IF NOT EXISTS ap5.contratos (
 -- con las dos monedas en 0 y esta columna VACÍA; se completa sola cuando una
 -- persona guarda desde la vista.
 --
+-- El total NO se persiste: se DERIVA en la lectura como `acumulado + Σ de las
+-- diferencias posteriores a `fecha``. Misma decisión que el histórico de `/aca`:
+-- un total guardado puede contradecir a sus propios insumos, y cuando eso pasa
+-- no hay forma de saber cuál de los dos está bien.
 CREATE TABLE IF NOT EXISTS ap5.acumulado (
     account         text    PRIMARY KEY,
     acumulado_pesos numeric NOT NULL DEFAULT 0,   -- settlement_currency = 'Pesos'
     acumulado_mtr   numeric NOT NULL DEFAULT 0,   -- settlement_currency = 'Dólar MtR'
+    -- Hasta acá llegan los dos acumulados (inclusive). Se suman los POSTERIORES.
     fecha           date    NOT NULL,
     -- NULL = nadie lo cargó. NO tiene DEFAULT now() a propósito (ver arriba).
     actualizado     timestamptz,
     cargado_por     text
 );
-
--- ═══════════════════════════════════════════════════════════════════════════
--- EL ACUMULADO ROTA (2026-08-26) — T-1 + DIARIA = ACUMULADO
--- ═══════════════════════════════════════════════════════════════════════════
---
--- **Antes** el total se DERIVABA al leer: `arrastre + Σ de los días posteriores
--- a fecha`. Funcionaba, pero tenía dos problemas que se pagaron caro:
---
---   · **No era auditable.** El número de la pantalla salía de sumar N filas de
---     `ap5.portfolio` en el momento. Para saber por qué una cuenta mostraba lo
---     que mostraba había que reconstruir la suma a mano.
---   · **Obligaba a guardar todos los días** en `ap5.portfolio` — los días viejos
---     no eran histórico, eran los SUMANDOS.
---
--- **Ahora** las tres piezas viven en la tabla y la cuenta se verifica a ojo:
---
---     acumulado_t1  +  diaria  =  acumulado          ← esto es lo que se muestra
---                                      ↓
---                              mañana pasa a ser el t1
---
--- ⚠️ **`fecha` cambió de significado**: ya NO es exclusiva. Ahora es **el día que
--- representa `diaria`**, y `acumulado` YA LO INCLUYE. Por eso la migración de
--- abajo mueve el arrastre viejo a `acumulado_t1` sin tocar `fecha`: el arrastre
--- viejo contenía todo hasta `fecha` inclusive, que es exactamente lo que
--- significa el t1 de hoy. No se pierde ni se duplica un peso.
---
--- ⚠️⚠️ **UN ACUMULADOR QUE ROTA NO ES IDEMPOTENTE POR NATURALEZA**, y el job
--- puede correr dos veces el mismo día (lo hizo cuatro veces el 2026-08-25). La
--- guarda es que **`fecha` manda**: sólo se rota cuando el día CAMBIA. Si el día
--- es el mismo, se recalcula `acumulado = t1 + diaria` sin tocar el t1 — así
--- re-correr el job devuelve el mismo número en vez de duplicarlo. Sin esa
--- guarda, dos corridas dan un acumulado el doble de grande y **nada falla**.
-ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS acumulado_t1_pesos numeric NOT NULL DEFAULT 0;
-ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS acumulado_t1_mtr   numeric NOT NULL DEFAULT 0;
-ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS diaria_pesos       numeric NOT NULL DEFAULT 0;
-ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS diaria_mtr         numeric NOT NULL DEFAULT 0;
--- El día que ya fue ABSORBIDO en `acumulado`. Distinto de `fecha` mientras el
--- job no haya corrido todavía para el día nuevo.
-ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS rotado_at timestamptz;
-
--- Migración: el arrastre viejo ES el t1 de hoy. Se corre UNA vez — la condición
--- es que t1 esté en cero y el acumulado no, que sólo se cumple antes de migrar.
-DO $ap5_rota$
-BEGIN
-    IF EXISTS (SELECT 1 FROM ap5.acumulado
-               WHERE acumulado_t1_pesos = 0 AND acumulado_t1_mtr = 0
-                 AND (acumulado_pesos <> 0 OR acumulado_mtr <> 0)) THEN
-        UPDATE ap5.acumulado
-           SET acumulado_t1_pesos = acumulado_pesos,
-               acumulado_t1_mtr   = acumulado_mtr
-         WHERE acumulado_t1_pesos = 0 AND acumulado_t1_mtr = 0
-           AND (acumulado_pesos <> 0 OR acumulado_mtr <> 0);
-        RAISE NOTICE 'ap5.acumulado: el arrastre viejo pasó a acumulado_t1';
-    END IF;
-END $ap5_rota$;
-
--- ═══════════════════════════════════════════════════════════════════════════
--- ap5.acumulado_log — EL LIBRO: cada escritura, con el antes y el después.
--- ═══════════════════════════════════════════════════════════════════════════
---
--- Append-only. Una fila por cada vez que el acumulado de una cuenta cambia, sea
--- por el job (rotación) o por una persona (carga manual, import de planilla).
---
--- **Por qué existe**: con el acumulado derivado, «¿por qué esta cuenta muestra
--- este número?» se contestaba reconstruyendo la suma. Con el acumulado que ROTA
--- es peor: el valor se pisa a sí mismo todos los días, así que sin libro el
--- estado anterior deja de existir. Es el mismo patrón que el libro de acciones
--- del AV AGENT — guardar `antes` es lo que convierte «revertir» en una función
--- y no en una promesa.
-CREATE TABLE IF NOT EXISTS ap5.acumulado_log (
-    id          bigserial PRIMARY KEY,
-    ts          timestamptz NOT NULL DEFAULT now(),
-    account     text NOT NULL,
-    -- 'rotacion' (el job) | 'manual' (la vista) | 'import' (planilla)
-    motivo      text NOT NULL,
-    fecha       date,                      -- el día que se absorbió, si aplica
-    t1_pesos_antes numeric, t1_pesos_despues numeric,
-    t1_mtr_antes   numeric, t1_mtr_despues   numeric,
-    diaria_pesos   numeric, diaria_mtr       numeric,
-    acum_pesos_antes numeric, acum_pesos_despues numeric,
-    acum_mtr_antes   numeric, acum_mtr_despues   numeric,
-    por         text
-);
-CREATE INDEX IF NOT EXISTS ix_ap5_acum_log_cuenta ON ap5.acumulado_log(account, ts DESC);
-CREATE INDEX IF NOT EXISTS ix_ap5_acum_log_ts     ON ap5.acumulado_log(ts DESC);
 
 -- MIGRACIÓN del modelo viejo (una fila por cuenta × moneda, con `semilla`) al
 -- nuevo (una fila por cuenta, dos columnas). Idempotente: solo corre si la tabla

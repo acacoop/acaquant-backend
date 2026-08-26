@@ -299,100 +299,6 @@ def _margenes(f: str, run_log, *, dry: bool = False) -> None:
     run_log.log(f"  ✓ {escritas} filas en ap5.margenes")
 
 
-def _rotar_acumulados(f: str, run_log) -> None:
-    """Absorber el día `f` en `ap5.acumulado`: T-1 + DIARIA = ACUMULADO.
-
-    ⚠️ **Va DESPUÉS de escribir la posición**, porque la diaria sale de ahí.
-    ⚠️ **La decisión de rotar o no la toma `ap5_rotacion.rotar`**, que es pura y
-    tiene sus tests: si el job corre dos veces el mismo día no duplica nada.
-
-    Cada cambio queda en `ap5.acumulado_log` con el antes y el después — sin
-    libro, un valor que se pisa a sí mismo todos los días deja de tener pasado.
-    """
-    from datetime import date as _date
-
-    from api.services.ap5_rotacion import Estado, rotar
-
-    dia = _date(int(f[:4]), int(f[4:6]), int(f[6:8]))
-
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        # La diaria de CADA cuenta, por moneda, del día que se está absorbiendo.
-        cur.execute(
-            "SELECT account, settlement_currency AS moneda, "
-            "       sum(daily_settlement) AS diaria "
-            "FROM ap5.portfolio WHERE business_date = %(f)s "
-            "GROUP BY 1, 2", {"f": dia})
-        diarias: dict[str, dict[str, float]] = {}
-        for account, moneda, diaria in cur.fetchall():
-            d = diarias.setdefault(str(account), {"pesos": 0.0, "mtr": 0.0})
-            if moneda == "Pesos":
-                d["pesos"] += float(diaria or 0)
-            elif moneda == "Dólar MtR":
-                d["mtr"] += float(diaria or 0)
-
-        cur.execute(
-            "SELECT account, fecha, acumulado_t1_pesos, acumulado_t1_mtr, "
-            "       diaria_pesos, diaria_mtr, acumulado_pesos, acumulado_mtr "
-            "FROM ap5.acumulado")
-        previos = {str(r[0]): r for r in cur.fetchall()}
-
-        conteo = {"rota": 0, "recalcula": 0, "ignora": 0, "nuevas": 0}
-        for account, d in sorted(diarias.items()):
-            r = previos.get(account)
-            if r is None:
-                conteo["nuevas"] += 1
-            previo = Estado(
-                fecha=r[1] if r else None,
-                t1_pesos=float(r[2] or 0) if r else 0.0,
-                t1_mtr=float(r[3] or 0) if r else 0.0,
-                diaria_pesos=float(r[4] or 0) if r else 0.0,
-                diaria_mtr=float(r[5] or 0) if r else 0.0,
-            )
-            nuevo, motivo = rotar(previo, dia, d["pesos"], d["mtr"])
-            conteo[motivo] += 1
-            if motivo == "ignora":
-                continue
-
-            cur.execute(
-                "INSERT INTO ap5.acumulado (account, acumulado_t1_pesos, "
-                "  acumulado_t1_mtr, diaria_pesos, diaria_mtr, acumulado_pesos, "
-                "  acumulado_mtr, fecha, rotado_at) "
-                "VALUES (%(a)s,%(t1p)s,%(t1m)s,%(dp)s,%(dm)s,%(ap)s,%(am)s,%(f)s,now()) "
-                "ON CONFLICT (account) DO UPDATE SET "
-                "  acumulado_t1_pesos = EXCLUDED.acumulado_t1_pesos, "
-                "  acumulado_t1_mtr   = EXCLUDED.acumulado_t1_mtr, "
-                "  diaria_pesos       = EXCLUDED.diaria_pesos, "
-                "  diaria_mtr         = EXCLUDED.diaria_mtr, "
-                "  acumulado_pesos    = EXCLUDED.acumulado_pesos, "
-                "  acumulado_mtr      = EXCLUDED.acumulado_mtr, "
-                "  fecha              = EXCLUDED.fecha, "
-                "  rotado_at          = now()",
-                {"a": account, "t1p": nuevo.t1_pesos, "t1m": nuevo.t1_mtr,
-                 "dp": nuevo.diaria_pesos, "dm": nuevo.diaria_mtr,
-                 "ap": nuevo.acum_pesos, "am": nuevo.acum_mtr, "f": dia})
-
-            cur.execute(
-                "INSERT INTO ap5.acumulado_log (account, motivo, fecha, "
-                "  t1_pesos_antes, t1_pesos_despues, t1_mtr_antes, t1_mtr_despues, "
-                "  diaria_pesos, diaria_mtr, acum_pesos_antes, acum_pesos_despues, "
-                "  acum_mtr_antes, acum_mtr_despues, por) "
-                "VALUES (%(a)s,%(mo)s,%(f)s,%(t1pa)s,%(t1pd)s,%(t1ma)s,%(t1md)s,"
-                "        %(dp)s,%(dm)s,%(apa)s,%(apd)s,%(ama)s,%(amd)s,'job')",
-                {"a": account, "mo": motivo, "f": dia,
-                 "t1pa": previo.t1_pesos, "t1pd": nuevo.t1_pesos,
-                 "t1ma": previo.t1_mtr, "t1md": nuevo.t1_mtr,
-                 "dp": nuevo.diaria_pesos, "dm": nuevo.diaria_mtr,
-                 "apa": previo.acum_pesos, "apd": nuevo.acum_pesos,
-                 "ama": previo.acum_mtr, "amd": nuevo.acum_mtr})
-
-    for k, v in conteo.items():
-        run_log.set_stat(f"acum_{k}", v)
-    run_log.log(f"  acumulado: {conteo['rota']} rotadas · "
-                f"{conteo['recalcula']} recalculadas (mismo día, no duplica) · "
-                f"{conteo['ignora']} ignoradas (día viejo) · "
-                f"{conteo['nuevas']} cuentas nuevas")
-
-
 def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool = False) -> None:
     with JobRunLogger(TIPO) as run_log:
         f = postrade.fecha_api(fecha) if fecha else ultimo_dia_habil()
@@ -486,10 +392,6 @@ def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool 
             run_log.set_stat("nombres_sin_resolver", len(fallidas))
             run_log.log(f"  ✓ {nombradas} nombres desde AccountDetails"
                         + (f" · {len(fallidas)} sin resolver" if fallidas else ""))
-
-        # El acumulado ABSORBE el día: T-1 + DIARIA = ACUMULADO. Va acá y no
-        # antes porque la diaria sale de las filas que se acaban de escribir.
-        _rotar_acumulados(f, run_log)
 
         # El requerimiento de márgenes, del MISMO día hábil. Va acá y no en un
         # job aparte porque es la misma fecha y la misma sesión de Postrade: dos

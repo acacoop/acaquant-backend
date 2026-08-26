@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **533 endpoints** montados en `api.main.app`, en **32 routers**.
-- **191 escriben** (POST/PUT/PATCH/DELETE); 342 son de solo lectura.
+- **534 endpoints** montados en `api.main.app`, en **32 routers**.
+- **191 escriben** (POST/PUT/PATCH/DELETE); 343 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -69,7 +69,7 @@
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 17 | 3 | `portfolios` · 15 rutas con gate extra | `portfolios` |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
@@ -1670,13 +1670,15 @@ de catálogo de referidos**: se deriva de `/comercial/dimensiones` sumando `n_cu
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **TOTAL** (def.) | Chart de área EVOLUCIÓN AUM + leaderboard POR CARTERA (valuación + % share) + panel DETALLE con dos sub-tablas cruzadas POR CUENTA y POR ASSET | `/portfolio/total-serie`, `/total-snapshot`, `/operadores`, `/niveles`, `GET /api/me` | **OPERADOR** (filtro MADRE; si el email logueado matchea un operador arranca autoscopeado) · **NIVEL 1 / NIVEL 2 / NIVEL 3 / NIVEL 5** (solo en TOTAL; **multi-select** con buscador — mismo `MultiSelect` que la barra de `/operadores`. Adentro de un nivel los valores van con OR, entre niveles con AND, y todo intersecta con OPERADOR. Se **cruzan**: cada desplegable ofrece sólo lo que convive con lo elegido en los otros, contra los combos de `/niveles`. Botón `LIMPIAR` cuando hay alguno activo) · **FECHA** (select de todas las fechas de la serie; también se setea clickeando el chart) · **MONEDA** ARS/USD · **CUENTAS** (`todas`/`accionistas`/`sin_accionistas`/`cooperativas`/`productores`) · rango del chart client-side `1M/3M/6M/YTD/ALL` · click en cartera (toggle) · click en fila POR CUENTA / POR ASSET = pin (toggle, se cruzan con AND) · dos buscadores substring · botón `↺` | **Export .xlsx** con 2 hojas (`Por Cuenta`, `Por Asset`), refleja los filtros activos; archivo `aum-detalle-<fecha>-<ts>.xlsx` |
+| **TOTAL** (def.) | Chart de área EVOLUCIÓN AUM + leaderboard POR CARTERA (valuación + % share) + panel DETALLE con dos sub-tablas cruzadas POR CUENTA y POR ASSET | `/portfolio/total-serie`, `/total-snapshot`, `/operadores`, `/niveles`, `/carteras`, `GET /api/me` | **OPERADOR** (filtro MADRE; si el email logueado matchea un operador arranca autoscopeado) · **NIVEL 1 / NIVEL 2 / NIVEL 3 / NIVEL 5** (solo en TOTAL; **multi-select** con buscador — mismo `MultiSelect` que la barra de `/operadores`. Adentro de un nivel los valores van con OR, entre niveles con AND, y todo intersecta con OPERADOR. Se **cruzan**: cada desplegable ofrece sólo lo que convive con lo elegido en los otros, contra los combos de `/niveles`. Botón `LIMPIAR` cuando hay alguno activo) · **CARTERA** (solo en TOTAL; **multi-select**. Ojo: NO es un nivel — los niveles eligen CUENTAS y CARTERA elige POSICIONES dentro de ellas, así que viaja como param propio de `total-serie`/`total-snapshot` y no por `scope_aum`. Recorta el chart, el leaderboard y el TOTAL a la vez; las opciones salen de `/carteras`, que sólo ofrece las que existen en la foto dentro del scope puesto) · **FECHA** (select de todas las fechas de la serie; también se setea clickeando el chart) · **MONEDA** ARS/USD · **CUENTAS** (`todas`/`accionistas`/`sin_accionistas`/`cooperativas`/`productores`) · rango del chart client-side `1M/3M/6M/YTD/ALL` · click en cartera del leaderboard (toggle) = **drill-down**, no filtro: pinea UNA cartera y sólo afecta al panel DETALLE (el filtro CARTERA de la barra, en cambio, recorta también chart y TOTAL) · click en fila POR CUENTA / POR ASSET = pin (toggle, se cruzan con AND) · dos buscadores substring · botón `↺` | **Export .xlsx** con 2 hojas (`Por Cuenta`, `Por Asset`), refleja los filtros activos; archivo `aum-detalle-<fecha>-<ts>.xlsx` |
 | **FCI** (`?tab=fci`) | Chart EVOLUCIÓN FCI + leaderboard por **SOC. GERENTE** (emisor) + DETALLE con cards por ticker/fondo y sus cuentas | `/portfolio/fci-serie`, `/fci-snapshot` | OPERADOR · CUENTAS · rango client-side · click en soc. gerente · `DateStepper` ◀▶. **NO tiene selector de MONEDA ni filtros de NIVEL**; el snapshot FCI **no soporta "última fecha"** (`fecha` requerida) | Sólo lectura, **sin export** |
 | **ANÁLISIS DE DINERO** | Diferencia de saldo por cuenta entre dos fechas: 3 KPIs (TOTAL DIFERENCIA, CUENTAS NUEVAS, CUENTAS CERRADAS) + tabla ordenable con tags `NUEVA`/`CERRADA` | `/portfolio/diff` (+ la serie solo para poblar fechas) | **PLAZO**: `DÍA ANTERIOR`/`−7 DÍAS`/`−1 MES`/`MTD`/`YTD`/`CUSTOM` (los presets resuelven client-side la fecha disponible más cercana ≤ target); si CUSTOM, dos selects · **MONEDA** · **OPERADOR** heredado · orden client-side. **No pasa `cuenta_filter`** (el proxy lo acepta, el componente no lo manda) | Sólo lectura, sin export |
 
-**Endpoints (`carteras.py` — 11, TODOS GET; el router no tiene un solo POST/PUT/PATCH/DELETE)**:
+**Endpoints (`carteras.py` — 12, TODOS GET; el router no tiene un solo POST/PUT/PATCH/DELETE)**:
 `/niveles` (combos operador × nivel_1/2/3/5 de las comitentes activas — pueblan y CRUZAN los filtros
 madre de AUM; reemplazó a `/niveles-1`, que devolvía una lista suelta y no permitía cruzar) ·
+`/carteras` (carteras presentes en el AuM de la última foto, con # de posiciones; pasa por
+`scope_aum` para no ofrecer una cartera que con ese scope no devuelve ninguna fila) ·
 `/operadores` · `/aum` (filas crudas de `portafolio.tenencia`; `id_cuenta`, `unidad`,
 `cuenta`, `desde`, `hasta`, `ultimo` + `scope`; 403 fuera de scope) · `/pnl` (`id_cuenta` req, gate
 `verificar_id_cuenta`) · `/pnl-todas` (**lee cache**, no recalcula; `filtro_cuenta` + `scope`) ·
@@ -2746,10 +2748,10 @@ GET `/accionistas` · `/contrapartes` — **ninguno escribe**
 | **DELETE** | `/ops/{op_id}` | **✍** (allowlist) |
 | **PUT** | `/tc` | **✍** (allowlist) |
 
-### `carteras.py` — `/api/portfolio`, módulo `portfolios` (11)
-GET `/niveles` · `/operadores` · `/aum` (**sin consumidor**) · `/pnl` · `/pnl-todas` · `/cuentas` ·
+### `carteras.py` — `/api/portfolio`, módulo `portfolios` (12)
+GET `/niveles` · `/carteras` · `/operadores` · `/aum` (**sin consumidor**) · `/pnl` · `/pnl-todas` · `/cuentas` ·
 `/fci-serie` · `/fci-snapshot` · `/total-serie` · `/total-snapshot` · `/diff`
-— **11, NINGUNO escribe** (el router no tiene un solo verbo de escritura)
+— **12, NINGUNO escribe** (el router no tiene un solo verbo de escritura)
 
 ### `valuaciones.py` — `/api/valuaciones`, módulo `portfolios` (7)
 GET `/consolidado` · `/{id}/serie` · `/{id}/mensual` · `/{id}/movimientos` · `/{id}/variacion` ·

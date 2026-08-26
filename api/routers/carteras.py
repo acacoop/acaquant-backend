@@ -107,6 +107,15 @@ def niveles() -> dict:
         ]}
 
 
+@router.get("/carteras")
+def carteras(scope: tuple[str, ...] | None = Depends(scope_aum)) -> dict:
+    """Carteras presentes en el AuM (última foto) — opciones del filtro CARTERA de la
+    vista AUM. Pasa por `scope_aum`, así la lista respeta el scope de grupos del
+    usuario y el operador/niveles que tenga puestos: ofrecer una cartera que su
+    scope no puede mostrar es ofrecer una pantalla vacía."""
+    return svc_sql.carteras_aum(scope=scope)
+
+
 @router.get("/operadores")
 def operadores():
     """Operadores para el filtro madre de la vista AUM (email, nombre, # cuentas)."""
@@ -294,12 +303,15 @@ def total_serie(
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
     moneda: str = Query("ARS", description="ARS | USD — USD divide por MEP de cada fecha"),
+    cartera: list[str] | None = Query(
+        None, description="Filtro madre de la vista AUM: CARTERA(s) — multi, repetir el param"
+    ),
     scope: tuple[str, ...] | None = Depends(scope_aum),
 ):
     """Serie histórica del AuM total agrupado por CARTERA."""
     return svc_sql.total_serie(
         desde=desde, hasta=hasta,
-        cuenta_filter=cuenta_filter, moneda=moneda, scope=scope,
+        cuenta_filter=cuenta_filter, moneda=moneda, scope=scope, cartera=cartera,
     )
 
 
@@ -330,9 +342,12 @@ def total_snapshot(
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
     moneda: str = Query("ARS", description="ARS | USD — USD divide por MEP de la fecha"),
+    cartera: list[str] | None = Query(
+        None, description="Filtro madre de la vista AUM: CARTERA(s) — multi, repetir el param"
+    ),
     scope: tuple[str, ...] | None = Depends(scope_aum),
 ):
     """Snapshot del AuM total en una fecha (todas las unidades, by cartera)."""
     return svc_sql.total_snapshot(
-        fecha=fecha, cuenta_filter=cuenta_filter, moneda=moneda, scope=scope,
+        fecha=fecha, cuenta_filter=cuenta_filter, moneda=moneda, scope=scope, cartera=cartera,
     )

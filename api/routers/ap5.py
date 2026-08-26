@@ -8,10 +8,10 @@ incidente nadie sepa cuál de los dos números manda.
 Se monta en `api/main.py` con el gate del módulo `operaciones` (trader + admin),
 que es el mismo que ya protege la vista NEGOCIO donde vive la tab.
 
-⚠️ **La ESCRITURA no suma un gate propio**: el `grupo` de una cuenta y el
-arrastre del acumulado los carga la MESA, que es exactamente quien tiene el
+⚠️ **La ESCRITURA no suma un gate propio**: el `grupo` de una cuenta —lo único
+que se carga a mano acá— lo pone la MESA, que es exactamente quien tiene el
 módulo `operaciones`. Si mañana hay que angostarlo (allowlist per-usuario, como
-Mesa de Dinero), se cambia `_ESCRIBE` y lo heredan los cinco endpoints — el
+Mesa de Dinero), se cambia `_ESCRIBE` y lo heredan todos los endpoints — el
 punto de control queda en UN solo lugar y no repartido por handler.
 
 Thin HTTP plumbing: TODA la lógica y toda fórmula derivada viven en
@@ -97,28 +97,3 @@ def guardar_cuenta(body: CuentaIn, actor: str = _ESCRIBE) -> dict:
     """
     return _ok(_svc.guardar_cuenta, body.account,
                name=body.name, grupo=body.grupo, por=actor)
-
-
-class AcumuladoIn(BaseModel):
-    account: str = Field(..., min_length=1)
-    # Las dos monedas SIEMPRE, en columnas separadas. No hay un campo `moneda`
-    # con un importe: eso permitiría cargar una y dejar la otra sin saber si
-    # está en cero o sin cargar. Y no hay un total: no existe: el agro liquida
-    # en Dólar MtR y el dólar futuro en Pesos, y sumarlos no significa nada.
-    acumulado_pesos: float = 0
-    acumulado_mtr: float = 0
-    # EXCLUSIVA: los importes ya contienen todo hasta ese día inclusive.
-    fecha: str = Field(..., description="'YYYY-MM-DD'; hasta acá llegan los dos importes")
-
-
-@router.post("/acumulado")
-def guardar_acumulado(body: AcumuladoIn, actor: str = _ESCRIBE) -> dict:
-    """El ARRASTRE de una cuenta, en sus dos monedas.
-
-    La cámara manda la diferencia DEL DÍA, no el arrastre: lo anterior a nuestra
-    serie solo existe en la planilla de la mesa y se carga acá una vez. De ahí en
-    adelante el acumulado se mueve solo — **no se persiste, se deriva** en la
-    lectura (misma decisión que el histórico de `/aca`).
-    """
-    return _ok(_svc.guardar_acumulado, body.account, body.acumulado_pesos,
-               body.acumulado_mtr, body.fecha, por=actor)

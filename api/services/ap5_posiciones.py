@@ -21,9 +21,9 @@ como atajo: dentro de `Tn` conviven multiplicadores de 100, 10 y 5.
 Pesos. Todo total viaja partido por moneda; no existe un "total general".
 
 **3. La diferencia del día ES `daily_settlement`.** No se calcula: la manda la
-cámara. El acumulado sí se deriva (arrastre cargado + Σ de los días posteriores), igual
-que el histórico de `/aca` — un acumulado guardado puede contradecir a sus
-insumos y ahí no hay forma de saber cuál está bien.
+cámara. ⚠️ **`daily_settlement` YA VIENE ACUMULADO**: el ACUMULADO de una cuenta
+es la Σ de ese campo en la última corrida, y la DIARIA es `hoy − ayer`. Por eso
+`ap5.portfolio` guarda DOS días y ni uno más.
 
 **4. Lo que no encaja NO se esconde.** Un símbolo sin multiplicador, una cuenta
 sin nombre o una unidad nueva salen declarados en la respuesta. La alternativa
@@ -92,17 +92,6 @@ MONEDAS = {"Pesos": "acumulado_pesos", "Dólar MtR": "acumulado_mtr"}
 # El arrastre que corresponde a la moneda de la fila. Un CASE y no un COALESCE:
 # si la moneda no es ninguna de las dos, queda NULL (= sin arrastre conocido) y
 # no se le presta el de la otra.
-def _por_moneda(pesos: str, mtr: str) -> str:
-    """La columna que le corresponde a la moneda de la fila. NUNCA la otra, ni
-    la suma: el agro liquida en Dólar MtR y el dólar futuro en Pesos."""
-    return (f"CASE p.settlement_currency "
-            f"WHEN 'Pesos' THEN a.{pesos} WHEN 'Dólar MtR' THEN a.{mtr} END")
-
-
-_ARRASTRE_SQL = _por_moneda("acumulado_pesos", "acumulado_mtr")
-_MOVIMIENTO_SQL = _por_moneda("movimiento_pesos", "movimiento_mtr")
-_TOTAL_SQL = _por_moneda("total_pesos", "total_mtr")
-
 # La familia decide la TAB — y son SOLO DOS: agro (trigo, soja, maíz: todo lo
 # que se mide en toneladas) y dólar futuro.
 #
@@ -276,10 +265,7 @@ def rankings(filas: list[dict]) -> list[dict]:
             # `importe` ES el acumulado: es lo que el ranking ordena.
             "importe": r["acumulado"],
             "diaria": r["diaria"],
-            # Lo que el modal necesita para editar sin ir a buscarlo aparte.
-            "arrastre": r["arrastre"],
-            "cargado": r["cargado"],
-            "fecha_arrastre": r["fecha_arrastre"],
+            "acumulado_ayer": r["acumulado_ayer"],
         })
 
     salida = []
@@ -302,7 +288,6 @@ def rankings(filas: list[dict]) -> list[dict]:
             "total_positivo": round(sum(i["importe"] for i in positivos), 2),
             "total_negativo": round(sum(i["importe"] for i in negativos), 2),
             "cuentas": len(items),
-            "sin_cargar": sum(1 for i in items if not i["cargado"]),
             # Cuántas filas tiene el ranking COMO MÁXIMO. Viaja para que la
             # pantalla reserve ese alto aunque haya menos cuentas: si cada panel
             # se encogiera a su cantidad de filas, Cooperativas y MUNDO ACA
@@ -479,85 +464,73 @@ def agrupar_consolidado(filas: list[dict]) -> list[dict]:
     return salida
 
 
-def acumulado(fecha: str) -> list[dict]:
-    """El acumulado por cuenta y moneda: el ARRASTRE cargado + Σ de lo posterior.
+def acumulado(fecha: str, fecha_anterior: str | None = None) -> list[dict]:
+    """El ACUMULADO por cuenta y moneda, y la DIARIA como hoy − ayer.
 
-    El arrastre sale de `ap5.acumulado`, que tiene **una fila por cuenta y una
-    columna por moneda** (`acumulado_pesos` / `acumulado_mtr`). Cada fila de acá
-    toma la columna que le corresponde a SU moneda — nunca la otra, ni la suma
-    de las dos: el agro liquida en Dólar MtR y el dólar futuro en Pesos, y
-    sumarlos daría un número sin significado.
+    ⚠️⚠️ **`daily_settlement` YA VIENE ACUMULADO de la cámara.** Es el hecho que
+    define todo este modelo, y no es obvio: el campo se llama «daily» pero lo que
+    manda es el acumulado de la posición. Por eso::
 
-    ⚠️ **`fecha` es EXCLUSIVA**: el arrastre ya contiene todo hasta ese día
-    inclusive, así que se suman los días POSTERIORES. Incluirlo lo contaría dos
-    veces; y ponerle el primer día de la serie haría que ese día deje de contar.
+        ACUMULADO(cuenta) = Σ daily_settlement de la ÚLTIMA corrida
+        DIARIA(cuenta)    = ACUMULADO(hoy) − ACUMULADO(ayer)
 
-    ⚠️ **`actualizado` en NULL = nadie lo cargó.** No es lo mismo que un
-    arrastre de cero, y la diferencia importa: esta vista se imprime para
-    gerencia, donde un cero que nadie escribió se lee igual que uno verificado.
+    Es exactamente la query que la mesa usa para verificar, sin nada encima.
 
-    ⚠️ **El total se LEE de `ap5.acumulado.total_*`, no se suma acá.** Lo calcula
-    el job en una sola sentencia (`arrastre + Σ daily_settlement`) y lo guarda.
-    Antes se derivaba en cada lectura: el número era correcto pero **no había
-    forma de auditarlo** — para saber por qué una cuenta mostraba lo que mostraba
-    había que rehacer la suma a mano. Ahora las tres piezas están en la tabla y
-    la cuenta se verifica a ojo.
+    **Qué había antes y por qué daba distinto**: se hacía `arrastre cargado + Σ
+    de los días posteriores`, o sea se trataba a `daily_settlement` como si fuera
+    el movimiento del día. Sobre un campo que ya es acumulado, eso suma dos veces
+    la misma plata — y no falla nada: el número sale más grande y plausible, y el
+    ranking queda en otro orden. Se descubrió comparando UNA cuenta contra la
+    query (2026-08-26).
 
-    Lo que hace seguro guardarlo es que el job **recalcula el movimiento entero**
-    en cada corrida en vez de acumularlo: correr cuatro veces el mismo día deja
-    el mismo número. Un acumulador que suma lo del día al valor guardado daría el
-    cuádruple y no fallaría nada.
+    **Por eso `ap5.portfolio` necesita DOS días y ni uno más**: uno para el
+    acumulado, el anterior para poder restar. Los días más viejos no aportan.
     """
     filas = _q(
         f"""
-        SELECT p.account AS cuenta,
-               {_NOMBRE_SQL} AS nombre,
+        WITH hoy AS (
+            SELECT account, settlement_currency AS moneda,
+                   {_FAMILIA_SQL} AS familia,
+                   sum(daily_settlement) AS acumulado
+            FROM ap5.portfolio p
+            WHERE business_date = %(f)s
+            GROUP BY 1, 2, 3
+        ), ayer AS (
+            SELECT account, settlement_currency AS moneda,
+                   sum(daily_settlement) AS acumulado
+            FROM ap5.portfolio p
+            WHERE %(a)s::date IS NOT NULL AND business_date = %(a)s::date
+            GROUP BY 1, 2
+        )
+        SELECT h.account AS cuenta,
+               COALESCE(NULLIF(c.name, ''), NULLIF(c.denominacion, ''), h.account) AS nombre,
                COALESCE(NULLIF(c.grupo, ''), %(sin)s) AS grupo,
-               p.settlement_currency AS moneda,
-               {_FAMILIA_SQL} AS familia,
-               {_ARRASTRE_SQL} AS arrastre,
-               to_char(a.fecha, 'YYYY-MM-DD') AS fecha_arrastre,
-               a.actualizado,
-               {_MOVIMIENTO_SQL} AS movimiento,
-               {_TOTAL_SQL} AS acumulado,
-               a.movimiento_dias AS dias,
-               to_char(a.movimiento_desde, 'YYYY-MM-DD') AS desde,
-               to_char(a.movimiento_hasta, 'YYYY-MM-DD') AS hasta,
-               sum(p.daily_settlement) FILTER (WHERE p.business_date = %(f)s) AS diaria
-        FROM ap5.portfolio p
-        LEFT JOIN ap5.cuentas c   ON c.account = p.account
-        LEFT JOIN ap5.acumulado a ON a.account = p.account
-        WHERE p.business_date <= %(f)s
-        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+               h.moneda, h.familia,
+               h.acumulado,
+               y.acumulado AS acumulado_ayer
+        FROM hoy h
+        LEFT JOIN ap5.cuentas c ON c.account = h.account
+        LEFT JOIN ayer y ON y.account = h.account AND y.moneda = h.moneda
         ORDER BY 2, 4
         """,
-        {"f": fecha, "sin": SIN_GRUPO},
+        {"f": fecha, "a": fecha_anterior, "sin": SIN_GRUPO},
     )
     salida = []
     for r in filas:
-        arrastre = _f0(r["arrastre"])
-        movimiento = _f0(r["movimiento"])
+        acum = _f0(r["acumulado"])
+        ayer = r["acumulado_ayer"]
         salida.append({
             "cuenta": r["cuenta"],
             "nombre": r["nombre"],
             "grupo": r["grupo"],
             "moneda": r["moneda"],
             "familia": r["familia"],
-            "arrastre": round(arrastre, 2),
-            # Lo puso una PERSONA, o todavía nadie. Un arrastre en 0 sin cargar
-            # y uno en 0 verificado dan el mismo número y son cosas distintas.
-            "cargado": r["actualizado"] is not None,
-            "fecha_arrastre": r["fecha_arrastre"],
-            "actualizado": r["actualizado"].isoformat() if r["actualizado"] else None,
-            "movimiento": round(movimiento, 2),
-            # ⚠️ Se LEE de la tabla, no se suma acá. El job lo calcula y lo
-            # guarda; si lo recalculáramos en la lectura, la pantalla podría
-            # decir un número y la tabla otro, y no habría cómo saber cuál manda.
-            "acumulado": round(_f0(r["acumulado"]), 2),
-            "movimiento_dias": int(r["dias"] or 0),
-            "movimiento_desde": r["desde"],
-            "movimiento_hasta": r["hasta"],
-            "diaria": round(_f0(r["diaria"]), 2),
+            "acumulado": round(acum, 2),
+            # ⚠️ `None` cuando NO hay día anterior — distinto de 0. Una cuenta
+            # nueva y una que no se movió dan el mismo cero, y no son lo mismo:
+            # esta vista se imprime.
+            "diaria": (round(acum - _f0(ayer), 2) if ayer is not None else None),
+            "acumulado_ayer": (round(_f0(ayer), 2) if ayer is not None else None),
         })
     return salida
 
@@ -604,12 +577,6 @@ def _faltantes(fecha: str) -> dict:
         # Cuentas cuyo ARRASTRE no cargó nadie (`actualizado` en NULL o sin
         # fila). Un cero que nadie escribió se lee igual que uno verificado, y
         # esta vista se imprime.
-        "cuentas_sin_cargar": _q(
-            "SELECT count(DISTINCT p.account) AS n FROM ap5.portfolio p "
-            "LEFT JOIN ap5.acumulado a ON a.account = p.account "
-            "WHERE p.business_date = %(f)s AND a.actualizado IS NULL",
-            {"f": fecha},
-        )[0]["n"],
     }
 
 
@@ -743,10 +710,9 @@ def actualizado(fecha: str) -> dict:
     el AV AGENT muestra la última corrida de cada habilidad al lado de sus
     hallazgos.
 
-    Son TRES relojes distintos y por eso se muestran separados: la posición y
-    los márgenes los trae el job de las 10, y el arrastre lo carga una persona
-    cuando puede. Un solo «actualizado» tendría que elegir uno y taparía a los
-    otros dos.
+    Son DOS relojes distintos y por eso se muestran separados: la posición y los
+    márgenes los trae el mismo job, pero uno puede fallar y el otro no. Un solo
+    «actualizado» tendría que elegir uno y taparía al otro.
     """
     r = _q(
         """
@@ -754,15 +720,13 @@ def actualizado(fecha: str) -> dict:
                 WHERE business_date = %(f)s)                    AS posicion,
                (SELECT max(actualizado_at) FROM ap5.margenes
                 WHERE fecha = %(f)s)                            AS margenes,
-               (SELECT max(actualizado)    FROM ap5.acumulado)  AS arrastre
         """,
         {"f": fecha},
     )
     d = r[0] if r else {}
     return {k: (v.isoformat() if v else None)
             for k, v in (("posicion", d.get("posicion")),
-                         ("margenes", d.get("margenes")),
-                         ("arrastre", d.get("arrastre")))}
+                         ("margenes", d.get("margenes")))}
 
 
 def vista(fecha: str | None = None) -> dict:
@@ -787,7 +751,7 @@ def vista(fecha: str | None = None) -> dict:
     # UNA sola vez, y de ahí salen las DOS cosas que hablan de lo mismo: la tabla
     # de acumulado y el ranking que la ordena. Calcularlo dos veces sería abrir
     # la puerta a que se contradigan.
-    filas_acum = acumulado(hoy)
+    filas_acum = acumulado(hoy, anterior)
 
     return {
         "fecha": hoy,
@@ -840,42 +804,6 @@ def guardar_cuenta(account: str, *, name: str | None = None,
         cur.execute(f"UPDATE ap5.cuentas SET {', '.join(sets)} WHERE account = %(account)s",
                     params)
     return {"ok": True, "account": account}
-
-
-def guardar_acumulado(account: str, acumulado_pesos: float, acumulado_mtr: float,
-                      fecha: str, *, por: str = "") -> dict:
-    """El ARRASTRE de una cuenta, en sus DOS monedas.
-
-    Una fila por cuenta y las dos monedas juntas: el agro liquida en Dólar MtR y
-    el dólar futuro en Pesos, y tenerlas en columnas separadas es lo que impide
-    que alguien las sume.
-
-    ⚠️ **`fecha` es EXCLUSIVA**: los dos importes ya contienen todo hasta ese día
-    inclusive, y el sistema suma los días POSTERIORES. Ponerle el primer día de
-    la serie haría que ese día deje de contar y el acumulado bajaría sin que nada
-    falle.
-
-    `actualizado` se sella acá — es lo que distingue un arrastre que puso una
-    persona de un cero que dejó el sembrador.
-    """
-    if not fecha:
-        return {"ok": False, "motivo": "la fecha es obligatoria"}
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO ap5.acumulado (account, acumulado_pesos, acumulado_mtr, "
-            "fecha, actualizado, cargado_por) "
-            "VALUES (%(a)s, %(p)s, %(m)s, %(f)s, now(), %(por)s) "
-            "ON CONFLICT (account) DO UPDATE SET "
-            "acumulado_pesos = EXCLUDED.acumulado_pesos, "
-            "acumulado_mtr = EXCLUDED.acumulado_mtr, "
-            "fecha = EXCLUDED.fecha, actualizado = now(), "
-            "cargado_por = EXCLUDED.cargado_por",
-            {"a": account, "p": acumulado_pesos, "m": acumulado_mtr,
-             "f": fecha, "por": por},
-        )
-    return {"ok": True, "account": account}
-
-
 def cuentas() -> list[dict]:
     """El padrón para el ABM: número, los DOS nombres y el grupo."""
     return [

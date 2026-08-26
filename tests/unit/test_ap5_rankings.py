@@ -13,7 +13,7 @@ def _f(**kw):
     base = {
         "familia": "agro", "grupo": "COOPERATIVAS", "cuenta": "1",
         "nombre": "COOP", "moneda": "Dólar MtR", "acumulado": 100.0,
-        "diaria": 1.0, "cargado": True, "arrastre": 0.0, "fecha_arrastre": None,
+        "diaria": 1.0, "acumulado_ayer": 99.0,
     }
     return {**base, **kw}
 
@@ -148,18 +148,24 @@ def test_el_acumulado_en_CERO_no_entra_a_ningun_lado():
     assert [i["cuenta"] for i in r["positivos"]] == ["B"]
 
 
-def test_la_cuenta_SIN_ARRASTRE_CARGADO_se_cuenta():
-    """Un acumulado sin arrastre cargado está INCOMPLETO, y en un ranking eso
-    importa el doble: la cuenta puede estar en el puesto equivocado.
-
-    `cargado` es que una PERSONA selló `actualizado`. Una fila con los dos
-    importes en 0 que dejó el sembrador NO cuenta como cargada: un cero que
-    nadie escribió se lee igual que uno verificado, y esto se imprime."""
+def test_la_DIARIA_viaja_pero_NO_ordena():
+    """El ranking es por acumulado. La diaria va en la fila porque la mesa la
+    mira, pero ordenar por ella pondría arriba a la que más se movió hoy en vez
+    de a la que más debe — y las dos listas se ven igual de plausibles."""
     r = rankings([
-        _f(cuenta="A", acumulado=50.0, cargado=True),
-        _f(cuenta="B", acumulado=90.0, cargado=False),
+        _f(cuenta="A", acumulado=90.0, diaria=1.0),
+        _f(cuenta="B", acumulado=50.0, diaria=999.0),
     ])[0]
-    assert r["sin_cargar"] == 1
+    assert [i["cuenta"] for i in r["positivos"]] == ["A", "B"]
+    assert r["positivos"][0]["diaria"] == 1.0
+
+
+def test_sin_dia_anterior_la_diaria_es_None_y_no_CERO():
+    """Una cuenta nueva y una que no se movió dan el mismo cero, y no son lo
+    mismo. Esta vista se imprime."""
+    r = rankings([_f(cuenta="A", acumulado=90.0, diaria=None,
+                     acumulado_ayer=None)])[0]
+    assert r["positivos"][0]["diaria"] is None
 
 
 def test_sin_filas_no_revienta():

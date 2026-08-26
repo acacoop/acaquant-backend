@@ -102,13 +102,20 @@ $824 MM de volumen falso de este lado, corrido a la casa del cliente.
 
 ### Decisiones del payload
 
-- **Montos como texto decimal**, nunca float: JSON no tiene decimales y un
-  `float` pierde centavos que nadie nota hasta la conciliación.
+- **Montos y cantidades como NÚMERO JSON** (decisión del user, 2026-08-26): un
+  número es un número, el consumidor lo suma sin parsear, y es lo que hacen las
+  APIs del rubro (1816 incluida). El riesgo del punto flotante es la deriva al
+  sumar muchos decimales, y a nuestras magnitudes es de centavos sobre millones
+  (un entero es exacto hasta 2^53 ≈ 9.007e15). Documentado para el consumidor:
+  si concilia sumando decenas de miles de filas, que sume en centavos.
 - **`arancel_moneda: "ARS"` viaja explícito** aunque sea siempre ARS
   (`sql/schema.sql:270`): el contrato se explica solo.
-- **`segmento` y `nivel_3` NO se exponen** — son nuestra clasificación comercial
-  interna, no un dato de su operación. Default-deny: agregar se puede; sacar lo
-  que ya se entregó, no.
+- **`segmento`, `nivel_3` y `es_cierre` NO se exponen.** Los dos primeros son
+  nuestra clasificación comercial interna. El tercero es una marca nuestra —es
+  literalmente `"CIERRE" in tipo_operacion` (`operaciones_informes.py:313`)—, así
+  que sacarlo no le quita información a nadie: el dato ya viaja en
+  `tipo_operacion`, con el nombre real de la operación en vez de un booleano de
+  nuestra cocina. Default-deny: agregar se puede; sacar lo que ya se entregó, no.
 - **`tasa`**: sólo boletos MAV, en PORCENTAJE (6 = 6%). `null` ≠ `0`.
 - **No se devuelve un total** de filas: contar el universo en cada página es caro
   y no aporta. El contrato es `hay_mas` + `siguiente_cursor`.

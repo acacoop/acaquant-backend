@@ -68,10 +68,13 @@ posterior.
 
 ## Cómo reproducir nuestros totales
 
-* El **volumen** operado excluye las filas con `es_cierre: true`.
-* El **arancel** de una caución vive **sólo** en su cierre, así que para sumar
-  aranceles esas filas **sí** entran.
-* Los importes viajan como **texto decimal** para que no pierdan precisión.
+* Las cauciones aparecen dos veces: la **apertura** y su **cierre**
+  (`tipo_operacion` lo dice). El **volumen** operado cuenta sólo la apertura; el
+  **arancel** de la caución, en cambio, viene **en el cierre**. Si sumás las dos
+  filas duplicás el volumen.
+* Los importes son números. Si vas a conciliar sumando decenas de miles de
+  filas, sumá en **centavos** (enteros): es la forma estándar de que no se
+  acumule la deriva decimal del punto flotante.
 """
 
 
@@ -99,21 +102,20 @@ class OperacionOut(BaseModel):
     instrumento: str | None
     tipo_operacion: str | None
     operacion: str | None = Field(description="Compra / Venta / Suscripción / Rescate / …")
-    cantidad: str | None = Field(description="Decimal como texto.")
-    bruto: str | None = Field(description="Monto bruto, decimal como texto, en `moneda`.")
+    cantidad: float | None
+    bruto: float | None = Field(description="Monto bruto de la operación, en `moneda`.")
     moneda: str | None
     mercado: str | None
-    tasa: str | None = Field(
+    tasa: float | None = Field(
         description="Sólo boletos MAV (pagarés/cheques): tasa en PORCENTAJE "
                     "(6 = 6%). `null` no es 0 — 0 sería una tasa real.")
-    mep: str | None = Field(
+    mep: float | None = Field(
         description="Tipo de cambio del día del boleto, para dolarizar con el "
                     "mismo número que usamos nosotros.")
-    es_cierre: bool = Field(description="Cierre de caución: excluilo del volumen.")
     etapa: str | None = Field(description="FCI bilateral: `solicitud` o `liquidacion`.")
     anulado: bool = Field(description="Si es `true`, dala de baja de tu lado.")
     actualizado_en: str | None = Field(description="Última modificación (UTC). Es el reloj del cursor.")
-    arancel: str | None = Field(default=None, description="Sólo si tu credencial lo incluye.")
+    arancel: float | None = Field(default=None, description="Sólo si tu credencial lo incluye.")
     arancel_moneda: str | None = Field(default=None, description="Siempre `ARS`.")
 
 

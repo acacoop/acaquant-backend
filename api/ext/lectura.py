@@ -44,10 +44,13 @@ from api.services.operaciones_sql import _ops_where
 _ACT = ("GREATEST(COALESCE(ingestado_en, to_timestamp(0)), "
         "COALESCE(anulado_en, to_timestamp(0)))")
 
-# Columnas que viajan SIEMPRE. Deliberadamente NO se exponen `segmento` ni
-# `nivel_3`: son nuestra clasificación comercial interna (cómo segmentamos al
-# cliente), no un dato de su operación. Default-deny — se puede agregar después;
-# lo que se entregó una vez no se saca.
+# Columnas que viajan SIEMPRE. Deliberadamente NO se exponen `segmento`,
+# `nivel_3` ni `es_cierre`: los dos primeros son nuestra clasificación comercial
+# interna (cómo segmentamos al cliente) y el tercero es una marca nuestra
+# —`"CIERRE" in tipo_operacion`, ver operaciones_informes.py:313—, así que el
+# dato ya viaja en `tipo_operacion`, con el nombre real de la operación en vez de
+# un booleano de nuestra cocina. Default-deny: agregar se puede; lo que se
+# entregó una vez, no se saca.
 _COLS = [
     "boleto",
     "to_char(concertacion, 'YYYY-MM-DD') AS fecha",
@@ -62,7 +65,6 @@ _COLS = [
     "mercado",
     "tasa",
     "mep",
-    "COALESCE(es_cierre, false) AS es_cierre",
     "etapa",
     "(anulado_en IS NOT NULL) AS anulado",
     f"{_ACT} AS actualizado_en",
@@ -100,14 +102,19 @@ def _iso(v) -> str | None:
     return str(v)
 
 
-def _dec(v) -> str | None:
-    """Montos como STRING decimal, nunca float.
+def _num(v) -> float | None:
+    """Montos y cantidades como NÚMERO JSON (decisión del user, 2026-08-26).
 
-    JSON no tiene decimales: un `float` de 64 bits no representa exacto ni 0.1,
-    así que un importe que va y vuelve por JSON puede perder centavos. Nadie lo
-    nota hasta que el accionista concilia y le da distinto por $0,03.
+    Un número es un número: el consumidor lo suma sin parsear y es lo que hacen
+    las APIs del rubro (1816 entre ellas). El riesgo real de los `float` es la
+    deriva al sumar MUCHOS decimales en binario (0.1+0.2 = 0.30000000000000004),
+    y a nuestras magnitudes es de centavos sobre millones: un entero es exacto
+    hasta 2^53 ≈ 9.007e15, muy por encima de cualquier boleto.
+
+    Está documentado para el consumidor en `docs/API_EXTERNA.md`: si concilia
+    sumando decenas de miles de filas, que sume en centavos (enteros).
     """
-    return None if v is None else format(v, "f")
+    return None if v is None else float(v)
 
 
 # ── lectura ──────────────────────────────────────────────────────────────────
@@ -204,23 +211,22 @@ def _fila(r: dict, con_arancel: bool) -> dict:
         "instrumento": r["instrumento"],
         "tipo_operacion": r["tipo_operacion"],
         "operacion": r["operacion"],
-        "cantidad": _dec(r["cantidad"]),
-        "bruto": _dec(r["bruto"]),
+        "cantidad": _num(r["cantidad"]),
+        "bruto": _num(r["bruto"]),
         "moneda": r["moneda"],
         "mercado": r["mercado"],
         # `tasa` es el "precio" de los boletos MAV (pagarés/cheques), en PORCENTAJE
         # (6 = 6%). null ≠ 0: 0 es una tasa real.
-        "tasa": _dec(r["tasa"]),
+        "tasa": _num(r["tasa"]),
         # TC del día del boleto, para que el consumidor pueda dolarizar con el
         # MISMO número que usamos nosotros y no con uno propio.
-        "mep": _dec(r["mep"]),
-        "es_cierre": bool(r["es_cierre"]),
+        "mep": _num(r["mep"]),
         "etapa": r["etapa"],
         "anulado": bool(r["anulado"]),
         "actualizado_en": _iso(r["actualizado_en"]),
     }
     if con_arancel:
-        out["arancel"] = _dec(r["arancel"])
+        out["arancel"] = _num(r["arancel"])
         out["arancel_moneda"] = "ARS"   # SIEMPRE ARS (sql/schema.sql:270). Viaja
                                         # explícito aunque sea fijo: el contrato
                                         # se explica solo y no hay que suponer.

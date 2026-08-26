@@ -215,12 +215,12 @@ def test_fila_sin_permiso_no_trae_arancel():
             "cuenta_nombre": "PEPITO", "instrumento": "AL30", "tipo_operacion": "C",
             "operacion": "Compra", "cantidad": decimal.Decimal("100"),
             "bruto": decimal.Decimal("1234.56"), "moneda": "ARS", "mercado": "BYMA",
-            "tasa": None, "mep": decimal.Decimal("1000"), "es_cierre": False,
+            "tasa": None, "mep": decimal.Decimal("1000"),
             "etapa": None, "anulado": False, "actualizado_en": None,
             "arancel": decimal.Decimal("9.99")}
     assert "arancel" not in lectura._fila(fila, con_arancel=False)
     con = lectura._fila(fila, con_arancel=True)
-    assert con["arancel"] == "9.99" and con["arancel_moneda"] == "ARS"
+    assert con["arancel"] == 9.99 and con["arancel_moneda"] == "ARS"
 
 
 # ── 6. la puerta de los anulados no quedó abierta para la mesa ───────────────
@@ -249,12 +249,28 @@ def test_el_lector_externo_usa_el_predicado_de_la_mesa():
 
 
 # ── 7. montos como texto decimal ─────────────────────────────────────────────
-def test_los_montos_no_viajan_como_float():
-    """JSON no tiene decimales: un float pierde centavos y nadie lo nota hasta
-    que el accionista concilia."""
-    v = lectura._dec(decimal.Decimal("0.10"))
-    assert isinstance(v, str) and v == "0.10"
-    assert lectura._dec(None) is None
+def test_los_montos_viajan_como_numero():
+    """Decisión del user: un número es un número. `null` sigue siendo `null` —
+    lo que NO puede pasar es que un dato ausente se convierta en 0."""
+    v = lectura._num(decimal.Decimal("1234.56"))
+    assert isinstance(v, float) and v == 1234.56
+    assert lectura._num(None) is None
+
+
+def test_no_se_expone_es_cierre():
+    """`es_cierre` es una marca NUESTRA (`"CIERRE" in tipo_operacion`,
+    operaciones_informes.py:313). El dato ya viaja en `tipo_operacion`; el
+    booleano interno no sale del sistema."""
+    fila = {"boleto": "B1", "fecha": "2026-08-01", "id_cuenta": "10452",
+            "cuenta_nombre": "PEPITO", "instrumento": "AL30",
+            "tipo_operacion": "Caución CIERRE", "operacion": "Compra",
+            "cantidad": None, "bruto": None, "moneda": "ARS", "mercado": "BYMA",
+            "tasa": None, "mep": None, "etapa": None, "anulado": False,
+            "actualizado_en": None, "arancel": None}
+    salida = lectura._fila(fila, con_arancel=True)
+    assert "es_cierre" not in salida
+    assert "segmento" not in salida and "nivel_3" not in salida
+    assert salida["tipo_operacion"] == "Caución CIERRE"   # la info sigue estando
 
 
 def test_cursor_va_y_vuelve():

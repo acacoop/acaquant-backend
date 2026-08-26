@@ -5379,6 +5379,41 @@ CREATE TABLE IF NOT EXISTS ap5.acumulado (
     cargado_por     text
 );
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- LAS TRES PIEZAS, GUARDADAS (2026-08-26) — para poder TRAZAR el número.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- El total se venía derivando en cada lectura. Funcionaba, pero para saber por
+-- qué una cuenta mostraba lo que mostraba había que rehacer la suma a mano —
+-- imposible detectar un error mirando la pantalla.
+--
+-- Ahora las tres piezas viven en la tabla y la cuenta se verifica a ojo:
+--
+--     acumulado_*   (el arrastre que cargó una persona)
+--   + movimiento_*  (Σ daily_settlement de lo que hay en ap5.portfolio)
+--   = total_*       ← ESTO es lo que muestra la vista
+--
+-- ⚠️ **`movimiento` y `total` se RECALCULAN ENTEROS en cada corrida**, no se
+-- acumulan. Es lo que los hace idempotentes sin ninguna guarda: el job puede
+-- correr cuatro veces el mismo día —lo hizo el 2026-08-25— y el número no se
+-- mueve. Un acumulador que suma lo del día al valor guardado daría el cuádruple
+-- y no fallaría nada.
+--
+-- ⚠️ **`movimiento` sale de `ap5.portfolio`**, así que depende de qué días haya
+-- ahí. Si se borran días, el movimiento BAJA. Por eso `movimiento_desde` /
+-- `movimiento_hasta` viajan con el número: sin ellos, un total más chico se ve
+-- igual que un día flojo.
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS movimiento_pesos numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS movimiento_mtr   numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS total_pesos      numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS total_mtr        numeric NOT NULL DEFAULT 0;
+-- Qué rango de días entró en `movimiento`. Sin esto, un total más chico porque
+-- se borraron días se ve idéntico a un total más chico porque no hubo movimiento.
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS movimiento_desde date;
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS movimiento_hasta date;
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS movimiento_dias  integer NOT NULL DEFAULT 0;
+ALTER TABLE ap5.acumulado ADD COLUMN IF NOT EXISTS calculado_at     timestamptz;
+
 -- MIGRACIÓN del modelo viejo (una fila por cuenta × moneda, con `semilla`) al
 -- nuevo (una fila por cuenta, dos columnas). Idempotente: solo corre si la tabla
 -- todavía tiene la columna `currency`.

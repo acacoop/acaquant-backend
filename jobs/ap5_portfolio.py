@@ -299,6 +299,69 @@ def _margenes(f: str, run_log, *, dry: bool = False) -> None:
     run_log.log(f"  ✓ {escritas} filas en ap5.margenes")
 
 
+# El acumulado, en UNA sentencia: arrastre + Σ daily_settlement = total.
+#
+# ⚠️ **Se RECALCULA ENTERO**, no se acumula. Es lo que lo hace idempotente sin
+# ninguna guarda: el job puede correr cuatro veces el mismo día —lo hizo el
+# 2026-08-25— y el número no se mueve. Un UPDATE que sumara lo del día al valor
+# guardado daría el cuádruple, y no fallaría nada.
+#
+# ⚠️ **La moneda decide la columna, y no se cruzan**: `Pesos` va a `_pesos` y
+# `Dólar MtR` a `_mtr`. El agro liquida en una y el dólar futuro en la otra;
+# sumarlas da un número que no significa nada.
+_SQL_ACUMULADO = """
+    WITH mov AS (
+        SELECT account,
+               sum(daily_settlement) FILTER (WHERE settlement_currency = 'Pesos')     AS pesos,
+               sum(daily_settlement) FILTER (WHERE settlement_currency = 'Dólar MtR') AS mtr,
+               min(business_date) AS desde, max(business_date) AS hasta,
+               count(DISTINCT business_date) AS dias
+        FROM ap5.portfolio
+        GROUP BY account
+    )
+    INSERT INTO ap5.acumulado AS a (
+        account, fecha, movimiento_pesos, movimiento_mtr,
+        total_pesos, total_mtr,
+        movimiento_desde, movimiento_hasta, movimiento_dias, calculado_at
+    )
+    SELECT m.account, %(f)s::date,
+           COALESCE(m.pesos, 0), COALESCE(m.mtr, 0),
+           COALESCE(m.pesos, 0), COALESCE(m.mtr, 0),
+           m.desde, m.hasta, m.dias, now()
+    FROM mov m
+    ON CONFLICT (account) DO UPDATE SET
+        movimiento_pesos = EXCLUDED.movimiento_pesos,
+        movimiento_mtr   = EXCLUDED.movimiento_mtr,
+        -- el arrastre que cargó una persona NO se toca: se suma
+        total_pesos      = a.acumulado_pesos + EXCLUDED.movimiento_pesos,
+        total_mtr        = a.acumulado_mtr   + EXCLUDED.movimiento_mtr,
+        movimiento_desde = EXCLUDED.movimiento_desde,
+        movimiento_hasta = EXCLUDED.movimiento_hasta,
+        movimiento_dias  = EXCLUDED.movimiento_dias,
+        calculado_at     = now()
+"""
+
+
+def _calcular_acumulado(f: str, run_log) -> None:
+    """`arrastre + Σ daily_settlement = total`, guardado. Ver `_SQL_ACUMULADO`.
+
+    Va DESPUÉS de escribir la posición, porque el movimiento sale de ahí.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(_SQL_ACUMULADO, {"f": f"{f[:4]}-{f[4:6]}-{f[6:8]}"})
+        n = cur.rowcount
+        cur.execute("SELECT count(*) FILTER (WHERE actualizado IS NOT NULL), "
+                    "       count(*), min(movimiento_desde), max(movimiento_hasta), "
+                    "       max(movimiento_dias) FROM ap5.acumulado")
+        con_arrastre, total, desde, hasta, dias = cur.fetchone()
+
+    run_log.set_stat("acumulado_cuentas", n)
+    run_log.set_stat("acumulado_con_arrastre", con_arrastre)
+    run_log.set_stat("acumulado_dias", dias)
+    run_log.log(f"  acumulado: {n} cuentas · movimiento de {dias} día(s) "
+                f"({desde} → {hasta}) · {con_arrastre}/{total} con arrastre cargado")
+
+
 def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool = False) -> None:
     with JobRunLogger(TIPO) as run_log:
         f = postrade.fecha_api(fecha) if fecha else ultimo_dia_habil()
@@ -392,6 +455,10 @@ def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool 
             run_log.set_stat("nombres_sin_resolver", len(fallidas))
             run_log.log(f"  ✓ {nombradas} nombres desde AccountDetails"
                         + (f" · {len(fallidas)} sin resolver" if fallidas else ""))
+
+        # arrastre + Σ daily_settlement = total. Después de las posiciones,
+        # porque el movimiento sale de las filas que se acaban de escribir.
+        _calcular_acumulado(f, run_log)
 
         # El requerimiento de márgenes, del MISMO día hábil. Va acá y no en un
         # job aparte porque es la misma fecha y la misma sesión de Postrade: dos

@@ -92,12 +92,16 @@ MONEDAS = {"Pesos": "acumulado_pesos", "Dólar MtR": "acumulado_mtr"}
 # El arrastre que corresponde a la moneda de la fila. Un CASE y no un COALESCE:
 # si la moneda no es ninguna de las dos, queda NULL (= sin arrastre conocido) y
 # no se le presta el de la otra.
-_ARRASTRE_SQL = """
-    CASE p.settlement_currency
-        WHEN 'Pesos'     THEN a.acumulado_pesos
-        WHEN 'Dólar MtR' THEN a.acumulado_mtr
-    END
-"""
+def _por_moneda(pesos: str, mtr: str) -> str:
+    """La columna que le corresponde a la moneda de la fila. NUNCA la otra, ni
+    la suma: el agro liquida en Dólar MtR y el dólar futuro en Pesos."""
+    return (f"CASE p.settlement_currency "
+            f"WHEN 'Pesos' THEN a.{pesos} WHEN 'Dólar MtR' THEN a.{mtr} END")
+
+
+_ARRASTRE_SQL = _por_moneda("acumulado_pesos", "acumulado_mtr")
+_MOVIMIENTO_SQL = _por_moneda("movimiento_pesos", "movimiento_mtr")
+_TOTAL_SQL = _por_moneda("total_pesos", "total_mtr")
 
 # La familia decide la TAB — y son SOLO DOS: agro (trigo, soja, maíz: todo lo
 # que se mide en toneladas) y dólar futuro.
@@ -492,9 +496,17 @@ def acumulado(fecha: str) -> list[dict]:
     arrastre de cero, y la diferencia importa: esta vista se imprime para
     gerencia, donde un cero que nadie escribió se lee igual que uno verificado.
 
-    El total NO se persiste: se deriva acá. Un acumulado guardado puede
-    contradecir a sus propios insumos y ahí no hay forma de saber cuál manda
-    (misma decisión que el histórico de `/aca`).
+    ⚠️ **El total se LEE de `ap5.acumulado.total_*`, no se suma acá.** Lo calcula
+    el job en una sola sentencia (`arrastre + Σ daily_settlement`) y lo guarda.
+    Antes se derivaba en cada lectura: el número era correcto pero **no había
+    forma de auditarlo** — para saber por qué una cuenta mostraba lo que mostraba
+    había que rehacer la suma a mano. Ahora las tres piezas están en la tabla y
+    la cuenta se verifica a ojo.
+
+    Lo que hace seguro guardarlo es que el job **recalcula el movimiento entero**
+    en cada corrida en vez de acumularlo: correr cuatro veces el mismo día deja
+    el mismo número. Un acumulador que suma lo del día al valor guardado daría el
+    cuádruple y no fallaría nada.
     """
     filas = _q(
         f"""
@@ -506,15 +518,17 @@ def acumulado(fecha: str) -> list[dict]:
                {_ARRASTRE_SQL} AS arrastre,
                to_char(a.fecha, 'YYYY-MM-DD') AS fecha_arrastre,
                a.actualizado,
-               sum(p.daily_settlement) FILTER (
-                   WHERE a.fecha IS NULL OR p.business_date > a.fecha
-               ) AS movimiento,
+               {_MOVIMIENTO_SQL} AS movimiento,
+               {_TOTAL_SQL} AS acumulado,
+               a.movimiento_dias AS dias,
+               to_char(a.movimiento_desde, 'YYYY-MM-DD') AS desde,
+               to_char(a.movimiento_hasta, 'YYYY-MM-DD') AS hasta,
                sum(p.daily_settlement) FILTER (WHERE p.business_date = %(f)s) AS diaria
         FROM ap5.portfolio p
         LEFT JOIN ap5.cuentas c   ON c.account = p.account
         LEFT JOIN ap5.acumulado a ON a.account = p.account
         WHERE p.business_date <= %(f)s
-        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
         ORDER BY 2, 4
         """,
         {"f": fecha, "sin": SIN_GRUPO},
@@ -536,7 +550,13 @@ def acumulado(fecha: str) -> list[dict]:
             "fecha_arrastre": r["fecha_arrastre"],
             "actualizado": r["actualizado"].isoformat() if r["actualizado"] else None,
             "movimiento": round(movimiento, 2),
-            "acumulado": round(arrastre + movimiento, 2),
+            # ⚠️ Se LEE de la tabla, no se suma acá. El job lo calcula y lo
+            # guarda; si lo recalculáramos en la lectura, la pantalla podría
+            # decir un número y la tabla otro, y no habría cómo saber cuál manda.
+            "acumulado": round(_f0(r["acumulado"]), 2),
+            "movimiento_dias": int(r["dias"] or 0),
+            "movimiento_desde": r["desde"],
+            "movimiento_hasta": r["hasta"],
             "diaria": round(_f0(r["diaria"]), 2),
         })
     return salida

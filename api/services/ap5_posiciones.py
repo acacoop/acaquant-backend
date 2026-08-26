@@ -852,6 +852,19 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
     ⚠️ **`dif_px` es del PRECIO, no del resultado.** En una posición vendida un
     precio que sube es una pérdida, y acá igual sale positivo: la columna dice
     cuánto se movió el precio, y el signo de la posición está en `cantidad`.
+
+    ⚠️ **`nocional` = contratos × multiplicador**, y el multiplicador sale de
+    `ap5.contratos`, NO de un 100 fijo. Dentro de `Tn` conviven 100 (`.ROS`), 10
+    (`.MIN`) y 5 (`.CME`): un 100 hardcodeado daría 20× de más en los contratos
+    de Chicago. Un símbolo sin multiplicador devuelve `nocional: None` —y no
+    cero— porque un cero es una posición que no existe, y ésta existe: lo que
+    falta es con qué convertirla.
+
+    ⚠️ **`diferencias` es `daily_settlement`, que YA VIENE ACUMULADO.** No es lo
+    que se movió hoy: es el acumulado de esa posición al día de la corrida. Se
+    informa con el nombre que usa la mesa, pero el que lo lea tiene que saber
+    qué es — la diferencia del día se obtiene restando contra el día anterior,
+    que es lo que hacen las otras vistas.
     """
     if cuenta not in AP5_CUENTAS_ACA:
         return {"cuenta": cuenta, "permitida": False, "filas": []}
@@ -863,11 +876,16 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
                p.unit_of_measure AS unidad,
                p.settlement_currency AS moneda,
                sum(p.long_qty) - sum(p.short_qty)          AS cantidad,
+               max(m.multiplicador)                        AS mult,
+               (sum(p.long_qty) - sum(p.short_qty)) * max(m.multiplicador)
+                                                           AS nocional,
+               sum(p.daily_settlement)                     AS diferencias,
                max(p.settlement_price)                     AS ajuste,
                sum(p.avg_px * (p.long_qty + p.short_qty))  AS px_pond,
                sum(p.long_qty + p.short_qty)               AS qty_abs,
                count(*)                                    AS patas
         FROM ap5.portfolio p
+        LEFT JOIN ap5.contratos m ON m.symbol = p.symbol
         WHERE p.business_date = %(f)s AND p.account = %(c)s
         GROUP BY 1, 2, 3, 4
         ORDER BY 2, 1
@@ -889,6 +907,16 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
             "unidad": r["unidad"],
             "moneda": r["moneda"],
             "cantidad": round(_f0(r["cantidad"]), 2),
+            # El TAMAÑO de la posición en su unidad: toneladas en el agro,
+            # dólares nominales en el dólar futuro. Es la MISMA cuenta
+            # (contratos × multiplicador) y sólo cambia cómo se rotula.
+            # `None` y NO cero cuando el símbolo no tiene multiplicador: un
+            # nocional en cero es una posición que no existe, y ésta existe —
+            # lo que falta es con qué convertirla.
+            "nocional": (None if r["mult"] is None
+                         else round(_f0(r["nocional"]), 2)),
+            "multiplicador": _f(r["mult"]),
+            "diferencias": round(_f0(r["diferencias"]), 2),
             "entrada": entrada,
             "ajuste": None if ajuste is None else round(ajuste, 4),
             "dif_px": dif,

@@ -53,6 +53,25 @@ def test_la_ventana_de_12_meses_incluye_el_mes_en_curso():
     assert C._menos_meses(date(2026, 7, 31), 11).replace(day=1) == date(2025, 8, 1)
 
 
+# ── Hasta dónde se cuenta el tiempo ──────────────────────────────────────────
+def test_los_dias_sin_operar_nunca_se_cuentan_contra_una_fecha_futura(monkeypatch):
+    """En el mes EN CURSO `fin` es el último día del mes, que todavía no llegó.
+
+    Sin el tope, un cliente que operó anteayer figuraba "lleva 20 días sin
+    operar" y entraba a SE ESTÁN APAGANDO por tiempo que no pasó — y el número
+    se agrandaba solo a medida que avanzaba el mes.
+    """
+    monkeypatch.setattr(C, "_hoy_art", lambda: date(2026, 8, 26))
+    assert C._hasta(date(2026, 8, 31)) == date(2026, 8, 26)      # mes en curso → hoy
+
+
+def test_un_mes_ya_cerrado_se_cuenta_contra_su_propio_fin(monkeypatch):
+    """La lista de julio tiene que decir lo que se veía el 31 de julio, no lo que
+    se ve hoy: si no, mirar un mes viejo daría un número distinto cada día."""
+    monkeypatch.setattr(C, "_hoy_art", lambda: date(2026, 8, 26))
+    assert C._hasta(date(2026, 7, 31)) == date(2026, 7, 31)
+
+
 # ── La mediana, que es lo que reemplaza al promedio ─────────────────────────
 def test_mediana():
     assert C._mediana([]) == 0.0

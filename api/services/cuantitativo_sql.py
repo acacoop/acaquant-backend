@@ -39,6 +39,7 @@ from api.services.comercial_sql import (
     _comitentes_where,
     _f,
     _fin_de_mes,
+    _hoy_art,
     _iso,
 )
 from api.services.profundidad_sql import _label, _parse_mes
@@ -236,6 +237,17 @@ def _quienes_importan(aranceles: dict[str, float], fin: date, ids_where: str, p0
 
 
 # ── LISTA 2 · SE ESTÁN APAGANDO ──────────────────────────────────────────────
+def _hasta(fin: date) -> date:
+    """Hasta dónde se cuenta el tiempo: `fin`, pero **nunca una fecha futura**.
+
+    En el mes en curso `fin` es el último día del mes —el 31— así que un cliente
+    que operó anteayer figuraba "hace 20 días" y entraba a la lista por un tiempo
+    que todavía no pasó. En un mes ya cerrado `fin` es pasado y manda él: la
+    lista de julio tiene que decir lo que se veía el 31 de julio.
+    """
+    return min(fin, _hoy_art())
+
+
 def _se_apagan(fin: date, ids_where: str, p0: dict, multiplo: float, min_dias: float,
                fi: dict, retiros: dict[str, float], factor) -> list[dict]:
     """Cada cliente tiene SU ritmo. Entra el que lleva más de `multiplo` veces lo
@@ -280,7 +292,7 @@ def _se_apagan(fin: date, ids_where: str, p0: dict, multiplo: float, min_dias: f
         n_dias, ritmo, ult = int(r["n_dias"]), float(r["ritmo"]), r["ult"]
         if n_dias < min_dias or ritmo <= 0:
             continue
-        dias_sin = (fin - ult).days
+        dias_sin = (_hasta(fin) - ult).days
         if dias_sin <= multiplo * ritmo:
             continue
         ret = retiros.get(idc, 0.0)

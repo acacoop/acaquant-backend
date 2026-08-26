@@ -1361,6 +1361,12 @@ ordenadas **por plata**, no por gravedad de la señal.
 - **El ritmo son DÍAS OPERADOS, no boletos** (cinco boletos el mismo día son una sola
   aparición) y es la **mediana** de los gaps del último año. Sin `min_dias_op` días
   distintos la cuenta NO entra: una mediana sobre 2 datos es basura.
+- ⚠️ **«Lleva sin operar» se cuenta hasta `_hasta(fin)` = `min(fin, hoy)`, nunca contra
+  una fecha futura.** En el mes EN CURSO `fin` es el último día del mes (el 31), así que
+  un cliente que operó anteayer figuraba *"lleva 20 días"* y entraba a la lista por
+  tiempo que todavía no pasó — y el número crecía solo a medida que avanzaba el mes. En
+  un mes ya cerrado manda `fin`: la lista de julio tiene que decir lo que se veía el 31
+  de julio, no un número distinto cada día. Congelado por test.
 - **PERDIERON AuM muestra hechos y NO los rotula.** Hubo una columna "QUÉ PASÓ" que
   etiquetaba cada fila (*se está yendo* / *fue mercado* / *se llevó los títulos*); se
   sacó porque eran inferencias con el mismo aspecto que los datos de al lado. Los cuatro
@@ -1371,6 +1377,15 @@ ordenadas **por plata**, no por gravedad de la señal.
 - El contexto (`n_operaron`, **mediana y promedio juntos**, top-10 %, `cuantos_80`) viaja
   siempre: *"SE ESTÁN APAGANDO 5"* no significa nada si no sabés que 17 clientes hacen el
   80 % de la facturación.
+- **«¿Cómo se interpretan los datos?» es un DICCIONARIO, y sale en modal**
+  (`cuantitativo-ayuda.tsx`): qué entra en la lista · qué significa cada columna ·
+  precisiones. **No dice qué hacer con las filas.** La primera versión sí lo hacía
+  (*"es una llamada para hoy"*, *"entrá por los grande irregular"*) y estaba mal por dos
+  motivos: le ponía a los datos un significado que el sistema no puede saber, y quedaba
+  desactualizada sola — seguía explicando la columna QUÉ PASÓ semanas después de que se
+  borrara de la tabla. Una definición envejece cuando cambia la columna; un consejo
+  envejece solo. Los cortes que el usuario mueve entran al texto como números: un texto
+  con el 80 % escrito fijo miente apenas alguien toca el corte.
 - **Los contadores NO se suman entre sí**: la misma cuenta puede estar en las tres, y ése
   es justo el cliente al que hay que llamar primero. Va escrito en `avisos`.
 - ⚠️ Universo y predicado de actividad son **los mismos que PROFUNDIDAD** (`comitentes`
@@ -1411,6 +1426,15 @@ de la REGLA #9**: solo se fusiona una fila cuyos boletos sean TODOS de cierre, l
 tiene que EXISTIR en el mismo resultado, y el destino no puede ser otro cierre. Lo que no
 se pudo emparejar queda solo y marcado `solo_arancel` — «no pude» ≠ «lo invento». Las
 fusiones aplicadas viajan en `fusiones` para poder auditarlas.
+
+**Cómo lo dibuja el modal** (`perfil-cliente-modal.tsx`, 1.280 px): la última operación
+en UNA línea chica (fecha · hace N días · tipo · instrumento · mercado — **sin importe ni
+arancel del boleto**: de un boleto suelto no dicen nada y eran lo que partía la línea en
+dos), después los dos gráficos lado a lado (arancel por mes | AuM a fin de mes, ejes Y
+separados) y abajo los dos inventarios lado a lado (**EN QUÉ OPERA** | **QUÉ TIENE HOY**,
+una fila por línea). Ninguno de los cuatro bloques ocupa el ancho entero: una barra
+estirada de punta a punta no agrega información, y el ancho que se llevaba es el que
+hacía que los nombres de las especies se cortaran hasta no distinguirse.
 
 ⚠️ **`ultima_op` no se acota al período NI cuenta los días contra él.** Los días van
 contra HOY: contra el fin del mes elegido, un mes en curso da días de más (el 31 todavía

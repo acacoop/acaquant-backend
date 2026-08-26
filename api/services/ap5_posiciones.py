@@ -719,7 +719,7 @@ def actualizado(fecha: str) -> dict:
         SELECT (SELECT max(actualizado_at) FROM ap5.portfolio
                 WHERE business_date = %(f)s)                    AS posicion,
                (SELECT max(actualizado_at) FROM ap5.margenes
-                WHERE fecha = %(f)s)                            AS margenes,
+                WHERE fecha = %(f)s)                            AS margenes
         """,
         {"f": fecha},
     )

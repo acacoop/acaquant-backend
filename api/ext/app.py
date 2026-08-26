@@ -99,7 +99,14 @@ class OperacionOut(BaseModel):
     fecha: str | None = Field(description="Fecha de concertación (AAAA-MM-DD).")
     cuenta: str | None
     cuenta_nombre: str | None
-    instrumento: str | None
+    ticker: str | None = Field(
+        description="Ticker del título. Es la forma de relacionar la operación "
+                    "con tu propio catálogo. Puede venir `null` si el título "
+                    "todavía no está en nuestro maestro — en ese caso usá "
+                    "`descripcion`.")
+    descripcion: str | None = Field(
+        description="Nombre completo de lo operado, tal como lo registramos. "
+                    "Respaldo de `ticker`, no un identificador.")
     tipo_operacion: str | None
     operacion: str | None = Field(description="Compra / Venta / Suscripción / Rescate / …")
     cantidad: float | None
@@ -112,7 +119,6 @@ class OperacionOut(BaseModel):
     mep: float | None = Field(
         description="Tipo de cambio del día del boleto, para dolarizar con el "
                     "mismo número que usamos nosotros.")
-    etapa: str | None = Field(description="FCI bilateral: `solicitud` o `liquidacion`.")
     anulado: bool = Field(description="Si es `true`, dala de baja de tu lado.")
     actualizado_en: str | None = Field(description="Última modificación (UTC). Es el reloj del cursor.")
     arancel: float | None = Field(default=None, description="Sólo si tu credencial lo incluye.")

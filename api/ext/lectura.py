@@ -45,18 +45,36 @@ _ACT = ("GREATEST(COALESCE(ingestado_en, to_timestamp(0)), "
         "COALESCE(anulado_en, to_timestamp(0)))")
 
 # Columnas que viajan SIEMPRE. Deliberadamente NO se exponen `segmento`,
-# `nivel_3` ni `es_cierre`: los dos primeros son nuestra clasificación comercial
-# interna (cómo segmentamos al cliente) y el tercero es una marca nuestra
-# —`"CIERRE" in tipo_operacion`, ver operaciones_informes.py:313—, así que el
-# dato ya viaja en `tipo_operacion`, con el nombre real de la operación en vez de
-# un booleano de nuestra cocina. Default-deny: agregar se puede; lo que se
-# entregó una vez, no se saca.
+# `nivel_3`, `es_cierre` ni `etapa`. Los dos primeros son nuestra clasificación
+# comercial interna (cómo segmentamos al cliente). `es_cierre` es una marca
+# nuestra —`"CIERRE" in tipo_operacion`, ver operaciones_informes.py:313—, así
+# que el dato ya viaja en `tipo_operacion` con el nombre real de la operación.
+# Y `etapa` (solicitud/liquidacion del FCI bilateral) es la mecánica con la que
+# NOSOTROS evitamos contar dos veces esos boletos: eso ya lo resuelve el
+# predicado antes de la respuesta, así que del otro lado sería jerga sin uso.
+# Default-deny: agregar se puede; lo que se entregó una vez, no se saca.
 _COLS = [
     "boleto",
     "to_char(concertacion, 'YYYY-MM-DD') AS fecha",
     "id_cuenta",
     "denominacion AS cuenta_nombre",
-    "instrumento",
+    # TICKER: es lo que se relaciona fácil del otro lado (contra su propio
+    # catálogo, contra un proveedor de precios, contra una planilla). Sale del
+    # catálogo `portafolio.assets`, cuya PK es `unidad` y matchea contra
+    # `operaciones.instrumento`.
+    #
+    # Subconsulta escalar y NO un JOIN, por dos razones: (1) `assets` también
+    # tiene una columna `instrumento` (el símbolo de Primary) y un JOIN dejaría
+    # ese nombre ambiguo en el resto del SELECT y en `_ops_where`; (2) el join
+    # no puede alterar el conjunto de filas ni aunque cambie el catálogo. Es el
+    # mismo patrón que ya usa la vista de la mesa (operaciones_sql.py:626).
+    "(SELECT a.ticker FROM portafolio.assets a "
+    " WHERE a.unidad = operaciones.instrumento) AS ticker",
+    # El nombre completo de lo que se operó, tal como lo registramos. Va como
+    # RESPALDO del ticker, no como identificador: si el título todavía no está
+    # en el catálogo (o está sin ticker cargado), `ticker` viene null y sin esto
+    # la fila quedaría sin ninguna forma de saber qué se operó.
+    "instrumento AS descripcion",
     "tipo_operacion",
     "operacion",
     "cantidad",
@@ -65,7 +83,6 @@ _COLS = [
     "mercado",
     "tasa",
     "mep",
-    "etapa",
     "(anulado_en IS NOT NULL) AS anulado",
     f"{_ACT} AS actualizado_en",
     "id AS _id",
@@ -208,7 +225,8 @@ def _fila(r: dict, con_arancel: bool) -> dict:
         "fecha": r["fecha"],
         "cuenta": r["id_cuenta"],
         "cuenta_nombre": r["cuenta_nombre"],
-        "instrumento": r["instrumento"],
+        "ticker": r["ticker"],
+        "descripcion": r["descripcion"],
         "tipo_operacion": r["tipo_operacion"],
         "operacion": r["operacion"],
         "cantidad": _num(r["cantidad"]),
@@ -221,7 +239,6 @@ def _fila(r: dict, con_arancel: bool) -> dict:
         # TC del día del boleto, para que el consumidor pueda dolarizar con el
         # MISMO número que usamos nosotros y no con uno propio.
         "mep": _num(r["mep"]),
-        "etapa": r["etapa"],
         "anulado": bool(r["anulado"]),
         "actualizado_en": _iso(r["actualizado_en"]),
     }

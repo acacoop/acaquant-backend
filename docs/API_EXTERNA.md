@@ -110,12 +110,26 @@ $824 MM de volumen falso de este lado, corrido a la casa del cliente.
   si concilia sumando decenas de miles de filas, que sume en centavos.
 - **`arancel_moneda: "ARS"` viaja explícito** aunque sea siempre ARS
   (`sql/schema.sql:270`): el contrato se explica solo.
-- **`segmento`, `nivel_3` y `es_cierre` NO se exponen.** Los dos primeros son
-  nuestra clasificación comercial interna. El tercero es una marca nuestra —es
-  literalmente `"CIERRE" in tipo_operacion` (`operaciones_informes.py:313`)—, así
-  que sacarlo no le quita información a nadie: el dato ya viaja en
-  `tipo_operacion`, con el nombre real de la operación en vez de un booleano de
-  nuestra cocina. Default-deny: agregar se puede; sacar lo que ya se entregó, no.
+- **El título se identifica por `ticker`**, no por el string interno de la
+  unidad: es lo que se relaciona fácil del otro lado (su catálogo, un proveedor
+  de precios, una planilla). Sale de `portafolio.assets.ticker` por subconsulta
+  escalar sobre `unidad = operaciones.instrumento` — escalar y no JOIN porque
+  `assets` también tiene una columna `instrumento` y el nombre quedaría ambiguo.
+  Viaja además `descripcion` (el string completo) **como respaldo**: un título
+  que todavía no esté en el maestro devuelve `ticker: null`, y sin la
+  descripción esa fila quedaría sin ninguna forma de saber qué se operó.
+  ⚠️ **La cobertura del ticker NO está medida** (REGLA #2): sabemos que el join
+  por `unidad` cubre el 99,0 % del volumen, pero no cuántos de esos assets tienen
+  el ticker cargado. Medirlo antes de entregarle esto a nadie.
+- **`segmento`, `nivel_3`, `es_cierre` y `etapa` NO se exponen.** Los dos
+  primeros son nuestra clasificación comercial interna. `es_cierre` es una marca
+  nuestra —es literalmente `"CIERRE" in tipo_operacion`
+  (`operaciones_informes.py:313`)—, así que sacarlo no le quita información a
+  nadie: el dato ya viaja en `tipo_operacion`, con el nombre real de la
+  operación. Y `etapa` (solicitud/liquidacion del FCI bilateral) es la mecánica
+  con la que NOSOTROS evitamos contar dos veces esos boletos: el predicado ya lo
+  resuelve antes de la respuesta, así que del otro lado sería jerga sin uso.
+  Default-deny: agregar se puede; sacar lo que ya se entregó, no.
 - **`tasa`**: sólo boletos MAV, en PORCENTAJE (6 = 6%). `null` ≠ `0`.
 - **No se devuelve un total** de filas: contar el universo en cada página es caro
   y no aporta. El contrato es `hay_mas` + `siguiente_cursor`.

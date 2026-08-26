@@ -212,11 +212,12 @@ def test_el_arancel_viaja_solo_si_el_cliente_lo_tiene(client, monkeypatch, habil
 
 def test_fila_sin_permiso_no_trae_arancel():
     fila = {"boleto": "B1", "fecha": "2026-08-01", "id_cuenta": "10452",
-            "cuenta_nombre": "PEPITO", "instrumento": "AL30", "tipo_operacion": "C",
+            "cuenta_nombre": "PEPITO", "ticker": "AL30",
+            "descripcion": "BONO REP. ARG. USD 2030 L.A.", "tipo_operacion": "C",
             "operacion": "Compra", "cantidad": decimal.Decimal("100"),
             "bruto": decimal.Decimal("1234.56"), "moneda": "ARS", "mercado": "BYMA",
             "tasa": None, "mep": decimal.Decimal("1000"),
-            "etapa": None, "anulado": False, "actualizado_en": None,
+            "anulado": False, "actualizado_en": None,
             "arancel": decimal.Decimal("9.99")}
     assert "arancel" not in lectura._fila(fila, con_arancel=False)
     con = lectura._fila(fila, con_arancel=True)
@@ -262,15 +263,31 @@ def test_no_se_expone_es_cierre():
     operaciones_informes.py:313). El dato ya viaja en `tipo_operacion`; el
     booleano interno no sale del sistema."""
     fila = {"boleto": "B1", "fecha": "2026-08-01", "id_cuenta": "10452",
-            "cuenta_nombre": "PEPITO", "instrumento": "AL30",
+            "cuenta_nombre": "PEPITO", "ticker": "AL30", "descripcion": "BONO 2030",
             "tipo_operacion": "Caución CIERRE", "operacion": "Compra",
             "cantidad": None, "bruto": None, "moneda": "ARS", "mercado": "BYMA",
-            "tasa": None, "mep": None, "etapa": None, "anulado": False,
+            "tasa": None, "mep": None, "anulado": False,
             "actualizado_en": None, "arancel": None}
     salida = lectura._fila(fila, con_arancel=True)
     assert "es_cierre" not in salida
+    assert "etapa" not in salida
     assert "segmento" not in salida and "nivel_3" not in salida
     assert salida["tipo_operacion"] == "Caución CIERRE"   # la info sigue estando
+
+
+def test_el_titulo_se_identifica_por_ticker_con_respaldo():
+    """El ticker es lo que se relaciona fácil; `descripcion` existe para que una
+    fila sin ticker en el maestro NO quede sin forma de saber qué se operó."""
+    base = {"boleto": "B1", "fecha": "2026-08-01", "id_cuenta": "10452",
+            "cuenta_nombre": "PEPITO", "tipo_operacion": "Contado",
+            "operacion": "Compra", "cantidad": None, "bruto": None,
+            "moneda": "ARS", "mercado": "BYMA", "tasa": None, "mep": None,
+            "anulado": False, "actualizado_en": None}
+    con = lectura._fila({**base, "ticker": "AL30", "descripcion": "BONO 2030"}, False)
+    assert con["ticker"] == "AL30" and con["descripcion"] == "BONO 2030"
+
+    sin = lectura._fila({**base, "ticker": None, "descripcion": "PAGARE XYZ SA"}, False)
+    assert sin["ticker"] is None and sin["descripcion"] == "PAGARE XYZ SA"
 
 
 def test_cursor_va_y_vuelve():

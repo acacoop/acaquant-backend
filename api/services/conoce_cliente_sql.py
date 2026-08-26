@@ -47,10 +47,10 @@ LO QUE SE REUSA Y POR QUÉ
   tabs cuentan los mismos clientes o no cuenta ninguna.
 - Arancel: `_arancel_where` (cierres INCLUIDOS — el arancel de caución vive solo
   en el cierre). Volumen no se usa acá.
-- El ritmo (la marca ⚠ de la fila): `cuantitativo_sql.ritmo_por_cuenta`, la MISMA
-  consulta que arma SE ESTÁN APAGANDO. Esa es la unificación de las dos tabs: la
-  señal deja de ser una lista aparte y pasa a ser una marca en la fila, así
-  "grande y apagándose" se ve en un renglón.
+
+La vista NO trae el ritmo de cada cuenta. Se probó como una marca en la fila y se
+sacó: no estaba pedido, y arrastraba una consulta entera para dibujar un símbolo.
+`cuantitativo_sql.ritmo_por_cuenta` sigue existiendo para quien la necesite.
 """
 from __future__ import annotations
 
@@ -59,7 +59,6 @@ from datetime import date, timedelta
 from api.services._sql import _q
 from api.services.comercial import _cv, _factor_usd, _hoy_art
 from api.services.comercial_sql import _arancel_where, _f, _iso
-from api.services.cuantitativo_sql import ritmo_por_cuenta
 from api.services.profundidad_sql import _op_label, _scope
 
 # El campo que ES el segmento. `nivel_3` es el patrimonial (derivado del cupo:
@@ -220,13 +219,6 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
             "GROUP BY t.id_cuenta",
             {"fotos": fotos, "ids": ids, "ult": ultima_foto})}
 
-    # ── 4) El ritmo — la MISMA consulta que SE ESTÁN APAGANDO ────────────────
-    # Se acota por los ids que ya resolvimos, no por un scope rearmado: una
-    # segunda copia del predicado del segmento es exactamente de donde salen las
-    # dos pantallas que muestran cosas distintas del mismo cliente.
-    ritmos = {r["id_cuenta"]: r for r in ritmo_por_cuenta(
-        ini, fin, "c.id_cuenta = ANY(%(ids_r)s)", {"ids_r": ids})}
-
     # ── 5) La fila ───────────────────────────────────────────────────────────
     items = []
     for idc, f in fichas.items():
@@ -242,13 +234,6 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
 
         roa = round(10000 * arancel / prom, 1) if (prom and prom >= piso) else None
         sow = round(100 * prom / cupo, 1) if (cupo and cupo > 0 and prom is not None) else None
-
-        r = ritmos.get(idc) or {}
-        ritmo_dias = _f(r.get("ritmo")) if r.get("ritmo") is not None else None
-        ult = r.get("ult")
-        sin_operar = (fin - ult).days if ult else None
-        # Misma regla que SE ESTÁN APAGANDO: más de 3× su propio ritmo.
-        apagandose = bool(ritmo_dias and sin_operar and sin_operar > 3 * ritmo_dias)
 
         items.append({
             "id_cuenta": idc,
@@ -272,10 +257,6 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
             "operacion_fav": _op_label(fav[0]) if fav[0] and fav[1] > 0 else None,
             "operacion_fav_arancel": _cv(fav[1], fac) if fav[1] > 0 else None,
             "n_tipos": sum(1 for v in tipos.values() if v > 0),
-            "ritmo_dias": round(ritmo_dias, 1) if ritmo_dias else None,
-            "dias_sin_operar": sin_operar,
-            "apagandose": apagandose,
-            "ultima_op": _iso(ult),
         })
 
     # `None` va SIEMPRE al fondo, se ordene ascendente o descendente: un "no sé"
@@ -288,15 +269,19 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
 
     # ── 6) El contexto del segmento: sin esto, un ROA suelto no se puede juzgar
     roas = [i["roa_bps"] for i in items if i["roa_bps"] is not None]
+    # PROMEDIO y MEDIANA viajan los DOS. El que se muestra es el promedio (es el
+    # que se pidió); la mediana va al lado en el tooltip porque un promedio de
+    # cocientes se lo lleva puesto la cola: si los dos números están lejos, no es
+    # que el segmento rinda eso, es que hay tres cuentas tirando del promedio.
     sows = [i["sow_pct"] for i in items if i["sow_pct"] is not None]
     contexto = {
         "n_clientes": len(items),
+        "roa_promedio": round(sum(roas) / len(roas), 1) if roas else None,
         "roa_mediana": _mediana(roas), "n_con_roa": len(roas),
         "sow_mediana": _mediana(sows), "n_con_cupo": len(sows),
         "aum_mediana": _mediana([i["aum"] for i in items if i["aum"] is not None]),
         "arancel_total": round(sum(i["arancel"] for i in items), 2),
         "n_sin_arancel": sum(1 for i in items if i["arancel"] <= 0 and (i["aum"] or 0) > 0),
-        "n_apagandose": sum(1 for i in items if i["apagandose"]),
     }
     return {
         "segmento": segmento, "segmentos": opciones,

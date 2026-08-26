@@ -233,6 +233,10 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
         cupo = _f(f["cupo"]) if f["cupo"] is not None else None
 
         roa = round(10000 * arancel / prom, 1) if (prom and prom >= piso) else None
+        # El MISMO número en plata: de cada millón guardado, cuántos pesos deja
+        # por año. Es bps × 100, pero en una unidad que no hay que traducir —
+        # "$5.130 por millón" se entiende sin saber qué es un punto básico.
+        roa_pesos = round(roa * 100) if roa is not None else None
         sow = round(100 * prom / cupo, 1) if (cupo and cupo > 0 and prom is not None) else None
 
         items.append({
@@ -244,6 +248,7 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
             "aum": _cv(prom, fac) if prom is not None else None,
             "aum_hoy": _cv(hoy, fac),
             "roa_bps": roa,
+            "roa_pesos_millon": roa_pesos,
             # Tres motivos distintos, y ninguno es «cero»: no hay fotas para
             # mirar · las hay y el cliente no tenía nada · tenía tan poco que el
             # cociente no significa nada. Un solo texto para los tres haría que
@@ -277,6 +282,8 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
     contexto = {
         "n_clientes": len(items),
         "roa_promedio": round(sum(roas) / len(roas), 1) if roas else None,
+        "roa_promedio_pesos": round(100 * sum(roas) / len(roas)) if roas else None,
+        "roa_mediana_pesos": round(100 * _mediana(roas)) if roas else None,
         "roa_mediana": _mediana(roas), "n_con_roa": len(roas),
         "sow_mediana": _mediana(sows), "n_con_cupo": len(sows),
         "aum_mediana": _mediana([i["aum"] for i in items if i["aum"] is not None]),
@@ -297,8 +304,10 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
                    f"de fin de mes; ausente en una foto cuenta como cero",
             "cupo": "clientes.comitentes.cupo_transaccional_ars — carga manual por "
                     "Excel, sin fecha de carga registrada",
-            "roa": "ARANCEL 12M ÷ TIENE, en bps (100 bps = 1%). Las dos columnas "
-                   "están en pantalla: el número se puede verificar dividiendo",
+            "roa": "ARANCEL 12M ÷ TIENE. Viaja en bps (`roa_bps`, 100 bps = 1%) y "
+                   "en PLATA (`roa_pesos_millon`: pesos por año por cada millón "
+                   "guardado, que es el mismo número × 100). Las dos columnas del "
+                   "cociente están en pantalla: se verifica dividiendo",
             "sow": "TIENE ÷ CUPO. También verificable con las dos columnas de al lado",
         },
     }

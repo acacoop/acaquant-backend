@@ -1402,7 +1402,7 @@ grande que se está apagando. Ahora el ritmo es una **marca (⚠) en la fila**.
 |---|---|
 | **Arancel 12m** | `_arancel_where` sobre la ventana (cierres INCLUIDOS) |
 | **Tiene** | AuM **PROMEDIO** de las fotos de fin de mes de la ventana |
-| **ROA** | `arancel ÷ tiene`, en bps. `null` debajo del piso |
+| **ROA** | `arancel ÷ tiene`. Se MUESTRA en plata (`roa_pesos_millon`: pesos por año por cada millón guardado); `roa_bps` viaja igual y va en el tooltip. `null` debajo del piso |
 | **Cupo** | `comitentes.cupo_transaccional_ars` (carga manual, sin fecha) |
 | **SOW** | `tiene ÷ cupo`, en % |
 | **Operación favorita** | el tipo con MÁS ARANCEL (no el de más volumen) |
@@ -1419,6 +1419,12 @@ Tiene` y `SOW = Tiene ÷ Cupo`, con los dos términos de cada cociente en pantal
 eso **TIENE es el promedio y no la foto de hoy**: mostrar la foto y dividir por el
 promedio hace que el primero que saca la calculadora deje de creerle a la pantalla.
 El valor de hoy viaja igual (`aum_hoy`, en el tooltip).
+
+⚠️ **EL ROA SE MUESTRA EN PLATA, NO EN BPS.** Es el mismo número × 100: 20 bps =
+**$2.000 por año por cada millón guardado**. Los bps son el estándar de la industria
+y siguen viajando (ordenan igual, y están en el tooltip), pero "$2.000 por millón" no
+hay que traducirlo — y cierra la vuelta completa a ojo: una cuenta con $100.000.000 y
+$2.000 por millón dejó $200.000, que es exactamente la columna de arancel de al lado.
 
 ⚠️ **EL PISO DEL ROA NO ES COSMÉTICO.** Con la foto de hoy como divisor, el p90 del
 ROA del libro daba **67.816 bps (678%)**: una cuenta que opera y barre la plata el
@@ -1437,7 +1443,7 @@ se sacó: no estaba pedida, y arrastraba una consulta entera para dibujar un sí
 `cuantitativo_sql.ritmo_por_cuenta` sigue existiendo (la usa SE ESTÁN APAGANDO).
 
 **Contexto del segmento** (`contexto`): lo único que la pantalla muestra es
-**`roa_promedio`**, pegado al corte del piso —subir el piso saca cuentas del cálculo
+**`roa_promedio_pesos`**, pegado al corte del piso —subir el piso saca cuentas del cálculo
 y el número se mueve en el acto—. `roa_mediana` viaja igual y va en el tooltip: un
 promedio de cocientes se lo lleva puesto la cola, y si los dos están lejos no es que
 el segmento rinda eso, es que hay tres cuentas tirando. La franja de contexto que

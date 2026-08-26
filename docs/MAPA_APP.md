@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **531 endpoints** montados en `api.main.app`, en **32 routers**.
-- **191 escriben** (POST/PUT/PATCH/DELETE); 340 son de solo lectura.
+- **532 endpoints** montados en `api.main.app`, en **32 routers**.
+- **191 escriben** (POST/PUT/PATCH/DELETE); 341 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -65,7 +65,7 @@
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 54 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
+| `/api/operaciones` | 55 | 8 | `operaciones` · 25 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
@@ -1373,6 +1373,46 @@ ordenadas **por plata**, no por gravedad de la señal.
 - ⚠️ Universo y predicado de actividad son **los mismos que PROFUNDIDAD** (`comitentes`
   activas del scope con alta <= fin de mes, `comercial_sql._act_where`) — si divergieran,
   las dos tabs contarían clientes distintos y ninguna fallaría.
+
+#### Ficha operativa de un cliente — `GET /comercial/cliente/perfil`
+Service: `api/services/perfil_cliente_sql.py`. **Módulo aparte y genérico a propósito**:
+nace para el detalle de SE ESTÁN APAGANDO, pero el share por tipo de operación se va a
+reusar en otras pantallas, así que no recibe nada de esa vista — solo `id_cuenta`.
+
+Devuelve tres cosas de una cuenta en la ventana de los últimos N meses (def 12, máx 60):
+1. **`ultima_op`** — el boleto que la fija, crudo (fecha, días, operación, instrumento,
+   mercado, bruto, arancel, etapa, es_cierre). **Sin tope de ventana**: la última es la
+   última aunque sea de hace dos años; acotarla haría que un cliente dormido muestre "—"
+   y parezca que nunca operó.
+2. **`serie_aranceles`** — `[{mes, label, arancel, volumen, n_boletos}]` para el gráfico
+   de barras. **La lista de meses se arma en Python, no sale de la query**: un mes sin
+   operaciones tiene que dibujar una barra en CERO, porque un mes ausente y un mes en
+   cero no se ven igual en un gráfico.
+3. **`share_operacion`** — `[{operacion, label, volumen, pct, n_boletos, arancel}]`, el
+   reparto del volumen por tipo de operación. El `%` se calcula en el backend: es el
+   número que se va a reusar, y dos lugares que lo derivan terminan mostrando dos
+   porcentajes distintos del mismo cliente.
+
+⚠️ **VOLUMEN y ARANCEL no se filtran igual, y confundirlos devuelve un número plausible
+y equivocado:**
+
+| | Cierres | `etapa='solicitud'` | Anulados |
+|---|---|---|---|
+| **Volumen** (`bruto`) | **EXCLUYE** — la apertura de la caución ya lo contó | fuera | fuera |
+| **Arancel** | **INCLUYE** — el arancel de caución vive SOLO en el cierre | fuera | fuera |
+
+Por eso cada tipo de operación trae **sus dos números con su propio filtro**: la caución
+sale con volumen (de la apertura) *y* arancel (del cierre). Con un solo predicado, la
+caución mostraría arancel cero y el total de la tabla no cerraría contra el del gráfico.
+Un tipo que deja arancel sin volumen propio se marca con `solo_arancel`; uno que no deja
+ni volumen ni arancel (solicitudes sueltas) no se lista.
+
+⚠️ **El `bruto` viene en la moneda del boleto** → se pesifica con
+`comercial_sql._pesif(alias, col)` usando el **mep DEL BOLETO**, no el de hoy: si no, el
+share de un mes viejo se movería con el dólar de esta mañana. Esa expresión vive **una
+sola vez** (`_PESIF` de `negocio_movimientos` es la misma función con otra columna).
+
+Gate: **`verificar_id_cuenta`** (403 fuera del grupo del usuario), `@cached 120`.
 
 #### Filtro de OPERACIÓN (Profundidad de Clientes)
 `?operacion=` (multi, `= ANY`). Sale de `operaciones.operaciones.operacion`, que es un valor

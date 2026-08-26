@@ -35,9 +35,21 @@ _FICHA = ("denominacion", "operador_nombre", "telefono", "email", "nivel_1", "ni
           "division", "adc", "dma", "referido")
 _ANALISIS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
 
-# Pesificación de un boleto (ARS directo; USD × mep del boleto). = _PESIF de comercial.py.
-_PESIF = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
-          "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
+def _pesif(alias: str = "", col: str = "importe") -> str:
+    """Pesifica UN boleto: en ARS va directo; en cualquier otra moneda se multiplica
+    por el `mep` DEL PROPIO BOLETO (no el de hoy).
+
+    Sumar brutos de monedas distintas sin esto da un número que **parece plata y no
+    lo es**, y no falla nada — por eso la expresión vive en un solo lugar. `col`
+    cambia según la tabla: `importe` en `negocio_movimientos`, `bruto` en
+    `operaciones.operaciones`."""
+    a = f"{alias}." if alias else ""
+    return (f"CASE WHEN {a}moneda = 'ARS' THEN abs(COALESCE({a}{col}, 0)) "
+            f"ELSE abs(COALESCE({a}{col}, 0)) * COALESCE({a}mep, 0) END")
+
+
+# Pesificación de un boleto de `negocio_movimientos`. = _PESIF de comercial.py.
+_PESIF = _pesif()
 
 # Valor interno para filtrar cuentas sin división (NULL o string vacío).
 SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"

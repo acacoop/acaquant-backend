@@ -15,6 +15,7 @@ from api.services import cuantitativo_sql as _cuanti
 from api.services import financiamiento as _fin
 from api.services import financiamiento_calc as _fin_calc
 from api.services import operaciones_sql as _ops_sql
+from api.services import perfil_cliente_sql as _perfil
 from api.services import profundidad_sql as _prof
 from api.services._grupos_scope import (
     scope_cuentas,
@@ -609,6 +610,32 @@ def comercial_analisis_detalle(
     historial reciente y los boletos que NO cuentan con su motivo (anulados,
     posteriores al corte). No recalcula nada: usa el mismo predicado que la tabla."""
     return _com_sql.detalle_ultima_op(id_cuenta=id_cuenta, fecha=fecha, limite=limite)
+
+
+# ── FICHA OPERATIVA DE UN CLIENTE ────────────────────────────────────────────
+# Genérica a propósito: nace para el detalle de SE ESTÁN APAGANDO pero el share
+# por tipo de operación se va a reusar. No recibe nada de esa vista.
+
+@router.get("/comercial/cliente/perfil", dependencies=[Depends(verificar_id_cuenta)])
+@cached(ttl=120)
+def comercial_cliente_perfil(
+    id_cuenta: str = Query(..., description="id de la cuenta comitente"),
+    meses: int = Query(_perfil.MESES_DEF, ge=1, le=_perfil.MESES_MAX,
+                       description="ventana hacia atrás en meses"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    hasta: str | None = Query(None, description="último día a considerar (ISO). None = hoy"),
+) -> dict:
+    """Tres cosas de una cuenta: su ÚLTIMA operación, el arancel MES A MES (serie
+    para el gráfico) y el SHARE DEL VOLUMEN por tipo de operación.
+
+    ⚠️ Volumen y arancel NO se filtran igual: el volumen EXCLUYE los cierres (la
+    apertura de la caución ya lo contó) y el arancel los INCLUYE (el arancel de
+    caución vive solo ahí). El `bruto` se pesifica al mep DEL BOLETO — sumar pesos
+    con dólares da un número que parece plata y no lo es.
+
+    `verificar_id_cuenta` → 403 si la cuenta está fuera del grupo del usuario."""
+    return _perfil.perfil_cliente(id_cuenta=id_cuenta, meses=meses, moneda=moneda,
+                                  hasta=hasta)
 
 
 # ── ANÁLISIS CUANTITATIVO (tab de OPERADORES) ────────────────────────────────

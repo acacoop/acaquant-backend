@@ -1670,12 +1670,14 @@ de catálogo de referidos**: se deriva de `/comercial/dimensiones` sumando `n_cu
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **TOTAL** (def.) | Chart de área EVOLUCIÓN AUM + leaderboard POR CARTERA (valuación + % share) + panel DETALLE con dos sub-tablas cruzadas POR CUENTA y POR ASSET | `/portfolio/total-serie`, `/total-snapshot`, `/operadores`, `/niveles-1`, `GET /api/me` | **OPERADOR** (filtro MADRE; si el email logueado matchea un operador arranca autoscopeado) · **NIVEL 1** (solo en TOTAL) · **FECHA** (select de todas las fechas de la serie; también se setea clickeando el chart) · **MONEDA** ARS/USD · **CUENTAS** (`todas`/`accionistas`/`sin_accionistas`/`cooperativas`/`productores`) · rango del chart client-side `1M/3M/6M/YTD/ALL` · click en cartera (toggle) · click en fila POR CUENTA / POR ASSET = pin (toggle, se cruzan con AND) · dos buscadores substring · botón `↺` | **Export .xlsx** con 2 hojas (`Por Cuenta`, `Por Asset`), refleja los filtros activos; archivo `aum-detalle-<fecha>-<ts>.xlsx` |
-| **FCI** (`?tab=fci`) | Chart EVOLUCIÓN FCI + leaderboard por **SOC. GERENTE** (emisor) + DETALLE con cards por ticker/fondo y sus cuentas | `/portfolio/fci-serie`, `/fci-snapshot` | OPERADOR · CUENTAS · rango client-side · click en soc. gerente · `DateStepper` ◀▶. **NO tiene selector de MONEDA ni NIVEL 1**; el snapshot FCI **no soporta "última fecha"** (`fecha` requerida) | Sólo lectura, **sin export** |
+| **TOTAL** (def.) | Chart de área EVOLUCIÓN AUM + leaderboard POR CARTERA (valuación + % share) + panel DETALLE con dos sub-tablas cruzadas POR CUENTA y POR ASSET | `/portfolio/total-serie`, `/total-snapshot`, `/operadores`, `/niveles`, `GET /api/me` | **OPERADOR** (filtro MADRE; si el email logueado matchea un operador arranca autoscopeado) · **NIVEL 1 / NIVEL 2 / NIVEL 3 / NIVEL 5** (solo en TOTAL; **multi-select** con buscador — mismo `MultiSelect` que la barra de `/operadores`. Adentro de un nivel los valores van con OR, entre niveles con AND, y todo intersecta con OPERADOR. Se **cruzan**: cada desplegable ofrece sólo lo que convive con lo elegido en los otros, contra los combos de `/niveles`. Botón `LIMPIAR` cuando hay alguno activo) · **FECHA** (select de todas las fechas de la serie; también se setea clickeando el chart) · **MONEDA** ARS/USD · **CUENTAS** (`todas`/`accionistas`/`sin_accionistas`/`cooperativas`/`productores`) · rango del chart client-side `1M/3M/6M/YTD/ALL` · click en cartera (toggle) · click en fila POR CUENTA / POR ASSET = pin (toggle, se cruzan con AND) · dos buscadores substring · botón `↺` | **Export .xlsx** con 2 hojas (`Por Cuenta`, `Por Asset`), refleja los filtros activos; archivo `aum-detalle-<fecha>-<ts>.xlsx` |
+| **FCI** (`?tab=fci`) | Chart EVOLUCIÓN FCI + leaderboard por **SOC. GERENTE** (emisor) + DETALLE con cards por ticker/fondo y sus cuentas | `/portfolio/fci-serie`, `/fci-snapshot` | OPERADOR · CUENTAS · rango client-side · click en soc. gerente · `DateStepper` ◀▶. **NO tiene selector de MONEDA ni filtros de NIVEL**; el snapshot FCI **no soporta "última fecha"** (`fecha` requerida) | Sólo lectura, **sin export** |
 | **ANÁLISIS DE DINERO** | Diferencia de saldo por cuenta entre dos fechas: 3 KPIs (TOTAL DIFERENCIA, CUENTAS NUEVAS, CUENTAS CERRADAS) + tabla ordenable con tags `NUEVA`/`CERRADA` | `/portfolio/diff` (+ la serie solo para poblar fechas) | **PLAZO**: `DÍA ANTERIOR`/`−7 DÍAS`/`−1 MES`/`MTD`/`YTD`/`CUSTOM` (los presets resuelven client-side la fecha disponible más cercana ≤ target); si CUSTOM, dos selects · **MONEDA** · **OPERADOR** heredado · orden client-side. **No pasa `cuenta_filter`** (el proxy lo acepta, el componente no lo manda) | Sólo lectura, sin export |
 
 **Endpoints (`carteras.py` — 11, TODOS GET; el router no tiene un solo POST/PUT/PATCH/DELETE)**:
-`/niveles-1` · `/operadores` · `/aum` (filas crudas de `portafolio.tenencia`; `id_cuenta`, `unidad`,
+`/niveles` (combos operador × nivel_1/2/3/5 de las comitentes activas — pueblan y CRUZAN los filtros
+madre de AUM; reemplazó a `/niveles-1`, que devolvía una lista suelta y no permitía cruzar) ·
+`/operadores` · `/aum` (filas crudas de `portafolio.tenencia`; `id_cuenta`, `unidad`,
 `cuenta`, `desde`, `hasta`, `ultimo` + `scope`; 403 fuera de scope) · `/pnl` (`id_cuenta` req, gate
 `verificar_id_cuenta`) · `/pnl-todas` (**lee cache**, no recalcula; `filtro_cuenta` + `scope`) ·
 `/cuentas` · `/fci-serie` · `/fci-snapshot` (`fecha` **req**) · `/total-serie` (devuelve
@@ -2745,7 +2747,7 @@ GET `/accionistas` · `/contrapartes` — **ninguno escribe**
 | **PUT** | `/tc` | **✍** (allowlist) |
 
 ### `carteras.py` — `/api/portfolio`, módulo `portfolios` (11)
-GET `/niveles-1` · `/operadores` · `/aum` (**sin consumidor**) · `/pnl` · `/pnl-todas` · `/cuentas` ·
+GET `/niveles` · `/operadores` · `/aum` (**sin consumidor**) · `/pnl` · `/pnl-todas` · `/cuentas` ·
 `/fci-serie` · `/fci-snapshot` · `/total-serie` · `/total-snapshot` · `/diff`
 — **11, NINGUNO escribe** (el router no tiene un solo verbo de escritura)
 

@@ -35,39 +35,76 @@ def scope_aum(
     operador: str | None = Query(
         None, description="Filtro madre de la vista AUM: scopea TODO a las cuentas de ese operador (email)"
     ),
-    nivel_1: str | None = Query(
-        None, description="Filtro madre de la vista AUM: scopea a las cuentas de ese Nivel 1 (segmento)"
+    nivel_1: list[str] | None = Query(
+        None, description="Filtro madre de la vista AUM: Nivel 1 (segmento) — multi, repetir el param"
+    ),
+    nivel_2: list[str] | None = Query(
+        None, description="Filtro madre de la vista AUM: Nivel 2 — multi, repetir el param"
+    ),
+    nivel_3: list[str] | None = Query(
+        None, description="Filtro madre de la vista AUM: Nivel 3 — multi, repetir el param"
+    ),
+    nivel_5: list[str] | None = Query(
+        None, description="Filtro madre de la vista AUM: Nivel 5 — multi, repetir el param"
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> tuple[str, ...] | None:
-    """Scope de cuentas de AUM = scope de grupos del usuario ∩ cuentas del operador ∩ nivel_1.
+    """Scope de cuentas de AUM = scope de grupos del usuario ∩ cuentas del operador
+    ∩ nivel_1 ∩ nivel_2 ∩ nivel_3 ∩ nivel_5.
 
-    Sin `operador` ni `nivel_1` → el scope de grupos tal cual (comportamiento actual).
-    Con alguno: si el user no está scopeado (admin, scope None) → las cuentas del
-    filtro; si está scopeado por grupo → la intersección. Reusa el mismo riel `scope`
-    que ya aplican los services, así el filtro es "madre" sin tocar la lógica:
-    estrechar el scope recalcula todas las tabs solas.
+    Sin filtros → el scope de grupos tal cual (comportamiento actual). Con alguno:
+    si el user no está scopeado (admin, scope None) → las cuentas del filtro; si
+    está scopeado por grupo → la intersección. Reusa el mismo riel `scope` que ya
+    aplican los services, así el filtro es "madre" sin tocar la lógica: estrechar
+    el scope recalcula todas las tabs solas.
+
+    Cada nivel acepta VARIOS valores (multi-select): adentro del nivel van con OR,
+    entre niveles con AND. Un cruce que no matchea ninguna cuenta devuelve la tupla
+    VACÍA, no `None` — los services filtran con `if scope is not None`, así que
+    vacío es "ninguna cuenta" y no "todas" (que sería mostrar el AuM entero justo
+    cuando el filtro no encontró nada).
     """
-    if not operador and not nivel_1:
+    niveles = {"nivel_1": nivel_1, "nivel_2": nivel_2, "nivel_3": nivel_3, "nivel_5": nivel_5}
+    if not operador and not any(niveles.values()):
         return scope
     from api.services.comercial import TODOS, _cuentas_de_operador
-    # `_cuentas_de_operador` ya combina operador + nivel_1 (AND) en una sola query.
-    sel = _cuentas_de_operador(operador or TODOS, nivel_1=nivel_1)
+    # `_cuentas_de_operador` ya combina operador + niveles (AND) en una sola query.
+    sel = _cuentas_de_operador(operador or TODOS, **niveles)
     if scope is None:
         return sel
     return tuple(sorted(set(scope) & set(sel)))
 
 
-@router.get("/niveles-1")
-def niveles_1() -> dict:
-    """Valores distintos de nivel_1 (segmento) de comitentes activas, para el filtro
-    madre de la vista AUM."""
+@router.get("/niveles")
+def niveles() -> dict:
+    """Combos (operador_email, nivel_1, nivel_2, nivel_3, nivel_5) de las comitentes
+    ACTIVAS — pueblan y CRUZAN los filtros madre de la vista AUM.
+
+    Devolvemos COMBOS y no cuatro listas sueltas porque es lo único que deja que un
+    nivel ofrezca solo lo que CONVIVE con lo ya elegido en los otros. Con listas
+    independientes el usuario arma un cruce que no existe (un Nivel 3 que ningún
+    Nivel 1 seleccionado tiene) y la vista queda en blanco sin decir por qué.
+
+    Mismo modelo que la barra madre de /operadores (`/operaciones/comercial/dimensiones`),
+    pero servido desde el router de PORTFOLIO a propósito: así hereda el gate de
+    módulo del AuM y no obliga a que quien ve AuM tenga además el módulo OPERACIONES.
+    A diferencia de aquél NO exige `operador_email IS NOT NULL` — una cuenta sin
+    operador asignado igual tiene niveles, y esconderla haría que el filtro tape
+    parte del AuM que la vista sí está sumando.
+    """
     from core.postgres import get_pool
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT nivel_1 FROM clientes.comitentes "
-                    "WHERE nivel_1 IS NOT NULL AND nivel_1 <> '' AND estado = 'Activa' "
-                    "ORDER BY nivel_1")
-        return {"niveles_1": [r[0] for r in cur.fetchall()]}
+        cur.execute(
+            "SELECT operador_email, nivel_1, nivel_2, nivel_3, nivel_5, count(*) AS n "
+            "FROM clientes.comitentes "
+            "WHERE estado = 'Activa' AND id_cuenta IS NOT NULL "
+            "GROUP BY operador_email, nivel_1, nivel_2, nivel_3, nivel_5"
+        )
+        return {"combos": [
+            {"operador_email": r[0], "nivel_1": r[1], "nivel_2": r[2],
+             "nivel_3": r[3], "nivel_5": r[4], "n_cuentas": r[5]}
+            for r in cur.fetchall()
+        ]}
 
 
 @router.get("/operadores")

@@ -194,26 +194,56 @@ def _fecha_valida(fecha: str | None) -> tuple[str | None, str | None]:
     return hoy, (disponibles[i + 1] if i + 1 < len(disponibles) else None)
 
 
-def diferencias_del_dia(fecha: str) -> list[dict]:
-    """"Diferencias ACA HOY": Σ `daily_settlement` del día, POR MONEDA.
+def diferencias_del_dia(fecha: str, fecha_anterior: str | None = None) -> list[dict]:
+    """«Diferencias ACA HOY»: cuánto se movió el acumulado de la mesa, POR MONEDA.
 
-    Partido por moneda y no en un total único porque el agro liquida en Dólar
-    MtR y el dólar futuro en Pesos. Sumarlos daría un número sin significado.
+    ⚠️⚠️ **NO es `Σ daily_settlement`.** Ese campo ya viene ACUMULADO de la
+    cámara, así que sumarlo da el acumulado de toda la mesa —un número enorme—
+    con el rótulo «hoy». Es exactamente el mismo error que tenía el ranking, y
+    se vio igual de mal: `-759.063.000` no es lo que se movió en un día.
+
+        DIFERENCIA DEL DÍA = Σ acumulado(hoy) − Σ acumulado(ayer)
+
+    ⚠️ **Se agrupa SÓLO por moneda.** Antes se agrupaba por (moneda, familia) y
+    la pantalla dibujaba nada más que la moneda: `Dólar MtR` salía DOS veces
+    —una por el agro y otra por el WTI, que va en la familia `otros`— y parecían
+    dos números contradictorios del mismo concepto. Un rótulo repetido con dos
+    valores distintos es peor que no mostrarlo.
+
+    Las monedas no se suman entre sí: el agro liquida en Dólar MtR y el dólar
+    futuro en Pesos, y un total único de las dos no significa nada.
     """
+    filas = _q(
+        """
+        WITH hoy AS (
+            SELECT settlement_currency AS moneda,
+                   sum(daily_settlement) AS acum,
+                   count(DISTINCT account) AS cuentas
+            FROM ap5.portfolio WHERE business_date = %(f)s
+            GROUP BY 1
+        ), ayer AS (
+            SELECT settlement_currency AS moneda, sum(daily_settlement) AS acum
+            FROM ap5.portfolio
+            WHERE %(a)s::date IS NOT NULL AND business_date = %(a)s::date
+            GROUP BY 1
+        )
+        SELECT h.moneda, h.acum, h.cuentas, y.acum AS acum_ayer
+        FROM hoy h LEFT JOIN ayer y ON y.moneda = h.moneda
+        ORDER BY 1
+        """,
+        {"f": fecha, "a": fecha_anterior},
+    )
     return [
         {
             "moneda": r["moneda"] or "(sin moneda)",
-            "familia": r["familia"],
-            "importe": _f0(r["importe"]),
+            # `None` = no hay día anterior con el que comparar. Distinto de 0:
+            # «no lo sé» y «no se movió» no se pueden dibujar igual.
+            "importe": (round(_f0(r["acum"]) - _f0(r["acum_ayer"]), 2)
+                        if r["acum_ayer"] is not None else None),
+            "acumulado": round(_f0(r["acum"]), 2),
             "cuentas": r["cuentas"],
         }
-        for r in _q(
-            f"SELECT p.settlement_currency AS moneda, {_FAMILIA_SQL} AS familia, "
-            "sum(p.daily_settlement) AS importe, count(DISTINCT p.account) AS cuentas "
-            "FROM ap5.portfolio p WHERE p.business_date = %(f)s "
-            "GROUP BY 1, 2 ORDER BY 2, 1",
-            {"f": fecha},
-        )
+        for r in filas
     ]
 
 
@@ -757,7 +787,7 @@ def vista(fecha: str | None = None) -> dict:
         "fecha": hoy,
         "fecha_anterior": anterior,
         "fechas": fechas(),
-        "diferencias_hoy": diferencias_del_dia(hoy),
+        "diferencias_hoy": diferencias_del_dia(hoy, anterior),
         "rankings": rankings(filas_acum),
         "por_instrumento": por_instrumento(hoy, anterior),
         "consolidado": consolidado(hoy, anterior),

@@ -237,6 +237,35 @@ def _quienes_importan(aranceles: dict[str, float], fin: date, ids_where: str, p0
 
 
 # ── LISTA 2 · SE ESTÁN APAGANDO ──────────────────────────────────────────────
+def ritmo_por_cuenta(ini: date, fin: date, ids_where: str, p0: dict) -> list[dict]:
+    """El ritmo propio de cada cuenta: cada cuánto aparece, y cuándo fue la última.
+
+    **Vive acá y en ningún otro lado.** La usan SE ESTÁN APAGANDO (para armar la
+    lista) y CONOCÉ A TU CLIENTE (para marcar la fila): dos copias de esta consulta
+    se desincronizan en silencio y las dos pantallas dirían cosas distintas del
+    mismo cliente el mismo día.
+
+    El ritmo son **días operados, no boletos** —cinco boletos el mismo día son una
+    sola aparición— y es la **mediana** de los huecos, no el promedio: un cliente
+    que opera todos los días y se toma dos meses de vacaciones tiene un promedio
+    que no describe ningún hueco real.
+
+    Devuelve `id_cuenta`, `n_dias`, `ult` (fecha) y `ritmo` (días, `None` si operó
+    un solo día: con un solo dato no hay hueco que medir).
+    """
+    p = dict(p0, i12=ini, fin=fin)
+    return _q(
+        f"WITH dias AS ("
+        f"  SELECT DISTINCT o.id_cuenta, o.concertacion AS d "
+        f"  FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta AND {ids_where} "
+        f"  WHERE o.concertacion >= %(i12)s AND o.concertacion <= %(fin)s AND {_act_where('o')}), "
+        f"gaps AS (SELECT id_cuenta, d, "
+        f"  d - lag(d) OVER (PARTITION BY id_cuenta ORDER BY d) AS gap FROM dias) "
+        f"SELECT id_cuenta, count(*) AS n_dias, max(d) AS ult, "
+        f"  percentile_cont(0.5) WITHIN GROUP (ORDER BY gap) AS ritmo "
+        f"FROM gaps GROUP BY id_cuenta", p)
+
+
 def _hasta(fin: date) -> date:
     """Hasta dónde se cuenta el tiempo: `fin`, pero **nunca una fecha futura**.
 
@@ -263,16 +292,7 @@ def _se_apagan(fin: date, ids_where: str, p0: dict, multiplo: float, min_dias: f
     """
     ini12 = _menos_meses(fin, 11).replace(day=1)
     p = dict(p0, i12=ini12, fin=fin)
-    rows = _q(
-        f"WITH dias AS ("
-        f"  SELECT DISTINCT o.id_cuenta, o.concertacion AS d "
-        f"  FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta AND {ids_where} "
-        f"  WHERE o.concertacion >= %(i12)s AND o.concertacion <= %(fin)s AND {_act_where('o')}), "
-        f"gaps AS (SELECT id_cuenta, d, "
-        f"  d - lag(d) OVER (PARTITION BY id_cuenta ORDER BY d) AS gap FROM dias) "
-        f"SELECT id_cuenta, count(*) AS n_dias, max(d) AS ult, "
-        f"  percentile_cont(0.5) WITHIN GROUP (ORDER BY gap) AS ritmo "
-        f"FROM gaps GROUP BY id_cuenta", p)
+    rows = ritmo_por_cuenta(ini12, fin, ids_where, p0)
 
     # Lo que deja por mes = arancel de los últimos 12 meses / 12. Un solo mes es
     # ruidoso justo en el cliente que dejó de operar (su mes malo daría ~0 y lo

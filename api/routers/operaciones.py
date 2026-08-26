@@ -10,6 +10,7 @@ from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
+from api.services import conoce_cliente_sql as _conoce
 from api.services import control_comercial_sql as _cc
 from api.services import cuantitativo_sql as _cuanti
 from api.services import financiamiento as _fin
@@ -679,6 +680,43 @@ def comercial_cuantitativo(
         pct_arancel=pct_arancel, meses_seguido=meses_seguido, multiplo=multiplo,
         min_dias_op=min_dias_op, caida_pct=caida_pct, meses_atras=meses_atras,
         piso_aum=piso_aum)
+
+
+# ── CONOCÉ A TU CLIENTE (tab de OPERADORES) ──────────────────────────────────
+# Una fila por CLIENTE, dentro de UN segmento. `segmento` es OBLIGATORIO a
+# propósito: el ROA de un institucional y el de un retail no son comparables, y
+# mezclados la vista recomienda exactamente lo contrario de lo que hay que hacer.
+
+@router.get("/comercial/conoce-cliente")
+@cached(ttl=300)
+def comercial_conoce_cliente(
+    segmento: str = Query(None, description="nivel_3. SIN esto no se devuelven filas"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    meses: int = Query(_conoce.MESES, ge=1, le=60, description="ventana hacia atrás"),
+    piso_aum: float = Query(None, description="debajo de este AuM promedio el ROA no se calcula"),
+    orden: str = Query(_conoce.ORDEN_DEF, description=" | ".join(_conoce.ORDENES)),
+    limite: int = Query(_conoce.LIMITE_DEF, ge=1, le=_conoce.LIMITE_MAX),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """Cliente · arancel 12m · lo que tiene · ROA · cupo · SOW · operación favorita.
+
+    Sin `segmento` devuelve SOLO la lista de segmentos (con su conteo) y ninguna
+    fila: la pantalla hace elegir primero. `nivel_3` NO es un filtro más acá — es
+    el eje de la vista, así que no viaja entre los filtros madre.
+
+    ROA = arancel ÷ TIENE y SOW = TIENE ÷ CUPO, con las dos columnas de cada
+    cociente en pantalla: todo lo derivado se puede verificar con una calculadora."""
+    return _conoce.conoce_cliente(
+        segmento=segmento, moneda=moneda, meses=meses, piso_aum=piso_aum,
+        orden=orden, limite=limite, operador=operador, nivel_1=nivel_1,
+        nivel_2=nivel_2, nivel_4=nivel_4, nivel_5=nivel_5,
+        referido=referido, division=division)
 
 
 # ── PROFUNDIDAD DE CLIENTES (tab de OPERADORES) ──────────────────────────────

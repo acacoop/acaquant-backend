@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **532 endpoints** montados en `api.main.app`, en **32 routers**.
-- **191 escriben** (POST/PUT/PATCH/DELETE); 341 son de solo lectura.
+- **533 endpoints** montados en `api.main.app`, en **32 routers**.
+- **191 escriben** (POST/PUT/PATCH/DELETE); 342 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -65,7 +65,7 @@
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 55 | 8 | `operaciones` · 25 rutas con gate extra | `operaciones` |  |
+| `/api/operaciones` | 56 | 8 | `operaciones` · 25 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
@@ -1261,7 +1261,7 @@ que en esa tab está oculto): AUM · CLIENTES · VOL. MTD · VOL. YTD.
 | **Portfolio & Operaciones** (def.) | Izq: gráfico de evolución + **Ficha del cliente**. Der: tabla de clientes (60 %) + panel Tenencia/Operaciones (40 %) | `/comercial/operador`, `/serie`, `/portafolio`, `/operaciones`, `/clientes-por-fecha` | Métrica **Volumen**/**AuM**; agregación DIARIO/SEMANAL/MENSUAL; rango `1W/1M/3M/6M/YTD/1A/ALL` con **pan ◀▶**; click en una barra abre los clientes que operaron ese período; tab del panel derecho tenencia/operaciones | **Export a Excel** (Clientes vuelca TODA la ficha, columnas generadas de `FICHA_DATOS`; Tenencia/Operaciones según el tab). No escribe en la DB |
 | **Análisis Comercial** | KPIs de cupo (transaccional/usado/libre USD al MEP), **Distribución por Nivel 1**, desglose por **Nivel 3**, y la tabla **ESTADO COMERCIAL** (cuenta, cliente, estado, días sin operar, AuM, cupo trans., cupo usado, última op, niveles) | `/comercial/analisis`, `/comercial/analisis/detalle` (modal) | Orden por columna (persistido); **3 filtros aditivos por click**: nivel_1 + nivel_3 + estado; los pseudo-estados `SIN_AUM` (aum≤0) y `SIN_OP_YTD` también filtran. Hereda barra madre + Desde/Hasta ("foto al día X") | **Export a Excel** (Estado comercial + Distribución nivel 1) |
 | **Profundidad de Clientes** | UNA tabla a ancho completo, **una fila por mes** (`jul-25`, `ago-25`, …) desde `PROFUNDIDAD_INICIO` hasta el mes en curso: CLIENTES · CON AuM · SIN AuM · ACTIVOS · RATIO ACTIV. · ARANCELES · ARANC./ACTIVO · AuM. **Todo medido al ÚLTIMO día del mes**; los flujos, sobre el mes completo. La plata va **entera y sin decimales** (`$1.234.567`), no con el compacto del resto de Comercial | `/comercial/profundidad`, `/comercial/profundidad/detalle` (modal) | **NO usa el Desde/Hasta** (su eje ES el tiempo → el control se esconde). Sí hereda la barra madre completa, y los filtros activos se dibujan como **chips arriba de la tabla**. **MultiSelect OPERACIÓN propio de la vista** (no de la barra madre): acota SOLO activos/ratio/aranceles/aranc.-por-activo; clientes, con AuM, sin AuM y AuM siguen siendo la base entera. Moneda ARS/USD — en USD, **al MEP del mes**, no al de hoy | **Export a Excel** (la tabla; y otro dentro del modal) |
-| **Profundidad → Análisis Cuantitativo** (solapa DENTRO de Profundidad, no tab propia) | **Tres listas de llamadas por CLIENTE** con sub-nav horizontal estilo AV AGENT (nombre + contador + bajada): **QUIÉNES IMPORTAN** (cuadrado de 4 — núcleo / grande irregular / habitual / ocasional — + los que hacen el 80 % del arancel), **SE ESTÁN APAGANDO** (rompieron su propio ritmo), **PERDIERON AuM** (tienen mucho menos que hace N meses: tenía, tiene, cuánto cayó y si retiró). Arriba, la franja de contexto del mes (operaron · el del medio vs el promedio · top-10 · cuántos hacen el 80 %) | `/comercial/cuantitativo` (una sola llamada) | **Todos los cortes son editables en pantalla** y los contadores de la sub-nav se mueven con ellos. Mes + moneda + barra madre | **Export a Excel** |
+| **Profundidad → Análisis Cuantitativo** (solapa DENTRO de Profundidad, no tab propia) | **Tres listas de llamadas por CLIENTE** con sub-nav horizontal estilo AV AGENT (nombre + contador + bajada): **CONOCÉ A TU CLIENTE** (una fila por cliente de UN segmento: arancel 12m · lo que tiene · ROA · cupo · SOW · operación favorita, con ⚠ en los que rompieron su propio ritmo — reemplaza a QUIÉNES IMPORTAN y SE ESTÁN APAGANDO, que eran dos listas que había que cruzar a ojo), **PERDIERON AuM** (tienen mucho menos que hace N meses: tenía, tiene, cuánto cayó y si retiró). Arriba, la franja de contexto del mes (operaron · el del medio vs el promedio · top-10 · cuántos hacen el 80 %) | `/comercial/cuantitativo` + `/comercial/conoce-cliente` | **Todos los cortes son editables en pantalla** y los contadores de la sub-nav se mueven con ellos. Mes + moneda + barra madre | **Export a Excel** |
 | **Cobros Futuros** | Acreencias del scope: serie diaria acumulable + totales por cliente + detalle por título | `/comercial/cobros-futuros`, `/cobros-futuros/cliente` | Rango propio de fecha de cobro (def hoy → hoy+60), agg, escala `lin`/`log`, moneda, selección de cliente/ticker/bucket. **Oculta el Desde/Hasta global.** Los filtros madre se degradan a **single** | Ninguna |
 | **Informe** | 4 cuadrantes de toda la mesa: **Q1** cuentas por segmento (modos `cuentas`/`operativas`/`aranceles`), **Q2** ranking volumen+aranceles por comercial, **Q3** aranceles por segmento, **Q4** detalle del segmento | `/comercial/informe`, `/informe-segmento`, `/informe-aranceles-segmento`, `/informe-segmento-detalle` | Desde/Hasta, moneda, filtros madre (**el `operador` madre va SOLO al ranking Q2**; en Q1/Q3/Q4 `operador` es el drill-down del comercial clickeado). Click en comercial re-scopea Q1/Q3/Q4; click en segmento filtra Q4; tab de Q4 clientes/operaciones; botón `?` de ayuda | Ninguna |
 | **Control Comercial** (solo con `me.control_comercial`) | **Tabla 1** totales ALyC por períodos fijos; **Tabla 2** por comercial en [Desde,Hasta] (activos/inactivos/AuM/volumen/comisiones, cada uno con % vs rango anterior de igual largo); **Tabla 3** Actual vs Objetivo + % alcanzado | `/comercial/control/totales`, `/por-operador`, `/objetivos-vs-actual`, `/objetivos`, `/comercial/operadores` | Desde/Hasta propios (def mes en curso), moneda, filtros madre. **La Tabla 1 NO depende de Desde/Hasta** (períodos fijos Día/Semana/Mes/YTD/12M/2025/2024/Total, anclados a la última fecha con operaciones) | **SÍ — `PATCH /comercial/control/objetivos`**: editor inline (año + mes + inputs volumen/comisiones por comercial, botón guardar por fila). **Export**: un Excel con 3 hojas |
@@ -1391,6 +1391,57 @@ ordenadas **por plata**, no por gravedad de la señal.
 - ⚠️ Universo y predicado de actividad son **los mismos que PROFUNDIDAD** (`comitentes`
   activas del scope con alta <= fin de mes, `comercial_sql._act_where`) — si divergieran,
   las dos tabs contarían clientes distintos y ninguna fallaría.
+
+#### CONOCÉ A TU CLIENTE — `GET /comercial/conoce-cliente`
+Service: `api/services/conoce_cliente_sql.py`. Una fila por CLIENTE dentro de UN
+segmento (`nivel_3`). **Reemplaza a QUIÉNES IMPORTAN y SE ESTÁN APAGANDO**, que eran
+dos listas que había que cruzar a ojo para encontrar la fila que importa: un cliente
+grande que se está apagando. Ahora el ritmo es una **marca (⚠) en la fila**.
+
+| Columna | Qué es |
+|---|---|
+| **Arancel 12m** | `_arancel_where` sobre la ventana (cierres INCLUIDOS) |
+| **Tiene** | AuM **PROMEDIO** de las fotos de fin de mes de la ventana |
+| **ROA** | `arancel ÷ tiene`, en bps. `null` debajo del piso |
+| **Cupo** | `comitentes.cupo_transaccional_ars` (carga manual, sin fecha) |
+| **SOW** | `tiene ÷ cupo`, en % |
+| **Operación favorita** | el tipo con MÁS ARANCEL (no el de más volumen) |
+
+⚠️ **SIN `segmento` NO DEVUELVE FILAS** — devuelve la lista de segmentos y un aviso.
+No es una validación: el ROA de un institucional y el de un retail no son comparables
+(medido: las medianas por segmento van de **22 a 58 bps** y el orden es al revés del
+intuitivo — **PJ MEDIANA 58, PJ GRANDE 28**). Mezclados, los institucionales caen
+todos juntos al fondo y la tabla marca como oportunidad lo que es estructura.
+`__todos__` tampoco es un segmento válido acá.
+
+⚠️ **TODA COLUMNA DERIVADA SE VERIFICA CON LAS DOS DE AL LADO**: `ROA = Arancel ÷
+Tiene` y `SOW = Tiene ÷ Cupo`, con los dos términos de cada cociente en pantalla. Por
+eso **TIENE es el promedio y no la foto de hoy**: mostrar la foto y dividir por el
+promedio hace que el primero que saca la calculadora deje de creerle a la pantalla.
+El valor de hoy viaja igual (`aum_hoy`, en el tooltip).
+
+⚠️ **EL PISO DEL ROA NO ES COSMÉTICO.** Con la foto de hoy como divisor, el p90 del
+ROA del libro daba **67.816 bps (678%)**: una cuenta que opera y barre la plata el
+mismo día divide por casi cero. No es un cliente que rinde muchísimo, es una división
+rota. Debajo de `piso_aum` (def **$1.000.000** de AuM promedio) el ROA vale `null` y
+viaja el motivo — y son **tres** motivos distintos, no uno: no hay fotos · la cuenta
+no tiene tenencia en ninguna · tiene menos que el piso.
+
+⚠️ **`piso_roa` (front) y `piso_aum` (PERDIERON AuM) son DOS cortes**, aunque el
+parámetro HTTP de los dos se llame `piso_aum`. En PERDIERON decide **quién entra** a
+la lista; acá decide **desde cuándo el ROA significa algo**. Compartir la clave en el
+`usePersistedState` haría que mover uno cambie la otra lista en silencio.
+
+El ritmo sale de **`cuantitativo_sql.ritmo_por_cuenta`** — la MISMA consulta que arma
+SE ESTÁN APAGANDO, extraída para que las dos no puedan divergir.
+
+**Contexto del segmento** (`contexto`): n clientes · mediana de ROA (y cuántos son
+medibles) · mediana de AuM · mediana de SOW (y cuántos tienen cupo) · **cuántos
+tienen plata y CERO arancel** · cuántos se están apagando. Sin esto, un ROA suelto no
+se puede juzgar. Medido en el libro: **203 cuentas** tienen AuM y no dejaron un peso
+en 12 meses, y **18 de ellas concentran el 96%** de esa plata quieta ($23.900M) — no
+aparecían en ninguna pantalla porque justamente no operan. Por eso el orden por
+defecto es **por AuM**: quedan arriba de su segmento con el ROA en cero.
 
 #### Ficha operativa de un cliente — `GET /comercial/cliente/perfil`
 Service: `api/services/perfil_cliente_sql.py`. **Módulo aparte y genérico a propósito**:

@@ -112,7 +112,7 @@ def _flujos_negocio(
         p["f_hasta"] = hasta
 
     rows = _q(
-        "SELECT comprobante, cuenta, fecha, informacion, importe, moneda "
+        "SELECT comprobante, cuenta, id_cuenta, fecha, informacion, importe, moneda "
         "  FROM negocio_movimientos WHERE " + " AND ".join(conds), p,
     )
     out = []
@@ -122,6 +122,13 @@ def _flujos_negocio(
             "boleto":       d.get("comprobante"),
             "concertacion": f.isoformat() if hasattr(f, "isoformat") else (str(f) if f else None),
             "cuenta":       d.get("cuenta"),
+            # La IDENTIDAD viene de la columna, no del string de display (REGLA #9).
+            # `negocio_movimientos` ya la tiene materializada e indexada; sacarla del
+            # `"[123] NOMBRE"` con un regex es identificar por el nombre, y el día que
+            # una cuenta venga sin corchete o con un id no numérico sus movimientos
+            # desaparecen sin que falle nada. La tabla vieja no tiene la columna, así
+            # que el regex sigue de respaldo (ver `neto_por_cuenta`).
+            "id_cuenta":    d.get("id_cuenta"),
             "informacion":  d.get("informacion"),
             "bruto":        _f(d.get("importe")) if d.get("importe") is not None else None,
             "unidad":       d.get("moneda"),
@@ -193,9 +200,13 @@ def _flujos_legacy(
 
 
 @cached(ttl=300)
-def neto_por_cuenta(desde: str) -> dict[str, float]:
+def neto_por_cuenta(desde: str, hasta: str | None = None) -> dict[str, float]:
     """`{id_cuenta: neto en ARS}` — la plata que entró menos la que salió de cada
-    cliente desde `desde`, con la MISMA fuente que la vista CASHFLOW.
+    cliente en `[desde, hasta]`, con la MISMA fuente que la vista CASHFLOW.
+
+    `hasta=None` = sin tope (el caso del CUPO, que acumula desde su fecha ancla).
+    Con tope lo usa ANÁLISIS CUANTITATIVO, que necesita el flujo de UNA ventana
+    para poder contestar "¿el AuM bajó porque sacó plata o porque cayó el mercado?".
 
     Lo consume el CUPO TRANSACCIONAL: `cupo_usado_ars` es una foto y esto es lo
     que se le suma para tener el usado real (ver config.CUPO_BASE_FECHA).
@@ -208,13 +219,19 @@ def neto_por_cuenta(desde: str) -> dict[str, float]:
         cotización del día del movimiento. Un movimiento en USD sin cotización
         para su fecha se DESCARTA en vez de contarse como si fueran pesos.
     """
-    filas = listar_flujos(desde=desde)
+    filas = listar_flujos(desde=desde, hasta=hasta)
     mep_cache: dict[str, float | None] = {}
     neto: dict[str, float] = {}
     for f in filas:
-        m = _RE_ID_BRACKET.match(f.get("cuenta") or "")
+        # La columna manda; el regex sobre el string es el respaldo para la tabla
+        # vieja, que no la tiene. Solo puede encontrar MÁS filas que antes, nunca
+        # menos: si `id_cuenta` viene vacío se cae al comportamiento de siempre.
+        idc = f.get("id_cuenta")
+        if not idc:
+            m = _RE_ID_BRACKET.match(f.get("cuenta") or "")
+            idc = m.group(1) if m else None
         bruto = f.get("bruto")
-        if not m or bruto is None:
+        if not idc or bruto is None:
             continue
         if (f.get("unidad") or "ARS").upper() == "ARS":
             monto = float(bruto)
@@ -228,7 +245,7 @@ def neto_por_cuenta(desde: str) -> dict[str, float]:
             if not tc:
                 continue
             monto = float(bruto) * float(tc)
-        neto[m.group(1)] = neto.get(m.group(1), 0.0) + monto
+        neto[idc] = neto.get(idc, 0.0) + monto
     return neto
 
 

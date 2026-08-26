@@ -11,6 +11,7 @@ from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import control_comercial_sql as _cc
+from api.services import cuantitativo_sql as _cuanti
 from api.services import financiamiento as _fin
 from api.services import financiamiento_calc as _fin_calc
 from api.services import operaciones_sql as _ops_sql
@@ -608,6 +609,49 @@ def comercial_analisis_detalle(
     historial reciente y los boletos que NO cuentan con su motivo (anulados,
     posteriores al corte). No recalcula nada: usa el mismo predicado que la tabla."""
     return _com_sql.detalle_ultima_op(id_cuenta=id_cuenta, fecha=fecha, limite=limite)
+
+
+# ── ANÁLISIS CUANTITATIVO (tab de OPERADORES) ────────────────────────────────
+# Tres listas de llamadas por cliente + el contexto, en UNA respuesta: los
+# contadores de la sub-nav tienen que corresponder a las listas que se van a ver.
+# Los cortes NO vienen fijos — los manda el usuario y el backend los valida.
+
+@router.get("/comercial/cuantitativo")
+@cached(ttl=300)
+def comercial_cuantitativo(
+    mes: str = Query(None, description="mes YYYY-MM (default: el actual)"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    limite: int = Query(_cuanti.LIMITE_DEF, ge=1, le=_cuanti.LIMITE_MAX,
+                        description="filas por lista (los CONTADORES no se capean)"),
+    pct_arancel: float = Query(None, description="«deja mucho» = entra en este % del arancel"),
+    meses_seguido: float = Query(None, description="«viene seguido» = N de los últimos 12 meses"),
+    multiplo: float = Query(None, description="avisar a las N veces su propio ritmo sin operar"),
+    min_dias_op: float = Query(None, description="días operados en 12m para tener ritmo medible"),
+    caida_pct: float = Query(None, description="PERDIERON AuM: cayó más de este %"),
+    meses_atras: float = Query(None, description="PERDIERON AuM: contra hace cuántos meses"),
+    piso_aum: float = Query(None, description="PERDIERON AuM: piso de AuM (sin piso, la lista es ruido)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """QUIÉNES IMPORTAN · SE ESTÁN APAGANDO · PERDIERON AuM, con el contexto del mes.
+
+    Mismo universo y mismo predicado de actividad que PROFUNDIDAD. Cada corte que
+    llegue fuera de su rango vuelve a su default en vez de generar una lista que no
+    significa nada; `cortes` (lo aplicado) y `cortes_def` (rangos + qué hace cada
+    uno) viajan en la respuesta para que la pantalla los dibuje editables."""
+    return _cuanti.analisis_cuantitativo(
+        mes=mes, moneda=moneda, limite=limite, operador=operador, nivel_1=nivel_1,
+        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5,
+        referido=referido, division=division,
+        pct_arancel=pct_arancel, meses_seguido=meses_seguido, multiplo=multiplo,
+        min_dias_op=min_dias_op, caida_pct=caida_pct, meses_atras=meses_atras,
+        piso_aum=piso_aum)
 
 
 # ── PROFUNDIDAD DE CLIENTES (tab de OPERADORES) ──────────────────────────────

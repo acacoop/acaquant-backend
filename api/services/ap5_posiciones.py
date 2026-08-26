@@ -712,6 +712,39 @@ def activo_integrado(fecha: str) -> dict:
                           filtra_cuentas=AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS)
 
 
+def actualizado(fecha: str) -> dict:
+    """CUÁNDO se tocó por última vez cada insumo de la vista.
+
+    ⚠️ **Es el único dato de esta pantalla que NO se puede derivar mirando los
+    números.** Un job que no corrió deja los datos de ayer, y en la pantalla eso
+    se ve exactamente igual que un día sin movimiento: las mismas filas, los
+    mismos totales, cero señales. Sin el sello, «miré y estaba todo igual» y «el
+    job murió el jueves» son indistinguibles — que es la misma razón por la que
+    el AV AGENT muestra la última corrida de cada habilidad al lado de sus
+    hallazgos.
+
+    Son TRES relojes distintos y por eso se muestran separados: la posición y
+    los márgenes los trae el job de las 10, y el arrastre lo carga una persona
+    cuando puede. Un solo «actualizado» tendría que elegir uno y taparía a los
+    otros dos.
+    """
+    r = _q(
+        """
+        SELECT (SELECT max(actualizado_at) FROM ap5.portfolio
+                WHERE business_date = %(f)s)                    AS posicion,
+               (SELECT max(actualizado_at) FROM ap5.margenes
+                WHERE fecha = %(f)s)                            AS margenes,
+               (SELECT max(actualizado)    FROM ap5.acumulado)  AS arrastre
+        """,
+        {"f": fecha},
+    )
+    d = r[0] if r else {}
+    return {k: (v.isoformat() if v else None)
+            for k, v in (("posicion", d.get("posicion")),
+                         ("margenes", d.get("margenes")),
+                         ("arrastre", d.get("arrastre")))}
+
+
 def vista(fecha: str | None = None) -> dict:
     """TODO lo que la pantalla necesita, en UN request.
 
@@ -753,6 +786,7 @@ def vista(fecha: str | None = None) -> dict:
                 "WHERE grupo IS NOT NULL AND grupo <> '' ORDER BY grupo")
         ],
         "faltantes": _faltantes(hoy),
+        "actualizado": actualizado(hoy),
     }
 
 

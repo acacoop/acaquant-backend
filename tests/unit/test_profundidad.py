@@ -101,3 +101,113 @@ def test_los_filtros_de_metrica_particionan_el_universo():
     for aum in (-10.0, 0.0, 0.01, 1_000.0, None):
         fila = {"aum": aum, "arancel": 0.0, "n_boletos": 0}
         assert con(fila) != sin(fila), aum
+
+
+# ── FILTRO DE OPERACIÓN ──────────────────────────────────────────────────────
+# Lo que este bloque cuida es UNA cosa: que el filtro acote lo que se OPERÓ y
+# nada más. Si algún día toca el universo o el AuM, el porcentaje deja de
+# significar "qué parte de mi base usa este producto" y no significa nada —
+# y no falla nada, simplemente muestra otro número.
+
+class _Espia:
+    """Reemplaza `_q` para capturar el SQL sin tocar la base. Devuelve vacío:
+    alcanza para ver QUÉ se pregunta, que es lo que este test cuida."""
+    def __init__(self):
+        self.sqls: list[str] = []
+
+    def __call__(self, sql, params=None):
+        self.sqls.append(" ".join(sql.split()))
+        return []
+
+    def con(self, *frag):
+        return [s for s in self.sqls if all(f in s for f in frag)]
+
+
+def _espiar(monkeypatch):
+    e = _Espia()
+    monkeypatch.setattr(P, "_q", e)
+    return e
+
+
+def test_el_filtro_solo_entra_en_la_query_de_operaciones(monkeypatch):
+    e = _espiar(monkeypatch)
+    P.profundidad_clientes(desde="2025-07", hasta="2025-09", operacion=["caucion_tom_ap"])
+    con_filtro = e.con("operacion = ANY")
+    assert len(con_filtro) == 1, f"el filtro aparece en {len(con_filtro)} queries, tiene que ser 1"
+    assert "FROM operaciones o" in con_filtro[0]
+
+
+def test_el_universo_y_el_aum_no_saben_del_filtro(monkeypatch):
+    e = _espiar(monkeypatch)
+    P.profundidad_clientes(desde="2025-07", hasta="2025-09", operacion=["caucion_tom_ap"])
+    universo = e.con("fecha_alta_legajo AS f")
+    aum = e.con("FROM tenencia")
+    assert universo and aum, "cambiaron las queries: este test dejó de mirar lo que creía"
+    for s in universo + aum:
+        assert "operacion" not in s, "el filtro se coló en el universo o en el AuM"
+
+
+def test_las_opciones_no_se_filtran_a_si_mismas(monkeypatch):
+    """El desplegable se puebla SIN el filtro puesto. Si lo llevara, al elegir
+    'caución' quedaría una sola opción y no habría forma de volver."""
+    e = _espiar(monkeypatch)
+    P.profundidad_clientes(desde="2025-07", hasta="2025-09", operacion=["caucion_tom_ap"])
+    opciones = e.con("GROUP BY o.operacion")
+    assert len(opciones) == 1
+    assert "operacion = ANY" not in opciones[0]
+
+
+def test_el_modal_filtra_igual_que_la_tabla(monkeypatch):
+    """Si el modal no aplicara el mismo filtro, abrirías una celda de 47 y
+    saldrían 389 cuentas."""
+    e = _espiar(monkeypatch)
+    P.detalle_mes(mes="2025-07", metrica="activos", operacion=["caucion_tom_ap"])
+    assert e.con("operacion = ANY"), "el modal ignoró el filtro"
+
+
+def test_solo_se_filtran_las_metricas_de_operaciones():
+    assert set(P.METRICAS_FILTRABLES) == {
+        "activos", "ratio_actividad", "aranceles", "arancel_por_activo"}
+    # Las de la base entera NO pueden estar acá.
+    for m in ("clientes", "con_aum", "sin_aum", "aum"):
+        assert m not in P.METRICAS_FILTRABLES
+    assert set(P.METRICAS_FILTRABLES) < set(P.METRICAS)
+
+
+def test_normalizacion_del_filtro():
+    assert P._ops_lista(None) == []
+    assert P._ops_lista([]) == []
+    assert P._ops_lista("compra") == ["compra"]
+    assert P._ops_lista(["__todos__", "todos", "todas"]) == []
+    assert P._ops_lista(["", None, "compra"]) == ["compra"]
+    # Duplicado: sin esto el encabezado diría "Compra + Compra".
+    assert P._ops_lista(["compra", "compra", "venta"]) == ["compra", "venta"]
+
+
+def test_sin_filtro_no_se_agrega_condicion():
+    p: dict = {}
+    assert P._ops_and([], p) == ""
+    assert p == {}, "sin filtro no se puede ensuciar el diccionario de params"
+    p2: dict = {}
+    frag = P._ops_and(["compra"], p2, "o")
+    assert frag == " AND o.operacion = ANY(%(ops_filtro)s)"
+    assert p2["ops_filtro"] == ["compra"]
+
+
+def test_el_encabezado_dice_que_cambio_de_sentido():
+    """Con filtro, RATIO deja de ser actividad y pasa a ser penetración. Si el
+    encabezado no lo dijera, alguien lee ese 5% como que se cayó el negocio."""
+    sin = P._columnas([], [])
+    assert sin["ratio_actividad"] == "Ratio activ." and sin["sufijo"] is None
+    disp = [{"valor": "caucion_tom_ap", "label": "Caución tomadora"}]
+    con = P._columnas(["caucion_tom_ap"], disp)
+    assert con["activos"] == "Operaron caución tomadora"
+    assert con["ratio_actividad"] == "% que operó caución tomadora"
+    assert con["aranceles"] == "Aranceles de caución tomadora"
+    # Con muchas no se arma un encabezado de tres renglones.
+    assert P._columnas(["a", "b", "c"], [])["activos"] == "Operaron 3 operaciones"
+
+
+def test_un_valor_sin_etiqueta_igual_se_puede_filtrar():
+    assert P._op_label("caucion_tom_ap") == "Caución tomadora"
+    assert P._op_label("futuro_dlr") == "Futuro dlr"      # fallback, no se esconde

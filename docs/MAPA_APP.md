@@ -1260,7 +1260,7 @@ que en esa tab está oculto): AUM · CLIENTES · VOL. MTD · VOL. YTD.
 |---|---|---|---|---|
 | **Portfolio & Operaciones** (def.) | Izq: gráfico de evolución + **Ficha del cliente**. Der: tabla de clientes (60 %) + panel Tenencia/Operaciones (40 %) | `/comercial/operador`, `/serie`, `/portafolio`, `/operaciones`, `/clientes-por-fecha` | Métrica **Volumen**/**AuM**; agregación DIARIO/SEMANAL/MENSUAL; rango `1W/1M/3M/6M/YTD/1A/ALL` con **pan ◀▶**; click en una barra abre los clientes que operaron ese período; tab del panel derecho tenencia/operaciones | **Export a Excel** (Clientes vuelca TODA la ficha, columnas generadas de `FICHA_DATOS`; Tenencia/Operaciones según el tab). No escribe en la DB |
 | **Análisis Comercial** | KPIs de cupo (transaccional/usado/libre USD al MEP), **Distribución por Nivel 1**, desglose por **Nivel 3**, y la tabla **ESTADO COMERCIAL** (cuenta, cliente, estado, días sin operar, AuM, cupo trans., cupo usado, última op, niveles) | `/comercial/analisis`, `/comercial/analisis/detalle` (modal) | Orden por columna (persistido); **3 filtros aditivos por click**: nivel_1 + nivel_3 + estado; los pseudo-estados `SIN_AUM` (aum≤0) y `SIN_OP_YTD` también filtran. Hereda barra madre + Desde/Hasta ("foto al día X") | **Export a Excel** (Estado comercial + Distribución nivel 1) |
-| **Profundidad de Clientes** | UNA tabla a ancho completo, **una fila por mes** (`jul-25`, `ago-25`, …) desde `PROFUNDIDAD_INICIO` hasta el mes en curso: CLIENTES · CON AuM · SIN AuM · ACTIVOS · RATIO ACTIV. · ARANCELES · ARANC./ACTIVO · AuM. **Todo medido al ÚLTIMO día del mes**; los flujos, sobre el mes completo | `/comercial/profundidad`, `/comercial/profundidad/detalle` (modal) | **NO usa el Desde/Hasta** (su eje ES el tiempo → el control se esconde). Sí hereda la barra madre completa, y los filtros activos se dibujan como **chips arriba de la tabla** (el pedido: "lo que el usuario elija en NIVEL 3 figura acá"). Moneda ARS/USD — en USD, **al MEP del mes**, no al de hoy | **Export a Excel** (la tabla; y otro dentro del modal) |
+| **Profundidad de Clientes** | UNA tabla a ancho completo, **una fila por mes** (`jul-25`, `ago-25`, …) desde `PROFUNDIDAD_INICIO` hasta el mes en curso: CLIENTES · CON AuM · SIN AuM · ACTIVOS · RATIO ACTIV. · ARANCELES · ARANC./ACTIVO · AuM. **Todo medido al ÚLTIMO día del mes**; los flujos, sobre el mes completo. La plata va **entera y sin decimales** (`$1.234.567`), no con el compacto del resto de Comercial | `/comercial/profundidad`, `/comercial/profundidad/detalle` (modal) | **NO usa el Desde/Hasta** (su eje ES el tiempo → el control se esconde). Sí hereda la barra madre completa, y los filtros activos se dibujan como **chips arriba de la tabla**. **MultiSelect OPERACIÓN propio de la vista** (no de la barra madre): acota SOLO activos/ratio/aranceles/aranc.-por-activo; clientes, con AuM, sin AuM y AuM siguen siendo la base entera. Moneda ARS/USD — en USD, **al MEP del mes**, no al de hoy | **Export a Excel** (la tabla; y otro dentro del modal) |
 | **Cobros Futuros** | Acreencias del scope: serie diaria acumulable + totales por cliente + detalle por título | `/comercial/cobros-futuros`, `/cobros-futuros/cliente` | Rango propio de fecha de cobro (def hoy → hoy+60), agg, escala `lin`/`log`, moneda, selección de cliente/ticker/bucket. **Oculta el Desde/Hasta global.** Los filtros madre se degradan a **single** | Ninguna |
 | **Informe** | 4 cuadrantes de toda la mesa: **Q1** cuentas por segmento (modos `cuentas`/`operativas`/`aranceles`), **Q2** ranking volumen+aranceles por comercial, **Q3** aranceles por segmento, **Q4** detalle del segmento | `/comercial/informe`, `/informe-segmento`, `/informe-aranceles-segmento`, `/informe-segmento-detalle` | Desde/Hasta, moneda, filtros madre (**el `operador` madre va SOLO al ranking Q2**; en Q1/Q3/Q4 `operador` es el drill-down del comercial clickeado). Click en comercial re-scopea Q1/Q3/Q4; click en segmento filtra Q4; tab de Q4 clientes/operaciones; botón `?` de ayuda | Ninguna |
 | **Control Comercial** (solo con `me.control_comercial`) | **Tabla 1** totales ALyC por períodos fijos; **Tabla 2** por comercial en [Desde,Hasta] (activos/inactivos/AuM/volumen/comisiones, cada uno con % vs rango anterior de igual largo); **Tabla 3** Actual vs Objetivo + % alcanzado | `/comercial/control/totales`, `/por-operador`, `/objetivos-vs-actual`, `/objetivos`, `/comercial/operadores` | Desde/Hasta propios (def mes en curso), moneda, filtros madre. **La Tabla 1 NO depende de Desde/Hasta** (períodos fijos Día/Semana/Mes/YTD/12M/2025/2024/Total, anclados a la última fecha con operaciones) | **SÍ — `PATCH /comercial/control/objetivos`**: editor inline (año + mes + inputs volumen/comisiones por comercial, botón guardar por fila). **Export**: un Excel con 3 hojas |
@@ -1328,6 +1328,33 @@ completo `[01, fin]`.
 - **Lo que la tabla NO puede saber va escrito en `meta.advertencias`**, a la vista en el pie: cuántas
   cuentas del scope no tienen fecha de alta, y que `estado='Activa'` **no es histórico** (la base de
   un mes viejo se reconstruye con las cuentas que HOY están activas).
+
+#### Filtro de OPERACIÓN (Profundidad de Clientes)
+`?operacion=` (multi, `= ANY`). Sale de `operaciones.operaciones.operacion`, que es un valor
+del catálogo `operaciones.tipos_operacion` (`data->>'operacion'`) — separa **compra / venta /
+caución tomadora / caución colocadora / suscripción y rescate de FCI / futuros**. ⚠️ **NO separa
+bono de acción**: los dos son `compra`/`venta`; eso necesitaría cruzar `instrumento` contra
+`portafolio.assets`.
+
+- **Acota SOLO lo que se operó.** `profundidad_sql.METRICAS_FILTRABLES` = `activos`,
+  `ratio_actividad`, `aranceles`, `arancel_por_activo`. `clientes`/`con_aum`/`sin_aum`/`aum`
+  salen de `comitentes`/`tenencia` y **no se filtran nunca**: si el denominador también se
+  filtrara, el porcentaje dejaría de significar "qué parte de mi base usa este producto".
+  Congelado por `test_el_universo_y_el_aum_no_saben_del_filtro`.
+- **Con el filtro puesto RATIO cambia de sentido** (pasa de actividad a penetración del
+  producto), así que el backend manda **los encabezados ya escritos** (`columnas`:
+  `"Operaron caución tomadora"`, `"% que operó caución tomadora"`). El front NO arma ese texto
+  — con 3 o más operaciones el sufijo se corta a `"3 operaciones"`.
+- **Las opciones se leen de la base** (`operaciones_disponibles`, con label y nº de boletos),
+  scopeadas al rango de la tabla y a los filtros madre, **y NUNCA con el filtro de operación
+  aplicado**: si se poblara con su propio resultado, al elegir "caución" quedaría una sola
+  opción y no habría forma de volver. Congelado por `test_las_opciones_no_se_filtran_a_si_mismas`.
+- **El modal recibe el MISMO `operacion`** o abriría una celda de 47 y mostraría 389 cuentas.
+- ⚡ La query de actividad asigna el mes con `date_trunc` y acota con un **rango cerrado**, no
+  con un join contra una lista de meses: medido con 300k boletos, el join hacía que el planner
+  materializara los boletos y los comparara contra los 14 meses (**798.039 filas descartadas
+  por el join filter**, O(meses × boletos)). Con el rango cerrado entra por `ix_ops_concertacion`
+  una sola vez — el endpoint filtrado bajó de 0,33 s a 0,17 s.
 
 #### Modal de auditoría por CELDA (Profundidad de Clientes)
 Click en cualquier celda con dato → `GET /comercial/profundidad/detalle?mes=YYYY-MM&metrica=…`.

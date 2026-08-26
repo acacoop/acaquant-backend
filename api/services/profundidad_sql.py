@@ -26,8 +26,17 @@ Reglas del cálculo, todas en un solo lugar:
    guarda SIEMPRE en ARS; en vista USD se divide por el MEP del ÚLTIMO DÍA DE ESE MES
    (no el de hoy) para que el histórico no se mueva solo.
 
-Nada se deriva en el navegador: los ratios, los labels (`jul-25`) y los totales
-salen de acá.
+6. **FILTRO DE OPERACIÓN** (`operacion`, multi): acota **solo lo que se operó** —
+   ACTIVOS, RATIO, ARANCELES y ARANC./ACTIVO. **NO toca** CLIENTES, CON AuM, SIN AuM
+   ni AuM, que salen de `comitentes`/`tenencia` y son la base entera. Es a propósito:
+   si el denominador también se filtrara, el porcentaje dejaría de significar
+   "qué parte de mi base usa este producto" y no significaría nada.
+   ⚠️ Con el filtro puesto RATIO cambia de sentido (deja de ser actividad y pasa a
+   ser penetración del producto), así que el backend manda **los encabezados ya
+   escritos** (`columnas`): el navegador no arma ese texto.
+
+Nada se deriva en el navegador: los ratios, los labels (`jul-25`), los encabezados
+y los totales salen de acá.
 
 Traza: cada celda se puede abrir (`detalle_mes`) y ver las cuentas que la componen,
 recalculadas con LAS MISMAS fuentes y predicados — mismo patrón que el modal de
@@ -65,6 +74,58 @@ _MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun",
 # decidir QUÉ cuentas listar y por qué columna ordenarlas.
 METRICAS = ("clientes", "con_aum", "sin_aum", "activos", "ratio_actividad",
             "aranceles", "arancel_por_activo", "aum")
+
+# Las ÚNICAS métricas que el filtro de operación acota. El resto sale de
+# `comitentes`/`tenencia` y es la base entera — filtrarlas rompería el porcentaje.
+METRICAS_FILTRABLES = ("activos", "ratio_actividad", "aranceles", "arancel_por_activo")
+
+# `operaciones.operaciones.operacion` es un valor del catálogo `tipos_operacion`
+# (columna `data->>'operacion'`), no texto libre. Acá viven SOLO las etiquetas para
+# mostrar; los valores posibles NUNCA se hardcodean — se leen de la base
+# (`_opciones_operacion`), así que un valor nuevo aparece solo y cae al fallback.
+_OP_LABEL = {
+    "compra": "Compra",
+    "venta": "Venta",
+    "caucion_tom_ap": "Caución tomadora",
+    "caucion_col_ap": "Caución colocadora",
+    "suscripcion_fci": "Suscripción FCI",
+    "solicitud_suscripcion_fci": "Solicitud de suscripción FCI",
+    "rescate_fci": "Rescate FCI",
+    "solicitud_rescate_fci": "Solicitud de rescate FCI",
+    "otro": "Otro",
+}
+
+
+def _op_label(v: str) -> str:
+    """Etiqueta legible de un valor de `operacion`. Sin entrada en `_OP_LABEL` se
+    prettifica el valor crudo (`futuro_dlr` → `Futuro dlr`) en vez de esconderlo:
+    un valor sin etiqueta tiene que poder filtrarse igual."""
+    return _OP_LABEL.get(v) or str(v).replace("_", " ").strip().capitalize()
+
+
+def _ops_lista(operacion) -> list[str]:
+    """Normaliza el filtro de operación: str o lista → lista sin vacíos ni comodines.
+    Lista vacía = SIN filtro (mismo criterio que `_comitentes_where`)."""
+    if operacion is None:
+        return []
+    items = [operacion] if isinstance(operacion, str) else list(operacion)
+    out: list[str] = []
+    for x in items:
+        v = str(x) if x else ""
+        # Deduplicado preservando el orden: repetido en la query-string, el
+        # encabezado diría "Caución + Caución".
+        if v and v not in ("__todos__", "todos", "todas") and v not in out:
+            out.append(v)
+    return out
+
+
+def _ops_and(ops: list[str], p: dict, alias: str = "o") -> str:
+    """Fragmento ` AND <alias>.operacion = ANY(...)` o cadena vacía. Muta `p`."""
+    if not ops:
+        return ""
+    p["ops_filtro"] = ops
+    a = f"{alias}." if alias else ""
+    return f" AND {a}operacion = ANY(%(ops_filtro)s)"
 
 
 def _label(anio: int, mes: int) -> str:
@@ -135,17 +196,72 @@ def _mep_de(fecha: date, cache: dict[str, float | None]) -> float | None:
     return cache[k]
 
 
+def _opciones_operacion(ini: date, fin: date, filtros: dict) -> list[dict]:
+    """Valores de `operacion` que EXISTEN en el rango y en el scope de clientes.
+
+    ⚠️ **NO recibe el filtro de operación, y no puede recibirlo.** Si lo llevara, al
+    elegir "caución" el desplegable se quedaría con una sola opción y no habría forma
+    de volver — el bug clásico de poblar un filtro con su propio resultado.
+
+    Sí respeta los filtros madre (operador/niveles/referido/división), igual que el
+    resto de la barra: así nunca ofrece un valor que la tabla no puede mostrar.
+    """
+    p: dict = {"ini": ini, "fin": fin}
+    w = _scope(p, alias="c", **filtros)
+    rows = _q(
+        f"SELECT o.operacion AS v, count(*) AS n "
+        f"FROM operaciones o "
+        f"JOIN comitentes c ON c.id_cuenta = o.id_cuenta AND {w} "
+        f"WHERE o.concertacion >= %(ini)s AND o.concertacion <= %(fin)s "
+        f"  AND {_act_where('o')} AND o.operacion IS NOT NULL AND o.operacion <> '' "
+        f"GROUP BY o.operacion ORDER BY count(*) DESC", p)
+    return [{"valor": r["v"], "label": _op_label(r["v"]), "n_boletos": int(r["n"])}
+            for r in rows]
+
+
+def _columnas(ops: list[str], disponibles: list[dict]) -> dict:
+    """Los encabezados de la tabla, YA ESCRITOS. Con filtro puesto, RATIO deja de ser
+    "actividad" y pasa a ser "penetración del producto": si el encabezado no lo dice,
+    alguien lee ese 5% como que se derrumbó el negocio. El texto se arma UNA vez, acá,
+    y no en el navegador."""
+    if not ops:
+        return {"activos": "Activos", "ratio_actividad": "Ratio activ.",
+                "aranceles": "Aranceles", "arancel_por_activo": "Aranc. / activo",
+                "sufijo": None}
+    etiquetas = {d["valor"]: d["label"] for d in disponibles}
+    nombres = [etiquetas.get(v) or _op_label(v) for v in ops]
+    # Con 3 o más se corta: un encabezado de tres renglones no se lee.
+    sufijo = nombres[0].lower() if len(nombres) == 1 else (
+        " + ".join(n.lower() for n in nombres) if len(nombres) == 2
+        else f"{len(nombres)} operaciones")
+    return {
+        "activos": f"Operaron {sufijo}",
+        "ratio_actividad": f"% que operó {sufijo}",
+        "aranceles": f"Aranceles de {sufijo}",
+        "arancel_por_activo": "Aranc. / operó",
+        "sufijo": sufijo,
+    }
+
+
 # ── TABLA ────────────────────────────────────────────────────────────────────
 def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
                          hasta: str | None = None, operador=None, nivel_1=None,
                          nivel_2=None, nivel_3=None, nivel_4=None, nivel_5=None,
-                         referido=None, division=None) -> dict:
+                         referido=None, division=None, operacion=None) -> dict:
     """Filas mm-aa con: clientes · con AuM · sin AuM · activos · ratio · aranceles ·
-    arancel/activo · AuM. Tres queries agregadas para TODA la tabla (una por fuente),
-    no una por mes."""
+    arancel/activo · AuM. Cuatro queries agregadas para TODA la tabla (una por fuente
+    + las opciones del filtro), no una por mes.
+
+    `operacion` (multi) acota SOLO lo que se operó — ver regla 6 del docstring del
+    módulo. Vacío = sin filtro = comportamiento idéntico al de siempre."""
     meses = _meses(desde, hasta)
+    ops_f = _ops_lista(operacion)
     if not meses:
-        return {"moneda": moneda, "meses": [], "filas": [], "meta": {}}
+        return {"moneda": moneda, "desde": None, "hasta": None, "filas": [],
+                "operacion": ops_f, "operaciones_disponibles": [],
+                "columnas": _columnas([], []),
+                "columnas_filtradas": list(METRICAS_FILTRABLES),
+                "meta": {"sin_alta": 0, "advertencias": [], "fuentes": {}}}
     filtros = dict(operador=operador, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
                    nivel_4=nivel_4, nivel_5=nivel_5, referido=referido, division=division)
     inis = [m["ini"] for m in meses]
@@ -171,30 +287,44 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
         clientes_por_mes[fin] = acum
 
     # ── 2) ACTIVIDAD + ARANCELES: UN scan de `operaciones` para todos los meses.
-    # El JOIN contra la CTE de meses es un rango por mes sobre `ix_ops_concertacion`;
-    # los meses son disjuntos, así que cada boleto entra en uno solo.
-    # `_fuera` = boletos de cuentas del scope que NO estaban en el universo del mes
-    # (sin fecha de alta, o alta posterior): NO se suman, pero se reportan — una
-    # diferencia que no se ve es la que se descubre tarde y mirando una pantalla.
+    #
+    # El mes lo pone `date_trunc`, NO un join contra una lista de meses. Medido con
+    # 300k boletos: joinear contra la lista hacía que el planner materializara los
+    # boletos y los comparara contra LOS 14 MESES (798.039 filas descartadas por el
+    # join filter, O(meses × boletos)). Con un rango cerrado en el WHERE la query
+    # entra por `ix_ops_concertacion` una sola vez y el mes sale de una función —
+    # O(boletos), y no se degrada al agrandar la ventana.
+    # Los meses de la tabla son contiguos y completos, así que cada boleto del rango
+    # cae en exactamente uno: `date_trunc('month', concertacion)` ES su `ini`.
+    #
     # Se agrega en DOS pasos (por cuenta, después por mes) a propósito: un
     # `count(DISTINCT id_cuenta)` obliga a Postgres a ORDENAR todos los boletos del
     # período (medido: 210k filas → sort en disco). Agrupando primero por
     # (mes, cuenta) el paso caro pasa a ser un HashAggregate de meses × cuentas.
     # `alta` entra en el GROUP BY porque depende solo de la cuenta — no agrega grupos.
-    p2: dict = {"inis": inis, "fines": fines}
+    #
+    # `_fuera` = boletos de cuentas del scope que NO estaban en el universo del mes
+    # (sin fecha de alta, o alta posterior): NO se suman, pero se reportan — una
+    # diferencia que no se ve es la que se descubre tarde y mirando una pantalla.
+    #
+    # El filtro de operación entra ACÁ y en ningún otro lado: es la única query de
+    # la tabla que mira `operaciones`. Las de universo y AuM ni se enteran.
+    p2: dict = {"rango_ini": meses[0]["ini"], "rango_fin": meses[-1]["fin"]}
     w2 = _scope(p2, alias="c", **filtros)
+    f_ops = _ops_and(ops_f, p2, "o")
     dentro = "alta IS NOT NULL AND alta <= fin"
+    _mes_ini = "date_trunc('month', o.concertacion)"
     ops = {r["fin"]: r for r in _q(
-        f"WITH meses AS (SELECT * FROM unnest(%(inis)s::date[], %(fines)s::date[]) AS t(ini, fin)), "
-        f"esc AS (SELECT c.id_cuenta, c.fecha_alta_legajo FROM comitentes c WHERE {w2}), "
+        f"WITH esc AS (SELECT c.id_cuenta, c.fecha_alta_legajo FROM comitentes c WHERE {w2}), "
         f"por_cuenta AS ("
-        f"  SELECT m.fin, o.id_cuenta, e.fecha_alta_legajo AS alta, "
+        f"  SELECT ({_mes_ini} + interval '1 month' - interval '1 day')::date AS fin, "
+        f"    o.id_cuenta, e.fecha_alta_legajo AS alta, "
         f"    COALESCE(SUM(CASE WHEN {_arancel_where('o')} THEN abs(o.arancel) END), 0) AS arancel "
-        f"  FROM meses m "
-        f"  JOIN operaciones o ON o.concertacion >= m.ini AND o.concertacion <= m.fin "
-        f"    AND {_act_where('o')} "
+        f"  FROM operaciones o "
         f"  JOIN esc e ON e.id_cuenta = o.id_cuenta "
-        f"  GROUP BY m.fin, o.id_cuenta, e.fecha_alta_legajo) "
+        f"  WHERE o.concertacion >= %(rango_ini)s AND o.concertacion <= %(rango_fin)s "
+        f"    AND {_act_where('o')}{f_ops} "
+        f"  GROUP BY 1, o.id_cuenta, e.fecha_alta_legajo) "
         f"SELECT fin, "
         f"  count(*) FILTER (WHERE {dentro}) AS activos, "
         f"  count(*) FILTER (WHERE NOT ({dentro})) AS activos_fuera, "
@@ -274,19 +404,35 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
         advertencias.append(
             "hay meses cuya foto de AuM no cae exactamente en el último día del mes "
             "(se usa el snapshot de tenencia más reciente <= fin de mes; ver la columna AuM)")
+    # Las opciones del desplegable salen de la base y SIN el filtro puesto (ver
+    # `_opciones_operacion`). Se calculan sobre el rango entero de la tabla.
+    disponibles = _opciones_operacion(meses[0]["ini"], meses[-1]["fin"], filtros)
+    if ops_f:
+        advertencias.append(
+            "hay un filtro de operación puesto: ACTIVOS, RATIO y ARANCELES cuentan solo "
+            "esa operación; CLIENTES, CON AuM, SIN AuM y AuM son la base entera")
+    sufijo_fuente = f" — SOLO {', '.join(ops_f)}" if ops_f else ""
     return {
         "moneda": "USD" if usd else "ARS",
         "desde": meses[0]["mes"], "hasta": meses[-1]["mes"],
         "filas": filas,
+        # Qué filtro quedó aplicado (normalizado) y qué se podía elegir.
+        "operacion": ops_f,
+        "operaciones_disponibles": disponibles,
+        # Encabezados ya escritos + qué columnas acota el filtro (el resto va en gris).
+        "columnas": _columnas(ops_f, disponibles),
+        "columnas_filtradas": list(METRICAS_FILTRABLES),
         "meta": {
             "sin_alta": sin_alta,
             "advertencias": advertencias,
             "fuentes": {
                 "clientes": "clientes.comitentes (estado='Activa', fecha_alta_legajo <= fin de mes)",
                 "aum": "portafolio.tenencia (aum='si'), snapshot más reciente <= fin de mes",
-                "activos": "operaciones.operaciones — cualquier boleto no anulado en el mes",
+                "activos": ("operaciones.operaciones — cualquier boleto no anulado en el mes"
+                            + sufijo_fuente),
                 "aranceles": ("operaciones.operaciones — arancel > 0, etapa <> 'solicitud', "
-                              "cierres incluidos (la caución cobra en el cierre); se guarda en ARS"),
+                              "cierres incluidos (la caución cobra en el cierre); se guarda en ARS"
+                              + sufijo_fuente),
             },
         },
     }
@@ -320,19 +466,24 @@ _TITULO_METRICA = {
 def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
                 limite: int = 500, operador=None, nivel_1=None, nivel_2=None,
                 nivel_3=None, nivel_4=None, nivel_5=None, referido=None,
-                division=None) -> dict:
+                division=None, operacion=None) -> dict:
     """Cuentas que forman UNA celda (mes × métrica), con su AuM, sus boletos y su
     arancel del mes. Los totales se calculan sobre TODAS las filas y recién después
-    se capea la lista → el total del modal no puede diferir de la tabla por el límite."""
+    se capea la lista → el total del modal no puede diferir de la tabla por el límite.
+
+    `operacion` tiene que llegar SIEMPRE con el mismo valor que la tabla: si el modal
+    no filtrara igual, se abriría una celda de 47 y saldrían 389 cuentas."""
     metrica = metrica if metrica in _FILTRO_METRICA else "clientes"
     anio, m = _parse_mes(mes, PROFUNDIDAD_INICIO)
     ini, fin = date(anio, m, 1), _fin_de_mes(anio, m)
     usd = (moneda or "ARS").upper() == "USD"
+    ops_f = _ops_lista(operacion)
     filtros = dict(operador=operador, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
                    nivel_4=nivel_4, nivel_5=nivel_5, referido=referido, division=division)
 
     p: dict = {"ini": ini, "fin": fin}
     w = _scope(p, alias="c", **filtros)
+    f_ops = _ops_and(ops_f, p, "o")
     # UNA query: universo del mes + AuM del snapshot + boletos/arancel del mes.
     # Los dos LEFT JOIN son sobre agregados ya reducidos por cuenta, no filas crudas.
     rows = _q(
@@ -346,7 +497,7 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         f"o AS (SELECT o.id_cuenta, count(*) AS n_boletos, max(o.concertacion) AS ult, "
         f"             COALESCE(SUM(CASE WHEN {_arancel_where('o')} THEN abs(o.arancel) END), 0) AS arancel "
         f"      FROM operaciones o WHERE o.concertacion >= %(ini)s AND o.concertacion <= %(fin)s "
-        f"        AND {_act_where('o')} GROUP BY o.id_cuenta) "
+        f"        AND {_act_where('o')}{f_ops} GROUP BY o.id_cuenta) "
         f"SELECT e.id_cuenta, u.denominacion, e.nivel_1, e.nivel_3, op.nombre AS operador_nombre, "
         f"       e.fecha_alta_legajo, (SELECT f FROM snap) AS snapshot, "
         f"       COALESCE(a.aum, 0) AS aum, COALESCE(o.n_boletos, 0) AS n_boletos, "
@@ -406,8 +557,9 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         "sin_aum": (f"{n_clientes} clientes − {n_con_aum} con AuM = "
                     f"{n_clientes - n_con_aum}" if n_con_aum is not None
                     else "sin snapshot de tenencia <= fin de mes → no se puede mirar"),
-        "activos": (f"{n_activos} cuentas con al menos un boleto entre "
-                    f"{ini.strftime('%d/%m/%Y')} y {fin.strftime('%d/%m/%Y')}"),
+        "activos": (f"{n_activos} cuentas con al menos un boleto"
+                    + (f" de {' + '.join(_op_label(v).lower() for v in ops_f)}" if ops_f else "")
+                    + f" entre {ini.strftime('%d/%m/%Y')} y {fin.strftime('%d/%m/%Y')}"),
         "ratio_actividad": (f"{n_activos} activos / {n_clientes} clientes = "
                             f"{round(100 * n_activos / n_clientes, 2) if n_clientes else 0}%"),
         "aranceles": (f"suma de aranceles de los boletos entre {ini.strftime('%d/%m/%Y')} "
@@ -422,6 +574,10 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         "mes": f"{anio:04d}-{m:02d}", "label": _label(anio, m),
         "ini": _iso(ini), "fin": _iso(fin),
         "metrica": metrica, "titulo": _TITULO_METRICA[metrica],
+        # Contra qué filtro se calculó ESTE detalle. Va a la vista para que no se
+        # pueda confundir un modal filtrado con uno que no lo está.
+        "operacion": ops_f,
+        "operacion_label": (" + ".join(_op_label(v) for v in ops_f) if ops_f else None),
         "moneda": "USD" if usd else "ARS",
         "mep_aranceles": f_ar, "mep_aum": f_aum,
         "snapshot_aum": _iso(snapshot),

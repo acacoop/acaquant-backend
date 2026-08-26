@@ -629,14 +629,21 @@ def comercial_profundidad(
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+    operacion: list[str] | None = Query(None, description="operacion(es) del boleto (multi). Vacío = todas. SOLO acota activos/ratio/aranceles"),
 ) -> dict:
     """Una fila por mes (mm-aa) con clientes · con AuM · sin AuM · activos · ratio de
     actividad · aranceles · arancel por activo · AuM. Todo medido al ÚLTIMO día del mes;
-    los flujos, sobre el mes completo. Los ratios y los labels vienen calculados."""
+    los flujos, sobre el mes completo. Los ratios, los labels y los encabezados vienen
+    calculados.
+
+    `operacion` acota SOLO lo que se operó (activos/ratio/aranceles/arancel por activo);
+    clientes, con AuM, sin AuM y AuM siguen siendo la base entera. La respuesta trae
+    `operaciones_disponibles` (los valores que existen, leídos de la base) y `columnas`
+    (los encabezados ya escritos, que cambian de nombre con el filtro puesto)."""
     return _prof.profundidad_clientes(
         moneda=moneda, desde=desde, hasta=hasta, operador=operador, nivel_1=nivel_1,
         nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5,
-        referido=referido, division=division)
+        referido=referido, division=division, operacion=operacion)
 
 
 @router.get("/comercial/profundidad/detalle")
@@ -654,15 +661,17 @@ def comercial_profundidad_detalle(
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+    operacion: list[str] | None = Query(None, description="MISMO valor que la tabla, o el detalle la contradice"),
 ) -> dict:
     """Auditoría de UNA celda (mes × métrica): las cuentas que la componen, con su AuM,
-    sus boletos y su arancel del mes. Mismos predicados y mismo snapshot que la tabla —
-    los totales se calculan sobre TODAS las cuentas y recién después se capea la lista,
-    así el límite no puede hacer que el modal contradiga al número."""
+    sus boletos y su arancel del mes. Mismos predicados, mismo snapshot y MISMO filtro
+    de operación que la tabla — los totales se calculan sobre TODAS las cuentas y recién
+    después se capea la lista, así el límite no puede hacer que el modal contradiga al
+    número."""
     return _prof.detalle_mes(
         mes=mes, metrica=metrica, moneda=moneda, limite=limite, operador=operador,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4,
-        nivel_5=nivel_5, referido=referido, division=division)
+        nivel_5=nivel_5, referido=referido, division=division, operacion=operacion)
 
 
 @router.get("/comercial/cobros-futuros")

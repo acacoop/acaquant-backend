@@ -97,3 +97,29 @@ def guardar_cuenta(body: CuentaIn, actor: str = _ESCRIBE) -> dict:
     """
     return _ok(_svc.guardar_cuenta, body.account,
                name=body.name, grupo=body.grupo, por=actor)
+
+
+@router.get("/aca/cuentas")
+def aca_cuentas() -> list[dict]:
+    """Las cuentas propias que se pueden elegir en POSICIONES DE ACA.
+
+    La lista es una ALLOWLIST de `config`, no un filtro por defecto: cualquier
+    otra cuenta de `ap5.portfolio` es de un comitente y no se ofrece.
+    """
+    return _ok(_svc.cuentas_aca)
+
+
+@router.get("/aca")
+def aca(cuenta: str = Query(..., description="Número de cuenta propia"),
+        fecha: str | None = Query(None, description="YYYY-MM-DD")) -> dict:
+    """La posición abierta de UNA cuenta propia, una fila por símbolo.
+
+    ⚠️ **La cuenta se valida contra la allowlist en el SERVICE**, no acá: si el
+    gate viviera en el router, un caller nuevo (un job, el MCP) podría llamar al
+    service y saltearlo. Una cuenta que no está devuelve `permitida: false` en
+    vez de un 403 — la vista tiene que poder decir *por qué* no hay datos.
+    """
+    hoy, _ = _svc._fecha_valida(fecha)
+    if not hoy:
+        return {"cuenta": cuenta, "permitida": True, "filas": [], "fecha": None}
+    return {**_ok(_svc.posiciones_aca, hoy, cuenta), "fecha": hoy}

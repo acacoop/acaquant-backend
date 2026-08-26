@@ -298,3 +298,14 @@ AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS = False
 # cómo se pierde de vista qué mandó de verdad el proveedor) y se invierten UNA
 # vez, acá, al mostrarlos.
 AP5_MARGENES_INVERTIR_SIGNO = True
+
+# --- AP5 · POSICIONES DE ACA ---
+# Las ÚNICAS cuentas que se pueden elegir en esa tab. Es una allowlist, no un
+# filtro por defecto: la tab muestra la posición de las cuentas propias, y
+# cualquier otra cuenta que aparezca en `ap5.portfolio` es de un comitente.
+#
+# ⚠️ Se muestran por DENOMINACIÓN, no por número — pero la identidad sigue siendo
+# el número: el nombre sale de `ap5.cuentas` al leer. Guardar acá el nombre haría
+# que renombrar una cuenta en la base la deje afuera de la lista sin que nada
+# falle (REGLA #9).
+AP5_CUENTAS_ACA: tuple[str, ...] = ("149667", "155235", "155344")

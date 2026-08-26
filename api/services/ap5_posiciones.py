@@ -38,6 +38,7 @@ from config import (
     AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS,
     AP5_CONCEPTOS_ACTIVO_INTEGRADO,
     AP5_CONCEPTOS_REQUERIMIENTO,
+    AP5_CUENTAS_ACA,
     AP5_CUENTAS_REQUERIMIENTO,
     AP5_MARGENES_INVERTIR_SIGNO,
     AP5_REQUERIMIENTO_FILTRA_CUENTAS,
@@ -804,6 +805,98 @@ def actualizado(fecha: str) -> dict:
     return {k: (v.isoformat() if v else None)
             for k, v in (("posicion", d.get("posicion")),
                          ("margenes", d.get("margenes")))}
+
+
+def cuentas_aca() -> list[dict]:
+    """Las cuentas propias, con su denominación. La identidad es el NÚMERO.
+
+    ⚠️ El desplegable muestra el nombre, pero lo que viaja y lo que filtra es el
+    número: guardar el nombre en `config` haría que renombrar la cuenta en la
+    base la deje fuera de la lista sin que nada falle (REGLA #9).
+    """
+    if not AP5_CUENTAS_ACA:
+        return []
+    filas = _q(
+        "SELECT account, COALESCE(NULLIF(name,''), NULLIF(denominacion,''), account) "
+        "       AS nombre "
+        "FROM ap5.cuentas WHERE account = ANY(%(a)s::text[])",
+        {"a": list(AP5_CUENTAS_ACA)},
+    )
+    por = {str(r["account"]): r["nombre"] for r in filas}
+    # El orden es el de `config`, no el alfabético: es el que eligió la mesa.
+    # Y una cuenta que todavía no está en `ap5.cuentas` sale con su número —
+    # esconderla haría que el desplegable tenga menos opciones sin explicar por
+    # qué.
+    return [{"cuenta": c, "nombre": por.get(c, c), "conocida": c in por}
+            for c in AP5_CUENTAS_ACA]
+
+
+def posiciones_aca(fecha: str, cuenta: str) -> dict:
+    """La posición abierta de UNA cuenta propia, una fila por símbolo.
+
+    ⚠️ **La cantidad es UN número con signo, no dos columnas.** `ap5.portfolio`
+    trae `long_qty` y `short_qty` y deja la otra en cero; mostrar las dos es
+    desprolijo y obliga a leer dos celdas para saber si está comprado o vendido.
+    Acá se informa `long − short`: positivo comprado, negativo vendido.
+
+    ⚠️ **Un símbolo puede tener MÁS DE UNA fila** en la base (la PK incluye
+    `position_type` y `side`). Se agregan, y el precio de entrada se pondera por
+    la cantidad de cada pata — un promedio simple daría un precio que no existió.
+    `patas` viaja en la respuesta: un promedio de una fila y uno de tres no son
+    la misma evidencia, y sin el conteo se ven idénticos.
+
+    ⚠️ **`dif_pct` es la VARIACIÓN**, `(ajuste − entrada) / entrada`, no el
+    cociente crudo: es lo que hace que `dif_px` y `dif_pct` cuenten lo mismo. Un
+    cociente pelado mostraría 101% donde el precio casi no se movió.
+
+    ⚠️ **`dif_px` es del PRECIO, no del resultado.** En una posición vendida un
+    precio que sube es una pérdida, y acá igual sale positivo: la columna dice
+    cuánto se movió el precio, y el signo de la posición está en `cantidad`.
+    """
+    if cuenta not in AP5_CUENTAS_ACA:
+        return {"cuenta": cuenta, "permitida": False, "filas": []}
+
+    filas = _q(
+        f"""
+        SELECT p.symbol,
+               {_FAMILIA_SQL} AS familia,
+               p.unit_of_measure AS unidad,
+               p.settlement_currency AS moneda,
+               sum(p.long_qty) - sum(p.short_qty)          AS cantidad,
+               max(p.settlement_price)                     AS ajuste,
+               sum(p.avg_px * (p.long_qty + p.short_qty))  AS px_pond,
+               sum(p.long_qty + p.short_qty)               AS qty_abs,
+               count(*)                                    AS patas
+        FROM ap5.portfolio p
+        WHERE p.business_date = %(f)s AND p.account = %(c)s
+        GROUP BY 1, 2, 3, 4
+        ORDER BY 2, 1
+        """,
+        {"f": fecha, "c": cuenta},
+    )
+
+    salida = []
+    for r in filas:
+        qty_abs = _f0(r["qty_abs"])
+        # Sin cantidad no hay con qué ponderar: el precio queda en None y NO en
+        # cero, que es un precio y sería mentira.
+        entrada = round(_f0(r["px_pond"]) / qty_abs, 4) if qty_abs else None
+        ajuste = _f(r["ajuste"])
+        dif = None if entrada in (None, 0) or ajuste is None else round(ajuste - entrada, 4)
+        salida.append({
+            "symbol": r["symbol"],
+            "familia": r["familia"],
+            "unidad": r["unidad"],
+            "moneda": r["moneda"],
+            "cantidad": round(_f0(r["cantidad"]), 2),
+            "entrada": entrada,
+            "ajuste": None if ajuste is None else round(ajuste, 4),
+            "dif_px": dif,
+            "dif_pct": (None if dif is None or not entrada
+                        else round(dif / entrada * 100, 2)),
+            "patas": r["patas"],
+        })
+    return {"cuenta": cuenta, "permitida": True, "filas": salida}
 
 
 def vista(fecha: str | None = None) -> dict:

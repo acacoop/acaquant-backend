@@ -121,5 +121,6 @@ def aca(cuenta: str = Query(..., description="Número de cuenta propia"),
     """
     hoy, _ = _svc._fecha_valida(fecha)
     if not hoy:
-        return {"cuenta": cuenta, "permitida": True, "filas": [], "fecha": None}
+        return {"cuenta": cuenta, "permitida": True,
+                "filas": [], "totales": [], "fecha": None}
     return {**_ok(_svc.posiciones_aca, hoy, cuenta), "fecha": hoy}

@@ -865,9 +865,22 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
     informa con el nombre que usa la mesa, pero el que lo lea tiene que saber
     qué es — la diferencia del día se obtiene restando contra el día anterior,
     que es lo que hacen las otras vistas.
+
+    ⚠️ **El TOTAL de `diferencias` va por (familia, MONEDA), y lo suma ACÁ.**
+    Dos motivos, los dos ya pagados en esta vista:
+
+    1. **La moneda.** Adentro de una misma tabla pueden convivir símbolos que
+       liquidan en monedas distintas —los `.CME` no tienen por qué liquidar en
+       lo mismo que los `.ROS`— y un total que las mezcla es un número que no
+       existe. Es la misma razón por la que el CONSOLIDADO agrupa por (tab,
+       moneda). Si la tabla tiene UNA sola moneda sale un TOTAL y listo; si
+       tiene dos, salen dos, cada uno con su moneda al lado.
+    2. **No se suma en el navegador** (regla de la vista). El total sale de las
+       MISMAS filas que se devuelven, así que no puede contradecir a la lista
+       que tiene abajo.
     """
     if cuenta not in AP5_CUENTAS_ACA:
-        return {"cuenta": cuenta, "permitida": False, "filas": []}
+        return {"cuenta": cuenta, "permitida": False, "filas": [], "totales": []}
 
     filas = _q(
         f"""
@@ -893,7 +906,9 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
         {"f": fecha, "c": cuenta},
     )
 
-    salida = []
+    salida: list[dict] = []
+    # Acumula por (familia, moneda) sobre las MISMAS filas que se devuelven.
+    totales: dict[tuple[str, str | None], dict] = {}
     for r in filas:
         qty_abs = _f0(r["qty_abs"])
         # Sin cantidad no hay con qué ponderar: el precio queda en None y NO en
@@ -924,7 +939,26 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
                         else round(dif / entrada * 100, 2)),
             "patas": r["patas"],
         })
-    return {"cuenta": cuenta, "permitida": True, "filas": salida}
+        clave = (r["familia"], r["moneda"])
+        t = totales.setdefault(
+            clave, {"familia": r["familia"], "moneda": r["moneda"],
+                    "diferencias": 0.0, "filas": 0, "sin_multiplicador": 0})
+        t["diferencias"] += _f0(r["diferencias"])
+        t["filas"] += 1
+        # Se CUENTA lo que no se pudo convertir: un total de nocional al que le
+        # faltan símbolos, callado, se lee como el tamaño completo de la
+        # posición. Acá no se totaliza el nocional, pero el dato viaja para que
+        # la pantalla pueda decir que la tabla tiene agujeros.
+        if r["mult"] is None:
+            t["sin_multiplicador"] += 1
+
+    for t in totales.values():
+        t["diferencias"] = round(t["diferencias"], 2)
+    return {
+        "cuenta": cuenta, "permitida": True, "filas": salida,
+        "totales": sorted(totales.values(),
+                          key=lambda t: (t["familia"], t["moneda"] or "")),
+    }
 
 
 def vista(fecha: str | None = None) -> dict:

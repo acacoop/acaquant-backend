@@ -104,3 +104,28 @@ def test_los_nulos_no_rompen_el_total():
 
 def test_sin_filas_no_revienta():
     assert agrupar_consolidado([]) == []
+
+
+# --------------------------------------------------------------------------- #
+# SOJA CME → SOJA · CRN → MAIZ  (2026-08-26)
+# --------------------------------------------------------------------------- #
+def test_el_producto_de_chicago_cae_en_el_mismo_que_el_de_rosario():
+    """`SOY` es la soja de Chicago y `CRN` el maíz de Chicago: para el reporte
+    son SOJA y MAÍZ, no dos productos aparte.
+
+    ⚠️ Se pueden sumar porque las cantidades YA están en toneladas —el
+    multiplicador convierte contratos → unidad antes de esto—. Sumando
+    CONTRATOS sería un error de 20×.
+    """
+    from api.services.ap5_posiciones import _PRODUCTO_SQL, PRODUCTO_CANONICO
+    assert PRODUCTO_CANONICO == {"SOY": "SOJ", "CRN": "MAI"}
+    # el mapeo tiene que estar EN la SQL, no sólo en el dict
+    assert "SOY%%" in _PRODUCTO_SQL and "'SOJ'" in _PRODUCTO_SQL
+    assert "CRN%%" in _PRODUCTO_SQL and "'MAI'" in _PRODUCTO_SQL
+
+
+def test_no_queda_una_etiqueta_para_un_producto_que_ya_no_existe():
+    """`SOY`/`CRN` se canonizan ANTES de etiquetar, así que una etiqueta para
+    ellos sería código muerto que sugiere que todavía llegan."""
+    from api.services.ap5_posiciones import ETIQUETAS, PRODUCTO_CANONICO
+    assert not (set(ETIQUETAS) & set(PRODUCTO_CANONICO))

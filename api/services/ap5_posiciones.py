@@ -64,17 +64,35 @@ _FAMILIA_SQL = """
 #
 # El `%%` NO es un typo: psycopg usa `%s` para los parámetros, así que un `%`
 # literal dentro del SQL se escribe doble o la query ni siquiera llega a la base.
-_PRODUCTO_SQL = """
+_PRODUCTO_CRUDO = """
     CASE WHEN p.symbol LIKE '%%.%%' THEN split_part(p.symbol, '.', 1)
          ELSE left(p.symbol, 3) END
 """
 
+# El mismo GRANO en dos mercados. `SOY` es la soja de Chicago y `CRN` el maíz de
+# Chicago: para el reporte de la mesa son SOJA y MAÍZ, no dos productos aparte.
+#
+# ⚠️ **Se pueden sumar porque las cantidades ya están en TONELADAS**: el
+# multiplicador de `ap5.contratos` convierte contratos → unidad antes de esto, y
+# un contrato de Chicago no mide lo mismo que uno de Rosario. Sumando CONTRATOS
+# esto sería un error de 20×. Y los importes no se mezclan igual: el consolidado
+# agrupa por MONEDA, así que si liquidaran en monedas distintas caerían en
+# cuadros separados de todos modos.
+PRODUCTO_CANONICO = {"SOY": "SOJ", "CRN": "MAI"}
+
+# Un solo CASE, plano. Los prefijos salen de `PRODUCTO_CANONICO` para que el
+# mapeo viva en UN lugar: si se agrega otro par, la SQL se arma sola.
+_PRODUCTO_SQL = (
+    "CASE "
+    + " ".join(f"WHEN p.symbol LIKE '{k}%%' THEN '{v}'"
+               for k, v in PRODUCTO_CANONICO.items())
+    + " " + _PRODUCTO_CRUDO.strip().removeprefix("CASE ")
+)
+
 # Etiqueta legible. El código sigue siendo la identidad — esto es solo cómo se
 # muestra, y lo que no esté acá se muestra con su código en vez de ocultarse.
-ETIQUETAS = {
-    "MAI": "MAIZ", "SOJ": "SOJA", "TRI": "TRIGO",
-    "SOY": "SOJA CME", "DLR": "DÓLAR", "WTI": "WTI",
-}
+ETIQUETAS = {"MAI": "MAIZ", "SOJ": "SOJA", "TRI": "TRIGO",
+             "DLR": "DÓLAR", "WTI": "WTI"}
 
 # Cuántas cuentas por ranking. El reporte muestra 10 arriba y 10 abajo.
 TOP = 10
@@ -106,8 +124,18 @@ MONEDAS = {"Pesos": "acumulado_pesos", "Dólar MtR": "acumulado_mtr"}
 TAB_DE_FAMILIA = {AGRO: "agro", DOLAR: "dolar"}
 
 # Los dos lados del reporte, y de qué lado va cada uno en la pantalla.
-IZQUIERDA, DERECHA, OTRO_LADO = "izq", "der", "otro"
-_LADO_POR_GRUPO = {"COOPERATIVAS": IZQUIERDA, "MUNDO ACA": DERECHA}
+IZQUIERDA, DERECHA, OTRO_LADO, FUERA = "izq", "der", "otro", "fuera"
+_LADO_POR_GRUPO = {
+    "COOPERATIVAS": IZQUIERDA,
+    "MUNDO ACA": DERECHA,
+    # ⚠️ **`OTROS` NO es lo mismo que «sin grupo».** Sin grupo = nadie lo
+    # clasificó todavía, y esas cuentas SÍ se muestran (en su propio panel)
+    # justamente para que se note que falta clasificarlas. `OTROS` es una
+    # decisión tomada: esta cuenta no va en el reporte. Si las dos se trataran
+    # igual, esconder lo no clasificado haría desaparecer cuentas sin que nadie
+    # lo pida.
+    "OTROS": FUERA,
+}
 
 
 def normalizar_grupo(g: str) -> str:
@@ -132,6 +160,15 @@ def lado_de_grupo(g: str) -> str:
     """De qué lado de la pantalla va este grupo. Lo decide el BACKEND para que la
     vista no tenga que comparar strings — que es justo donde se rompió."""
     return _LADO_POR_GRUPO.get(normalizar_grupo(g), OTRO_LADO)
+
+
+def entra_al_reporte(g: str) -> bool:
+    """¿Este grupo se muestra? `OTROS` es la única respuesta que no.
+
+    Lo decide el BACKEND, igual que el lado: si la vista filtrara por string,
+    volveríamos a donde `COOPERATIVAS` no matcheaba con `Cooperativas`.
+    """
+    return lado_de_grupo(g) != FUERA
 
 
 # El nombre a mostrar: manda lo que escribió una persona, después lo que dice la
@@ -275,6 +312,10 @@ def rankings(filas: list[dict]) -> list[dict]:
     etiqueta: dict[tuple[str, str], str] = {}
 
     for r in filas:
+        # ⚠️ `OTROS` es una decisión tomada («esta cuenta no va al reporte»), a
+        # diferencia de «sin grupo», que es trabajo pendiente y SÍ se muestra.
+        if not entra_al_reporte(r["grupo"]):
+            continue
         if not r["acumulado"]:
             continue
         tab = TAB_DE_FAMILIA.get(r["familia"])
@@ -354,29 +395,32 @@ def por_instrumento(fecha: str, fecha_anterior: str | None) -> list[dict]:
         "p.unit_of_measure AS unidad, p.settlement_currency AS moneda, "
         f"sum({_LARGO}) AS compra, sum({_CORTO}) AS venta, "
         "sum(p.long_qty) AS compra_contratos, sum(p.short_qty) AS venta_contratos, "
-        "count(*) FILTER (WHERE m.multiplicador IS NULL) AS sin_multiplicador, "
-        "sum(p.daily_settlement) AS diaria "
+        "count(*) FILTER (WHERE m.multiplicador IS NULL) AS sin_multiplicador "
         "FROM ap5.portfolio p "
         "LEFT JOIN ap5.contratos m ON m.symbol = p.symbol "
         "WHERE p.business_date = %(f)s GROUP BY 1, 2, 3, 4 ORDER BY 1, 2",
         {"f": fecha},
     )
 
-    # Acumulado por producto = Σ de TODOS los días guardados hasta la fecha. Se
-    # calcula en una sola query y se cruza en memoria: son 5 productos.
+    # ⚠️ **El acumulado NO se suma entre días.** `daily_settlement` ya viene
+    # acumulado de la cámara: sumar dos días cuenta la misma plata dos veces y
+    # da un número más grande y creíble. El acumulado de un producto es la Σ de
+    # UN día; el del día anterior sale de pedir ese otro día.
     acum = {
-        (r["familia"], r["producto"]): (_f0(r["hasta_hoy"]), _f0(r["hasta_ayer"]))
+        (r["familia"], r["producto"]): (_f0(r["hoy"]), _f0(r["ayer"]))
         for r in _q(
             f"SELECT {_FAMILIA_SQL} AS familia, {_PRODUCTO_SQL} AS producto, "
-            "sum(p.daily_settlement) FILTER (WHERE p.business_date <= %(f)s) AS hasta_hoy, "
-            "sum(p.daily_settlement) FILTER (WHERE p.business_date < %(f)s) AS hasta_ayer "
-            "FROM ap5.portfolio p WHERE p.business_date <= %(f)s GROUP BY 1, 2",
-            {"f": fecha},
+            "sum(p.daily_settlement) FILTER (WHERE p.business_date = %(f)s) AS hoy, "
+            "sum(p.daily_settlement) FILTER ("
+            "  WHERE %(a)s::date IS NOT NULL AND p.business_date = %(a)s::date) AS ayer "
+            "FROM ap5.portfolio p "
+            "WHERE p.business_date = %(f)s "
+            "   OR (%(a)s::date IS NOT NULL AND p.business_date = %(a)s::date) "
+            "GROUP BY 1, 2",
+            {"f": fecha, "a": fecha_anterior},
         )
     }
-
-    desde = _q("SELECT to_char(min(business_date), 'YYYY-MM-DD') AS d FROM ap5.portfolio")
-    acumulado_desde = desde[0]["d"] if desde else None
+    acumulado_desde = fecha_anterior
 
     salida = []
     for r in filas:
@@ -400,7 +444,10 @@ def por_instrumento(fecha: str, fecha_anterior: str | None) -> list[dict]:
             "sin_multiplicador": r["sin_multiplicador"],
             "acum_hoy": round(hoy, 2),
             "acum_ayer": round(ayer, 2),
-            "diaria": round(_f0(r["diaria"]), 2),
+            # ⚠️ La diaria es la RESTA, no `sum(daily_settlement)` del día: ese
+            # campo ya viene acumulado, así que su Σ ES `acum_hoy`. Usarlo como
+            # diaria mostraba el acumulado en la columna del día.
+            "diaria": round(hoy - ayer, 2),
             "acumulado_desde": acumulado_desde,
             "fecha_anterior": fecha_anterior,
         })

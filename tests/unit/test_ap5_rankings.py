@@ -170,3 +170,32 @@ def test_sin_dia_anterior_la_diaria_es_None_y_no_CERO():
 
 def test_sin_filas_no_revienta():
     assert rankings([]) == []
+
+
+# --------------------------------------------------------------------------- #
+# El grupo OTROS queda FUERA del reporte (2026-08-26)
+# --------------------------------------------------------------------------- #
+def test_el_grupo_OTROS_no_entra_a_ningun_ranking():
+    from api.services.ap5_posiciones import entra_al_reporte
+    assert entra_al_reporte("OTROS") is False
+    r = rankings([
+        _f(cuenta="A", grupo="COOPERATIVAS", acumulado=10.0),
+        _f(cuenta="Z", grupo="OTROS", acumulado=9999.0),
+    ])
+    assert "Z" not in str(r), "una cuenta de OTROS llegó al ranking"
+
+
+def test_SIN_GRUPO_no_es_lo_mismo_que_OTROS_y_SI_se_muestra():
+    """`OTROS` es una decisión tomada; «sin grupo» es trabajo pendiente. Si se
+    trataran igual, esconder lo no clasificado haría desaparecer cuentas sin que
+    nadie lo pida."""
+    from api.services.ap5_posiciones import entra_al_reporte
+    assert entra_al_reporte("(sin grupo)") is True
+    r = rankings([_f(cuenta="A", grupo="(sin grupo)", acumulado=10.0)])
+    assert "A" in str(r)
+
+
+def test_OTROS_se_reconoce_NORMALIZADO():
+    from api.services.ap5_posiciones import entra_al_reporte
+    for g in ("otros", " Otros ", "OTROS"):
+        assert entra_al_reporte(g) is False, g

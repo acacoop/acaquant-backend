@@ -309,3 +309,26 @@ AP5_MARGENES_INVERTIR_SIGNO = True
 # que renombrar una cuenta en la base la deje afuera de la lista sin que nada
 # falle (REGLA #9).
 AP5_CUENTAS_ACA: tuple[str, ...] = ("149667", "155235", "155344")
+
+
+# --- API EXTERNA PARA ACCIONISTAS (`/ext/v1`, docs/API_EXTERNA.md) ---
+# Secreto con el que se firman los tokens de acceso de la API externa y con el
+# que se hashean las API keys. Sin él, `/ext` NO se monta (la superficie no
+# existe) — es el interruptor de todo el módulo: borrar la variable y reiniciar
+# apaga la API externa sin tocar una línea de código.
+#
+# ⚠️ Rotarlo invalida todos los tokens vigentes (se renuevan solos en <1h) y
+# ⚠️ TAMBIÉN todas las API keys emitidas (habría que regenerarlas). No rotar
+# ⚠️ sin plan: es pepper de los hashes, no sólo firma de JWT.
+EXT_JWT_SECRET = os.getenv("EXT_JWT_SECRET", "").strip()
+
+# Vida del token de acceso. Corto a propósito: es la credencial que viaja en
+# CADA request (logs, proxies, pantallas). La API key, que dura meses, viaja
+# una sola vez por día para pedir este token.
+EXT_TOKEN_TTL_SECONDS = int(os.getenv("EXT_TOKEN_TTL_SECONDS", "1800"))  # 30 min
+
+# Emisor declarado en el token (claim `iss`).
+EXT_ISSUER = os.getenv("EXT_ISSUER", "https://api.acaquant.com/ext").strip()
+
+# Tope de filas por página. El cliente puede pedir menos, nunca más.
+EXT_MAX_LIMIT = int(os.getenv("EXT_MAX_LIMIT", "1000"))

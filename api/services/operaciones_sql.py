@@ -217,10 +217,20 @@ def _ops_where(
     scope: tuple[str, ...] | None = None, *, arancel: bool = False, operador: str | None = None,
     excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
     aca_valores: str | None = None, cartera: str | None = None,
+    incluir_anulados: bool = False,
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
-    cierres con arancel (caución), igual que _arancel_match."""
-    conds: list[str] = ["anulado_en IS NULL"]  # boletos que Aunesa anuló: fuera de toda vista
+    cierres con arancel (caución), igual que _arancel_match.
+
+    `incluir_anulados=True` deja pasar los boletos que Aunesa anuló. NINGUNA vista
+    de la mesa lo usa (un anulado no es una operación): existe para la API externa
+    (`api/ext/`), que tiene que poder AVISARLE al consumidor que un boleto que ya
+    le entregó dejó de valer. Si no se lo entrega, el sistema de él lo guarda para
+    siempre — el mismo bug que fosilizó 450 boletos y $824 MM de volumen falso de
+    este lado, pero corrido a la casa del cliente. El default preserva el
+    comportamiento de siempre.
+    """
+    conds: list[str] = [] if incluir_anulados else ["anulado_en IS NULL"]
     p: dict = {}
     # es_cierre NULL (ej. FCI bilateral) = NO es cierre → COALESCE para no perderlos
     # (NULL = false en SQL da NULL, no TRUE, y descartaba esas filas). Ver docstring.

@@ -5811,3 +5811,89 @@ BEGIN
         CHECK (ventana IN ('rueda','cierre','habil','siempre'));
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- EXT — API EXTERNA PARA ACCIONISTAS (docs/API_EXTERNA.md)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Superficie `/ext/v1`: le entrega a un accionista SUS operaciones, boleto por
+-- boleto. Está montada como sub-app aparte (api/ext/app.py) y no comparte auth
+-- con `/api`.
+--
+-- ⚠️ ACÁ NO VIVE NINGÚN DATO DE OPERACIONES. Estas cuatro tablas guardan SOLO
+-- quién puede entrar y qué cuentas le tocan; los boletos se leen EN VIVO de
+-- `operaciones.operaciones`, la misma tabla que dibuja la vista de la mesa.
+-- Copiarlos acá sería una segunda copia sin árbitro (REGLA #9 B): el día que
+-- difieran, la mesa y el accionista dirían números distintos, cada mitad
+-- coherente consigo misma, y NADA fallaría.
+--
+-- Igual que `mcp`, este schema se referencia SIEMPRE calificado (`ext.*`) y no
+-- entra al search_path de core/postgres.
+CREATE SCHEMA IF NOT EXISTS ext;
+
+-- Quién es el consumidor externo. Una fila por accionista/proveedor.
+-- Dar de alta al segundo NO es un deploy: es un INSERT acá + sus cuentas.
+CREATE TABLE IF NOT EXISTS ext.clientes (
+    id            text PRIMARY KEY,          -- 'cli_pepito' (slug, estable, va en el token)
+    nombre        text NOT NULL,
+    activo        boolean NOT NULL DEFAULT true,
+    ip_allowlist  text[] NOT NULL DEFAULT '{}',  -- vacío = sin restricción de IP en la app
+    -- Permisos por cliente. `aranceles` decide si los montos que le cobramos
+    -- viajan en la respuesta: es una decisión comercial por cliente, no global.
+    ver_aranceles boolean NOT NULL DEFAULT false,
+    creado_por    text,
+    creado_at     timestamptz NOT NULL DEFAULT now(),
+    notas         text
+);
+
+-- Con qué entra. N keys por cliente A PROPÓSITO: es lo que hace posible rotar
+-- sin downtime (se crea la nueva, conviven, se revoca la vieja). Con una sola
+-- key por cliente la rotación es un corte coordinado — y por eso no se hace nunca.
+--
+-- La key NUNCA se guarda en claro: sólo su hash. `prefijo` es el pedazo público
+-- ('avk_live_7f3a') que permite nombrarla en un log o en una pantalla sin que
+-- ese log te la regale.
+CREATE TABLE IF NOT EXISTS ext.api_keys (
+    prefijo     text PRIMARY KEY,
+    key_hash    text NOT NULL,               -- sha256(pepper || key) en hex
+    cliente_id  text NOT NULL REFERENCES ext.clientes(id) ON DELETE CASCADE,
+    creada_por  text,
+    creada_at   timestamptz NOT NULL DEFAULT now(),
+    expira_at   timestamptz,                 -- NULL = sin vencimiento automático (ver docs)
+    revocada_at timestamptz,
+    ultimo_uso  timestamptz,
+    notas       text
+);
+CREATE INDEX IF NOT EXISTS ix_ext_keys_cliente ON ext.api_keys (cliente_id)
+    WHERE revocada_at IS NULL;
+
+-- EL PERMISO. Todo el control de acceso a datos de esta API es esta tabla.
+-- Ningún id_cuenta aparece hardcodeado en el código: el `WHERE id_cuenta = ANY(...)`
+-- se arma con lo que diga acá, resuelto EN CADA REQUEST (por eso las cuentas NO
+-- viajan dentro del token: sacar una fila corta el acceso al instante).
+CREATE TABLE IF NOT EXISTS ext.cuentas_autorizadas (
+    cliente_id   text NOT NULL REFERENCES ext.clientes(id) ON DELETE CASCADE,
+    id_cuenta    text NOT NULL,              -- soft ref a operaciones.operaciones.id_cuenta
+    agregada_por text,
+    agregada_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (cliente_id, id_cuenta)
+);
+
+-- Auditoría. Sin esto no hay forense el día que alguien pregunte "¿quién bajó
+-- esto y cuándo?" — y con datos de un accionista, esa pregunta llega.
+-- Se poda a 90 días (scripts/ext_cliente.py --podar).
+CREATE TABLE IF NOT EXISTS ext.requests_log (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts         timestamptz NOT NULL DEFAULT now(),
+    cliente_id text,                          -- NULL = no llegó a autenticarse
+    prefijo    text,                          -- qué key se usó (no la key)
+    ip         text,
+    metodo     text,
+    path       text,
+    filtros    jsonb,
+    filas      integer,
+    status     integer,
+    ms         integer
+);
+CREATE INDEX IF NOT EXISTS ix_ext_log_cliente ON ext.requests_log (cliente_id, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_ext_log_ts      ON ext.requests_log (ts DESC);

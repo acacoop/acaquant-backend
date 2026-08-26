@@ -167,6 +167,8 @@ páginas.
 
 **Superficies transversales (no son rutas propias):**
 
+> ⚠️ Las dos últimas son **sub-apps montadas** (`app.mount`), así que `scripts/gen_mapa_app` **no las ve**: su inventario recorre los `include_router`. Sus endpoints se documentan a mano acá y en su doc propio.
+
 | Superficie | Dónde vive | Módulo | Qué hace |
 |---|---|---|---|
 | **Copiloto de mesa ✦ IA** | Drawer lateral en el header (HOME, RF, RV, Agro, Derivados) e in-view en `/trading`, `/research`, tab RV Internacional | `ia` + el módulo de la vista | Q&A contextual sobre los datos de la vista donde estás. 11 "vistas" registradas. |
@@ -175,6 +177,7 @@ páginas.
 | **Briefing de apertura ☀** | Botón en el footer de TODAS las páginas + modal automático 10:00 ART L-V | `ia` | Foto de apertura determinista (0 tokens): futuros, oficial, MEP/CCL, cauciones, DLR, bonos off, bonos que pagan hoy, research del día. |
 | **VIGÍA** | Toasts en `/trading` | `ia` + `trading` | Alertas deterministas (0 tokens) de tarjeta en nivel / candidato del radar. |
 | **MCP server** | `https://api.acaquant.com/mcp` (Claude Desktop / claude.ai) | Auth propia OAuth 2.1 | Asistente externo de RENTA VARIABLE, 13 tools read-only. **No** usa el módulo `ia`. |
+| **API externa (accionistas)** | `https://api.acaquant.com/ext` (sub-app montada, `api/ext/`) | Auth propia: API key → token 30 min, con CF Access **Service Auth** delante. **Ningún** módulo del RBAC de la mesa | Le entrega a un accionista SUS operaciones, boleto por boleto (read-only). El permiso es un DATO (`ext.cuentas_autorizadas`), no código: alta de un cliente nuevo = INSERT, sin deploy. Scope **fail-closed** (al revés que `cuentas_visibles`). Doc: `docs/API_EXTERNA.md`; contrato para el consumidor en `/ext/docs`. |
 
 ---
 

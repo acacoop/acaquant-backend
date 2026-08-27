@@ -117,13 +117,19 @@ def aplicar(body: UnHallazgo, email: str = Depends(get_user_email)):
 class Ignorar(BaseModel):
     id: int = Field(..., ge=1)
     deshacer: bool = False
+    motivo: str = Field("", max_length=200)
 
 
 @router.post("/ignorar")
 def ignorar(body: Ignorar, email: str = Depends(get_user_email)):
-    """«No me interesa». Reversible, y **no es un arreglo**: esconde, no resuelve."""
+    """«No me interesa». Reversible, y **no es un arreglo**: esconde, no resuelve.
+
+    Silencia el PROBLEMA (habilidad + sujeto + regla), no la fila: si no, el
+    detector lo vuelve a crear en la pasada siguiente. `deshacer` lo revive.
+    """
     from agente import vista as v
-    return v.ignorar(body.id, por=email, deshacer=body.deshacer)
+    return v.ignorar(body.id, por=email, motivo=body.motivo,
+                     deshacer=body.deshacer)
 
 
 class Correr(BaseModel):

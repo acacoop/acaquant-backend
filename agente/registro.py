@@ -62,10 +62,11 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
                    duracion_ms=duracion_ms)
     if resultado != tipos.OK:
         return {"ok": False, "resultado": resultado, "abiertos": 0,
-                "nuevos": 0, "cerrados": 0, "reincidencias": 0}
+                "nuevos": 0, "cerrados": 0, "reincidencias": 0,
+                "silenciados": 0}
 
     filas = list(hallazgos or [])
-    nuevos = reincidencias = 0
+    nuevos = reincidencias = silenciados = 0
     vistos: list[tuple[str, str]] = []
     try:
         # UNA transacción: o entra todo lo que vio y se cierra lo que no vino, o
@@ -73,9 +74,19 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
         # nuevos con los viejos sin cerrar, y nadie sabe de qué pasada es cada
         # cosa.
         with get_pool().connection() as conn:
+            mudos = _silenciados(conn, habilidad)
             for h in filas:
-                r = _ver(conn, habilidad, h)
+                # ⚠️ **SE SALTEA LA FILA, NO LA MIRADA.** El detector ya lo vio,
+                # así que entra igual a `vistos`: lo que se evita es CREARLE un
+                # hallazgo, no dejar de mirarlo. Si no entrara acá,
+                # `_cerrar_ausentes` lo daría por resuelto —el problema sigue
+                # ahí— y al levantar el silencio reaparecería como nacido hoy,
+                # con la antigüedad perdida.
                 vistos.append((h.sujeto, h.regla))
+                if (h.sujeto, h.regla) in mudos:
+                    silenciados += 1
+                    continue
+                r = _ver(conn, habilidad, h)
                 nuevos += 1 if r["nacio"] else 0
                 reincidencias += 1 if r["reincidio"] else 0
             cerrados = _cerrar_ausentes(conn, habilidad, vistos)
@@ -94,7 +105,30 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
         raise
     return {"ok": True, "resultado": resultado, "abiertos": len(filas),
             "nuevos": nuevos, "cerrados": cerrados,
-            "reincidencias": reincidencias}
+            "reincidencias": reincidencias,
+            # **Se cuenta, y se cuenta en la TERMINAL** (log y `diag_agente`), no
+            # en el modal: el user pidió explícitamente que los silenciados no
+            # ensucien la pantalla. Pero un silencio invisible del todo es cómo
+            # muere un monitoreo — si una habilidad junta 40, esa habilidad está
+            # mal pensada y el número tiene que poder decirlo.
+            "silenciados": silenciados}
+
+
+def _silenciados(conn, habilidad: str) -> set[tuple[str, str]]:
+    """Lo que esta habilidad tiene silenciado, **de una sola query**.
+
+    Se lee UNA vez por corrida y no una vez por hallazgo: una habilidad que ve
+    200 sujetos no puede pagar 200 consultas para preguntar lo mismo.
+
+    El vencimiento se filtra en SQL. `hasta IS NULL` = para siempre, que es el
+    default: un silencio con fecha es una excepción que alguien cargó a mano.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT sujeto, regla FROM agente.silenciados "
+            " WHERE habilidad = %s AND (hasta IS NULL OR hasta > now())",
+            (habilidad,))
+        return {(r[0], r[1]) for r in cur.fetchall()}
 
 
 def _ver(conn, habilidad: str, h) -> dict:

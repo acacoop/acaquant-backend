@@ -719,3 +719,84 @@ def test_toda_habilidad_que_depende_de_una_foto_la_mantiene_ella():
     assert (cuerpo.index("seguridad.sacar_foto()")
             < cuerpo.index("seguridad.comparar()")), (
         "la foto de hoy va ANTES de comparar, o el delta es de ayer contra ayer")
+
+
+# ── EL SILENCIO ────────────────────────────────────────────────────────────
+
+def test_la_puerta_consulta_el_silencio_antes_de_crear_un_hallazgo():
+    """**«No me interesa» es del PROBLEMA, no de la fila** (2026-08-27).
+
+    El botón viejo marcaba el hallazgo como `ignorado` y nada más. Pero `_ver`
+    busca por el TRÍO entre los ABIERTOS —y un ignorado no está abierto—, así
+    que no lo encontraba, lo daba por nuevo, y creaba otra fila. El índice único
+    tampoco chocaba: excluye `ignorado`. El bono descartado volvía dos horas
+    después como si fuera la primera vez, y la lista nunca podía llegar a cero.
+    """
+    src = inspect.getsource(registro.guardar)
+    assert "_silenciados(conn, habilidad)" in src, (
+        "`guardar` no lee la tabla de silenciados")
+    # Una query por corrida, no una por hallazgo: una habilidad que ve 200
+    # sujetos no puede pagar 200 consultas para preguntar lo mismo.
+    assert src.index("_silenciados(conn") < src.index("for h in filas"), (
+        "el silencio se lee UNA vez por corrida, antes del bucle")
+
+
+def test_lo_silenciado_igual_cuenta_como_visto():
+    """La guarda que impide que silenciar rompa el cierre por ausencia.
+
+    Si el sujeto silenciado no entrara en `vistos`, `_cerrar_ausentes` lo daría
+    por RESUELTO —con el problema todavía ahí— y al levantar el silencio
+    volvería a nacer, perdiendo su antigüedad. Silenciar esconde una fila; no
+    puede cambiar lo que el agente cree que existe.
+    """
+    src = inspect.getsource(registro.guardar)
+    i = src.index("for h in filas")
+    cuerpo = src[i:src.index("cerrados = _cerrar_ausentes")]
+    assert cuerpo.index("vistos.append") < cuerpo.index("continue"), (
+        "el sujeto silenciado tiene que entrar en `vistos` ANTES del salto, "
+        "o el cierre por ausencia lo da por resuelto")
+
+
+def test_ignorar_silencia_el_trio_y_no_solo_la_fila():
+    """Las DOS escrituras, y en orden: la fila sale de la pantalla ahora, el
+    trío entra en `silenciados` para que no vuelva a nacer. Sin la segunda el
+    botón miente; sin la primera el aviso sigue ahí hasta la próxima corrida."""
+    from agente import vista
+    src = inspect.getsource(vista.ignorar)
+    assert "INSERT INTO agente.silenciados" in src
+    assert "UPDATE agente.hallazgos" in src
+    assert "DELETE FROM agente.silenciados" in src, "`deshacer` no revive nada"
+
+
+def test_el_silencio_es_permanente_por_defecto():
+    """`hasta` NULL = para siempre, y **no hay nada en el código que lo llene**:
+    el vencimiento es una excepción que se carga a mano en la base cuando
+    alguien la elige (pedido del user 2026-08-27)."""
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    i = sql.index("CREATE TABLE IF NOT EXISTS agente.silenciados")
+    tabla = sql[i:sql.index(");", i)]
+    linea = next(l for l in tabla.split("\n") if l.strip().startswith("hasta"))
+    assert "DEFAULT" not in linea, (
+        f"`hasta` no puede tener default —NULL, «para siempre», es la decisión— "
+        f"y dice: {linea.strip()}")
+
+    from agente import vista
+    assert "hasta" not in inspect.getsource(vista.ignorar).replace(
+        "hasta = NULL", ""), "el código no debe poner vencimientos por su cuenta"
+
+
+def test_el_silencio_no_aparece_en_ninguna_pantalla():
+    """**Cero huella visual** (pedido del user 2026-08-27): los ignorados no
+    ensucian el modal. El único lugar donde se enumeran es `diag_agente`, o sea
+    la terminal — porque un silencio que nadie puede listar es cómo muere un
+    monitoreo, pero eso se resuelve en la consola y no en la pantalla.
+    """
+    for v in ("v_ahora", "v_encontro", "v_habilidades"):
+        sql = (RAIZ / "sql" / "schema.sql").read_text()
+        i = sql.index(f"CREATE OR REPLACE VIEW agente.{v} AS")
+        assert "silenciados" not in sql[i:sql.index(";", sql.index("FROM", i))], (
+            f"agente.{v} no puede mencionar el silencio")
+    assert "silenciados" not in (RAIZ / "agente" / "vista.py").read_text().replace(
+        "agente.silenciados", ""), "la vista no expone el silencio a la pantalla"
+    assert "agente.silenciados" in (RAIZ / "scripts" / "diag_agente.py").read_text(), (
+        "el diag es el único lugar donde el silencio se puede enumerar")

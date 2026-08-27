@@ -5594,6 +5594,47 @@ CREATE INDEX IF NOT EXISTS hallazgos_ahora
     ON agente.hallazgos (detectado_at DESC)
     WHERE leido_at IS NULL AND estado IN ('nuevo','en_curso');
 
+-- ── EL SILENCIO ───────────────────────────────────────────────────────────
+--
+-- ⚠️⚠️ **«NO ME INTERESA» ES DEL PROBLEMA, NO DE LA FILA.**
+--
+-- El botón viejo marcaba el HALLAZGO como `ignorado`. Pero `registro._ver`
+-- busca por el TRÍO (habilidad + sujeto + regla) entre los ABIERTOS, y un
+-- ignorado no está abierto: no lo encontraba, concluía que era nuevo, y creaba
+-- otra fila en `nuevo`. El índice único parcial tampoco chocaba, porque excluye
+-- `ignorado`. Resultado: el bono que descartabas volvía en la pasada siguiente
+-- —dos horas después— como si fuera la primera vez.
+--
+-- El daño no es la fila de más: es que **la lista deja de poder llegar a cero**,
+-- y una lista que no converge se deja de leer.
+--
+-- El patrón correcto ya existía en el repo: `mercado.ons_ignoradas` silencia un
+-- ticker en el conciliador de ONs **por clave**, no por evento.
+--
+-- **PERMANENTE POR DEFECTO** (`hasta` NULL). El vencimiento existe para el caso
+-- en que vos lo elijas —«no me interesa hasta que cierre el mes»— y se carga a
+-- mano; no hay nada en el código que lo ponga solo. Se administra desde la
+-- base: una fila silencia, borrarla revive.
+--
+-- **Y el detector NO se saltea.** Se saltea la fila, no la mirada: la habilidad
+-- sigue viendo el problema, así que el día que desaparece de verdad el silencio
+-- queda apuntando a nada. Silenciar nunca deja al agente más ciego.
+CREATE TABLE IF NOT EXISTS agente.silenciados (
+    habilidad text NOT NULL,
+    sujeto    text NOT NULL,
+    regla     text NOT NULL,
+    por       text NOT NULL DEFAULT '',
+    motivo    text NOT NULL DEFAULT '',
+    desde     timestamptz NOT NULL DEFAULT now(),
+    -- NULL = para siempre. Es el default a propósito.
+    hasta     timestamptz,
+    PRIMARY KEY (habilidad, sujeto, regla)
+);
+-- La consulta que hace la puerta en cada corrida: todo lo silenciado de UNA
+-- habilidad, de una sola vez. Sin esto sería una query por hallazgo.
+CREATE INDEX IF NOT EXISTS silenciados_por_habilidad
+    ON agente.silenciados (habilidad);
+
 -- ── LA QUE DEBE ESTAR VACÍA ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS agente.reincidencias (
     id                  bigserial PRIMARY KEY,

@@ -172,6 +172,32 @@ def main() -> int:
             print(f"    {s} · {r} · arreglo «{arr}» · aguantó {d} días · "
                   f"volvió {str(v)[:16]}")
 
+    # ── 4b. LO SILENCIADO ──────────────────────────────────────────────────
+    #
+    # **El único lugar donde el silencio se ve, y es la TERMINAL a propósito**
+    # (pedido del user 2026-08-27: los ignorados no ensucian el modal). Pero
+    # invisible del todo tampoco puede quedar: un silencio que nadie puede
+    # enumerar es cómo muere un monitoreo. Si una habilidad junta 40, esa
+    # habilidad está mal pensada y esta tabla es lo que lo dice.
+    _titulo("LO SILENCIADO — «no me interesa», por problema y no por fila")
+    filas = _filas("SELECT habilidad, sujeto, regla, por, motivo, desde, hasta "
+                   "  FROM agente.silenciados "
+                   " ORDER BY habilidad, sujeto LIMIT 100")
+    if not filas:
+        print("  — nada silenciado")
+    else:
+        print(f"  {len(filas)} problema(s) silenciado(s)\n")
+        print(f"  {'HABILIDAD':22} {'SUJETO':22} {'REGLA':24} "
+              f"{'HASTA':12} QUIÉN")
+        for hab, suj, reg, por, mot, _desde, hasta in filas:
+            # «para siempre» es el default: se dice, no se deja en blanco.
+            cuando = "siempre" if hasta is None else str(hasta)[:10]
+            print(f"  {hab:22.22} {suj:22.22} {reg:24.24} {cuando:12} "
+                  f"{(por or '—')[:24]}")
+            if mot:
+                print(f"      motivo: {mot}")
+        print("\n  → se administra desde la base: una fila silencia, borrarla revive.")
+
     # ── 5. EL LIBRO ────────────────────────────────────────────────────────
     _titulo("LO ÚLTIMO QUE ESCRIBIÓ")
     libro = _filas("SELECT at, arreglo, sujeto, campo, antes, despues, ok, error "

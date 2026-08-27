@@ -105,19 +105,57 @@ def encontro() -> dict:
     return {"total": len(filas), "filas": filas, "por_habilidad": por_habilidad}
 
 
-def ignorar(hallazgo_id: int, *, por: str = "", deshacer: bool = False) -> dict:
-    """«No me interesa». Reversible, y **no es un arreglo**: esconde, no resuelve."""
+def ignorar(hallazgo_id: int, *, por: str = "", motivo: str = "",
+            deshacer: bool = False) -> dict:
+    """«No me interesa». Reversible, y **no es un arreglo**: esconde, no resuelve.
+
+    ⚠️⚠️ **SILENCIA EL PROBLEMA, NO LA FILA.** Marcar el hallazgo como
+    `ignorado` —lo único que hacía antes— no alcanza y por eso el botón no
+    servía: `registro._ver` busca por el TRÍO entre los ABIERTOS, un ignorado no
+    está abierto, y en la pasada siguiente nacía una fila nueva en `nuevo`. El
+    índice único tampoco chocaba, porque excluye `ignorado`. El bono descartado
+    volvía a las dos horas como si fuera la primera vez.
+
+    Van las DOS cosas y en este orden:
+
+      1. la fila se marca `ignorado`, para que salga de la pantalla AHORA;
+      2. el TRÍO entra en `agente.silenciados`, para que no vuelva a nacer.
+
+    Sin (2) el botón miente; sin (1) el aviso sigue en la lista hasta la próxima
+    corrida. **Permanente por defecto** (`hasta` NULL): el vencimiento se carga a
+    mano en la base cuando alguien lo elige, no lo pone el código.
+    """
     from agente import tipos
     with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT habilidad, sujeto, regla FROM agente.hallazgos "
+                    " WHERE id = %s", (hallazgo_id,))
+        if not (f := cur.fetchone()):
+            return {"ok": False, "error": "ese hallazgo no existe"}
+        trio = (f[0], f[1], f[2])
+
         if deshacer:
-            cur.execute("UPDATE agente.hallazgos SET estado = %s "
-                        "WHERE id = %s AND estado = %s",
+            cur.execute("DELETE FROM agente.silenciados "
+                        " WHERE habilidad = %s AND sujeto = %s AND regla = %s", trio)
+            cur.execute("UPDATE agente.hallazgos SET estado = %s, cerrado_por = '' "
+                        " WHERE id = %s AND estado = %s",
                         (tipos.NUEVO, hallazgo_id, tipos.IGNORADO))
-        else:
-            cur.execute("UPDATE agente.hallazgos SET estado = %s, "
-                        "  cerrado_por = %s WHERE id = %s AND estado = ANY(%s)",
-                        (tipos.IGNORADO, por, hallazgo_id, list(tipos.ABIERTOS)))
-        return {"ok": bool(cur.rowcount)}
+            return {"ok": True, "silenciado": False}
+
+        cur.execute(
+            "INSERT INTO agente.silenciados (habilidad, sujeto, regla, por, motivo) "
+            "VALUES (%s,%s,%s,%s,%s) "
+            # Re-silenciar lo ya silenciado no es un error: actualiza quién y por
+            # qué, y **renueva el «para siempre»** limpiando un vencimiento que
+            # hubiera quedado de antes.
+            "ON CONFLICT (habilidad, sujeto, regla) DO UPDATE SET "
+            "  por = EXCLUDED.por, motivo = EXCLUDED.motivo, "
+            "  desde = now(), hasta = NULL",
+            (*trio, por, motivo))
+        cur.execute("UPDATE agente.hallazgos SET estado = %s, cerrado_por = %s "
+                    " WHERE id = %s AND estado = ANY(%s)",
+                    (tipos.IGNORADO, por, hallazgo_id, list(tipos.ABIERTOS)))
+        return {"ok": True, "silenciado": True,
+                "habilidad": trio[0], "sujeto": trio[1], "regla": trio[2]}
 
 
 # ── HISTORIAL ──────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ mismo mes, te llevás esos pesos a USD locked."*
 Tres bloques (SOJA / MAIZ / TRIGO). Para cada uno, una fila por cada
 LECAP / BONCAP vigente:
 
+    tna            = TEM × 12,  TEM = (1 + TEA)^(1/12) − 1   (quant.tasas)
     tasa_directa   = TNA × días / 365             (lineal)
     tasa_diaria    = (1 + tasa_directa)^(1/días) − 1
     interes_ganado = precio_ars × tasa_directa
@@ -15,9 +16,28 @@ LECAP / BONCAP vigente:
     valor_usd      = valor_final / Px_Futuro_DLR_del_mismo_mes
                       (None si descalce > MAX_DESCALCE_DIAS)
 
-`precio_ars` (Cámara) y la TNA (=TEA, MarketSnapshot) las resuelve el lector
-SQL-native `agro_sql.get_mejoras_dispo` — la desk lo llama "TNA" pero es la TIR
-efectiva anual. Match LECAP ↔ futuro DLR por (año, mes), igual que en `sinteticos`.
+`precio_ars` (Cámara) y la **TEA** (MarketSnapshot) las resuelve el lector
+SQL-native `agro_sql.get_mejoras_dispo`. Match LECAP ↔ futuro DLR por (año, mes),
+igual que en `sinteticos`.
+
+⚠️ **La columna TNA es TNA — se DERIVA, no se toma cruda (corregido 2026-08-26).**
+Hasta acá la fila publicaba en `tna` el valor tal cual salía de
+`mercado.market_snapshot`, que es la **TEA** (la TIR efectiva anual del XIRR:
+`engines/curvas.py` escribe TEA y nada más). O sea: encabezado TNA, número TEA.
+Nada fallaba y nada quedaba en `--` — la columna simplemente decía otra cosa de
+la que dice el mismo bono en RENTA FIJA, donde la TNA sí se deriva (TEM×12) desde
+siempre. Medido en pantalla: una Lecap con TEA 29,34% mostraba 29,34% acá y 26,01%
+allá. La conversión vive UNA sola vez, en `quant.tasas.tna_desde_tea`, para que no
+pueda volver a haber dos TNAs para el mismo papel.
+
+Y arrastraba: `tasa_directa` prorrateaba LINEALMENTE una tasa EFECTIVA
+(`TEA × días/365`), que no es ninguna de las dos convenciones — sobreestimaba el
+interés (TEA 30% a 180 días: 14,79% contra 13,08% de la convención lineal). Ahora
+lo lineal se le aplica a una tasa nominal, que es para lo que existe una TNA.
+Además viaja `rendimiento_efectivo` = (1+TEA)^(días/365) − 1, que es lo que la
+Lecap rinde EXACTO al vencimiento (13,81% en el mismo ejemplo): no se muestra como
+columna, pero está en el payload para que la mesa pueda contrastar la convención
+contra la plata real sin recalcular a mano.
 
 Decomiso Mongo: la lectura `get_mejoras_dispo` (que leía Derivados.CamaraCereales
 + Trading.FuturosDLRSnapshot) se borró — vivía muerta vía router (el router usa
@@ -28,6 +48,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any
+
+from quant.tasas import rendimiento_al_plazo, tna_desde_tea
 
 # Solo estos 3 commodities matchean con la cosecha local + futuros DLR.
 # GIRASOL y SORGO existen en la Cámara pero por ahora no se proponen.
@@ -78,11 +100,15 @@ def _build_filas(
         dias = (vto - today).days
         if dias <= 0:
             continue
-        tna = tea_map.get(c.get("ticker", ""))
+        # `tea_map` trae la TEA del snapshot (es lo único que publica el motor).
+        # La TNA se DERIVA con la convención de la casa — misma fórmula que
+        # RENTA FIJA, así el mismo papel no muestra dos tasas según la pantalla.
+        tea = tea_map.get(c.get("ticker", ""))
+        tna = tna_desde_tea(tea)
 
-        # Tasa lineal al vto (sobre los días). Si falta TNA, las derivadas
-        # quedan en None — pero la fila igual aparece, para que el trader
-        # vea el universo completo.
+        # Tasa lineal al vto (sobre los días), prorrateando la TNA — que es para
+        # lo que existe una tasa NOMINAL. Si falta la tasa, las derivadas quedan
+        # en None, pero la fila igual aparece: el trader ve el universo completo.
         tasa_directa = (tna * dias / 365) if tna is not None else None
         tasa_diaria = (
             (1 + tasa_directa) ** (1 / dias) - 1
@@ -121,7 +147,11 @@ def _build_filas(
             "ticker_largo":   c.get("ticker"),
             "vencimiento":    vto.isoformat(),
             "dias":           dias,
+            "tea":            tea,
             "tna":            tna,
+            # Lo que rinde EXACTO la Lecap al vto (capitalizado). No es la
+            # convención de la planilla; viaja para poder contrastarla.
+            "rendimiento_efectivo": rendimiento_al_plazo(tea, dias),
             "tasa_diaria":    tasa_diaria,
             "tasa_directa":   tasa_directa,
             "interes_ganado": interes,

@@ -234,3 +234,23 @@ vez exportás un environment con valores adentro, no lo commitees.
 
 Los requests de estas colecciones son de **lectura**. El backfill de aranceles
 (`POST /aunesa/boletos/backfill`) se dejó afuera a propósito: escribe.
+
+
+
+---
+
+## 4 · API externa (accionistas)
+
+**La colección de `/ext` NO vive acá** (decisión del user, 2026-08-27): es material
+que se le entrega al consumidor externo, no una herramienta nuestra, y en el repo
+sólo agregaba una copia más para mantener sincronizada a mano.
+
+El contrato es **auto-generado desde el código y no puede quedar viejo**:
+
+```bash
+python -c "import json;from api.ext.app import ext_app;print(json.dumps(ext_app.openapi(),indent=2,ensure_ascii=False))" > acaquant-ext-openapi.json
+```
+
+Ese JSON se importa directo en Postman (**Import → File**) y arma la colección
+sola, con todos los endpoints y parámetros al día. Doc del dominio:
+`docs/API_EXTERNA.md`.

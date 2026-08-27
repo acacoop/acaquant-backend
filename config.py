@@ -243,3 +243,96 @@ GUARDRAILS_UMBRALES: dict[str, float | None] = {
 # persiste: así no hay job que pueda doble-contar ni backfill que revertir.
 # Si algún día se recarga el cupo, hay que mover esta fecha al día de la carga.
 CUPO_BASE_FECHA = "2026-06-01"
+
+# --- AP5 · REQUERIMIENTO DE MÁRGENES ---
+# Las cuentas cuyo margen SUMA en la card de la cabecera. El job guarda TODAS
+# las que devuelve la cámara en `ap5.margenes` (sirven para otra cosa y son
+# gratis: ya vinieron en la misma respuesta); esta lista es solo el recorte que
+# se MUESTRA.
+#
+# ⚠️ **Es un PAR (cuenta de neteo, cuenta de compensación), no una cuenta.**
+# REGLA #9(A): las dos se emparejan distinto — `149667` cuelga de la compensación
+# `1172` y `218115` cuelga de sí misma. Con la cuenta sola, el día que un mismo
+# comitente aparezca bajo dos compensaciones la card sumaría de más sin fallar.
+#
+# Cambiar esta lista cambia el número de la pantalla y nada más: la tabla sigue
+# guardando todo, así que agregar o sacar una cuenta no pierde historia ni
+# obliga a un backfill.
+AP5_CUENTAS_REQUERIMIENTO: tuple[tuple[str, str], ...] = (
+    ("149667", "1172"),
+    ("218115", "218115"),
+)
+
+# --- AP5 · QUÉ SUMA CADA CARD ---
+# `Reference` es el NOMBRE del concepto, no un id. Medido el 2026-08-25 sobre
+# 31 referencias: `Márgenes` (×28), `Inicial A3`, `Inicial FGIMC`, `Cauciones $`.
+#
+# **Las dos cards se recortan distinto, y no sólo por concepto: también por si
+# filtran cuentas o no.** Lo determinó el user contra los números reales de la
+# mesa (2026-08-25), y tiene sentido con lo que es cada cosa:
+#
+#   REQUERIMIENTO    `Márgenes`               SÍ filtra → es lo exigido a NUESTRAS
+#                                             dos cuentas
+#   ACTIVO INTEGRADO `Márgenes + Inicial A3`  NO filtra → es lo depositado por el
+#                                             ALyC entero. `Inicial A3` es UNA
+#                                             sola fila y no cuelga de ningún
+#                                             comitente: filtrarla la tiraba, y
+#                                             por eso las dos cards daban IGUAL.
+#
+# ⚠️ Sin filtro, el activo integrado suma el `Márgenes` de TODAS las cuentas, no
+# sólo las dos. Es a propósito: son dos preguntas distintas —«cuánto me exigen a
+# mí» y «cuánto hay integrado»— y responderlas con el mismo recorte fue el error.
+#
+# Los conceptos que no están en ninguna lista (`Inicial FGIMC`, `Cauciones $`)
+# igual se guardan en `ap5.margenes`: la tabla es el registro completo y estas
+# listas son sólo el recorte que se muestra. Cambiarlas cambia el número de la
+# pantalla y nada más — no pierde historia ni obliga a un backfill.
+AP5_CONCEPTOS_REQUERIMIENTO: tuple[str, ...] = ("Márgenes",)
+AP5_REQUERIMIENTO_FILTRA_CUENTAS = True
+
+AP5_CONCEPTOS_ACTIVO_INTEGRADO: tuple[str, ...] = ("Márgenes", "Inicial A3")
+AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS = False
+
+# La cámara manda estos importes en NEGATIVO y la mesa los lee en positivo. Se
+# guardan con el signo original (dar vuelta el dato en la capa que lo trae es
+# cómo se pierde de vista qué mandó de verdad el proveedor) y se invierten UNA
+# vez, acá, al mostrarlos.
+AP5_MARGENES_INVERTIR_SIGNO = True
+
+# --- AP5 · POSICIONES DE ACA ---
+# Las ÚNICAS cuentas que se pueden elegir en esa tab. Es una allowlist, no un
+# filtro por defecto: la tab muestra la posición de las cuentas propias, y
+# cualquier otra cuenta que aparezca en `ap5.portfolio` es de un comitente.
+#
+# ⚠️ Se muestran por DENOMINACIÓN, no por número — pero la identidad sigue siendo
+# el número: el nombre sale de `ap5.cuentas` al leer. Guardar acá el nombre haría
+# que renombrar una cuenta en la base la deje afuera de la lista sin que nada
+# falle (REGLA #9).
+AP5_CUENTAS_ACA: tuple[str, ...] = ("149667", "155235", "155344")
+
+
+# --- API EXTERNA PARA ACCIONISTAS (`/ext/v1`, docs/API_EXTERNA.md) ---
+# Secreto con el que se firman los tokens de acceso de la API externa y con el
+# que se hashean las API keys. Sin él, `/ext` NO se monta (la superficie no
+# existe) — es el interruptor de todo el módulo: borrar la variable y reiniciar
+# apaga la API externa sin tocar una línea de código.
+#
+# ⚠️ Rotarlo invalida todos los tokens vigentes (se renuevan solos en <1h) y
+# ⚠️ TAMBIÉN todas las API keys emitidas (habría que regenerarlas). No rotar
+# ⚠️ sin plan: es pepper de los hashes, no sólo firma de JWT.
+EXT_JWT_SECRET = os.getenv("EXT_JWT_SECRET", "").strip()
+
+# Vida del token de acceso. Corto a propósito: es la credencial que viaja en
+# CADA request (logs, proxies, pantallas). La API key, que dura meses, viaja
+# una sola vez por día para pedir este token.
+EXT_TOKEN_TTL_SECONDS = int(os.getenv("EXT_TOKEN_TTL_SECONDS", "1800"))  # 30 min
+
+# Emisor declarado en el token (claim `iss`).
+EXT_ISSUER = os.getenv("EXT_ISSUER", "https://api.acaquant.com/ext").strip()
+
+# Tope de filas por consulta. NO es paginación: se pide un rango de fechas y se
+# recibe todo lo de ese rango. Esto es la red para que una consulta desmedida
+# (diez años de golpe) no arme un JSON gigante en memoria y se lleve puesta la
+# API que usa toda la mesa. Deliberadamente ALTO: en uso normal no se alcanza, y
+# el que lo alcanza recibe un mensaje que le dice que consulte por mes.
+EXT_MAX_FILAS = int(os.getenv("EXT_MAX_FILAS", "20000"))

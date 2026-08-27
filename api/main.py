@@ -68,6 +68,7 @@ from config import (
     CF_ACCESS_AUD,
     CF_ACCESS_TEAM,
     ENV,
+    EXT_JWT_SECRET,
     MCP_BEARER_TOKEN,
     MCP_JWT_SECRET,
 )
@@ -381,3 +382,25 @@ if MCP_BEARER_TOKEN or MCP_JWT_SECRET:
         logger.info("MCP montado en /mcp (solo static bearer; sin OAuth)")
 else:
     logger.info("MCP no configurado — /mcp deshabilitado")
+
+
+# ── API EXTERNA para accionistas (sub-app en /ext) ──
+# docs/API_EXTERNA.md. Se monta SÓLO si hay EXT_JWT_SECRET: sin esa variable la
+# superficie no existe. Borrarla del .env y reiniciar apaga la API externa entera
+# sin tocar una línea de código — y volver a ponerla la enciende igual de rápido.
+#
+# ⚠️ Va MONTADA (`mount`) y no incluida (`include_router`) a propósito. Un router
+# de la mesa que se agregue mañana es físicamente inalcanzable desde /ext: el
+# default-deny es topología, no una allowlist que alguien tenga que mantener
+# (comparar con GUEST_PATH_PREFIXES, REGLA #8).
+#
+# La auth NO es la de /api: no lleva verify_api_key ni CF-JWT de usuario. Es API
+# key propia → token corto (api/ext/auth.py), con Cloudflare Access en modo
+# Service Auth por delante.
+if EXT_JWT_SECRET:
+    from api.ext.app import ext_app as _ext_app
+
+    app.mount("/ext", _ext_app)
+    logger.info("API externa montada en /ext (accionistas)")
+else:
+    logger.info("API externa no configurada — /ext deshabilitado (falta EXT_JWT_SECRET)")

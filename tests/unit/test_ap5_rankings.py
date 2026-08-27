@@ -13,7 +13,7 @@ def _f(**kw):
     base = {
         "familia": "agro", "grupo": "COOPERATIVAS", "cuenta": "1",
         "nombre": "COOP", "moneda": "Dólar MtR", "acumulado": 100.0,
-        "diaria": 1.0, "cargado": True, "arrastre": 0.0, "fecha_arrastre": None,
+        "diaria": 1.0, "acumulado_ayer": 99.0,
     }
     return {**base, **kw}
 
@@ -148,19 +148,54 @@ def test_el_acumulado_en_CERO_no_entra_a_ningun_lado():
     assert [i["cuenta"] for i in r["positivos"]] == ["B"]
 
 
-def test_la_cuenta_SIN_ARRASTRE_CARGADO_se_cuenta():
-    """Un acumulado sin arrastre cargado está INCOMPLETO, y en un ranking eso
-    importa el doble: la cuenta puede estar en el puesto equivocado.
-
-    `cargado` es que una PERSONA selló `actualizado`. Una fila con los dos
-    importes en 0 que dejó el sembrador NO cuenta como cargada: un cero que
-    nadie escribió se lee igual que uno verificado, y esto se imprime."""
+def test_la_DIARIA_viaja_pero_NO_ordena():
+    """El ranking es por acumulado. La diaria va en la fila porque la mesa la
+    mira, pero ordenar por ella pondría arriba a la que más se movió hoy en vez
+    de a la que más debe — y las dos listas se ven igual de plausibles."""
     r = rankings([
-        _f(cuenta="A", acumulado=50.0, cargado=True),
-        _f(cuenta="B", acumulado=90.0, cargado=False),
+        _f(cuenta="A", acumulado=90.0, diaria=1.0),
+        _f(cuenta="B", acumulado=50.0, diaria=999.0),
     ])[0]
-    assert r["sin_cargar"] == 1
+    assert [i["cuenta"] for i in r["positivos"]] == ["A", "B"]
+    assert r["positivos"][0]["diaria"] == 1.0
+
+
+def test_sin_dia_anterior_la_diaria_es_None_y_no_CERO():
+    """Una cuenta nueva y una que no se movió dan el mismo cero, y no son lo
+    mismo. Esta vista se imprime."""
+    r = rankings([_f(cuenta="A", acumulado=90.0, diaria=None,
+                     acumulado_ayer=None)])[0]
+    assert r["positivos"][0]["diaria"] is None
 
 
 def test_sin_filas_no_revienta():
     assert rankings([]) == []
+
+
+# --------------------------------------------------------------------------- #
+# El grupo OTROS queda FUERA del reporte (2026-08-26)
+# --------------------------------------------------------------------------- #
+def test_el_grupo_OTROS_no_entra_a_ningun_ranking():
+    from api.services.ap5_posiciones import entra_al_reporte
+    assert entra_al_reporte("OTROS") is False
+    r = rankings([
+        _f(cuenta="A", grupo="COOPERATIVAS", acumulado=10.0),
+        _f(cuenta="Z", grupo="OTROS", acumulado=9999.0),
+    ])
+    assert "Z" not in str(r), "una cuenta de OTROS llegó al ranking"
+
+
+def test_SIN_GRUPO_no_es_lo_mismo_que_OTROS_y_SI_se_muestra():
+    """`OTROS` es una decisión tomada; «sin grupo» es trabajo pendiente. Si se
+    trataran igual, esconder lo no clasificado haría desaparecer cuentas sin que
+    nadie lo pida."""
+    from api.services.ap5_posiciones import entra_al_reporte
+    assert entra_al_reporte("(sin grupo)") is True
+    r = rankings([_f(cuenta="A", grupo="(sin grupo)", acumulado=10.0)])
+    assert "A" in str(r)
+
+
+def test_OTROS_se_reconoce_NORMALIZADO():
+    from api.services.ap5_posiciones import entra_al_reporte
+    for g in ("otros", " Otros ", "OTROS"):
+        assert entra_al_reporte(g) is False, g

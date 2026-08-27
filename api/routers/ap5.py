@@ -8,10 +8,10 @@ incidente nadie sepa cuál de los dos números manda.
 Se monta en `api/main.py` con el gate del módulo `operaciones` (trader + admin),
 que es el mismo que ya protege la vista NEGOCIO donde vive la tab.
 
-⚠️ **La ESCRITURA no suma un gate propio**: el `grupo` de una cuenta y el
-arrastre del acumulado los carga la MESA, que es exactamente quien tiene el
+⚠️ **La ESCRITURA no suma un gate propio**: el `grupo` de una cuenta —lo único
+que se carga a mano acá— lo pone la MESA, que es exactamente quien tiene el
 módulo `operaciones`. Si mañana hay que angostarlo (allowlist per-usuario, como
-Mesa de Dinero), se cambia `_ESCRIBE` y lo heredan los cinco endpoints — el
+Mesa de Dinero), se cambia `_ESCRIBE` y lo heredan todos los endpoints — el
 punto de control queda en UN solo lugar y no repartido por handler.
 
 Thin HTTP plumbing: TODA la lógica y toda fórmula derivada viven en
@@ -25,11 +25,35 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import ap5_posiciones as _svc
+from api.services import mesa_dinero as _mesa
 
 router = APIRouter(prefix="/api/ap5", tags=["AP5"])
 
 # El único punto de control de la escritura (ver el docstring del módulo).
 _ESCRIBE = Depends(get_user_email)
+
+
+def require_escritura_mesa(actor: str = Depends(get_user_email)) -> str:
+    """Gate del ACTIVO INTEGRADO manual: escritura de **Mesa de Dinero**.
+
+    ⚠️ **Es un gate MÁS ANGOSTO que el del resto del router**, y a propósito.
+    Todo `/api/ap5` lo cubre el módulo `operaciones` (trader + admin), pero este
+    número es plata que va al reporte de la mesa y se tipea a mano: escribirlo
+    lo puede hacer sólo quien ya tiene escritura en Mesa de Dinero
+    (`operaciones.mesa_dinero_escritores` + admin), que es la allowlist
+    per-PERSONA que la mesa administra en Manager → MESA. Pedido del user
+    (2026-08-27).
+
+    ⚠️ **Reusa `_mesa.puede_escribir`, no una copia de la lista.** Dos
+    allowlists para el mismo permiso se separan sin fallar: se saca a alguien de
+    Manager → MESA y acá sigue pudiendo escribir, sin que nada lo grite.
+
+    Va como dependency y no como chequeo adentro del handler para que
+    `scripts/audit_rbac.py` lo vea al recorrer el árbol de deps.
+    """
+    if not _mesa.puede_escribir(actor):
+        raise HTTPException(403, "sin permiso de escritura en Mesa de Dinero")
+    return actor
 
 
 def _ok(fn, *args, **kwargs):
@@ -50,14 +74,21 @@ def _ok(fn, *args, **kwargs):
 
 @router.get("/vista")
 def vista(fecha: str | None = Query(
-    None, description="'YYYY-MM-DD'; default = el último día CON POSICIÓN")) -> dict:
+        None, description="'YYYY-MM-DD'; default = el último día CON POSICIÓN"),
+          actor: str = Depends(get_user_email)) -> dict:
     """TODA la pantalla en UN request.
 
     Un solo endpoint y no cinco porque los bloques tienen que hablar de la MISMA
     fecha: con llamadas separadas, un job corriendo en el medio dejaría el
     resumen en un día y el ranking en otro **sin que nada falle**.
+
+    ⚠️ `puede_editar_activo_integrado` lo resuelve el ROUTER y no el service:
+    depende de QUIÉN pide, y `api/services/` es puro. Es sólo para que la
+    pantalla no ofrezca un lápiz que va a devolver 403 — **el permiso real lo
+    aplica `require_escritura_mesa` en el POST**, que es el único enforcement.
     """
-    return _ok(_svc.vista, fecha)
+    v = _ok(_svc.vista, fecha)
+    return {**v, "puede_editar_activo_integrado": _mesa.puede_escribir(actor)}
 
 
 @router.get("/fechas")
@@ -99,26 +130,74 @@ def guardar_cuenta(body: CuentaIn, actor: str = _ESCRIBE) -> dict:
                name=body.name, grupo=body.grupo, por=actor)
 
 
-class AcumuladoIn(BaseModel):
-    account: str = Field(..., min_length=1)
-    # Las dos monedas SIEMPRE, en columnas separadas. No hay un campo `moneda`
-    # con un importe: eso permitiría cargar una y dejar la otra sin saber si
-    # está en cero o sin cargar. Y no hay un total: no existe: el agro liquida
-    # en Dólar MtR y el dólar futuro en Pesos, y sumarlos no significa nada.
-    acumulado_pesos: float = 0
-    acumulado_mtr: float = 0
-    # EXCLUSIVA: los importes ya contienen todo hasta ese día inclusive.
-    fecha: str = Field(..., description="'YYYY-MM-DD'; hasta acá llegan los dos importes")
+class ActivoIntegradoBody(BaseModel):
+    moneda: str = Field(..., min_length=1, description="La moneda de la card")
+    # `None` BORRA la carga manual y vuelve al calculado. Es la única forma de
+    # deshacer sin dejar un cero, que se ve igual que «no hay dato».
+    importe: float | None = Field(None, description="null = borrar y volver al calculado")
+    nota: str | None = Field(None, max_length=500, description="Por qué se corrigió")
+    fecha: str | None = Field(None, description="YYYY-MM-DD; por defecto el último día")
 
 
-@router.post("/acumulado")
-def guardar_acumulado(body: AcumuladoIn, actor: str = _ESCRIBE) -> dict:
-    """El ARRASTRE de una cuenta, en sus dos monedas.
+@router.post("/activo-integrado", dependencies=[Depends(require_escritura_mesa)])
+def guardar_activo_integrado(body: ActivoIntegradoBody,
+                             actor: str = _ESCRIBE) -> dict:
+    """Carga a mano el ACTIVO INTEGRADO de una moneda, o borra la carga.
 
-    La cámara manda la diferencia DEL DÍA, no el arrastre: lo anterior a nuestra
-    serie solo existe en la planilla de la mesa y se carga acá una vez. De ahí en
-    adelante el acumulado se mueve solo — **no se persiste, se deriva** en la
-    lectura (misma decisión que el histórico de `/aca`).
+    Es TEMPORAL: el número que sale de la cámara trae errores y por un tiempo lo
+    escribe la mesa. **No borra el calculado** — la card sigue mostrando lo que
+    decía la cámara al lado, con quién lo cargó y cuándo.
     """
-    return _ok(_svc.guardar_acumulado, body.account, body.acumulado_pesos,
-               body.acumulado_mtr, body.fecha, por=actor)
+    hoy, _ = _svc._fecha_valida(body.fecha)
+    if not hoy:
+        raise HTTPException(400, "no hay días con posición para cargar")
+    return _ok(_svc.guardar_activo_integrado, hoy, body.moneda, body.importe,
+               nota=body.nota, por=actor)
+
+
+@router.get("/consolidado/detalle")
+def consolidado_detalle(
+    tab: str = Query(..., description="agro | dolar"),
+    moneda: str = Query(..., description="La moneda del cuadro"),
+    producto: str = Query(..., description="Código del producto: SOJ, MAI, DLR…"),
+    fecha: str | None = Query(None, description="YYYY-MM-DD"),
+) -> dict:
+    """De qué está hecha UNA fila del cuadro CONSOLIDADOS: cuenta por cuenta.
+
+    ⚠️ **Es AUDITORÍA, no una vista nueva.** Sale del mismo service y de los
+    mismos predicados que el cuadro, así que su total tiene que dar igual que la
+    fila que explica — y viaja en la respuesta para poder mostrarlo al lado.
+    """
+    hoy, ayer = _svc._fecha_valida(fecha)
+    if not hoy:
+        return {"tab": tab, "moneda": moneda, "producto": producto,
+                "etiqueta": producto, "filas": [], "total": {},
+                "fecha": None, "fecha_anterior": None}
+    return _ok(_svc.consolidado_detalle, hoy, ayer, tab, moneda, producto)
+
+
+@router.get("/aca/cuentas")
+def aca_cuentas() -> list[dict]:
+    """Las cuentas propias que se pueden elegir en POSICIONES DE ACA.
+
+    La lista es una ALLOWLIST de `config`, no un filtro por defecto: cualquier
+    otra cuenta de `ap5.portfolio` es de un comitente y no se ofrece.
+    """
+    return _ok(_svc.cuentas_aca)
+
+
+@router.get("/aca")
+def aca(cuenta: str = Query(..., description="Número de cuenta propia"),
+        fecha: str | None = Query(None, description="YYYY-MM-DD")) -> dict:
+    """La posición abierta de UNA cuenta propia, una fila por símbolo.
+
+    ⚠️ **La cuenta se valida contra la allowlist en el SERVICE**, no acá: si el
+    gate viviera en el router, un caller nuevo (un job, el MCP) podría llamar al
+    service y saltearlo. Una cuenta que no está devuelve `permitida: false` en
+    vez de un 403 — la vista tiene que poder decir *por qué* no hay datos.
+    """
+    hoy, _ = _svc._fecha_valida(fecha)
+    if not hoy:
+        return {"cuenta": cuenta, "permitida": True, "excluida": False,
+                "filas": [], "totales": [], "fecha": None}
+    return {**_ok(_svc.posiciones_aca, hoy, cuenta), "fecha": hoy}

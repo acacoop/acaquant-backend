@@ -14,11 +14,28 @@ enriquecen con JOIN a `assets` (igual que el path Mongo enriquece con Valuacione
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from api.services._sql import _f, _q
 
 _SRC = "portafolio.tenencia"   # fuente única del AuM SQL (filtrar siempre por aum='si')
+
+# La CARTERA de una posición, normalizada. Vive acá UNA sola vez y la usan el
+# SELECT, el GROUP BY, el FILTRO y el listado de opciones — a propósito: si el
+# listado ofreciera `OTROS` y el filtro comparara contra `a.cartera` a secas,
+# elegir OTROS no traería NADA (OTROS es la etiqueta de los NULL/'', no un valor
+# guardado) y no fallaría nada: la vista quedaría vacía como si no hubiera plata
+# en esa cartera. Es el mismo modo de falla que la REGLA #9.
+_CARTERA = "COALESCE(NULLIF(a.cartera, ''), 'OTROS')"
+
+
+def _cartera_sql(cartera) -> tuple[str, dict]:
+    """Filtro por CARTERA (multi). `None`/`[]` → sin filtro. Varios valores = OR."""
+    vals = [c for c in (cartera or []) if c]
+    if not vals:
+        return "", {}
+    return f"{_CARTERA} = ANY(%(cartera)s)", {"cartera": vals}
 
 
 def _dt(d):
@@ -185,7 +202,11 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas",
 
 def total_serie(desde: str | None = None, hasta: str | None = None,
                 cuenta_filter: str = "todas", moneda: str = "ARS",
-                scope: tuple[str, ...] | None = None) -> dict:
+                scope: tuple[str, ...] | None = None,
+                cartera: Sequence[str] | None = None) -> dict:
+    """Serie del AuM total por CARTERA. `cartera` acota la serie a esas carteras —
+    el TOTAL de cada fecha pasa a ser el de lo filtrado, que es lo que espera un
+    filtro madre: el chart, el leaderboard y el número grande cuentan lo mismo."""
     conds = ["v.aum = 'si'"]
     p: dict = {}
     frag, fp = _cuenta_filter_sql(cuenta_filter)
@@ -201,10 +222,14 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
     if hasta:
         conds.append("v.fecha <= %(hasta)s")
         p["hasta"] = hasta
-    rows = _q(f"SELECT v.fecha AS fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
+    frag_c, cp = _cartera_sql(cartera)
+    if frag_c:
+        conds.append(frag_c)
+        p.update(cp)
+    rows = _q(f"SELECT v.fecha AS fecha, {_CARTERA} AS cartera, "
               f"SUM(v.valuacion) AS val FROM {_SRC} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
               f"WHERE {' AND '.join(conds)} "
-              f"GROUP BY v.fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') ORDER BY v.fecha", p)
+              f"GROUP BY v.fecha, {_CARTERA} ORDER BY v.fecha", p)
     mep_cache: dict = {}
     sin_mep: set = set()
     bucket: dict[str, dict] = {}
@@ -230,7 +255,8 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
 
 
 def total_snapshot(fecha: str | None = None, cuenta_filter: str = "todas", moneda: str = "ARS",
-                   scope: tuple[str, ...] | None = None) -> dict:
+                   scope: tuple[str, ...] | None = None,
+                   cartera: Sequence[str] | None = None) -> dict:
     if not fecha:
         # Sin fecha → última disponible. Permite al frontend pedir serie y
         # snapshot EN PARALELO al montar /aum (antes esperaba la serie solo
@@ -250,7 +276,11 @@ def total_snapshot(fecha: str | None = None, cuenta_filter: str = "todas", moned
     if scope is not None:
         conds.append("v.id_cuenta = ANY(%(scope)s)")
         p["scope"] = list(scope)
-    rows = _q(f"SELECT v.unidad, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
+    frag_c, cp = _cartera_sql(cartera)
+    if frag_c:
+        conds.append(frag_c)
+        p.update(cp)
+    rows = _q(f"SELECT v.unidad, {_CARTERA} AS cartera, "
               f"NULL::text AS tipo, v.cuenta, v.id_cuenta, v.valuacion, v.cantidad "
               f"FROM {_SRC} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
               f"WHERE {' AND '.join(conds)}", p)
@@ -271,6 +301,32 @@ def total_snapshot(fecha: str | None = None, cuenta_filter: str = "todas", moned
         })
     return {"docs": out, "moneda": moneda, "mep_used": mep,
             "mep_missing": mep_missing, "fecha": fecha}
+
+
+def carteras_aum(scope: tuple[str, ...] | None = None) -> dict:
+    """Carteras que EXISTEN en el AuM de la última foto — opciones del filtro CARTERA.
+
+    Se leen de la foto y no del catálogo `assets` a propósito: `assets` tiene
+    carteras que hoy nadie tiene en cartera, y ofrecer un filtro que no puede dar
+    ninguna fila es ofrecer una pantalla en blanco. Respeta el `scope` del usuario
+    por la misma razón: un operador no debería ver como opción una cartera que no
+    aparece en ninguna de sus cuentas.
+    """
+    r = _q(f"SELECT max(fecha) AS f FROM {_SRC} WHERE aum = 'si'")
+    f_max = r[0]["f"] if r else None
+    if f_max is None:
+        return {"carteras": [], "fecha": None}
+    conds = ["v.fecha = %(f)s", "v.aum = 'si'"]
+    p: dict = {"f": f_max}
+    if scope is not None:
+        conds.append("v.id_cuenta = ANY(%(scope)s)")
+        p["scope"] = list(scope)
+    rows = _q(f"SELECT {_CARTERA} AS cartera, count(*) AS n "
+              f"FROM {_SRC} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
+              f"WHERE {' AND '.join(conds)} "
+              f"GROUP BY {_CARTERA} ORDER BY {_CARTERA}", p)
+    return {"carteras": [{"cartera": r["cartera"], "n_posiciones": r["n"]} for r in rows],
+            "fecha": _iso(f_max)}
 
 
 def total_diff(fecha_actual: str, fecha_anterior: str, moneda: str = "ARS",

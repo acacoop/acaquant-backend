@@ -10,10 +10,14 @@ from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
+from api.services import conoce_cliente_sql as _conoce
 from api.services import control_comercial_sql as _cc
+from api.services import cuantitativo_sql as _cuanti
 from api.services import financiamiento as _fin
 from api.services import financiamiento_calc as _fin_calc
 from api.services import operaciones_sql as _ops_sql
+from api.services import perfil_cliente_sql as _perfil
+from api.services import profundidad_sql as _prof
 from api.services._grupos_scope import (
     scope_cuentas,
     verificar_cuenta_str,
@@ -376,40 +380,6 @@ def ops_dolar_futuro(
                                      scope=scope, nivel5=nivel5)
 
 
-@router.get("/ops/diferencias-diarias")
-@cached(ttl=300)
-def ops_diferencias_diarias(
-    desde: str = Query(..., description="YYYY-MM-DD"),
-    hasta: str = Query(..., description="YYYY-MM-DD"),
-    moneda: str = Query("USDL", description="USDL | ARS (no se pueden sumar juntas)"),
-    producto: str | None = Query(None, description="Prefijo del instrumento (cross-filter)"),
-    cuenta: str | None = Query(None, description="Cuenta exacta (cross-filter)"),
-    instrumento: str | None = Query(None, description="Instrumento exacto (cross-filter)"),
-    nivel5: str | None = Query(None, description="Filtra por nivel_5 de Clientes.Comitentes"),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-):
-    """Diferencias diarias de futuros (liquidación mark-to-market) desde
-    operaciones.negocio_movimientos. La métrica es `importe` (± ARS o USDL —
-    filtradas por `moneda`, nunca sumadas juntas); NO hay tipo ni instrumento
-    nativos (el instrumento se parsea del texto `informacion`). Devuelve
-    `por_producto`, `por_cuenta`, `por_instrumento`, `serie` (Σ importe por día)
-    y `total` — todo acotado a [desde,hasta] con cross-filter 3-way."""
-    return _ops_sql.ops_diferencias_diarias(desde=desde, hasta=hasta, moneda=moneda,
-                                             producto=producto, cuenta=cuenta,
-                                             instrumento=instrumento, scope=scope, nivel5=nivel5)
-
-
-@router.get("/ops/diferencias-fechas")
-@cached(ttl=300)
-def ops_diferencias_fechas(
-    moneda: str = Query("USDL", description="USDL | ARS"),
-):
-    """Fechas (desc) con Diferencias Diarias para la moneda dada — el universo
-    de fechas PROPIO de esta vista (no el de operaciones.operaciones). Ancla los
-    botones ULTIMA/SEMANA/MES sobre fechas que realmente tienen datos."""
-    return _ops_sql.ops_diferencias_fechas(moneda=moneda)
-
-
 @router.get("/ops/aranceles")
 @cached(ttl=300)
 def ops_aranceles(
@@ -607,6 +577,176 @@ def comercial_analisis_detalle(
     historial reciente y los boletos que NO cuentan con su motivo (anulados,
     posteriores al corte). No recalcula nada: usa el mismo predicado que la tabla."""
     return _com_sql.detalle_ultima_op(id_cuenta=id_cuenta, fecha=fecha, limite=limite)
+
+
+# ── FICHA OPERATIVA DE UN CLIENTE ────────────────────────────────────────────
+# Genérica a propósito: nace para el detalle de SE ESTÁN APAGANDO pero el share
+# por tipo de operación se va a reusar. No recibe nada de esa vista.
+
+@router.get("/comercial/cliente/perfil", dependencies=[Depends(verificar_id_cuenta)])
+@cached(ttl=120)
+def comercial_cliente_perfil(
+    id_cuenta: str = Query(..., description="id de la cuenta comitente"),
+    meses: int = Query(_perfil.MESES_DEF, ge=1, le=_perfil.MESES_MAX,
+                       description="ventana hacia atrás en meses"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    hasta: str | None = Query(None, description="último día a considerar (ISO). None = hoy"),
+) -> dict:
+    """Tres cosas de una cuenta: su ÚLTIMA operación, el arancel MES A MES (serie
+    para el gráfico) y el SHARE DEL VOLUMEN por tipo de operación.
+
+    ⚠️ Volumen y arancel NO se filtran igual: el volumen EXCLUYE los cierres (la
+    apertura de la caución ya lo contó) y el arancel los INCLUYE (el arancel de
+    caución vive solo ahí). El `bruto` se pesifica al mep DEL BOLETO — sumar pesos
+    con dólares da un número que parece plata y no lo es.
+
+    `verificar_id_cuenta` → 403 si la cuenta está fuera del grupo del usuario."""
+    return _perfil.perfil_cliente(id_cuenta=id_cuenta, meses=meses, moneda=moneda,
+                                  hasta=hasta)
+
+
+# ── ANÁLISIS CUANTITATIVO (tab de OPERADORES) ────────────────────────────────
+# Tres listas de llamadas por cliente + el contexto, en UNA respuesta: los
+# contadores de la sub-nav tienen que corresponder a las listas que se van a ver.
+# Los cortes NO vienen fijos — los manda el usuario y el backend los valida.
+
+@router.get("/comercial/cuantitativo")
+@cached(ttl=300)
+def comercial_cuantitativo(
+    mes: str = Query(None, description="mes YYYY-MM (default: el actual)"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    limite: int = Query(_cuanti.LIMITE_DEF, ge=1, le=_cuanti.LIMITE_MAX,
+                        description="filas por lista (los CONTADORES no se capean)"),
+    pct_arancel: float = Query(None, description="«deja mucho» = entra en este % del arancel"),
+    meses_seguido: float = Query(None, description="«viene seguido» = N de los últimos 12 meses"),
+    multiplo: float = Query(None, description="avisar a las N veces su propio ritmo sin operar"),
+    min_dias_op: float = Query(None, description="días operados en 12m para tener ritmo medible"),
+    caida_pct: float = Query(None, description="PERDIERON AuM: cayó más de este %"),
+    meses_atras: float = Query(None, description="PERDIERON AuM: contra hace cuántos meses"),
+    piso_aum: float = Query(None, description="PERDIERON AuM: piso de AuM (sin piso, la lista es ruido)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """QUIÉNES IMPORTAN · SE ESTÁN APAGANDO · PERDIERON AuM, con el contexto del mes.
+
+    Mismo universo y mismo predicado de actividad que PROFUNDIDAD. Cada corte que
+    llegue fuera de su rango vuelve a su default en vez de generar una lista que no
+    significa nada; `cortes` (lo aplicado) y `cortes_def` (rangos + qué hace cada
+    uno) viajan en la respuesta para que la pantalla los dibuje editables."""
+    return _cuanti.analisis_cuantitativo(
+        mes=mes, moneda=moneda, limite=limite, operador=operador, nivel_1=nivel_1,
+        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5,
+        referido=referido, division=division,
+        pct_arancel=pct_arancel, meses_seguido=meses_seguido, multiplo=multiplo,
+        min_dias_op=min_dias_op, caida_pct=caida_pct, meses_atras=meses_atras,
+        piso_aum=piso_aum)
+
+
+# ── CONOCÉ A TU CLIENTE (tab de OPERADORES) ──────────────────────────────────
+# Una fila por CLIENTE, dentro de UN segmento. `segmento` es OBLIGATORIO a
+# propósito: el ROA de un institucional y el de un retail no son comparables, y
+# mezclados la vista recomienda exactamente lo contrario de lo que hay que hacer.
+
+@router.get("/comercial/conoce-cliente")
+@cached(ttl=300)
+def comercial_conoce_cliente(
+    segmento: str = Query(None, description="nivel_3. SIN esto no se devuelven filas"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    meses: int = Query(_conoce.MESES, ge=1, le=60, description="ventana hacia atrás"),
+    piso_aum: float = Query(None, description="debajo de este AuM promedio el ROA no se calcula"),
+    orden: str = Query(_conoce.ORDEN_DEF, description=" | ".join(_conoce.ORDENES)),
+    limite: int = Query(_conoce.LIMITE_DEF, ge=1, le=_conoce.LIMITE_MAX),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """Cliente · arancel 12m · lo que tiene · ROA · cupo · SOW · operación favorita.
+
+    Sin `segmento` devuelve SOLO la lista de segmentos (con su conteo) y ninguna
+    fila: la pantalla hace elegir primero. `nivel_3` NO es un filtro más acá — es
+    el eje de la vista, así que no viaja entre los filtros madre.
+
+    ROA = arancel ÷ TIENE y SOW = TIENE ÷ CUPO, con las dos columnas de cada
+    cociente en pantalla: todo lo derivado se puede verificar con una calculadora."""
+    return _conoce.conoce_cliente(
+        segmento=segmento, moneda=moneda, meses=meses, piso_aum=piso_aum,
+        orden=orden, limite=limite, operador=operador, nivel_1=nivel_1,
+        nivel_2=nivel_2, nivel_4=nivel_4, nivel_5=nivel_5,
+        referido=referido, division=division)
+
+
+# ── PROFUNDIDAD DE CLIENTES (tab de OPERADORES) ──────────────────────────────
+# Serie MENSUAL de la base de clientes: cuántos hay, cuántos con AuM, cuántos
+# operaron y cuánto arancel dejaron. NO usa el Desde/Hasta de la barra a propósito
+# (su eje ES el tiempo); sí hereda los filtros madre. Lógica: profundidad_sql.
+
+@router.get("/comercial/profundidad")
+@cached(ttl=300)
+def comercial_profundidad(
+    moneda: str = Query("ARS", description="ARS | USD (USD = al MEP del último día de CADA mes)"),
+    desde: str | None = Query(None, description=f"primer mes YYYY-MM (default {_prof.PROFUNDIDAD_INICIO})"),
+    hasta: str | None = Query(None, description="último mes YYYY-MM (default: mes en curso; nunca lo supera)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+    operacion: list[str] | None = Query(None, description="operacion(es) del boleto (multi). Vacío = todas. SOLO acota activos/ratio/aranceles"),
+) -> dict:
+    """Una fila por mes (mm-aa) con clientes · con AuM · sin AuM · activos · ratio de
+    actividad · aranceles · arancel por activo · AuM. Todo medido al ÚLTIMO día del mes;
+    los flujos, sobre el mes completo. Los ratios, los labels y los encabezados vienen
+    calculados.
+
+    `operacion` acota SOLO lo que se operó (activos/ratio/aranceles/arancel por activo);
+    clientes, con AuM, sin AuM y AuM siguen siendo la base entera. La respuesta trae
+    `operaciones_disponibles` (los valores que existen, leídos de la base) y `columnas`
+    (los encabezados ya escritos, que cambian de nombre con el filtro puesto)."""
+    return _prof.profundidad_clientes(
+        moneda=moneda, desde=desde, hasta=hasta, operador=operador, nivel_1=nivel_1,
+        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5,
+        referido=referido, division=division, operacion=operacion)
+
+
+@router.get("/comercial/profundidad/detalle")
+@cached(ttl=120)
+def comercial_profundidad_detalle(
+    mes: str = Query(..., description="mes de la celda clickeada, YYYY-MM"),
+    metrica: str = Query("clientes", description="|".join(_prof.METRICAS)),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    limite: int = Query(500, ge=1, le=5000, description="cuentas listadas (los totales NO se capean)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+    operacion: list[str] | None = Query(None, description="MISMO valor que la tabla, o el detalle la contradice"),
+) -> dict:
+    """Auditoría de UNA celda (mes × métrica): las cuentas que la componen, con su AuM,
+    sus boletos y su arancel del mes. Mismos predicados, mismo snapshot y MISMO filtro
+    de operación que la tabla — los totales se calculan sobre TODAS las cuentas y recién
+    después se capea la lista, así el límite no puede hacer que el modal contradiga al
+    número."""
+    return _prof.detalle_mes(
+        mes=mes, metrica=metrica, moneda=moneda, limite=limite, operador=operador,
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4,
+        nivel_5=nivel_5, referido=referido, division=division, operacion=operacion)
 
 
 @router.get("/comercial/cobros-futuros")

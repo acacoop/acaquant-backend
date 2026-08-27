@@ -373,6 +373,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Seguridad / credenciales | `SECURITY.md` · `SECRETS.md` |
 | Clientes / grupos / segmentación | `GRUPOS.md` · `SEGMENTACION_PATRIMONIAL.md` |
 | API HTTP (contratos) | `API.md` |
+| **API EXTERNA para accionistas** (`/ext`) | `API_EXTERNA.md` **[VIVO]** — ⚠️ superficie hacia AFUERA: el permiso es un dato (`ext.cuentas_autorizadas`), el scope es fail-closed y **no se reusa `verify_api_key` ni `cuentas_visibles`** |
 
 Auto-generados (NO editar a mano): `HERRAMIENTAS.md`, `vault/`, `deploy/SISTEMA.md`.
 

@@ -3,6 +3,12 @@
 Trae `PosTrade/PositionReport` de la API Postrade (A3 Mercados / ACyRSA) y lo
 persiste en `ap5.portfolio`, más el alta de cuentas nuevas en `ap5.cuentas`.
 
+Y en la MISMA corrida, el **requerimiento de márgenes**
+(`PosTrade/MarginRequirementReport`) abierto por comitente, a `ap5.margenes`.
+Va acá y no en un job aparte porque es la misma fecha y la misma sesión: dos
+relojes para el mismo reporte es cómo una mitad queda de un día y la otra de
+otro sin que nada falle.
+
 Cron: **10:00 ART** (13:00 UTC), todos los días. Siempre consulta el **último
 día hábil** — o sea hoy menos un día hábil.
 
@@ -25,7 +31,13 @@ from __future__ import annotations
 import argparse
 from datetime import date
 
-from core import postrade, postrade_cuentas, postrade_posicion
+import config
+from core import (
+    postrade,
+    postrade_cuentas,
+    postrade_margenes,
+    postrade_posicion,
+)
 from core.calendario import restar_habiles
 from core.job_runs import JobRunLogger
 from core.postgres import get_pool
@@ -198,6 +210,128 @@ def _guardar_denominaciones(detalles: list[dict]) -> int:
     return len(detalles)
 
 
+def _guardar_margenes(fecha: str, filas: list[dict]) -> int:
+    """UPSERT en `ap5.margenes`. Devuelve las filas escritas.
+
+    La PK es (fecha, cuenta, cuenta_compensacion, moneda) — el PAR, no la cuenta
+    sola: ver el comentario de la tabla en `sql/schema.sql`.
+    """
+    if not filas:
+        return 0
+    sql = """
+        INSERT INTO ap5.margenes (
+            fecha, cuenta, cuenta_compensacion, concepto, moneda,
+            margen, primas, inter_temporal, referencias, titular, actualizado_at
+        ) VALUES (
+            %(fecha)s, %(cuenta)s, %(cuenta_compensacion)s, %(concepto)s,
+            %(moneda)s, %(margen)s, %(primas)s, %(inter_temporal)s,
+            %(referencias)s, %(titular)s, now()
+        )
+        ON CONFLICT (fecha, cuenta, cuenta_compensacion, concepto, moneda)
+        DO UPDATE SET
+            margen         = EXCLUDED.margen,
+            primas         = EXCLUDED.primas,
+            inter_temporal = EXCLUDED.inter_temporal,
+            referencias    = EXCLUDED.referencias,
+            titular        = EXCLUDED.titular,
+            actualizado_at = now()
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(sql, [{**f, "fecha": fecha} for f in filas])
+    return len(filas)
+
+
+def _margenes(f: str, run_log, *, dry: bool = False) -> None:
+    """El requerimiento de márgenes del día, abierto por comitente.
+
+    ⚠️ **Vacío NO es un error** (medido 2026-08-25): `MarginRequirementReport`
+    contesta 200 con lista vacía cuando todavía no hay dato para esa fecha; un
+    método deshabilitado tira excepción. Los dos se ven igual desde la card —un
+    número que no está— así que se distinguen acá y se dicen distinto: un vacío
+    se avisa y no se declara «todo bien», que es lo que haría un `return` mudo.
+    """
+    try:
+        crudo = postrade.leer(postrade_margenes.METODO_MARGENES, {"date": f})
+    except Exception as e:
+        run_log.error(f"MarginRequirementReport falló para {f}: {e}")
+        return
+
+    if not crudo:
+        run_log.set_stat("margenes_filas", 0)
+        run_log.error(
+            f"MarginRequirementReport contestó VACÍO para {f} (no dio error: el "
+            f"método está habilitado, lo que no hay es dato)")
+        return
+
+    planas, stats = postrade_margenes.aplanar_margenes(crudo)
+    for k, v in stats.items():
+        run_log.set_stat(f"margenes_{k}", v)
+
+    filas = postrade_margenes.por_cuenta_de_neteo(planas)
+    conceptos = sorted({x["concepto"] for x in filas})
+    run_log.set_stat("margenes_filas", len(filas))
+    run_log.set_stat("margenes_cuentas", len({x["cuenta"] for x in filas}))
+    run_log.set_stat("margenes_conceptos", len(conceptos))
+    run_log.log(f"  márgenes: {len(planas)} referencias → {len(filas)} "
+                f"(cuenta, compensación, concepto, moneda)")
+    run_log.log(f"  conceptos: {', '.join(conceptos) or '(ninguno)'}")
+
+    # ⚠️ Los conceptos que las cards suman tienen que EXISTIR. Si la cámara
+    # renombra `Inicial A3`, la card seguiría dibujando un número —el de los
+    # conceptos que sí quedaron— y nadie se enteraría. Por eso se comparan acá,
+    # contra la respuesta real, y no en la pantalla.
+    declarados = set(config.AP5_CONCEPTOS_REQUERIMIENTO) | set(
+        config.AP5_CONCEPTOS_ACTIVO_INTEGRADO)
+    faltan = sorted(declarados - set(conceptos))
+    run_log.set_stat("margenes_conceptos_faltantes", len(faltan))
+    if faltan:
+        run_log.error(
+            f"conceptos declarados en config que NO vinieron: {faltan} — las "
+            f"cards que los suman van a mostrar de menos. Vinieron: {conceptos}")
+
+    if dry:
+        for x in filas[:10]:
+            run_log.log(f"    {x}")
+        return
+
+    escritas = _guardar_margenes(f, filas)
+    run_log.set_stat("margenes_escritas", escritas)
+    run_log.log(f"  ✓ {escritas} filas en ap5.margenes")
+
+
+# Cuántos días hábiles se guardan en `ap5.portfolio`. DOS y ni uno más:
+#
+#   · uno para el ACUMULADO — `daily_settlement` ya viene acumulado de la cámara,
+#     así que la Σ de la última corrida ES el acumulado de la cuenta;
+#   · el anterior para poder restar y saber la DIARIA exacta (`hoy − ayer`).
+#
+# Un tercer día no aporta a ninguno de los dos números y hace crecer la tabla
+# para siempre.
+DIAS_A_GUARDAR = 2
+
+
+def _podar(run_log) -> None:
+    """Dejar sólo los últimos `DIAS_A_GUARDAR` días. Idempotente.
+
+    ⚠️ Va DESPUÉS de escribir, no antes: si podara primero y la escritura del día
+    nuevo fallara, quedaría un solo día y la diaria dejaría de poder calcularse.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM ap5.portfolio WHERE business_date < ("
+            "  SELECT min(d) FROM ("
+            "    SELECT DISTINCT business_date AS d FROM ap5.portfolio "
+            "    ORDER BY 1 DESC LIMIT %(n)s) t)",
+            {"n": DIAS_A_GUARDAR})
+        borradas = cur.rowcount
+        cur.execute("SELECT count(DISTINCT business_date) FROM ap5.portfolio")
+        quedan = cur.fetchone()[0]
+    run_log.set_stat("portfolio_podadas", borradas)
+    run_log.set_stat("portfolio_dias", quedan)
+    if borradas:
+        run_log.log(f"  podado: {borradas} filas de días viejos · quedan {quedan} día(s)")
+
+
 def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool = False) -> None:
     with JobRunLogger(TIPO) as run_log:
         f = postrade.fecha_api(fecha) if fecha else ultimo_dia_habil()
@@ -268,6 +402,7 @@ def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool 
             for m in list(mults.values())[:10]:
                 run_log.log(f"    mult {m['symbol']} = {m['multiplicador']:g} "
                             f"({m['unit_of_measure']}, {m['filas_base']} filas)")
+            _margenes(f, run_log, dry=True)
             return
 
         escritas = _guardar_posiciones(a_escribir)
@@ -290,6 +425,15 @@ def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool 
             run_log.set_stat("nombres_sin_resolver", len(fallidas))
             run_log.log(f"  ✓ {nombradas} nombres desde AccountDetails"
                         + (f" · {len(fallidas)} sin resolver" if fallidas else ""))
+
+        # Sólo los últimos DIAS_A_GUARDAR días. Después de escribir, nunca antes.
+        _podar(run_log)
+
+        # El requerimiento de márgenes, del MISMO día hábil. Va acá y no en un
+        # job aparte porque es la misma fecha y la misma sesión de Postrade: dos
+        # relojes distintos para el mismo reporte es exactamente cómo una mitad
+        # queda de un día y la otra de otro sin que nada falle.
+        _margenes(f, run_log, dry=dry)
 
 
 def main() -> None:

@@ -154,6 +154,59 @@ def aplanar_margenes(crudo: Any) -> tuple[list[dict], dict[str, int]]:
     return filas, stats
 
 
+# Los tres importes que la cámara manda por referencia. Se guardan los tres —
+# son el registro de lo que mandó el proveedor y tirarlos sería no poder
+# auditarlos nunca— pero **el importe que cuenta es `margen`**.
+IMPORTES = ("margen", "primas", "inter_temporal")
+
+# ⚠️ **EL IMPORTE ES `Margin`, y sólo `Margin`** (determinado por el user contra
+# el número real de la mesa, 2026-08-25). Hubo una versión que sumaba los tres
+# campos: se generalizó desde una fila de `Cauciones $` que traía el número en
+# `InterTempAmount`, y fue una invención mía, no una medición. **`Márgenes` trae
+# un `InterTempAmount` no nulo que NO se cuenta**, así que sumar los tres inflaba
+# el total — y no fallaba: daba un número creíble.
+CAMPO_IMPORTE = "margen"
+
+
+def por_cuenta_de_neteo(filas: list[dict]) -> list[dict]:
+    """Una fila por (cuenta de neteo, cuenta de compensación, CONCEPTO, moneda).
+
+    ⚠️ **`Reference` es el nombre del CONCEPTO, no un identificador** (medido
+    2026-08-25: `Márgenes` ×28, `Inicial A3`, `Inicial FGIMC`, `Cauciones $`).
+    Es parte de la identidad porque las cards suman conceptos DISTINTOS — el
+    activo integrado es `Márgenes + Inicial A3` y el requerimiento no. Colapsar
+    los conceptos en un total por cuenta haría imposible separarlos después, y
+    la única forma de recuperar el número sería volver a pegarle a la cámara.
+
+    ⚠️ **`primas` e `inter_temporal` se GUARDAN pero no se suman.** Están para
+    poder mirarlos el día que alguien pregunte; el importe de cada concepto es
+    `margen`. Ver `CAMPO_IMPORTE`.
+
+    ⚠️ **El signo se preserva** (vienen negativos). Darlo vuelta es una decisión
+    de presentación y vive en la vista, no acá.
+    """
+    por: dict[tuple[str, str, str, str], dict] = {}
+    for f in filas:
+        k = (f.get("cuenta") or "", f.get("cuenta_compensacion_codigo") or "",
+             f.get("referencia") or "", f.get("moneda") or "")
+        d = por.setdefault(k, {
+            "cuenta": k[0], "cuenta_compensacion": k[1], "concepto": k[2],
+            "moneda": k[3], "referencias": 0,
+            "titular": f.get("cuenta_nombre") or "",
+            **{c: 0.0 for c in IMPORTES},
+        })
+        d["referencias"] += 1
+        for c in IMPORTES:
+            d[c] += f.get(c) or 0.0
+        if not d["titular"]:
+            d["titular"] = f.get("cuenta_nombre") or ""
+
+    return [{**d, **{c: round(d[c], 2) for c in IMPORTES}}
+            for d in sorted(por.values(),
+                            key=lambda x: (x["cuenta"], x["cuenta_compensacion"],
+                                           x["concepto"], x["moneda"]))]
+
+
 def totales_por_moneda(filas: list[dict]) -> list[dict]:
     """Σ de cada importe, POR MONEDA. Nunca un total único.
 

@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **528 endpoints** montados en `api.main.app`, en **32 routers**.
-- **191 escriben** (POST/PUT/PATCH/DELETE); 337 son de solo lectura.
+- **535 endpoints** montados en `api.main.app`, en **32 routers**.
+- **191 escriben** (POST/PUT/PATCH/DELETE); 344 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -51,7 +51,7 @@
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/agente` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 14 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 5 | 2 | `operaciones` · 2 rutas con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
 | `/api/back-office/interbanking` | 26 | 17 | `back-office` · 22 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
@@ -65,11 +65,11 @@
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
-| `/api/operaciones` | 51 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
+| `/api/operaciones` | 54 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 17 | 3 | `portfolios` · 15 rutas con gate extra | `portfolios` |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
@@ -158,7 +158,7 @@ páginas.
 | 12 | **CARTERAS** | `/valuaciones` | `portfolios` | admin, trader, asistente_comercial | Performance por cuenta: valor del portfolio, tabla mensual con TWR/TEM/XIRR, posiciones a una fecha, atribución de la variación y PnL cost-basis por título. |
 | 13 | **CONTRAPARTES** | `/contrapartes` | `operaciones` | admin, trader, asistente_comercial | Contra quién operamos: volumen bruto por contraparte, por grupo/segmento y por mes, con drill-down a los boletos de un día. |
 | 14 | **MESA DE DINERO** | `/mesa-dinero` | **ninguno** — allowlist per-usuario | admin + `mesa_dinero_lectores`/`_escritores`; `mesa_dinero_lectores_resultados` ve **solo la tab RESULTADOS** | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
-| 15 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / DIFERENCIAS DIARIAS y los depósitos/extracciones. |
+| 15 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / POSICIONES Y DIFERENCIAS y los depósitos/extracciones. |
 | 16 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
 | 17 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
 | 18 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes, extractos bancarios de Interbanking y saldos de cuentas comitentes. |
@@ -166,6 +166,8 @@ páginas.
 | 20 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
 
 **Superficies transversales (no son rutas propias):**
+
+> ⚠️ Las dos últimas son **sub-apps montadas** (`app.mount`), así que `scripts/gen_mapa_app` **no las ve**: su inventario recorre los `include_router`. Sus endpoints se documentan a mano acá y en su doc propio.
 
 | Superficie | Dónde vive | Módulo | Qué hace |
 |---|---|---|---|
@@ -175,6 +177,7 @@ páginas.
 | **Briefing de apertura ☀** | Botón en el footer de TODAS las páginas + modal automático 10:00 ART L-V | `ia` | Foto de apertura determinista (0 tokens): futuros, oficial, MEP/CCL, cauciones, DLR, bonos off, bonos que pagan hoy, research del día. |
 | **VIGÍA** | Toasts en `/trading` | `ia` + `trading` | Alertas deterministas (0 tokens) de tarjeta en nivel / candidato del radar. |
 | **MCP server** | `https://api.acaquant.com/mcp` (Claude Desktop / claude.ai) | Auth propia OAuth 2.1 | Asistente externo de RENTA VARIABLE, 13 tools read-only. **No** usa el módulo `ia`. |
+| **API externa (accionistas)** | `https://api.acaquant.com/ext` (sub-app montada, `api/ext/`) | Auth propia: API key → token 30 min, con CF Access **Service Auth** delante. **Ningún** módulo del RBAC de la mesa | Le entrega a un accionista SUS operaciones, boleto por boleto (read-only). El permiso es un DATO (`ext.cuentas_autorizadas`), no código: alta de un cliente nuevo = INSERT, sin deploy. Scope **fail-closed** (al revés que `cuentas_visibles`). Doc: `docs/API_EXTERNA.md`; contrato para el consumidor en `/ext/docs`. |
 
 ---
 
@@ -425,8 +428,8 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 | `/sinteticos` | *sin tabs* | — | 2 tablas + 2 charts |
 | `/aum` | **TOTAL** · FCI · ANÁLISIS DE DINERO | en la URL (`?tab=`) | |
 | `/valuaciones` | **RESUMEN** · ACTIVOS · MÉTRICAS · EVOLUCIÓN · PNL TÍTULOS (arriba) · **TOTALES** (barra INFERIOR) | en la URL (`?sub=`, `?cuenta=`) | Las 3 primeras son UN componente y UN fetch (`/vista`): cambiar de tab no vuelve a consultar. **TOTALES y AJUSTES viven en la barra de estado de abajo**, al lado de BRIEFING/AV AGENT, y solo con la vista abierta. TOTALES **ignora** el selector de cuenta; tiene 2 modos internos (POR TÍTULO / POR CUENTA) |
-| `/operaciones` | **OPERACIONES** · ARANCELES · AGRO · DÓLAR FUTURO · DIFERENCIAS DIARIAS · DEPÓSITOS & EXTRACCIONES | `operaciones.tab` (keep-alive) | |
-| `/operadores` | **Portfolio & Operaciones** · Análisis Comercial · Cobros Futuros · Informe · Control Comercial | `operadores.*` | Control Comercial visible solo con `me.control_comercial` |
+| `/operaciones` | **OPERACIONES** · ARANCELES · AGRO · DÓLAR FUTURO · POSICIONES Y DIFERENCIAS · DEPÓSITOS & EXTRACCIONES | `operaciones.tab` (keep-alive) | |
+| `/operadores` | **Portfolio & Operaciones** · Análisis Comercial · **Profundidad de Clientes** (con 2 solapas adentro: *Por mes* · *Análisis Cuantitativo*) · Cobros Futuros · Informe · Control Comercial | `operadores.*` | Control Comercial visible solo con `me.control_comercial`. Profundidad de Clientes **ignora el Desde/Hasta** (su eje es el tiempo) y esconde ese control + los KPIs |
 | `/referidos` | *sin tabs de vista* | `referidos.*` | Detalle del cliente con mini-tabs `pnl` / `ops`; tabla FCI aparte |
 | `/contrapartes` | *sin tabs* — **2 modos excluyentes** (rango / día) | — | El modo lo decide si el filtro Día tiene valor |
 | `/mesa-dinero` | **OPERACIONES** · RESULTADOS · ACA VALORES RETORNO TOTAL | `mesaDinero.tab` | |
@@ -880,7 +883,7 @@ mismo mes que el pase para la columna "Sintético" — tocar sintéticos mueve n
 | ↳ **Pase con Cobertura** | Dos tablas: **Cámara Rosario** y **Cámara Bahía Blanca**, con la fórmula de descuento por posición | mismo (`pase_cobertura`, `pase_cobertura_bahia` embebidos) | — | — |
 | ↳ **Tarjetas** | Cards por commodity × posición: pase bruto, pase lleno (neto de gastos), TC, venta dispo ARS, Monto Pesos Cau 7D, tasa ON, interés, TC ON, compra USD, gastos, ganancia ON / Pagaré / Sintético en US$/Tn | mismo | — | — |
 | ↳ modal **Simulador Estrategias Cobertura** | Overlay full-screen (portal, Esc o ✕). Panel de opciones + form + gráficos | `GET /agro/opciones/{c}` (5s) + `POST /agro/estrategia/simular` | selector **VTO**, **tipo** `put_sintetico`/`long_put`, **strike** (para put sintético solo con CALL, para long put solo con PUT; def ATM con `last>0`), input **prima override**, toggle chart **Estrategia**/**Diferencias** | ninguna (simulador, no persiste) |
-| **Mejoras Precio Dispo** | 2 paneles: **DISPONIBLE ROSARIO** y **DISPONIBLE BAHÍA**, cada uno con 3 tablas (Soja/Maíz/Trigo), una fila por LECAP vigente: ticker · vto · días · TNA · tasa diaria · tasa directa · precio commodity · interés ganado · valor final ARS · valor en US$ | `GET /agro/mejoras-dispo`, `/mejoras-dispo-bahia` (5s c/u) | ninguno | ninguna |
+| **Mejoras Precio Dispo** | 2 paneles: **DISPONIBLE ROSARIO** y **DISPONIBLE BAHÍA**, cada uno con 3 tablas (Soja/Maíz/Trigo), una fila por LECAP vigente: ticker · vto · días · **TNA** (derivada de la TEA en el backend, `quant/tasas.py`; el tooltip suma la TEA y el rendimiento real al vto) · tasa diaria · tasa directa · precio commodity · interés ganado · valor final ARS · valor en US$ | `GET /agro/mejoras-dispo`, `/mejoras-dispo-bahia` (5s c/u) | ninguno | ninguna |
 | **Chicago** | Tarjetas por familia CBOT (Soja, Aceite de Soja, Maíz, Trigo, Harina de Soja): Mes · USD/t · **Var USD/t (nominal, no %)**. Semáforo FEED EN LÍNEA / APAGADO | `GET /agro/chicago` (10s) | ninguno | ninguna desde la vista (entra por el feed Eikon de oficina) |
 | **Datos** (oculta al invitado) | 2 columnas. Izq: Dólares de Referencia, Tasas de Cobertura, Costo Pase (read-only), Descuento a Caución 7D (read-only). Der: Cámara Rosario, Cámara Bahía | `GET /agro/camara`, `/camara-bahia`, `/tasas-cobertura`, `/dolares-referencia`, `/costo-pase`, `/descuento-caucion` (10s c/u) | ninguno | **PATCH ×4**: cámara Rosario por cereal, cámara Bahía por cereal, tasas de cobertura, dólares de referencia. **Sin botón guardar**: input + **debounce 800 ms** → PATCH automático + feedback `…`/`✓`/`✗` |
 
@@ -899,7 +902,7 @@ mismo mes que el pase para la columna "Sintético" — tocar sintéticos mueve n
 | GET/PATCH | `/agro/dolares-referencia` | **Solo `dolar_bna` es manual**; `dolar_matba` sale del oficial live y `bna_comprador_t1` del A3500 de T−1 | — | **Sí** (PATCH) |
 | GET | `/agro/costo-pase` | **100 % automático**: 0,175 % derechos + 0,05 % apertura = 0,225 % por pata × 2 = **0,45 %**, más el costo US$/Tn por commodity | — | No |
 | GET | `/agro/descuento-caucion` | Precio disponible descontado a caución 7D por commodity | — | No |
-| GET | `/agro/mejoras-dispo` · `/mejoras-dispo-bahia` | Cruza `camara.precio_ars` + TNA de LECAPs + futuros DLR | — | No |
+| GET | `/agro/mejoras-dispo` · `/mejoras-dispo-bahia` | Cruza `camara.precio_ars` + TEA de LECAPs (→ TNA, `quant/tasas.py`) + futuros DLR | — | No |
 | GET | `/agro/chicago` | Tablero CBOT, precios convertidos a **USD/tonelada server-side**. `online` = heartbeat < 60s | — | No |
 | GET | `/api/ingest/eikon/chicago/universo` | `[{ric, familia}]` que el script de oficina pide a Eikon (de la constante `FAMILIAS`, **sin catálogo editable**) | auth `X-Ingest-Token` | No |
 | POST | `/api/ingest/eikon/chicago/quotes` | Ingesta del feed, 1 fila por RIC, crudo sin factor. **Ignora RICs fuera del universo conocido** | auth `X-Ingest-Token` | **Sí** (`eikon_chicago_snapshot`) |
@@ -1160,7 +1163,7 @@ Shell **keep-alive** (cada tab se monta una vez y luego se oculta con CSS), tab 
 | **ARANCELES** | Serie de aranceles por periodo + tabla izq por dimensión configurable + tabla der por cliente + por instrumento | `/ops/aranceles`, `/ops/fechas`, `/ops/meta`, `/ops/segmentos`, `/comercial/operadores` | Mismo modo de rango; moneda ARS/USD; **selector de dimensión** `dim` = `nivel3`\|`operacion`\|`mercado`\|`operador`; segmento y operador single-select; cross-filter por `sel_dim`/`cuenta`/`instrumento`; botón **ALL** → `serie_full=true` (por default la serie se acota a ~18 m / 550 días) | Ninguna |
 | **AGRO** | Toneladas de futuros+opciones agro: serie por periodo, serie de la cuenta elegida, share nuestro/mercado por commodity (solo futuros), totales por commodity/cuenta/instrumento, desglose FUTURO/OPCIÓN | `/ops/agro`, `/ops/fechas`, `/ops/niveles5` | `desde`/`hasta` (acotado a bounds reales; def YTD del último año con datos), `agg=DIARIO`, **select nivel 5**, **select tipo** FUTURO/OPCION/ambos, cross-filter commodity + cuenta. Tabs internos del chart: volumen / por tipo / share | Ninguna |
 | **DÓLAR FUTURO** | Nocional USD de DLR (1 contrato = USD 1.000), arancel ARS y boletos: `por_tipo` (Compra/Venta), `por_cuenta`, `por_instrumento`, serie split | `/ops/dolar-futuro`, `/ops/fechas`, `/ops/niveles5` | Modo de rango (def `MES`), `agg=DIARIO`, select nivel 5, cross-filter 3-way tipo/cuenta/instrumento | Ninguna |
-| **POSICIONES Y DIFERENCIAS** (`ap5-posiciones-view.tsx`) | El ranking del reporte que la mesa manda por mail, servido desde lo que dice **LA CÁMARA** (`ap5.portfolio`, A3/ACyRSA) y no desde nuestro registro de boletos. **Reemplazó a DIFERENCIAS DIARIAS** (2026-08-25). **TRES TABS** — FUTUROS AGRO · FUTUROS DÓLAR · CONSOLIDADOS. En las dos primeras, **solo dos paneles**: Cooperativas a la izquierda y MUNDO ACA a la derecha, cada uno con su Top 10 + y Top 10 −. **Nada más**: la pantalla completa es para las dos listas (decisión del user 2026-08-25 — las cards de resumen y las tablas de instrumento/acumulado se sacaron por espacio; el endpoint las sigue devolviendo y no se dibujan). La tab **CONSOLIDADOS** es el cuadro POR INSTRUMENTO del mail: FUTUROS AGRÍCOLAS y FUTUROS U$S, cada uno con Compra / Venta / Posición Neta (la **sumatoria de las cantidades** × multiplicador, no un importe), Diferencias Acum. al Día, al Día Ant. y la Diaria, **con su TOTAL sumado en el backend** — un total sumado en el navegador no se puede verificar del lado del servidor y este cuadro se imprime. Se agrupa por (tab, MONEDA): si en una tab aparecieran dos monedas salen dos cuadros, nunca un total mezclado. **"Acum. al Día Ant." NO se persiste: se deriva** (Σ de los días anteriores) — un T-1 guardado no se entera cuando el job re-ingesta un día corregido y queda contradiciendo a sus propios insumos. ⚠️ **El ranking va por ACUMULADO, no por la diferencia del día**, y se DERIVA de las mismas filas que el resto del payload (una sola query: si corriera la suya, la pantalla podría contradecirse a sí misma). ⚠️ **La TAB y el LADO (izq/der) los decide el BACKEND** (`TAB_DE_FAMILIA`, `lado_de_grupo`): la vista NO compara strings de grupo — hacerlo mandó todo al bucket de "sin clasificar" porque la base dice `COOPERATIVAS` y el código buscaba `Cooperativas`, y agrupar por familia duplicaba el panel de cada grupo cuando había WTI (familia `otros`). El grupo se compara NORMALIZADO (mayúsculas/acentos) y se muestra tal como está en la base | `/api/ap5/vista` (**un solo request**: los bloques tienen que hablar de la MISMA fecha), `/api/ap5/cuentas`, `/api/ap5/acumulado` | Tab AGRO/DÓLAR y selector de **día** (solo días CON POSICIÓN — la cámara tiene su propio calendario). La barra declara los **faltantes** (símbolos sin multiplicador, cuentas sin nombre/grupo, y las que no tienen el arrastre cargado) | **Sí**: click en cualquier fila del top abre el modal para cargar **grupo** (Cooperativas / MUNDO ACA — la cámara no lo sabe y NO se deduce del nombre, REGLA #9) y el **arrastre** del acumulado en sus DOS monedas (`ap5.acumulado`: una fila por cuenta, `acumulado_pesos` + `acumulado_mtr`; `actualizado` en NULL = nadie lo cargó). Las dos las escribe una persona y el job **jamás las pisa** (su UPSERT toca solo `visto_at`) |
+| **POSICIONES Y DIFERENCIAS** (`ap5-posiciones-view.tsx`) | El reporte que la mesa manda por mail, servido desde lo que dice **LA CÁMARA** (`ap5.portfolio`, A3/ACyRSA) y no desde nuestro registro de boletos. **Reemplazó a DIFERENCIAS DIARIAS** (2026-08-25). **CUATRO TABS** — FUTUROS AGRO · FUTUROS DÓLAR · CONSOLIDADOS · **POSICIONES DE ACA**. En las dos primeras, **solo dos paneles**: Cooperativas a la izquierda y MUNDO ACA a la derecha, cada uno con su Top 10 + y Top 10 − (la pantalla completa es para las dos listas). **CONSOLIDADOS** es el cuadro POR INSTRUMENTO del mail: FUTUROS AGRÍCOLAS y FUTUROS U$S con Compra / Venta / Posición Neta (cantidades × multiplicador, no un importe), Acum. al Día, al Día Ant. y la Diaria, **con su TOTAL sumado en el backend**; se agrupa por (tab, MONEDA) — nunca un total con dos monedas mezcladas. **POSICIONES DE ACA** (2026-08-26) es la posición abierta de **UNA** cuenta propia, mitad y mitad (agro izquierda / dólar derecha, cada lado con su banda de color), **una fila por símbolo**: Cantidad (UN número con signo, no las dos columnas de la base con una en cero) · **Nocional** (`cantidad × multiplicador` — rotulado TONELADAS en agro y NOCIONAL U$S en dólar) · P. entrada (`avg_px` ponderado) · P. ajuste (`settlement_price`) · dif px · dif % y, **Diferencias** (`daily_settlement`), con un **TOTAL al pie de cada tabla sumado en el backend y abierto POR MONEDA** — dos monedas en la misma tabla salen como dos totales, nunca uno mezclado; sólo se totaliza Diferencias (sumar toneladas de soja con las de trigo, o promediar precios, no significa nada). Fondo BLANCO y verde/rojo fijos, no los tokens del tema: esta tab se captura para el mail. **Cada fila del CONSOLIDADO se puede AUDITAR**: click abre un modal (`GET /api/ap5/consolidado/detalle`) con las cuentas y los símbolos que la componen —cuenta · nombre · grupo · símbolo · multiplicador · compra/venta/neta · acum. día · acum. día ant. · diaria— y arriba, **el número del cuadro contra la Σ del detalle**, campo por campo, con un ✓ si cierran: si alguna vez se separan se ve en la pantalla y no comparando contra una planilla. Sale del MISMO service y los MISMOS predicados que el cuadro (`consolidado_detalle`), lista **sólo lo que entra** (lo excluido vive en `faltantes`) y **no aparece en la imagen** — `copiar()` arma la captura desde los datos, no desde el DOM. Mismo patrón que el modal por celda de Tesorería → BANCOS y el de DÍAS SIN OPERAR. **COPIAR IMAGEN funciona acá también**: arma las dos tablas de la cuenta elegida, APILADAS (siete columnas numéricas al lado se van al doble del ancho de un mail) y con la cuenta en el título — en el mail ya no está el desplegable que dice de cuál es. **La cabecera del reporte NO se dibuja en esta tab**: sus tres números hablan de la mesa entera y abajo hay UNA cuenta. | `/api/ap5/vista` (**un solo request**: los bloques tienen que hablar de la MISMA fecha), `/api/ap5/cuentas`, `/api/ap5/aca/cuentas`, `/api/ap5/aca` | **NO hay selector de día** (2026-08-26): `ap5.portfolio` guarda DOS días —el de la corrida y el anterior, para poder restar la diaria— así que no hay nada que elegir. En POSICIONES DE ACA, un desplegable de **cuenta** al nivel de las tabs, restringido a las cuentas propias (`AP5_CUENTAS_ACA`) y mostrado por DENOMINACIÓN aunque lo que viaja es el número. La barra declara los **faltantes** (símbolos sin multiplicador, cuentas sin nombre/grupo) y el **sello de última actualización** con sus dos relojes (posición y márgenes) | **Sí**: click en cualquier fila del top abre el modal para cargar el **grupo** (COOPERATIVAS / MUNDO ACA / OTROS — la cámara no lo sabe y NO se deduce del nombre, REGLA #9). ⚠️ **`OTROS` no entra en NINGÚN número de la vista**, no sólo en los rankings: el filtro es un predicado SQL único (`sin_otros()`) que llevan todas las queries sobre `ap5.portfolio`, y `tests/unit/test_ap5_otros.py` recorre el módulo y falla si una query nueva lo olvida — antes vivía sólo en `rankings()` y el consolidado, las diferencias del día y el acumulado sumaban `OTROS` sin que nada fallara. **`OTROS` NO es «sin grupo»**: sin grupo sí entra, justamente para que se note que falta clasificarla). **El ACTIVO INTEGRADO se carga A MANO** (2026-08-27, temporal: el dato de la cámara trae errores). Click en el importe de la card → modal con lo que calcula la cámara a la vista, el importe de la mesa, una nota y «volver al calculado» (`POST /api/ap5/activo-integrado`; `importe: null` borra la carga). ⚠️ El gate es **más angosto que el del resto del router**: escritura de **Mesa de Dinero** (`operaciones.mesa_dinero_escritores` + admin, reusando `mesa_dinero.puede_escribir` — no una copia de la lista), no el módulo `operaciones`. El manual **no borra al calculado**: vive en `ap5.activo_integrado` (PK fecha+moneda) y la card muestra `✎ manual` con quién, cuándo, la nota y cuánto daba la cámara. **No se arrastra al día siguiente** — un importe heredado se leería como el dato de hoy sin que nadie lo revisara. El arrastre manual del acumulado se ELIMINÓ junto con `ap5.acumulado` (2026-08-26): el acumulado ES la Σ de `daily_settlement` del día, que ya viene acumulado de la cámara |
 | **DEPÓSITOS & EXTRACCIONES** | Entradas/salidas por (día, cuenta, moneda) de `operaciones.negocio_movimientos` (categorías depósito/transferencia/extracción, sin anulados) **+ complemento** de `operaciones.movimientos` (solo los comprobantes que la principal no trae) | `GET /api/cashflow` (proxy de `/operaciones/flujos/serie`) | Rango desde/hasta (def todo el universo), toggles **ARS** y **USD** independientes, granularidad Diario/Mensual, **filtro de cuenta** Todas / Solo accionistas / Sin accionistas / Solo cooperativas + selector de accionista/cuenta — **todo server-side desde 2026-08-19**: antes bajaba el grano (día × cuenta × unidad) de 2 años y React filtraba y agrupaba en el browser, 20.559 filas y 2.512 KB por apertura (medido `scripts/diag_peso_operaciones`); ahora viaja la serie ya agregada, ~28 KB en diario y ~10 KB en mensual. El toggle de monedas NO refetchea (la serie trae las dos) | Ninguna |
 | **FINANCIAMIENTO** (`financiamiento-view.tsx`) | Libro VIVO de pagarés/cheques: `portafolio.assets` con `cartera='FINANCIAMIENTO'` y **vencimiento HOY o posterior**, cruzado con la tenencia del último snapshot. 2×2 al 50%: **①** Σ cantidad por cuenta comitente · **②** cantidad + **tasa** por instrumento · **③** barras Σ cantidad por fecha de vencimiento · **④** **CALCULADORA DE DESCUENTO** (`financiamiento-descuento.tsx`, 2 tabs) — reemplaza la planilla Excel con la que la mesa cotizaba el descuento de un cheque/pagaré. **No cruza con los otros tres**: cotiza una operación hipotética, no lee el libro, así que los filtros de la barra no lo tocan. **Se mira NOMINAL y TASA, nunca bruto** (se compran con descuento y la mayoría son dólar-linked liquidados en pesos → el importe pagado no compara entre filas) | `/financiamiento` (un solo GET: manda el grano cuenta × instrumento y el cruce lo hace el front sin refetch) | **CLASE `HD` / `DL` / `SIN CLASIFICAR`** (con su conteo) — la vista muestra **UNA clase por vez y nunca suma dos**: son escalas distintas y un HD de 500.000 junto a un DL de 27.000.000 deja al HD invisible. Sale de `assets.clase_activo`, NO de `tenencia.moneda` (que viaja como columna informativa). Default = primera con datos en el orden fijo HD→DL→sin clasificar. Además: buscador (cliente/cuenta/ticker/emisor), agg del chart DIA/SEM/MES. **Cross-filter 3-way** cuenta ↔ instrumento ↔ barra de vencimiento: cada panel agrega sobre lo filtrado por los otros dos (el panel ④ queda afuera del cruce). Dentro de ④: tab **CALCULADORA** (monto · tasa · días · instrumento CHEQUE\|PAGARÉ · aval SGR) y tab **DATOS** | **Sí, solo en el panel ④ → tab DATOS**: catálogo de SGRs (costo cheque/pagaré + observación) y arancel ACA + derecho de mercado. Lo puede editar cualquiera que entre a FINANCIAMIENTO (módulo `operaciones`) — decisión explícita del user: son parámetros comerciales, no info sensible. **La calculadora en sí NO persiste nada** |
 
@@ -1230,10 +1233,10 @@ resuelta en Python porque está cruda). El cambio de fuente (2026-08-10) es porq
 - El proxy de contrapartes/cashflow fuerza `Cache-Control: private, no-store` — PII de clientes no va al CDN de Vercel.
 
 ### Vista: OPERADORES / Tablero Comercial (`/operadores`)
-- **Módulo**: `operaciones` (+ permiso **per-usuario** `control_comercial` para la 5ª sub-vista).
-- **Archivos front**: `operadores-view.tsx` (barra madre) → `comercial-operaciones-view.tsx` (1.752 líneas) → `comercial-informe-view.tsx`, `comercial-control-view.tsx`, `cobros-futuros-view.tsx`.
+- **Módulo**: `operaciones` (+ permiso **per-usuario** `control_comercial` para la última sub-vista).
+- **Archivos front**: `operadores-view.tsx` (barra madre) → `comercial-operaciones-view.tsx` → `comercial-informe-view.tsx`, `comercial-control-view.tsx`, `cobros-futuros-view.tsx`, `profundidad-clientes-view.tsx`.
 
-**Barra madre (transversal a las 5 sub-vistas)**: **8 filtros MULTI-SELECT que se CRUZAN entre sí** +
+**Barra madre (transversal a las 6 sub-vistas)**: **8 filtros MULTI-SELECT que se CRUZAN entre sí** +
 toggle de moneda. Se pueblan de `GET /comercial/dimensiones` y cada dropdown ofrece solo los valores
 compatibles con lo elegido en los otros. **`[]` = sin filtro = todos.** Todo baja como array repetido
 (`&nivel_1=a&nivel_1=b`) → `= ANY(...)` con AND entre dimensiones.
@@ -1250,27 +1253,31 @@ compatibles con lo elegido en los otros. **`[]` = sin filtro = todos.** Todo baj
 previa, se auto-selecciona a sí mismo. `GET /api/me` también trae `control_comercial`.
 
 **Selector de período (Desde/Hasta)**, compartido por Informe + Análisis + Portfolio (se oculta en
-Cobros Futuros). Semántica: columnas **TOTAL** = `[Desde, Hasta]`; columnas **MES + CTAS OPS** = el **mes
+Cobros Futuros y en Profundidad de Clientes). Semántica: columnas **TOTAL** = `[Desde, Hasta]`; columnas **MES + CTAS OPS** = el **mes
 calendario del HASTA** (hasta=30/06 → junio completo, sin importar el Desde); **AuM = foto al HASTA**.
 
-**KPIs del header** (salvo en Informe): AUM · CLIENTES · VOL. MTD · VOL. YTD.
+**KPIs del header** (salvo en Informe y en Profundidad de Clientes — ahí se calcularían al corte,
+que en esa tab está oculto): AUM · CLIENTES · VOL. MTD · VOL. YTD.
 
 | Sub-vista | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
 | **Portfolio & Operaciones** (def.) | Izq: gráfico de evolución + **Ficha del cliente**. Der: tabla de clientes (60 %) + panel Tenencia/Operaciones (40 %) | `/comercial/operador`, `/serie`, `/portafolio`, `/operaciones`, `/clientes-por-fecha` | Métrica **Volumen**/**AuM**; agregación DIARIO/SEMANAL/MENSUAL; rango `1W/1M/3M/6M/YTD/1A/ALL` con **pan ◀▶**; click en una barra abre los clientes que operaron ese período; tab del panel derecho tenencia/operaciones | **Export a Excel** (Clientes vuelca TODA la ficha, columnas generadas de `FICHA_DATOS`; Tenencia/Operaciones según el tab). No escribe en la DB |
 | **Análisis Comercial** | KPIs de cupo (transaccional/usado/libre USD al MEP), **Distribución por Nivel 1**, desglose por **Nivel 3**, y la tabla **ESTADO COMERCIAL** (cuenta, cliente, estado, días sin operar, AuM, cupo trans., cupo usado, última op, niveles) | `/comercial/analisis`, `/comercial/analisis/detalle` (modal) | Orden por columna (persistido); **3 filtros aditivos por click**: nivel_1 + nivel_3 + estado; los pseudo-estados `SIN_AUM` (aum≤0) y `SIN_OP_YTD` también filtran. Hereda barra madre + Desde/Hasta ("foto al día X") | **Export a Excel** (Estado comercial + Distribución nivel 1) |
+| **Profundidad de Clientes** | UNA tabla a ancho completo, **una fila por mes** (`jul-25`, `ago-25`, …) desde `PROFUNDIDAD_INICIO` hasta el mes en curso: CLIENTES · CON AuM · SIN AuM · ACTIVOS · RATIO ACTIV. · ARANCELES · ARANC./ACTIVO · AuM. **Todo medido al ÚLTIMO día del mes**; los flujos, sobre el mes completo. La plata va **entera y sin decimales** (`$1.234.567`), no con el compacto del resto de Comercial | `/comercial/profundidad`, `/comercial/profundidad/detalle` (modal) | **NO usa el Desde/Hasta** (su eje ES el tiempo → el control se esconde). Sí hereda la barra madre completa, y los filtros activos se dibujan como **chips arriba de la tabla**. **MultiSelect OPERACIÓN propio de la vista** (no de la barra madre): acota SOLO activos/ratio/aranceles/aranc.-por-activo; clientes, con AuM, sin AuM y AuM siguen siendo la base entera. Moneda ARS/USD — en USD, **al MEP del mes**, no al de hoy | **Export a Excel** (la tabla; y otro dentro del modal) |
+| **Profundidad → Análisis Cuantitativo** (solapa DENTRO de Profundidad, no tab propia) | **Tres listas de llamadas por CLIENTE** con sub-nav horizontal estilo AV AGENT (nombre + contador + bajada): **CONOCÉ A TU CLIENTE** (una fila por cliente de UN segmento: arancel 12m · AUM (promedio 12m) · ROA · cupo · SOW · operación favorita; el corte del piso y el ROA promedio del segmento aparecen recién con el segmento elegido — reemplaza a QUIÉNES IMPORTAN y SE ESTÁN APAGANDO, que eran dos listas que había que cruzar a ojo), **PERDIERON AuM** (tienen mucho menos que hace N meses: tenía, tiene, cuánto cayó y si retiró). Arriba, la franja de contexto del mes (operaron · el del medio vs el promedio · top-10 · cuántos hacen el 80 %) | `/comercial/cuantitativo` + `/comercial/conoce-cliente` | **Todos los cortes son editables en pantalla** y los contadores de la sub-nav se mueven con ellos. Mes + moneda + barra madre | **Export a Excel** |
 | **Cobros Futuros** | Acreencias del scope: serie diaria acumulable + totales por cliente + detalle por título | `/comercial/cobros-futuros`, `/cobros-futuros/cliente` | Rango propio de fecha de cobro (def hoy → hoy+60), agg, escala `lin`/`log`, moneda, selección de cliente/ticker/bucket. **Oculta el Desde/Hasta global.** Los filtros madre se degradan a **single** | Ninguna |
 | **Informe** | 4 cuadrantes de toda la mesa: **Q1** cuentas por segmento (modos `cuentas`/`operativas`/`aranceles`), **Q2** ranking volumen+aranceles por comercial, **Q3** aranceles por segmento, **Q4** detalle del segmento | `/comercial/informe`, `/informe-segmento`, `/informe-aranceles-segmento`, `/informe-segmento-detalle` | Desde/Hasta, moneda, filtros madre (**el `operador` madre va SOLO al ranking Q2**; en Q1/Q3/Q4 `operador` es el drill-down del comercial clickeado). Click en comercial re-scopea Q1/Q3/Q4; click en segmento filtra Q4; tab de Q4 clientes/operaciones; botón `?` de ayuda | Ninguna |
 | **Control Comercial** (solo con `me.control_comercial`) | **Tabla 1** totales ALyC por períodos fijos; **Tabla 2** por comercial en [Desde,Hasta] (activos/inactivos/AuM/volumen/comisiones, cada uno con % vs rango anterior de igual largo); **Tabla 3** Actual vs Objetivo + % alcanzado | `/comercial/control/totales`, `/por-operador`, `/objetivos-vs-actual`, `/objetivos`, `/comercial/operadores` | Desde/Hasta propios (def mes en curso), moneda, filtros madre. **La Tabla 1 NO depende de Desde/Hasta** (períodos fijos Día/Semana/Mes/YTD/12M/2025/2024/Total, anclados a la última fecha con operaciones) | **SÍ — `PATCH /comercial/control/objetivos`**: editor inline (año + mes + inputs volumen/comisiones por comercial, botón guardar por fila). **Export**: un Excel con 3 hojas |
 
-#### Endpoints — bloque `/api/operaciones/comercial/*` (22)
+#### Endpoints — bloque `/api/operaciones/comercial/*` (24)
 `GET /operadores` (catálogo) · `GET /dimensiones` (combos que pueblan y cruzan los filtros madre) ·
 `GET /operador` (KPIs `aum_gestionado`, `n_clientes`, `volumen_mtd`, `volumen_ytd` + lista de clientes
 con ficha, en una pasada) · `GET /serie` (sin `id_cuenta` → operador; con → cliente; gate
 `verificar_id_cuenta_opcional`) · `GET /clientes-por-fecha` · `GET /portafolio` (**gate
 `verificar_id_cuenta`**) · `GET /operaciones` (`limite` 1..1000, def 300; gate `verificar_id_cuenta`) ·
 `GET /analisis` (`fecha` = foto al día X) · `GET /analisis/detalle` (modal de auditoría; gate
-`verificar_id_cuenta`) · `GET /cobros-futuros` (`operador` **req**, single, `__todos__`) ·
+`verificar_id_cuenta`) · `GET /profundidad` (`@cached 300`; `desde`/`hasta` en **YYYY-MM**, NO usa
+`fecha`) · `GET /profundidad/detalle` (`@cached 120`; `mes` req, `metrica`, `limite` 1..5000 def 500) · `GET /cobros-futuros` (`operador` **req**, single, `__todos__`) ·
 `GET /cobros-futuros/cliente` (gate `verificar_id_cuenta`) · `GET /referido-clientes` ·
 `GET /referido-fci` · `GET /informe` (`@cached 300`) · `GET /informe-segmento` ·
 `GET /informe-aranceles-segmento` · `GET /informe-segmento-detalle` (`max_ops` 1..20000 def 1000 capea
@@ -1288,6 +1295,277 @@ celda de Tesorería: el número tiene que poder abrirse y mostrar de qué boleto
 - Cada item trae `es_ultima` (●) y `excluido` + `observacion` con el motivo (`"anulado el DD/MM/AAAA — no cuenta"`, `"boleto sin fecha de concertación"`, `"posterior al corte — no cuenta en la foto"`).
 - **Dos queries en vez de una con LIMIT a propósito**: con muchos boletos anulados posteriores, un LIMIT podría dejar afuera justo el boleto que fija el número.
 
+#### PROFUNDIDAD DE CLIENTES — la serie mensual de la base
+Service: `api/services/profundidad_sql.py`. Contesta "cuánta base tengo, cuánta está viva y cuánto
+deja" mes a mes. **Todo se mide al ÚLTIMO día del mes** (jul-25 → 31/07/2025); los flujos son el mes
+completo `[01, fin]`.
+
+| Columna | Definición |
+|---|---|
+| **Clientes** | `comitentes` con `estado='Activa'` del scope y `fecha_alta_legajo <= fin de mes` (mismo universo que Q1 del Informe). |
+| **Con AuM** | valuación > 0 en el snapshot de `portafolio.tenencia` (`aum='si'`) **más reciente <= fin de mes**. |
+| **Sin AuM** | clientes − con AuM. |
+| **Activos** | ≥ 1 boleto en el mes bajo `comercial_sql._act_where()` — **el MISMO predicado que ESTADO COMERCIAL**. |
+| **Ratio activ.** | activos / clientes. |
+| **Aranceles** | `comercial_sql._arancel_where()` (arancel > 0, etapa ≠ solicitud, **cierres incluidos**: la caución cobra en el cierre). El arancel se guarda siempre en ARS. |
+| **Aranc. / activo** | aranceles / activos. |
+| **AuM** | suma del AuM de TODOS los clientes del mes en esa foto. |
+
+- **Tres queries agregadas para toda la tabla**, no una por mes: (1) `comitentes` agrupado por fecha
+  de alta → el acumulado por mes se arma en Python; (2) `operaciones` con un `JOIN` contra una CTE de
+  meses (rango por mes sobre `ix_ops_concertacion`, meses disjuntos) agregando en **dos pasos**
+  —primero por (mes, cuenta), después por mes— porque un `count(DISTINCT id_cuenta)` obliga a
+  Postgres a ordenar todos los boletos del período (medido con 210k filas: sort en disco, 0,69 s →
+  0,38 s con HashAggregate); (3) `tenencia` con un `LATERAL max(fecha)` por mes.
+- **Una celda sin dato vale `null` (—), NO 0.** Si no hay ningún snapshot de tenencia <= fin de mes,
+  las columnas de AuM quedan vacías: "no pude mirar" ≠ "no había nada" (mismo invariante que el AV
+  AGENT). Las celdas `null` tampoco son clickeables — no hay nada que auditar.
+- **La foto de AuM casi nunca cae justo el 31.** Cada fila viaja con `aum_snapshot` y
+  `aum_desfasaje_dias`, y la celda se marca con `*` cuando el desfasaje no es 0.
+- **`fuera_universo`**: boletos de cuentas del scope que NO estaban en el universo del mes (sin fecha
+  de alta, o alta posterior). No suman, pero se cuentan y se reportan — una diferencia que no se ve
+  es la que se descubre tarde y mirando una pantalla.
+- **USD = al MEP del MES**, no al de hoy (`api/services/_mep.get_mep_for_date`): dolarizar un jul-25
+  con la cotización de hoy haría que el histórico cambie todos los días sin que haya pasado nada. Se
+  devuelven los DOS factores usados (`mep_aranceles` = último día del mes, `mep_aum` = día del
+  snapshot), porque pueden ser distintos.
+- **Lo que la tabla NO puede saber va escrito en `meta.advertencias`**, a la vista en el pie: cuántas
+  cuentas del scope no tienen fecha de alta, y que `estado='Activa'` **no es histórico** (la base de
+  un mes viejo se reconstruye con las cuentas que HOY están activas).
+
+#### ANÁLISIS CUANTITATIVO — tres listas de llamadas
+**Dónde vive**: es una **solapa adentro de Profundidad de Clientes**, no una tab de la
+barra de Operadores. Profundidad tiene un conmutador fino (*Por mes* / *Análisis
+Cuantitativo*) al principio de su barra; la sub-nav grande estilo AV AGENT —con
+contador y bajada— existe UNA sola vez, adentro de Análisis Cuantitativo, para sus tres
+solapas. La tabla mensual es la vista principal y no paga dos bandas de navegación.
+
+Service: `api/services/cuantitativo_sql.py`. **No es un tablero: son listas de nombres.**
+Cada fila lleva un motivo en castellano y cuánta plata hay en juego, y las tres van
+ordenadas **por plata**, no por gravedad de la señal.
+
+| Lista | Quién entra | Cortes |
+|---|---|---|
+| **QUIÉNES IMPORTAN** | los que acumulan el `pct_arancel` % del arancel del mes, clasificados por si vienen seguido | `pct_arancel` (80), `meses_seguido` (8 de 12) |
+| **SE ESTÁN APAGANDO** | lleva más de `multiplo` veces **su propio ritmo** sin operar | `multiplo` (3), `min_dias_op` (6) |
+| **PERDIERON AuM** | cayó más de `caida_pct` % contra la foto de hace `meses_atras`, con AuM previo > `piso_aum` | `caida_pct` (75), `meses_atras` (3), `piso_aum` (**10.000.000**) |
+
+- **Ningún corte viene fijo.** Llegan por query-string y se validan contra `CORTES`
+  (rango + descripción); fuera de rango vuelven al default en vez de generar una lista
+  que no significa nada. La respuesta trae `cortes` (lo aplicado) y `cortes_def` (rangos
+  y qué hace cada uno) para que la pantalla los dibuje editables.
+- **UNA sola llamada** devuelve las tres listas + el contexto: los contadores de la
+  sub-nav tienen que corresponder a lo que se va a ver, y cambiar de solapa no puede
+  salir a buscar de nuevo. El **contador se calcula sobre todas las filas** y recién
+  después se capea la lista (`limite`).
+- **El cuadrado de 4** cruza dos preguntas: ¿deja mucho? × ¿viene seguido? La celda que
+  importa es **GRANDE IRREGULAR** — mucha plata, poca regularidad: cuando dejan de venir
+  su silencio parece normal y con el estado comercial de hoy nunca disparan nada.
+- **El ritmo son DÍAS OPERADOS, no boletos** (cinco boletos el mismo día son una sola
+  aparición) y es la **mediana** de los gaps del último año. Sin `min_dias_op` días
+  distintos la cuenta NO entra: una mediana sobre 2 datos es basura.
+- ⚠️ **«Lleva sin operar» se cuenta hasta `_hasta(fin)` = `min(fin, hoy)`, nunca contra
+  una fecha futura.** En el mes EN CURSO `fin` es el último día del mes (el 31), así que
+  un cliente que operó anteayer figuraba *"lleva 20 días"* y entraba a la lista por
+  tiempo que todavía no pasó — y el número crecía solo a medida que avanzaba el mes. En
+  un mes ya cerrado manda `fin`: la lista de julio tiene que decir lo que se veía el 31
+  de julio, no un número distinto cada día. Congelado por test.
+- **PERDIERON AuM muestra hechos y NO los rotula.** Hubo una columna "QUÉ PASÓ" que
+  etiquetaba cada fila (*se está yendo* / *fue mercado* / *se llevó los títulos*); se
+  sacó porque eran inferencias con el mismo aspecto que los datos de al lado. Los cuatro
+  números —tenía, tiene, cuánto cayó y **si retiró** (`cashflow_sql.neto_por_cuenta`, con
+  `hasta`)— dicen lo mismo sin pedirle a nadie que confíe en el rótulo. El caso de
+  interés sigue siendo legible solo: cayó a cero **sin retirar un peso** es una
+  transferencia de títulos a otro agente.
+- El contexto (`n_operaron`, **mediana y promedio juntos**, top-10 %, `cuantos_80`) viaja
+  siempre: *"SE ESTÁN APAGANDO 5"* no significa nada si no sabés que 17 clientes hacen el
+  80 % de la facturación.
+- **«¿Cómo se interpretan los datos?» es un DICCIONARIO, y sale en modal**
+  (`cuantitativo-ayuda.tsx`): qué entra en la lista · qué significa cada columna ·
+  precisiones. **No dice qué hacer con las filas.** La primera versión sí lo hacía
+  (*"es una llamada para hoy"*, *"entrá por los grande irregular"*) y estaba mal por dos
+  motivos: le ponía a los datos un significado que el sistema no puede saber, y quedaba
+  desactualizada sola — seguía explicando la columna QUÉ PASÓ semanas después de que se
+  borrara de la tabla. Una definición envejece cuando cambia la columna; un consejo
+  envejece solo. Los cortes que el usuario mueve entran al texto como números: un texto
+  con el 80 % escrito fijo miente apenas alguien toca el corte.
+- **Los contadores NO se suman entre sí**: la misma cuenta puede estar en las tres, y ése
+  es justo el cliente al que hay que llamar primero. Va escrito en `avisos`.
+- ⚠️ Universo y predicado de actividad son **los mismos que PROFUNDIDAD** (`comitentes`
+  activas del scope con alta <= fin de mes, `comercial_sql._act_where`) — si divergieran,
+  las dos tabs contarían clientes distintos y ninguna fallaría.
+
+#### CONOCÉ A TU CLIENTE — `GET /comercial/conoce-cliente`
+Service: `api/services/conoce_cliente_sql.py`. Una fila por CLIENTE dentro de UN
+segmento (`nivel_3`). **Reemplaza a QUIÉNES IMPORTAN y SE ESTÁN APAGANDO**, que eran
+dos listas que había que cruzar a ojo para encontrar la fila que importa: un cliente
+grande que se está apagando. Ahora el ritmo es una **marca (⚠) en la fila**.
+
+| Columna | Qué es |
+|---|---|
+| **Arancel 12m** | `_arancel_where` sobre la ventana (cierres INCLUIDOS) |
+| **AUM** | AuM **PROMEDIO** de las fotos de fin de mes de la ventana (la columna se llama AUM en pantalla) |
+| **ROA** | `arancel ÷ aum`. Se MUESTRA en plata (`roa_pesos_millon`: pesos por año por cada millón guardado); `roa_bps` viaja igual y va en el tooltip. `null` debajo del piso |
+| **Cupo** | `comitentes.cupo_transaccional_ars` (carga manual, sin fecha) |
+| **SOW** | `aum ÷ cupo`, en % |
+| **Operación favorita** | el tipo con MÁS ARANCEL (no el de más volumen) |
+
+⚠️ **SIN `segmento` NO DEVUELVE FILAS** — devuelve la lista de segmentos y un aviso.
+No es una validación: el ROA de un institucional y el de un retail no son comparables
+(medido: las medianas por segmento van de **22 a 58 bps** y el orden es al revés del
+intuitivo — **PJ MEDIANA 58, PJ GRANDE 28**). Mezclados, los institucionales caen
+todos juntos al fondo y la tabla marca como oportunidad lo que es estructura.
+`__todos__` tampoco es un segmento válido acá.
+
+⚠️ **TODA COLUMNA DERIVADA SE VERIFICA CON LAS DOS DE AL LADO**: `ROA = Arancel ÷
+AUM` y `SOW = AUM ÷ Cupo`, con los dos términos de cada cociente en pantalla. Por
+eso **AUM es el promedio y no la foto de hoy**: mostrar la foto y dividir por el
+promedio hace que el primero que saca la calculadora deje de creerle a la pantalla.
+El valor de hoy viaja igual (`aum_hoy`, en el tooltip).
+
+⚠️ **EL ROA SE MUESTRA EN PLATA, NO EN BPS.** Es el mismo número × 100: 20 bps =
+**$2.000 por año por cada millón guardado**. Los bps son el estándar de la industria
+y siguen viajando (ordenan igual, y están en el tooltip), pero "$2.000 por millón" no
+hay que traducirlo — y cierra la vuelta completa a ojo: una cuenta con $100.000.000 y
+$2.000 por millón dejó $200.000, que es exactamente la columna de arancel de al lado.
+
+⚠️ **EL PISO DEL ROA NO ES COSMÉTICO.** Con la foto de hoy como divisor, el p90 del
+ROA del libro daba **67.816 bps (678%)**: una cuenta que opera y barre la plata el
+mismo día divide por casi cero. No es un cliente que rinde muchísimo, es una división
+rota. Debajo de `piso_aum` (def **$1.000.000** de AuM promedio) el ROA vale `null` y
+viaja el motivo — y son **tres** motivos distintos, no uno: no hay fotos · la cuenta
+no tiene tenencia en ninguna · tiene menos que el piso.
+
+⚠️ **`piso_roa` (front) y `piso_aum` (PERDIERON AuM) son DOS cortes**, aunque el
+parámetro HTTP de los dos se llame `piso_aum`. En PERDIERON decide **quién entra** a
+la lista; acá decide **desde cuándo el ROA significa algo**. Compartir la clave en el
+`usePersistedState` haría que mover uno cambie la otra lista en silencio.
+
+**La vista NO trae el ritmo de cada cuenta.** Se probó como una marca ⚠ en la fila y
+se sacó: no estaba pedida, y arrastraba una consulta entera para dibujar un símbolo.
+`cuantitativo_sql.ritmo_por_cuenta` sigue existiendo (la usa SE ESTÁN APAGANDO).
+
+**Contexto del segmento** (`contexto`): lo único que la pantalla muestra es
+**`roa_promedio_pesos`**, pegado al corte del piso —subir el piso saca cuentas del cálculo
+y el número se mueve en el acto—. `roa_mediana` viaja igual y va en el tooltip: un
+promedio de cocientes se lo lleva puesto la cola, y si los dos están lejos no es que
+el segmento rinda eso, es que hay tres cuentas tirando. La franja de contexto que
+listaba n clientes · medianas · apagándose **se sacó** (no se pidió y era ruido).
+Medido en el libro: **203 cuentas** tienen AuM y no dejaron un peso
+en 12 meses, y **18 de ellas concentran el 96%** de esa plata quieta ($23.900M) — no
+aparecían en ninguna pantalla porque justamente no operan. Por eso el orden por
+defecto es **por AuM**: quedan arriba de su segmento con el ROA en cero.
+
+#### Ficha operativa de un cliente — `GET /comercial/cliente/perfil`
+Service: `api/services/perfil_cliente_sql.py`. **Módulo aparte y genérico a propósito**:
+nace para el detalle de SE ESTÁN APAGANDO, pero el share por tipo de operación se va a
+reusar en otras pantallas, así que no recibe nada de esa vista — solo `id_cuenta`.
+
+Devuelve, de una cuenta y en la ventana de los últimos N meses (def 12, máx 60):
+1. **`ultima_op`** — el boleto que la fija, crudo (fecha, días, operación, instrumento,
+   mercado, bruto, arancel, etapa, es_cierre). **Sin tope de ventana**: la última es la
+   última aunque sea de hace dos años; acotarla haría que un cliente dormido muestre "—"
+   y parezca que nunca operó.
+2. **`serie_aranceles`** — `[{mes, label, arancel, volumen, n_boletos}]` para el gráfico
+   de barras. **La lista de meses se arma en Python, no sale de la query**: un mes sin
+   operaciones tiene que dibujar una barra en CERO, porque un mes ausente y un mes en
+   cero no se ven igual en un gráfico.
+3. **`share_operacion`** — el reparto del volumen por tipo de operación. El `%` se
+   calcula en el backend: es el número que se va a reusar, y dos lugares que lo derivan
+   terminan mostrando dos porcentajes distintos del mismo cliente.
+4. **`serie_aum`** — el AuM del cliente a fin de cada mes. **Un mes sin foto de tenencia
+   vale `null`, no 0**: que el cliente no tenga filas en una foto que SÍ existe es cero
+   (no tenía nada); que no haya foto es "no pude mirar", y dibujarlo en cero sería
+   inventar una caída.
+5. **`tenencia`** — la cartera de HOY, reusando `comercial_sql.portafolio_cliente`: es
+   la misma que muestra Portfolio & Operaciones, así las dos pantallas no pueden mostrar
+   carteras distintas del mismo cliente.
+
+⚠️ **El CIERRE se junta con su APERTURA.** En esta base `operacion` trae valores
+separados (`Caución tomadora` / `Caución tomadora cierre`): el cierre nunca tiene volumen
+—la apertura ya lo contó— pero se lleva **todo el arancel**, así que separados una fila
+muestra 0 % con toda la plata y la otra todo el volumen con arancel cero. La fusión
+empareja por nombre normalizado (sin acentos, sin la palabra «cierre») **con las guardas
+de la REGLA #9**: solo se fusiona una fila cuyos boletos sean TODOS de cierre, la apertura
+tiene que EXISTIR en el mismo resultado, y el destino no puede ser otro cierre. Lo que no
+se pudo emparejar queda solo y marcado `solo_arancel` — «no pude» ≠ «lo invento». Las
+fusiones aplicadas viajan en `fusiones` para poder auditarlas.
+
+**Cómo lo dibuja el modal** (`perfil-cliente-modal.tsx`, 1.280 px): la última operación
+en UNA línea chica (fecha · hace N días · tipo · instrumento · mercado — **sin importe ni
+arancel del boleto**: de un boleto suelto no dicen nada y eran lo que partía la línea en
+dos), después los dos gráficos lado a lado (arancel por mes | AuM a fin de mes, ejes Y
+separados) y abajo los dos inventarios lado a lado (**EN QUÉ OPERA** | **QUÉ TIENE HOY**,
+una fila por línea). Ninguno de los cuatro bloques ocupa el ancho entero: una barra
+estirada de punta a punta no agrega información, y el ancho que se llevaba es el que
+hacía que los nombres de las especies se cortaran hasta no distinguirse.
+
+⚠️ **`ultima_op` no se acota al período NI cuenta los días contra él.** Los días van
+contra HOY: contra el fin del mes elegido, un mes en curso da días de más (el 31 todavía
+no llegó) y uno viejo devuelve "cuánto había pasado en ese momento", que no es lo que
+nadie lee ahí.
+
+⚠️ **VOLUMEN y ARANCEL no se filtran igual, y confundirlos devuelve un número plausible
+y equivocado:**
+
+| | Cierres | `etapa='solicitud'` | Anulados |
+|---|---|---|---|
+| **Volumen** (`bruto`) | **EXCLUYE** — la apertura de la caución ya lo contó | fuera | fuera |
+| **Arancel** | **INCLUYE** — el arancel de caución vive SOLO en el cierre | fuera | fuera |
+
+Por eso cada tipo de operación trae **sus dos números con su propio filtro**: la caución
+sale con volumen (de la apertura) *y* arancel (del cierre). Con un solo predicado, la
+caución mostraría arancel cero y el total de la tabla no cerraría contra el del gráfico.
+Un tipo que deja arancel sin volumen propio se marca con `solo_arancel`; uno que no deja
+ni volumen ni arancel (solicitudes sueltas) no se lista.
+
+⚠️ **El `bruto` viene en la moneda del boleto** → se pesifica con
+`comercial_sql._pesif(alias, col)` usando el **mep DEL BOLETO**, no el de hoy: si no, el
+share de un mes viejo se movería con el dólar de esta mañana. Esa expresión vive **una
+sola vez** (`_PESIF` de `negocio_movimientos` es la misma función con otra columna).
+
+Gate: **`verificar_id_cuenta`** (403 fuera del grupo del usuario), `@cached 120`.
+
+#### Filtro de OPERACIÓN (Profundidad de Clientes)
+`?operacion=` (multi, `= ANY`). Sale de `operaciones.operaciones.operacion`, que es un valor
+del catálogo `operaciones.tipos_operacion` (`data->>'operacion'`) — separa **compra / venta /
+caución tomadora / caución colocadora / suscripción y rescate de FCI / futuros**. ⚠️ **NO separa
+bono de acción**: los dos son `compra`/`venta`; eso necesitaría cruzar `instrumento` contra
+`portafolio.assets`.
+
+- **Acota SOLO lo que se operó.** `profundidad_sql.METRICAS_FILTRABLES` = `activos`,
+  `ratio_actividad`, `aranceles`, `arancel_por_activo`. `clientes`/`con_aum`/`sin_aum`/`aum`
+  salen de `comitentes`/`tenencia` y **no se filtran nunca**: si el denominador también se
+  filtrara, el porcentaje dejaría de significar "qué parte de mi base usa este producto".
+  Congelado por `test_el_universo_y_el_aum_no_saben_del_filtro`.
+- **Con el filtro puesto RATIO cambia de sentido** (pasa de actividad a penetración del
+  producto), así que el backend manda **los encabezados ya escritos** (`columnas`:
+  `"Operaron caución tomadora"`, `"% que operó caución tomadora"`). El front NO arma ese texto
+  — con 3 o más operaciones el sufijo se corta a `"3 operaciones"`.
+- **Las opciones se leen de la base** (`operaciones_disponibles`, con label y nº de boletos),
+  scopeadas al rango de la tabla y a los filtros madre, **y NUNCA con el filtro de operación
+  aplicado**: si se poblara con su propio resultado, al elegir "caución" quedaría una sola
+  opción y no habría forma de volver. Congelado por `test_las_opciones_no_se_filtran_a_si_mismas`.
+- **El modal recibe el MISMO `operacion`** o abriría una celda de 47 y mostraría 389 cuentas.
+- ⚡ La query de actividad asigna el mes con `date_trunc` y acota con un **rango cerrado**, no
+  con un join contra una lista de meses: medido con 300k boletos, el join hacía que el planner
+  materializara los boletos y los comparara contra los 14 meses (**798.039 filas descartadas
+  por el join filter**, O(meses × boletos)). Con el rango cerrado entra por `ix_ops_concertacion`
+  una sola vez — el endpoint filtrado bajó de 0,33 s a 0,17 s.
+
+#### Modal de auditoría por CELDA (Profundidad de Clientes)
+Click en cualquier celda con dato → `GET /comercial/profundidad/detalle?mes=YYYY-MM&metrica=…`.
+Mismo principio que los otros dos modales de la app.
+- Las **8 métricas** (`clientes`, `con_aum`, `sin_aum`, `activos`, `ratio_actividad`, `aranceles`,
+  `arancel_por_activo`, `aum`) salen de UNA sola query por cuenta para ese mes; la métrica solo decide
+  **qué cuentas listar y por qué columna ordenarlas**. Un test exige que toda métrica declarada tenga
+  su filtro y su título: una columna nueva no puede quedar clickeable sin abrir nada.
+- **Los totales se calculan sobre TODAS las cuentas y recién después se capea la lista** (`limite`,
+  def 500) → el tope no puede hacer que el modal contradiga al número de la tabla. El pie lo dice.
+- Devuelve `ecuacion` en texto (`"3 clientes − 2 con AuM = 1"`, `"1 activos / 3 clientes = 33,33%"`),
+  el `snapshot_aum` usado y el desfasaje. El buscador del modal filtra **client-side** sobre lo ya
+  traído: filtrar en el server cambiaría los totales.
+
 #### Estado comercial (`comercial.py::estado_comercial`, puro)
 `NUEVA` (nunca operó) · `ACTIVA` (≤ `dias_activa`) · `ENFRIANDOSE` · `DORMIDA` (> `dias_dormida`).
 **Defaults del backend: `dias_activa=45`, `dias_dormida=90`.** Labels del front: Activa / Enfriándose /
@@ -1300,7 +1578,7 @@ cupo_usado_ars, fecha_alta_legajo, estado) · `clientes.cuentas` · `clientes.op
 `manager.manager_users` (operador↔usuario + flag `control_comercial`) · `operaciones.operaciones`
 (ACTIVIDAD) · `operaciones.negocio_movimientos` (cost-basis / volumen del Control) ·
 `portafolio.tenencia` (`aum='si'`, TAMAÑO) · `clientes.objetivos_comerciales` ·
-`operaciones.acreencias`. **Todo se cruza por `id_cuenta`, agregando EN VIVO con índices** (sin precompute).
+`operaciones.acreencias` · `valuaciones.dolar` (MEP histórico, solo Profundidad en USD). **Todo se cruza por `id_cuenta`, agregando EN VIVO con índices** (sin precompute).
 
 #### Notas / rarezas
 - El Tablero es **SQL-only** (`_com_motor` siempre devuelve SQL); los selectores `_motor()`/`_engine` y los flags `*_SQL` son vestigiales.
@@ -1308,6 +1586,9 @@ cupo_usado_ars, fecha_alta_legajo, estado) · `clientes.cuentas` · `clientes.op
 - **El cupo NO es histórico**: en modo foto todo se recalcula al corte salvo el cupo, que queda actual. Siempre en **USD al MEP del día**, independiente del toggle ARS/USD.
 - **El cupo USADO es una foto + el flujo del cliente** (2026-08-09). `clientes.comitentes.cupo_usado_ars` se carga a mano y nada la actualiza — quedó congelada en el 2026-06-01 (`cupo_cargado_en` ni siquiera se escribió: está NULL en las 1.567 cuentas). Ahora el tablero le SUMA al leer la plata que entró/salió del cliente desde esa fecha, con la misma fuente que la vista CASHFLOW (`cashflow_sql.neto_por_cuenta`, sobre `operaciones.movimientos`). El ancla es `config.CUPO_BASE_FECHA` y **hay que moverla el día que se recargue el cupo**. No se persiste (nada que doble-contar); el ajuste aplicado viaja en `cupo_flujo_usd` para auditarlo. Los USD se pesifican con la cotización del día del movimiento — esa tabla no tiene snapshot de MEP — y si no hay cotización, el movimiento se descarta en vez de contarse como pesos.
 - `opero_mtd`: con `desde`, el flag pasa a significar "operó en `[desde, corte]`" en vez del mes calendario.
+- **PROFUNDIDAD DE CLIENTES es la única sub-vista que ignora el Desde/Hasta**, y por eso ese control (y los KPIs, que se calculan al corte) se esconden mientras está activa: un filtro a la vista que no hace nada se lee como una tab rota.
+- El primer mes de PROFUNDIDAD es una **constante** (`profundidad_sql.PROFUNDIDAD_INICIO = "2025-07"`, el arranque del ejercicio), no se deriva de la fecha de hoy. Mover el ejercicio = mover esa constante (o pasar `desde=YYYY-MM`, que el endpoint ya acepta).
+- El predicado de "operación" y el de "arancel" viven UNA sola vez, aliasables: `comercial_sql._act_where()` / `_arancel_where()`. Los comparten ESTADO COMERCIAL, su modal, PROFUNDIDAD y `control_comercial_sql` — antes el del arancel estaba copiado en 3 archivos, idéntico y sin nada que lo mantuviera igual.
 - **Los filtros madre NO se podan** cuando el cross-filter achica las opciones de otro nivel (rompía selecciones previas).
 - `_filtros_madre` convierte cada lista a **tupla** porque `datos_totales_alyc` está `@cached` y la key debe ser hashable.
 - Cobros Futuros es la única sub-vista con filtros **single**.
@@ -1392,12 +1673,16 @@ de catálogo de referidos**: se deriva de `/comercial/dimensiones` sumando `n_cu
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **TOTAL** (def.) | Chart de área EVOLUCIÓN AUM + leaderboard POR CARTERA (valuación + % share) + panel DETALLE con dos sub-tablas cruzadas POR CUENTA y POR ASSET | `/portfolio/total-serie`, `/total-snapshot`, `/operadores`, `/niveles-1`, `GET /api/me` | **OPERADOR** (filtro MADRE; si el email logueado matchea un operador arranca autoscopeado) · **NIVEL 1** (solo en TOTAL) · **FECHA** (select de todas las fechas de la serie; también se setea clickeando el chart) · **MONEDA** ARS/USD · **CUENTAS** (`todas`/`accionistas`/`sin_accionistas`/`cooperativas`/`productores`) · rango del chart client-side `1M/3M/6M/YTD/ALL` · click en cartera (toggle) · click en fila POR CUENTA / POR ASSET = pin (toggle, se cruzan con AND) · dos buscadores substring · botón `↺` | **Export .xlsx** con 2 hojas (`Por Cuenta`, `Por Asset`), refleja los filtros activos; archivo `aum-detalle-<fecha>-<ts>.xlsx` |
-| **FCI** (`?tab=fci`) | Chart EVOLUCIÓN FCI + leaderboard por **SOC. GERENTE** (emisor) + DETALLE con cards por ticker/fondo y sus cuentas | `/portfolio/fci-serie`, `/fci-snapshot` | OPERADOR · CUENTAS · rango client-side · click en soc. gerente · `DateStepper` ◀▶. **NO tiene selector de MONEDA ni NIVEL 1**; el snapshot FCI **no soporta "última fecha"** (`fecha` requerida) | Sólo lectura, **sin export** |
+| **TOTAL** (def.) | Chart de área EVOLUCIÓN AUM + leaderboard POR CARTERA (valuación + % share) + panel DETALLE con dos sub-tablas cruzadas POR CUENTA y POR ASSET | `/portfolio/total-serie`, `/total-snapshot`, `/operadores`, `/niveles`, `/carteras`, `GET /api/me` | **OPERADOR** (filtro MADRE; si el email logueado matchea un operador arranca autoscopeado) · **NIVEL 1 / NIVEL 2 / NIVEL 3 / NIVEL 5** (solo en TOTAL; **multi-select** con buscador — mismo `MultiSelect` que la barra de `/operadores`. Adentro de un nivel los valores van con OR, entre niveles con AND, y todo intersecta con OPERADOR. Se **cruzan**: cada desplegable ofrece sólo lo que convive con lo elegido en los otros, contra los combos de `/niveles`. Botón `LIMPIAR` cuando hay alguno activo) · **CARTERA** (solo en TOTAL; **multi-select**. Ojo: NO es un nivel — los niveles eligen CUENTAS y CARTERA elige POSICIONES dentro de ellas, así que viaja como param propio de `total-serie`/`total-snapshot` y no por `scope_aum`. Recorta el chart, el leaderboard y el TOTAL a la vez; las opciones salen de `/carteras`, que sólo ofrece las que existen en la foto dentro del scope puesto) · **FECHA** (select de todas las fechas de la serie; también se setea clickeando el chart) · **MONEDA** ARS/USD · **CUENTAS** (`todas`/`accionistas`/`sin_accionistas`/`cooperativas`/`productores`) · rango del chart client-side `1M/3M/6M/YTD/ALL` · click en cartera del leaderboard (toggle) = **drill-down**, no filtro: pinea UNA cartera y sólo afecta al panel DETALLE (el filtro CARTERA de la barra, en cambio, recorta también chart y TOTAL) · click en fila POR CUENTA / POR ASSET = pin (toggle, se cruzan con AND) · dos buscadores substring · botón `↺` | **Export .xlsx** con 2 hojas (`Por Cuenta`, `Por Asset`), refleja los filtros activos; archivo `aum-detalle-<fecha>-<ts>.xlsx` |
+| **FCI** (`?tab=fci`) | Chart EVOLUCIÓN FCI + leaderboard por **SOC. GERENTE** (emisor) + DETALLE con cards por ticker/fondo y sus cuentas | `/portfolio/fci-serie`, `/fci-snapshot` | OPERADOR · CUENTAS · rango client-side · click en soc. gerente · `DateStepper` ◀▶. **NO tiene selector de MONEDA ni filtros de NIVEL**; el snapshot FCI **no soporta "última fecha"** (`fecha` requerida) | Sólo lectura, **sin export** |
 | **ANÁLISIS DE DINERO** | Diferencia de saldo por cuenta entre dos fechas: 3 KPIs (TOTAL DIFERENCIA, CUENTAS NUEVAS, CUENTAS CERRADAS) + tabla ordenable con tags `NUEVA`/`CERRADA` | `/portfolio/diff` (+ la serie solo para poblar fechas) | **PLAZO**: `DÍA ANTERIOR`/`−7 DÍAS`/`−1 MES`/`MTD`/`YTD`/`CUSTOM` (los presets resuelven client-side la fecha disponible más cercana ≤ target); si CUSTOM, dos selects · **MONEDA** · **OPERADOR** heredado · orden client-side. **No pasa `cuenta_filter`** (el proxy lo acepta, el componente no lo manda) | Sólo lectura, sin export |
 
-**Endpoints (`carteras.py` — 11, TODOS GET; el router no tiene un solo POST/PUT/PATCH/DELETE)**:
-`/niveles-1` · `/operadores` · `/aum` (filas crudas de `portafolio.tenencia`; `id_cuenta`, `unidad`,
+**Endpoints (`carteras.py` — 12, TODOS GET; el router no tiene un solo POST/PUT/PATCH/DELETE)**:
+`/niveles` (combos operador × nivel_1/2/3/5 de las comitentes activas — pueblan y CRUZAN los filtros
+madre de AUM; reemplazó a `/niveles-1`, que devolvía una lista suelta y no permitía cruzar) ·
+`/carteras` (carteras presentes en el AuM de la última foto, con # de posiciones; pasa por
+`scope_aum` para no ofrecer una cartera que con ese scope no devuelve ninguna fila) ·
+`/operadores` · `/aum` (filas crudas de `portafolio.tenencia`; `id_cuenta`, `unidad`,
 `cuenta`, `desde`, `hasta`, `ultimo` + `scope`; 403 fuera de scope) · `/pnl` (`id_cuenta` req, gate
 `verificar_id_cuenta`) · `/pnl-todas` (**lee cache**, no recalcula; `filtro_cuenta` + `scope`) ·
 `/cuentas` · `/fci-serie` · `/fci-snapshot` (`fecha` **req**) · `/total-serie` (devuelve
@@ -2466,10 +2751,10 @@ GET `/accionistas` · `/contrapartes` — **ninguno escribe**
 | **DELETE** | `/ops/{op_id}` | **✍** (allowlist) |
 | **PUT** | `/tc` | **✍** (allowlist) |
 
-### `carteras.py` — `/api/portfolio`, módulo `portfolios` (11)
-GET `/niveles-1` · `/operadores` · `/aum` (**sin consumidor**) · `/pnl` · `/pnl-todas` · `/cuentas` ·
+### `carteras.py` — `/api/portfolio`, módulo `portfolios` (12)
+GET `/niveles` · `/carteras` · `/operadores` · `/aum` (**sin consumidor**) · `/pnl` · `/pnl-todas` · `/cuentas` ·
 `/fci-serie` · `/fci-snapshot` · `/total-serie` · `/total-snapshot` · `/diff`
-— **11, NINGUNO escribe** (el router no tiene un solo verbo de escritura)
+— **12, NINGUNO escribe** (el router no tiene un solo verbo de escritura)
 
 ### `valuaciones.py` — `/api/valuaciones`, módulo `portfolios` (7)
 GET `/consolidado` · `/{id}/serie` · `/{id}/mensual` · `/{id}/movimientos` · `/{id}/variacion` ·

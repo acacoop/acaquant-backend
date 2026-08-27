@@ -877,6 +877,90 @@ sistema contable los registra al mes). Viaja con `motivo`.
   declara en `POST_QUE_NO_ESCRIBEN`, una lista corta y explícita: sumar uno ahí
   es el momento en que alguien tiene que justificar por qué no escribe.
 
+### El saldo inicial de hoy ES el saldo final de ayer (2026-08-27)
+
+**Lo que reportó el back office:** una cuenta con registros manuales cierra
+bárbaro el día de la carga y **al día siguiente vuelve al saldo crudo de
+Interbanking**, sin el manual. Textual del operador:
+
+> «Los saldos del comafi, bny, y el pata recaudadora: que el saldo final del día
+> traiga al otro día el saldo inicial (ejemplo, el saldo inicial de hoy sería el
+> saldo final de ayer)»
+
+**La regla es esa recursión, aplicada todos los días:**
+
+```
+saldo(F)          =  saldo del banco(F)  +  ajuste(F)
+ajuste(F)         =  ajuste(F−1)  +  manuales cargados en F   =  Σ manuales ≤ F
+saldo_inicial(F)  =  saldo(F−1 hábil)
+```
+
+⚠️ **El ajuste es ACUMULADO, y eso NO es lo mismo que "arrastrar un montón".**
+La recursión «el inicial de hoy es el final de ayer» **es** la suma de todos los
+manuales hasta hoy: son el mismo número. Y tiene que ser así porque **hay
+movimientos que Interbanking no informa NUNCA** (Comafi, BNY, la Patagonia
+recaudadora): si el ajuste durara un día, esas cuentas volverían a cero al día
+siguiente teniendo la plata.
+
+**El ejemplo con el que se definió**, verificado corriendo el código:
+
+| Fecha | Interbanking | Manual del día | Saldo | Saldo inicial |
+|---|---:|---:|---:|---:|
+| mar 25/08 | 0 | **+100.000** | 100.000 | — |
+| mié 26/08 | 0 | — | **100.000** | 100.000 |
+| jue 27/08 | 0 | — | **100.000** | 100.000 |
+
+Antes del arreglo, el 26 mostraba **0** y CONCILIAR cantaba una diferencia falsa
+de **−100.000** con el mayor perfecto.
+
+⚠️ **Cómo se deshace — la pieza que hace que el acumulado no crezca sin control.**
+Si un manual TERMINA apareciendo en el extracto, el saldo quedaría contado dos
+veces. Ahí **el back office carga otro manual EN CONTRA** el día que aparece, y
+como el ajuste es acumulado los dos se cancelan de ahí en adelante. Verificado en
+simulación: el 27 Interbanking informa 100.000, el acumulado queda en 0 y el
+saldo sigue siendo 100.000 — no 200.000. Es el mecanismo que ya usa la mesa; el
+sistema **no** intenta aparear solo una línea del extracto con una carga manual.
+
+Dónde se aplica, todo desde `_ajuste_manual()`:
+
+| Pantalla | Campo | Estaba | Ahora |
+|---|---|---|---|
+| CONCILIAR | `saldo_inicio` | saldo crudo del banco de ayer | nuestro cierre de ayer |
+| CONCILIAR | `cierre_banco` | banco + manual del día | banco + **acumulado** |
+| Drill-down | `saldo_nuestro` | copia propia de la precedencia | la misma `_saldos_banco()` |
+| CONSOLIDADO | `saldo_cierre` | banco + manual del día | banco + **acumulado** |
+| CONSOLIDADO | `saldo_inicio` | apertura cruda del extracto | nuestro cierre de ayer (el crudo va en `saldo_inicio_banco`) |
+| Vista (modal) | `resumen.saldo_final` | crudo de `extracto_dia` | banco + acumulado (`saldo_final_banco` lleva el crudo) |
+| DIFERENCIAS | — | del día, al costado | **igual, a propósito** |
+
+`DIFERENCIAS` no se toca: reconstruye la aritmética del BANCO (`cierre − cierre ==
+Σ movimientos`) con números crudos de los dos lados, y publica el manual al
+costado. Si entrara en la cuenta, cada ajuste nuestro aparecería como una
+diferencia del banco.
+
+Cuatro cosas que quedaron en su lugar:
+
+- **`_saldos_banco()` es el único lugar que arma un saldo**, con el ajuste
+  adentro del valor. Antes cada consumidor se acordaba (o no) de sumarlo:
+  `tablero()` se acordaba para el CIERRE y no para la APERTURA, y `conciliar()`
+  tenía su propia copia de la precedencia. Dos copias del mismo criterio sin
+  árbitro — REGLA #9. Ahora hay una.
+- **La cuenta que Interbanking no informa tiene saldo propio**: sin extracto ni
+  saldo del banco, su saldo ES el acumulado manual arrancando de cero. Con el
+  ajuste por día no se podía —lo del día es un movimiento, no un saldo—.
+- **Si falta el día anterior** (feriado, ingesta que falló), la apertura cae a la
+  que declara el banco: es su propio cierre de ayer, la mejor respuesta
+  disponible a la misma pregunta. `saldo_inicio_banco` deja ver de dónde salió.
+- **El histórico de manuales viaja** (`manuales_previos` en la vista). Un ajuste
+  permanente que no se puede ver es un ajuste que no se puede corregir, y la
+  corrección es cargar la contrapartida.
+
+**Verificarlo en prod**: `python -m scripts.diag_saldo_manuales` (read-only).
+
+**Lo que NO cambió**: el arrastre del MAYOR en CONCILIAR. Cada día se sigue
+juzgando aislado y un descuadre contable viejo no se ve. Es deliberado — el
+tablero contesta «¿qué pasó ayer?», no «¿está bien el saldo absoluto?».
+
 ### El umbral, el signo, y no cruzar lados
 
 - ⚠️ **Debajo de UN PESO nominal no hay diferencia.** Caso real: `590.708,27`

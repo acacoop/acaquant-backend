@@ -142,7 +142,6 @@ def catalogos() -> None:
     print(f"{'='*78}")
     _medir("/ops/fechas", _ops.ops_fechas)
     _medir("/ops/cuentas-list", _ops.ops_cuentas_list)
-    _medir("/ops/diferencias-fechas USDL", _ops.ops_diferencias_fechas, moneda="USDL")
     _medir("/ops/segmentos", _ops.ops_segmentos)
     _medir("/ops/niveles3", _ops.ops_niveles3)
     _medir("/ops/carteras", _ops.ops_carteras)
@@ -170,8 +169,6 @@ def tabs(rangos: list[tuple[str, str, str]]) -> dict[str, list[dict]]:
              {"desde": desde, "hasta": hasta, "agg": "DIARIO"}),
             ("DÓLAR FUTURO /ops/dolar-futuro", _ops.ops_dolar_futuro,
              {"desde": desde, "hasta": hasta, "agg": "DIARIO"}),
-            ("DIFERENCIAS /ops/diferencias-diarias", _ops.ops_diferencias_diarias,
-             {"desde": desde, "hasta": hasta, "moneda": "USDL"}),
         ):
             r = _medir(nombre, fn, **kw)
             if r:

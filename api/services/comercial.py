@@ -19,6 +19,7 @@ Diseño completo: docs/TABLERO_COMERCIAL.md.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -114,28 +115,48 @@ def _arancel_expr(moneda: str, mep_hoy: float | None = None) -> str:
     return "COALESCE(arancel, 0)"
 
 
-def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
-                         nivel_3: str | None = None, referido: str | None = None,
-                         nivel_2: str | None = None) -> tuple[str, ...]:
+# Un filtro de nivel puede llegar como UN valor (`"MAYORISTA"`) o como VARIOS
+# (`["MAYORISTA", "MINORISTA"]`, que es como los manda la barra madre multi-select).
+# Los dos casos son el mismo predicado: `= ANY(lista)`. Normalizamos acá para que
+# ningún caller tenga que decidir entre `=` y `IN` — elegir mal es lo que hace que
+# un filtro pase de "achicar" a "no filtrar nada" sin que falle nada.
+_Filtro = str | Sequence[str] | None
+
+
+def _valores(v: _Filtro) -> list[str]:
+    """Filtro → lista de valores no vacíos. `None`/`""`/`[]` → `[]` (= sin filtro)."""
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v] if v else []
+    return [x for x in v if x]
+
+
+def _cuentas_de_operador(operador_email: str, nivel_1: _Filtro = None,
+                         nivel_3: _Filtro = None, referido: _Filtro = None,
+                         nivel_2: _Filtro = None,
+                         nivel_5: _Filtro = None) -> tuple[str, ...]:
     """ids de cuenta (Comitentes activas) del scope. `TODOS` sin filtros → todas.
-    Lee SQL clientes.comitentes (Mongo Clientes.Comitentes fue eliminada)."""
+    Lee SQL clientes.comitentes (Mongo Clientes.Comitentes fue eliminada).
+
+    Cada nivel acepta un valor o varios; dentro de un nivel los valores van con OR
+    (`= ANY`) y entre niveles con AND — que es lo que espera un multi-select por
+    dimensión. El orden de los parámetros NO se toca: hay callers posicionales.
+    """
     conds = ["estado = 'Activa'", "id_cuenta IS NOT NULL"]
     p: dict[str, Any] = {}
     if operador_email != TODOS:
         conds.append("operador_email = %(op)s")
         p["op"] = operador_email
-    if nivel_1:
-        conds.append("nivel_1 = %(n1)s")
-        p["n1"] = nivel_1
-    if nivel_2:
-        conds.append("nivel_2 = %(n2)s")
-        p["n2"] = nivel_2
-    if nivel_3:
-        conds.append("nivel_3 = %(n3)s")
-        p["n3"] = nivel_3
-    if referido:
-        conds.append("referido = %(rf)s")
-        p["rf"] = referido
+    for campo, clave, valor in (
+        ("nivel_1", "n1", nivel_1), ("nivel_2", "n2", nivel_2),
+        ("nivel_3", "n3", nivel_3), ("nivel_5", "n5", nivel_5),
+        ("referido", "rf", referido),
+    ):
+        vals = _valores(valor)
+        if vals:
+            conds.append(f"{campo} = ANY(%({clave})s)")
+            p[clave] = vals
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(f"SELECT id_cuenta FROM comitentes WHERE {' AND '.join(conds)}", p)
         return tuple(sorted(str(r[0]) for r in cur.fetchall() if r[0]))

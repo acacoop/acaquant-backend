@@ -7,13 +7,17 @@
 #   - quant/ es cálculo puro: puede usar core/ (lecturas SQL) pero jamás
 #     api/engines/jobs.
 #   - engines/ no importa de api/ (motores standalone: core + quant).
-#   - api/services/ es puro, sin FastAPI. Dos excepciones declaradas:
-#     _grupos_scope (define dependencies de FastAPI vía api.auth) y
-#     av_agent_seguridad → api.superficie — superficie ES la única
-#     implementación de la enumeración de rutas (CLAUDE.md: «no la
-#     reimplementes») y vive pegada a FastAPI por naturaleza: inspecciona la
-#     app montada. Reimplementarla en el service para esquivar el contrato
-#     sería exactamente el bug que superficie vino a matar (37/541 rutas).
+#   - api/services/ es puro, sin FastAPI. UNA excepción declarada:
+#     _grupos_scope (define dependencies de FastAPI vía api.auth).
+#     (Había una segunda, `av_agent_seguridad -> api.superficie`, pero ese
+#     service ya no existe: con AGENT 2.0 se rehízo el agente entero. Una
+#     excepción que apunta a un módulo borrado NO es inocua — import-linter
+#     ABORTA con «no matches for ignored import» y el contrato deja de
+#     evaluarse, así que la regla que tenía que cuidar quedaba apagada
+#     mientras CI se veía roja por otro motivo. Si el import vuelve, vuelve
+#     la línea: superficie ES la única implementación de la enumeración de
+#     rutas y reimplementarla para esquivar el contrato sería el bug que
+#     superficie vino a matar (37/541 rutas).)
 #
 # Nota honesta: jobs/ importa api/services en varios crons (reuso de lógica
 # pura) — es deuda declarada, NO se contrata hasta decidir si se promueve esa
@@ -65,4 +69,3 @@ forbidden_modules =
 ignore_imports =
     api.services._grupos_scope -> api.auth
     api.services._grupos_scope -> fastapi
-    api.services.av_agent_seguridad -> api.superficie

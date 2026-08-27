@@ -35,9 +35,21 @@ _FICHA = ("denominacion", "operador_nombre", "telefono", "email", "nivel_1", "ni
           "division", "adc", "dma", "referido")
 _ANALISIS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
 
-# Pesificación de un boleto (ARS directo; USD × mep del boleto). = _PESIF de comercial.py.
-_PESIF = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
-          "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
+def _pesif(alias: str = "", col: str = "importe") -> str:
+    """Pesifica UN boleto: en ARS va directo; en cualquier otra moneda se multiplica
+    por el `mep` DEL PROPIO BOLETO (no el de hoy).
+
+    Sumar brutos de monedas distintas sin esto da un número que **parece plata y no
+    lo es**, y no falla nada — por eso la expresión vive en un solo lugar. `col`
+    cambia según la tabla: `importe` en `negocio_movimientos`, `bruto` en
+    `operaciones.operaciones`."""
+    a = f"{alias}." if alias else ""
+    return (f"CASE WHEN {a}moneda = 'ARS' THEN abs(COALESCE({a}{col}, 0)) "
+            f"ELSE abs(COALESCE({a}{col}, 0)) * COALESCE({a}mep, 0) END")
+
+
+# Pesificación de un boleto de `negocio_movimientos`. = _PESIF de comercial.py.
+_PESIF = _pesif()
 
 # Valor interno para filtrar cuentas sin división (NULL o string vacío).
 SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"
@@ -48,6 +60,25 @@ SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"
 # tabla (analisis_comercial) y su modal de auditoría (detalle_ultima_op): si
 # cada uno lo escribiera aparte, el modal podría contradecir a la tabla.
 _ULT_OP_WHERE = "anulado_en IS NULL"
+
+
+def _act_where(alias: str = "") -> str:
+    """`_ULT_OP_WHERE` aliasable (`o.anulado_en IS NULL`). Es la MISMA definición de
+    "boleto que cuenta como operación" — la usan la tabla de ESTADO COMERCIAL, su
+    modal y la tab PROFUNDIDAD DE CLIENTES, que necesita el alias porque joinea
+    `operaciones` contra una CTE de meses. Un test congela que las dos digan lo mismo."""
+    a = f"{alias}." if alias else ""
+    return f"{a}anulado_en IS NULL"
+
+
+def _arancel_where(alias: str = "") -> str:
+    """Qué boleto SUMA arancel, en UN solo lugar: `arancel > 0` y `etapa <> 'solicitud'`
+    (la liquidación CL ya cuenta). NO excluye los cierres: el arancel de caución vive
+    SOLO en el cierre (ver CLAUDE.md → "El arancel y el bruto NO comparten filtro de
+    cierre"). El `anulado_en IS NULL` va aparte porque en algunas queries es condición
+    de JOIN y no de WHERE."""
+    a = f"{alias}." if alias else ""
+    return f"{a}arancel > 0 AND {a}etapa IS DISTINCT FROM 'solicitud'"
 
 
 def _f(x) -> float:
@@ -764,8 +795,7 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
 
     w_vol = (f"unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s) "
              f"AND anulado_en IS NULL{ub_vol}{lo_vol}")
-    w_ar = (f"arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
-            f"AND anulado_en IS NULL{ub_ar}{lo_ar}")
+    w_ar = f"{_arancel_where()} AND anulado_en IS NULL{ub_ar}{lo_ar}"
     if scope:
         w_vol += f" AND {scope}"
         w_ar += f" AND {scope}"

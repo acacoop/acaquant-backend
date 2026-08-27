@@ -113,8 +113,6 @@ def _timings() -> None:
          {"metrica": "bruto", "desde": desde, "hasta": hasta}),
         ("ARANCELES /ops/aranceles 30d",    ops.ops_aranceles,
          {"moneda": "ARS", "desde": desde, "hasta": hasta}),
-        ("DIF.DIARIAS /ops/diferencias 30d", ops.ops_diferencias_diarias,
-         {"moneda": "USDL", "desde": desde, "hasta": hasta}),
         ("AGRO /ops/agro 30d",              ops.ops_agro,
          {"desde": desde, "hasta": hasta}),
         ("CONTRAPARTES /flujo/resumen 30d", ops.flujo_resumen,

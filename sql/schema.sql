@@ -400,23 +400,23 @@ CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cu
 -- cada una de las ~361k llamadas = 2,3 hs acumuladas (#2 consumidor de toda la DB).
 -- Índice dedicado por comprobante → lookup directo (seq scan → index scan).
 CREATE INDEX IF NOT EXISTS ix_nm_comprobante ON operaciones.negocio_movimientos(comprobante);
--- DIFERENCIAS DIARIAS (perf 2026-07-28, medido con EXPLAIN): el planner elegía la PKEY
--- (fecha, comprobante) para el rango → 89k buffers y 5 queries de ~290ms por request.
--- Parcial que calza EXACTO con la vista (moneda + fecha, solo filas de diferencias).
--- ops_diferencias_diarias/_fechas llevan el ILIKE literal inline para matchear.
-CREATE INDEX IF NOT EXISTS ix_nm_dif ON operaciones.negocio_movimientos(moneda, fecha)
-    WHERE categoria = 'otro' AND informacion ILIKE 'Diferencias diarias%';
--- MATERIALIZACIÓN (2026-07-28): el instrumento/producto de una diferencia diaria vivía
--- atrapado en el texto `informacion` ("Diferencias diarias - [SOJ.ROS/MAY26] - ...") →
--- cada query lo re-extraía con regex sobre ~45k filas. Columnas GENERADAS: Postgres las
--- calcula en cada INSERT/UPDATE y en el ALTER inicial (backfill automático) — una sola
--- fuente de verdad, sin cambios en el job de ingesta. NULL para filas no-diferencia.
-ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_instrumento text
-    GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
-        THEN substring(informacion from '\[([^\]]+)\]') END) STORED;
-ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS dif_producto text
-    GENERATED ALWAYS AS (CASE WHEN informacion LIKE 'Diferencias diarias%'
-        THEN substring(informacion from '\[([A-Za-z]+)') END) STORED;
+-- DIFERENCIAS DIARIAS — BORRADO 2026-08-26. La vista se reemplazó por AP5
+-- POSICIONES Y DIFERENCIAS, que lee de `ap5.portfolio` (lo que dice la CÁMARA)
+-- en vez de parsear el texto `informacion` de los movimientos. Con la vista se
+-- fueron sus dos endpoints, sus ~110 líneas de service y esto:
+--
+--   · `ix_nm_dif`     — índice parcial que sólo servía a esas dos queries
+--   · `dif_instrumento` / `dif_producto` — columnas GENERADAS que materializaban
+--     el instrumento parseado del texto
+--
+-- Se borran y no se dejan «por las dudas»: un índice sin lector se paga en cada
+-- INSERT del job de ingesta, y una columna generada se recalcula en cada UPDATE
+-- de las ~400k filas. Son DERIVADAS —salen de `informacion` con un regex— así
+-- que recrearlas es volver a pegar estas líneas del historial de git; no hay
+-- ningún dato que se pierda.
+DROP INDEX IF EXISTS operaciones.ix_nm_dif;
+ALTER TABLE operaciones.negocio_movimientos DROP COLUMN IF EXISTS dif_instrumento;
+ALTER TABLE operaciones.negocio_movimientos DROP COLUMN IF EXISTS dif_producto;
 -- ANULADOS (2026-08-04): Aunesa a veces carga un boleto mal, lo ANULA y emite uno
 -- corregido. La ingesta hace upsert y NUNCA borraba → el anulado quedaba pegado para
 -- siempre inflando volumen (medido: 855 fantasmas YTD, $591 MM falsos). Ahora
@@ -5335,91 +5335,161 @@ CREATE TABLE IF NOT EXISTS ap5.contratos (
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- ap5.acumulado — el ACUMULADO de cada cuenta, en sus DOS monedas.
+-- ap5.acumulado — BORRADA 2026-08-26.
 -- ═══════════════════════════════════════════════════════════════════════════
 --
--- El reporte muestra "Diferencias Acum. al Día": el arrastre histórico de la
--- cuenta. La cámara solo manda la diferencia DEL DÍA, y nuestra serie arranca el
--- día que empezamos a guardarla — así que el arrastre anterior no existe en
--- ningún lado salvo en la planilla de la mesa. Se carga a mano acá, una vez, y
--- de ahí en adelante el número se mueve solo.
+-- Guardaba el ARRASTRE histórico de cada cuenta, cargado a mano, porque se creía
+-- que la cámara mandaba la diferencia DEL DÍA y lo anterior a nuestra serie no
+-- existía en ningún lado.
 --
--- **UNA FILA POR CUENTA, con una columna por moneda.** Es el modelo que pidió el
--- user (2026-08-25) y reemplaza al de una fila por (cuenta, moneda): la cuenta
--- es lo que uno busca, y las dos monedas se ven juntas sin tener que cruzar dos
--- filas. Las columnas separadas son lo que impide sumarlas — el agro liquida en
--- Dólar MtR y el dólar futuro en Pesos, y un total único de las dos no
--- significa nada. Antes eso lo garantizaba la PK compuesta; ahora lo garantiza
--- que son dos columnas distintas y no hay dónde escribir la suma.
+-- **La premisa era falsa**: `daily_settlement` YA VIENE ACUMULADO. El acumulado
+-- de una cuenta es la Σ de ese campo en la última corrida — no hay nada que
+-- cargar a mano, y sumarle un arrastre encima contaba dos veces la misma plata.
 --
--- ⚠️ **`fecha` es EXCLUSIVA.** El acumulado de las columnas está calculado HASTA
--- ese día inclusive; el sistema suma los días POSTERIORES. Incluirlo lo contaría
--- dos veces. Al revés, poner el primer día de nuestra serie hace que ese día
--- deje de contar y el número baja sin que nada falle.
+-- Con la tabla se fueron su endpoint de escritura, el aviso «sin arrastre
+-- cargado» y los cuatro scripts que la sostenían. El DROP lo hizo el user a
+-- mano; acá no se recrea.
+DROP TABLE IF EXISTS ap5.acumulado;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ap5.margenes — el REQUERIMIENTO DE MÁRGENES, abierto por comitente.
+-- ═══════════════════════════════════════════════════════════════════════════
 --
--- ⚠️ **`actualizado` en NULL = NADIE lo cargó todavía.** Es lo único que
--- distingue "el arrastre es cero" de "todavía no lo puse", y hace falta porque
--- esta vista se imprime como PDF para gerencia: un cero que nadie escribió se
--- lee igual que un cero verificado. La fila la crea `scripts/sembrar_ap5_acumulado`
--- con las dos monedas en 0 y esta columna VACÍA; se completa sola cuando una
--- persona guarda desde la vista.
+-- **Por qué existe esta tabla y no se lee `AccountBalance`** (medido 2026-08-25):
+-- `PosTrade/AccountBalance` devuelve un AGREGADO — un `Balance` por cuenta de
+-- compensación y moneda — y **no se puede abrir**. Se sondearon los cinco
+-- nombres posibles de filtro por cuenta y las diez grafías de expansión
+-- (`viewDetails`, `includeSubAccounts`, `breakdown`…): las quince responden
+-- 200 y devuelven exactamente lo mismo. La fila es atómica; el
+-- `AccountingAccountCode 4141721172` es un único número con muchas cuentas
+-- adentro que no se ven.
 --
--- El total NO se persiste: se DERIVA en la lectura como `acumulado + Σ de las
--- diferencias posteriores a `fecha``. Misma decisión que el histórico de `/aca`:
--- un total guardado puede contradecir a sus propios insumos, y cuando eso pasa
--- no hay forma de saber cuál de los dos está bien.
-CREATE TABLE IF NOT EXISTS ap5.acumulado (
-    account         text    PRIMARY KEY,
-    acumulado_pesos numeric NOT NULL DEFAULT 0,   -- settlement_currency = 'Pesos'
-    acumulado_mtr   numeric NOT NULL DEFAULT 0,   -- settlement_currency = 'Dólar MtR'
-    -- Hasta acá llegan los dos acumulados (inclusive). Se suman los POSTERIORES.
-    fecha           date    NOT NULL,
-    -- NULL = nadie lo cargó. NO tiene DEFAULT now() a propósito (ver arriba).
-    actualizado     timestamptz,
-    cargado_por     text
+-- `MarginRequirementReport` sí trae el desglose, de fábrica, en cuatro niveles:
+--
+--     Value[]                ← agente (ClearingMember) + fecha
+--       └ Accounts[]         ← cuenta de COMPENSACIÓN
+--           └ SubAccounts[]  ← cuenta de NETEO  ← el comitente
+--               └ References[] ← el importe, con su MONEDA
+--
+-- ⚠️ **La identidad es el PAR (cuenta de neteo, cuenta de compensación), no la
+-- cuenta sola.** Es REGLA #9(A): las dos cuentas del reporte se emparejan
+-- distinto — `149667` cuelga de la compensación `1172`, y `218115` de sí misma.
+-- Con la cuenta de neteo sola como clave, el día que un mismo comitente aparezca
+-- bajo dos compensaciones el UPSERT pisaría una con la otra **sin fallar**: el
+-- total daría de menos y la tabla se vería perfecta.
+--
+-- ⚠️ **`margen` conserva el SIGNO que manda la cámara** (vienen negativos). Darlo
+-- vuelta acá sería meter una decisión de presentación en la capa que guarda el
+-- dato, y el día que llegue un positivo real nadie entendería el cambio.
+--
+-- ⚠️ **La MONEDA es parte de la PK y no se suma con otra.** Misma regla que rige
+-- toda la vista AP5: sumar Pesos con Dólar da un número que no significa nada.
+--
+-- Idempotente: re-correr el job el mismo día hace UPSERT y no acumula.
+CREATE TABLE IF NOT EXISTS ap5.margenes (
+    fecha               date    NOT NULL,
+    -- NettingAccountCode — el comitente. Une con `ap5.cuentas.account`.
+    cuenta              text    NOT NULL,
+    -- CompensationAccountCode — de qué cuenta de compensación cuelga.
+    cuenta_compensacion text    NOT NULL DEFAULT '',
+    -- `Reference` — el NOMBRE DEL CONCEPTO, no un id (medido 2026-08-25:
+    -- `Márgenes` ×28, `Inicial A3`, `Inicial FGIMC`, `Cauciones $`). Es parte de
+    -- la PK porque las dos cards suman conceptos DISTINTOS: el activo integrado
+    -- es `Márgenes + Inicial A3` y el requerimiento no. Colapsarlos haría
+    -- imposible separarlos sin volver a pegarle a la cámara.
+    concepto            text    NOT NULL DEFAULT '',
+    moneda              text    NOT NULL,
+    margen              numeric NOT NULL DEFAULT 0,
+    -- Cuántas References se sumaron para llegar a ese margen. Un margen armado
+    -- con 1 referencia y otro con 40 no son el mismo grado de evidencia, y el
+    -- día que la cámara deje de mandar References el total daría 0 — sin este
+    -- conteo, un 0 por ausencia se ve igual que un 0 real.
+    referencias         integer NOT NULL DEFAULT 0,
+    titular             text,
+    actualizado_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, cuenta, cuenta_compensacion, concepto, moneda)
 );
 
--- MIGRACIÓN del modelo viejo (una fila por cuenta × moneda, con `semilla`) al
--- nuevo (una fila por cuenta, dos columnas). Idempotente: solo corre si la tabla
--- todavía tiene la columna `currency`.
+-- Los OTROS DOS importes que manda la cámara. **Se guardan y NO se suman.**
 --
--- Es un PIVOT, no un borrado: cada moneda va a su columna y el `desde_fecha` más
--- viejo de la cuenta manda (es el que no se come ningún día). `actualizado` se
--- conserva solo si la fila vieja tenía `cargado_por` — o sea, si la había puesto
--- una persona; las que sembró el script vuelven a nacer sin marcar.
-DO $ap5_acum$
+-- ⚠️ **El importe de cada concepto es `margen` (`Margin`), y sólo ése**
+-- (determinado por el user contra el número real de la mesa, 2026-08-25). Hubo
+-- una versión que sumaba los tres: se generalizó desde una fila de
+-- `Cauciones $` que traía el número en `InterTempAmount`, y fue una invención,
+-- no una medición. **`Márgenes` trae un `InterTempAmount` no nulo que no
+-- cuenta**, así que sumar los tres inflaba el total — sin fallar, con un número
+-- creíble. Se guardan igual porque son lo que mandó el proveedor y tirarlos
+-- sería no poder auditarlos nunca.
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS primas numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS inter_temporal numeric NOT NULL DEFAULT 0;
+ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS concepto text NOT NULL DEFAULT '';
+-- Las de la versión que sumaba los tres. Se van: una columna que guarda un
+-- criterio equivocado es peor que no tenerla, porque alguien la va a leer.
+ALTER TABLE ap5.margenes DROP COLUMN IF EXISTS importe;
+ALTER TABLE ap5.margenes DROP COLUMN IF EXISTS campos;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ap5.activo_integrado — el ACTIVO INTEGRADO cargado A MANO
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- El activo integrado se calcula desde `ap5.margenes` (`Márgenes + Inicial A3`,
+-- sin filtro de cuentas) y **trae errores**, así que por un tiempo la mesa lo
+-- carga a mano (pedido del user, 2026-08-27).
+--
+-- ⚠️ **Tabla APARTE, no una columna en `ap5.margenes`.** Lo que manda el
+-- proveedor y lo que escribe una persona no comparten celda: el job re-corre
+-- todos los días y pisaría el número tipeado sin avisar, y después nadie puede
+-- decir cuál de los dos está viendo. Es la misma decisión que `ap5.cuentas.name`
+-- (manual) contra `denominacion` (de la cámara), y que `assets.name` contra el
+-- autofill.
+--
+-- ⚠️ **El manual NO reemplaza al calculado: convive con él.** La vista muestra
+-- el de la mesa Y lo que decía el automático, con quién lo cargó y cuándo. Un
+-- número tipeado que tapa al calculado sin dejar rastro es exactamente cómo un
+-- error de carga sobrevive semanas.
+--
+-- ⚠️ **La PK incluye la FECHA, y el valor NO se arrastra al día siguiente.** Un
+-- importe cargado el martes que sigue apareciendo el miércoles se lee como el
+-- dato del miércoles, y nadie lo revisó. Cada día se carga o se ve el
+-- calculado, que es lo honesto mientras esto sea manual.
+CREATE TABLE IF NOT EXISTS ap5.activo_integrado (
+    fecha          date    NOT NULL,
+    moneda         text    NOT NULL,
+    importe        numeric NOT NULL,
+    -- Por qué se corrigió. Opcional, pero es lo único que explica una
+    -- diferencia contra el calculado cuando se mira dentro de un mes.
+    nota           text,
+    -- Quién lo escribió. No es decorativo: es un número que va al reporte de la
+    -- mesa y se carga a mano.
+    por            text,
+    actualizado_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, moneda)
+);
+
+-- La PK vieja no tenía `concepto`. Una tabla creada antes del 2026-08-25 tiene
+-- una fila por cuenta con el margen de UN concepto (el último que escribió el
+-- UPSERT) — no hay nada que preservar, pero la PK sí hay que ampliarla o el
+-- próximo job pisaría los cuatro conceptos entre sí, en silencio.
+DO $ap5_marg$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_schema = 'ap5' AND table_name = 'acumulado'
-                 AND column_name = 'currency') THEN
-
-        CREATE TABLE ap5.acumulado_nueva (
-            account         text    PRIMARY KEY,
-            acumulado_pesos numeric NOT NULL DEFAULT 0,
-            acumulado_mtr   numeric NOT NULL DEFAULT 0,
-            fecha           date    NOT NULL,
-            actualizado     timestamptz,
-            cargado_por     text
-        );
-
-        INSERT INTO ap5.acumulado_nueva
-              (account, acumulado_pesos, acumulado_mtr, fecha, actualizado, cargado_por)
-        SELECT a.account,
-               COALESCE(sum(a.semilla) FILTER (WHERE a.currency = 'Pesos'), 0),
-               COALESCE(sum(a.semilla) FILTER (WHERE a.currency = 'Dólar MtR'), 0),
-               min(a.desde_fecha),
-               max(a.actualizado_at) FILTER (
-                   WHERE a.cargado_por IS DISTINCT FROM 'sembrar_ap5_acumulado'),
-               max(a.cargado_por) FILTER (
-                   WHERE a.cargado_por IS DISTINCT FROM 'sembrar_ap5_acumulado')
-        FROM ap5.acumulado a
-        GROUP BY a.account;
-
-        DROP TABLE ap5.acumulado;
-        ALTER TABLE ap5.acumulado_nueva RENAME TO acumulado;
-        RAISE NOTICE 'ap5.acumulado: pivoteada a una fila por cuenta (dos monedas)';
+    IF EXISTS (
+        SELECT 1 FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        WHERE c.relname = 'margenes_pkey' AND i.indnatts = 4
+    ) THEN
+        DELETE FROM ap5.margenes WHERE concepto = '';
+        ALTER TABLE ap5.margenes DROP CONSTRAINT margenes_pkey;
+        ALTER TABLE ap5.margenes
+            ADD CONSTRAINT margenes_pkey
+            PRIMARY KEY (fecha, cuenta, cuenta_compensacion, concepto, moneda);
+        RAISE NOTICE 'ap5.margenes: PK ampliada con concepto';
     END IF;
-END $ap5_acum$;
+END $ap5_marg$;
+
+CREATE INDEX IF NOT EXISTS idx_ap5_margenes_fecha
+    ON ap5.margenes (fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_ap5_margenes_cuenta
+    ON ap5.margenes (cuenta, fecha DESC);
 
 -- agente.av_agent_propuestas — LO QUE EL AGENTE SABE HACER (2026-08-19).
 --
@@ -5820,3 +5890,89 @@ BEGIN
         CHECK (ventana IN ('rueda','cierre','habil','siempre'));
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- EXT — API EXTERNA PARA ACCIONISTAS (docs/API_EXTERNA.md)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Superficie `/ext/v1`: le entrega a un accionista SUS operaciones, boleto por
+-- boleto. Está montada como sub-app aparte (api/ext/app.py) y no comparte auth
+-- con `/api`.
+--
+-- ⚠️ ACÁ NO VIVE NINGÚN DATO DE OPERACIONES. Estas cuatro tablas guardan SOLO
+-- quién puede entrar y qué cuentas le tocan; los boletos se leen EN VIVO de
+-- `operaciones.operaciones`, la misma tabla que dibuja la vista de la mesa.
+-- Copiarlos acá sería una segunda copia sin árbitro (REGLA #9 B): el día que
+-- difieran, la mesa y el accionista dirían números distintos, cada mitad
+-- coherente consigo misma, y NADA fallaría.
+--
+-- Igual que `mcp`, este schema se referencia SIEMPRE calificado (`ext.*`) y no
+-- entra al search_path de core/postgres.
+CREATE SCHEMA IF NOT EXISTS ext;
+
+-- Quién es el consumidor externo. Una fila por accionista/proveedor.
+-- Dar de alta al segundo NO es un deploy: es un INSERT acá + sus cuentas.
+CREATE TABLE IF NOT EXISTS ext.clientes (
+    id            text PRIMARY KEY,          -- 'cli_pepito' (slug, estable, va en el token)
+    nombre        text NOT NULL,
+    activo        boolean NOT NULL DEFAULT true,
+    ip_allowlist  text[] NOT NULL DEFAULT '{}',  -- vacío = sin restricción de IP en la app
+    -- Permisos por cliente. `aranceles` decide si los montos que le cobramos
+    -- viajan en la respuesta: es una decisión comercial por cliente, no global.
+    ver_aranceles boolean NOT NULL DEFAULT false,
+    creado_por    text,
+    creado_at     timestamptz NOT NULL DEFAULT now(),
+    notas         text
+);
+
+-- Con qué entra. N keys por cliente A PROPÓSITO: es lo que hace posible rotar
+-- sin downtime (se crea la nueva, conviven, se revoca la vieja). Con una sola
+-- key por cliente la rotación es un corte coordinado — y por eso no se hace nunca.
+--
+-- La key NUNCA se guarda en claro: sólo su hash. `prefijo` es el pedazo público
+-- ('avk_live_7f3a') que permite nombrarla en un log o en una pantalla sin que
+-- ese log te la regale.
+CREATE TABLE IF NOT EXISTS ext.api_keys (
+    prefijo     text PRIMARY KEY,
+    key_hash    text NOT NULL,               -- sha256(pepper || key) en hex
+    cliente_id  text NOT NULL REFERENCES ext.clientes(id) ON DELETE CASCADE,
+    creada_por  text,
+    creada_at   timestamptz NOT NULL DEFAULT now(),
+    expira_at   timestamptz,                 -- NULL = sin vencimiento automático (ver docs)
+    revocada_at timestamptz,
+    ultimo_uso  timestamptz,
+    notas       text
+);
+CREATE INDEX IF NOT EXISTS ix_ext_keys_cliente ON ext.api_keys (cliente_id)
+    WHERE revocada_at IS NULL;
+
+-- EL PERMISO. Todo el control de acceso a datos de esta API es esta tabla.
+-- Ningún id_cuenta aparece hardcodeado en el código: el `WHERE id_cuenta = ANY(...)`
+-- se arma con lo que diga acá, resuelto EN CADA REQUEST (por eso las cuentas NO
+-- viajan dentro del token: sacar una fila corta el acceso al instante).
+CREATE TABLE IF NOT EXISTS ext.cuentas_autorizadas (
+    cliente_id   text NOT NULL REFERENCES ext.clientes(id) ON DELETE CASCADE,
+    id_cuenta    text NOT NULL,              -- soft ref a operaciones.operaciones.id_cuenta
+    agregada_por text,
+    agregada_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (cliente_id, id_cuenta)
+);
+
+-- Auditoría. Sin esto no hay forense el día que alguien pregunte "¿quién bajó
+-- esto y cuándo?" — y con datos de un accionista, esa pregunta llega.
+-- Se poda a 90 días (scripts/ext_cliente.py --podar).
+CREATE TABLE IF NOT EXISTS ext.requests_log (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts         timestamptz NOT NULL DEFAULT now(),
+    cliente_id text,                          -- NULL = no llegó a autenticarse
+    prefijo    text,                          -- qué key se usó (no la key)
+    ip         text,
+    metodo     text,
+    path       text,
+    filtros    jsonb,
+    filas      integer,
+    status     integer,
+    ms         integer
+);
+CREATE INDEX IF NOT EXISTS ix_ext_log_cliente ON ext.requests_log (cliente_id, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_ext_log_ts      ON ext.requests_log (ts DESC);

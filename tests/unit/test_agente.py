@@ -979,3 +979,33 @@ def test_el_paquete_de_detectores_publica_todos_sus_modulos():
     assert set(detectores.__all__) == en_disco, (
         f"el paquete lista {sorted(detectores.__all__)} y en disco hay "
         f"{sorted(en_disco)}")
+
+
+def test_si_el_agente_esta_vivo_lo_contesta_un_solo_lugar():
+    """**El umbral SALE del ritmo declarado, no de un número puesto a mano.**
+
+    `scripts/diag_agente` tenía su propio `hace < 180` y cantaba «FRÍO» todas
+    las noches con el agente perfectamente vivo: fuera de rueda el ciclo es de
+    300 s, así que a los 258 s el daemon está a mitad de camino. Es la REGLA #9
+    en chiquito — dos mitades coherentes consigo mismas contestando distinto—, y
+    el costo real no es la etiqueta: es que un tablero que dice «detenido»
+    cuando todo anda enseña a ignorar el tablero.
+
+    La respuesta vive en `motor.vivo()`, que usa tres ciclos de gracia sobre el
+    `proximo_en_s` que el propio latido escribió.
+    """
+    import re
+
+    from agente import motor
+
+    src = inspect.getsource(motor.vivo)
+    assert "hace < cada * 3" in src
+    assert "coalesce(proximo_en_s" in src
+
+    diag = (RAIZ / "scripts" / "diag_agente.py").read_text()
+    assert "motor.vivo()" in diag, "el diag re-deriva si el agente está vivo"
+    # Y no puede volver a inventarse un umbral: cualquier comparación contra el
+    # tiempo del latido con un número escrito a mano es el bug de vuelta.
+    cuerpo = "\n".join(l for l in diag.split("\n") if not l.lstrip().startswith("#"))
+    assert not re.search(r"hace\s*[<>]=?\s*\d+", cuerpo), (
+        "hay un umbral de latido escrito a mano en el diag")

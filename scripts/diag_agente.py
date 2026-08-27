@@ -37,16 +37,32 @@ def main() -> int:
     a = ap.parse_args()
 
     # ── 1. ¿ESTÁ VIVO? ─────────────────────────────────────────────────────
+    #
+    # ⚠️ **LA PREGUNTA LA CONTESTA `motor.vivo()`, ACÁ NO SE RE-DERIVA.**
+    # Este diag tenía su propio umbral fijo de 180 s y cantaba «FRÍO» todas las
+    # noches con el agente perfectamente vivo: fuera de rueda el ciclo es de
+    # 300 s, así que a los 258 s el daemon está a mitad de camino, no muerto.
+    #
+    # El motor ya lo resuelve bien —tres ciclos de gracia sobre el ritmo que el
+    # propio latido declara en `proximo_en_s`— y el modal lee de ahí. Tener el
+    # criterio escrito dos veces es la REGLA #9 en chiquito: las dos mitades
+    # son coherentes consigo mismas y contestan distinto. Un tablero que dice
+    # «detenido» cuando todo anda enseña a ignorar el tablero.
     _titulo("EL LATIDO")
-    lat = _filas("SELECT at, EXTRACT(epoch FROM now() - at)::int "
-                 "FROM agente.latido WHERE id = 1")
-    if not lat:
+    from agente import motor
+
+    v = motor.vivo()
+    if v.get("hace_s") is None:
         print("  ✗ NUNCA latió — el daemon `agente.service` no arrancó, o "
-              "arrancó y no completó una pasada")
+              "arrancó y no completó una pasada"
+              + (f" · {v['error']}" if v.get("error") else ""))
     else:
-        at, hace = lat[0]
-        print(f"  {'✔ VIVO' if hace < 180 else '✗ FRÍO'} · última pasada "
-              f"{str(at)[:19]} (hace {hace}s)")
+        cada, hace = v.get("cada_s") or 0, v["hace_s"]
+        print(f"  {'✔ VIVO' if v['vivo'] else '✗ FRÍO'} · última pasada "
+              f"{str(v['at'])[:19]} (hace {hace}s · vuelve cada {cada}s)")
+        if not v["vivo"]:
+            print(f"      pasaron más de {cada * 3}s sin latir — tres ciclos. "
+                  f"Mirar `systemctl status agente.service`.")
 
     # ── 2. ¿MIRÓ? ──────────────────────────────────────────────────────────
     #

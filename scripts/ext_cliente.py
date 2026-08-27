@@ -28,6 +28,9 @@ Uso (desde la raíz, en el Droplet):
     # Cortar el acceso entero de un cliente (reversible con --activar)
     python -m scripts.ext_cliente --desactivar cli_pepito
 
+    # Deshacer un alta equivocada — baja DEFINITIVA, pide confirmación
+    python -m scripts.ext_cliente --borrar cli_pepito
+
     # Poda de la auditoría (default 90 días)
     python -m scripts.ext_cliente --podar --dias 90
 
@@ -184,6 +187,40 @@ def cuentas_abm(cliente_id: str, cuentas: list[str], quitar: bool) -> int:
     return 0
 
 
+def borrar(cliente_id: str) -> int:
+    """Baja DEFINITIVA de un cliente externo.
+
+    El CASCADE se lleva sus keys y sus cuentas autorizadas; la auditoría se borra
+    aparte (no tiene FK a propósito: un log que desaparece con lo que audita no
+    sirve para nada, así que sale por decisión explícita y no de arrastre).
+
+    Para cortarle el acceso conservando el historial está `--desactivar`, que es
+    reversible. Esto es para deshacer un alta equivocada.
+    """
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("""
+            SELECT c.nombre,
+                   (SELECT count(*) FROM ext.api_keys k WHERE k.cliente_id = c.id) AS keys,
+                   (SELECT count(*) FROM ext.cuentas_autorizadas x WHERE x.cliente_id = c.id) AS cuentas,
+                   (SELECT count(*) FROM ext.requests_log l WHERE l.cliente_id = c.id) AS requests
+              FROM ext.clientes c WHERE c.id = %s
+        """, (cliente_id,))
+        info = cur.fetchone()
+        if info is None:
+            print(f"ERROR: no existe el cliente '{cliente_id}'.")
+            return 2
+        print(f"\nSe va a BORRAR '{cliente_id}' ({info['nombre']}):")
+        print(f"  · {info['keys']} key(s)   · {info['cuentas']} cuenta(s)   "
+              f"· {info['requests']} fila(s) de auditoría")
+        if input("\nEscribí el id del cliente para confirmar: ").strip() != cliente_id:
+            print("Cancelado — no se borró nada.")
+            return 1
+        cur.execute("DELETE FROM ext.requests_log WHERE cliente_id = %s", (cliente_id,))
+        cur.execute("DELETE FROM ext.clientes WHERE id = %s", (cliente_id,))
+    print(f"✓ cliente {cliente_id} borrado (keys y cuentas incluidas).")
+    return 0
+
+
 def activar(cliente_id: str, valor: bool) -> int:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("UPDATE ext.clientes SET activo = %s WHERE id = %s", (valor, cliente_id))
@@ -254,8 +291,11 @@ def main() -> int:
     ap.add_argument("--revocar", metavar="PREFIJO", help="Revocar una key")
     ap.add_argument("--agregar-cuentas", metavar="CLIENTE_ID")
     ap.add_argument("--quitar-cuentas", metavar="CLIENTE_ID")
-    ap.add_argument("--desactivar", metavar="CLIENTE_ID")
+    ap.add_argument("--desactivar", metavar="CLIENTE_ID",
+                    help="Corta el acceso, conserva el historial (reversible)")
     ap.add_argument("--activar", metavar="CLIENTE_ID")
+    ap.add_argument("--borrar", metavar="CLIENTE_ID",
+                    help="Baja DEFINITIVA (pide confirmación). Para deshacer un alta equivocada")
     ap.add_argument("--listar", action="store_true")
     ap.add_argument("--podar", action="store_true")
     ap.add_argument("--dias", type=int, default=90)
@@ -277,6 +317,8 @@ def main() -> int:
         return cuentas_abm(a.agregar_cuentas, _cuentas(a.cuentas), quitar=False)
     if a.quitar_cuentas:
         return cuentas_abm(a.quitar_cuentas, _cuentas(a.cuentas), quitar=True)
+    if a.borrar:
+        return borrar(a.borrar)
     if a.desactivar:
         return activar(a.desactivar, False)
     if a.activar:

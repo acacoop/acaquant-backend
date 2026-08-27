@@ -915,7 +915,7 @@ Dónde faltaba aplicarlo, que era el bug:
 | CONCILIAR | `cierre_banco` | ya estaba bien | ídem, vía la misma función |
 | Drill-down | `saldo_nuestro` | copia propia de la precedencia | la misma `_saldos_banco()` |
 | CONSOLIDADO | `saldo_cierre` | ya estaba bien | ídem |
-| CONSOLIDADO | `saldo_inicio` | apertura cruda del extracto | + manual del día hábil anterior |
+| CONSOLIDADO | `saldo_inicio` | apertura que declara el banco | **igual** — ver abajo |
 | Vista (modal) | `resumen.saldo_final` | crudo de `extracto_dia` | + manual del día; el crudo va en `saldo_final_banco` |
 | DIFERENCIAS | — | del día, al costado | **igual, a propósito** |
 
@@ -924,6 +924,19 @@ Dónde faltaba aplicarlo, que era el bug:
 costado. Si entrara en la cuenta, cada ajuste nuestro aparecería como una
 diferencia del banco.
 
+> ⚠️ **Y el `saldo_inicio` del CONSOLIDADO tampoco, aunque parezca lo mismo.**
+> Ahí `saldo_apertura` es lo que **el banco declara** que abrió hoy, y el banco
+> suele haber absorbido el movimiento durante la noche. Medido en simulación con
+> el código real: el banco cierra el 26/08 en 10.000.000 sin ver un cheque de
+> 500.000 y **abre el 27/08 en 10.500.000 ya con él** — sumarle el manual daba
+> 11.000.000, el movimiento contado dos veces. Es exactamente el error que el
+> back office anticipó («le vas a sumar un montón de movimientos manuales»).
+>
+> La apertura que SÍ es «nuestro cierre de ayer» es la de **CONCILIAR**, y se
+> calcula de nuestro lado (`_saldos_banco(día hábil anterior)`), no de lo que
+> declara el banco. Son dos preguntas distintas: en el consolidado, «¿con qué
+> dice el banco que abrió?»; en CONCILIAR, «¿con qué veníamos nosotros?».
+
 Tres cosas que quedaron en su lugar:
 
 - **`_saldos_banco()` es el único lugar que arma un saldo**, con el manual
@@ -931,11 +944,9 @@ Tres cosas que quedaron en su lugar:
   `tablero()` se acordaba para el CIERRE y no para la APERTURA, y `conciliar()`
   tenía su propia copia de la precedencia (extracto → saldo informado → ajuste).
   Dos copias del mismo criterio sin árbitro — REGLA #9. Ahora hay una.
-- **El día previo es el HÁBIL anterior en las dos pantallas.** Si cada una
-  eligiera su propio «ayer», la apertura de una no sería el cierre de la otra.
-- **No cuesta queries.** `_ajuste_manual(fecha, previa)` trae los dos días en una
-  sola consulta y la vista sale de la lista que ya se leía; el tope de
-  `test_interbanking_queries` sigue en pie.
+- **El día previo de CONCILIAR es el HÁBIL anterior**, vía `restar_habiles`.
+- **No cuesta queries.** El saldo de la vista sale de la lista que ya se leía; el
+  tope de `test_interbanking_queries` sigue en pie.
 
 **Verificarlo en prod**: `python -m scripts.diag_saldo_manuales` (read-only) lista,
 por cuenta y por día, `saldo banco + manual = CIERRE` y la apertura del día

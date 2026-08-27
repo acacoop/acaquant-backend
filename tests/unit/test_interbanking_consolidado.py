@@ -149,7 +149,7 @@ def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
     """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
     informa, no una corrección de lo que informó."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2, "ajuste_previo": 0}])
+                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0
     assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
@@ -160,7 +160,7 @@ def test_un_banco_manual_arranca_de_cero(monkeypatch):
     """Sin extracto ni saldo del banco —el caso de un banco que no está en
     Interbanking— el saldo ES la suma de lo cargado a mano."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1, "ajuste_previo": 0}])
+                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == -400.0
@@ -201,52 +201,37 @@ def test_una_cuenta_de_interbanking_no_se_borra_a_mano(monkeypatch):
 # acumulando TODO, que le suma al saldo una pila de movimientos que el banco ya
 # tiene adentro de su propio número.
 
-def test_la_apertura_lleva_el_manual_de_AYER(monkeypatch):
-    """El cierre de ayer ES la apertura de hoy. Si el manual entra en uno y no en
-    el otro, el mismo número vale distinto según de qué lado se lo mire — y la
-    columna arranca el día con el saldo crudo del banco."""
+def test_la_apertura_del_consolidado_NO_lleva_el_manual_de_ayer(monkeypatch):
+    """⚠️ **Medido en simulación, y contradice lo que parecía obvio.**
+    `saldo_apertura` es lo que **el banco declara** que abrió hoy, y el banco
+    suele haber absorbido el movimiento durante la noche: el 26 cierra en
+    10.000.000 sin ver el cheque de 500.000 y el 27 **abre en 10.500.000 ya con
+    él**. Sumarle el manual daría 11.000.000 — el movimiento contado dos veces.
+
+    La apertura que SÍ es «nuestro cierre de ayer» es la de CONCILIAR, que se
+    calcula de nuestro lado y no de lo que declara el banco. Son dos preguntas
+    distintas: acá «¿con qué dice el banco que abrió?», allá «¿con qué veníamos
+    nosotros?».
+    """
     svc = _mock_manual(monkeypatch,
-                       [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0, "ajuste_previo": 250.0}])
+                       [_cuenta(saldo_apertura=10_500_000.0, saldo_cierre=10_500_000.0)],
+                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0}])
     c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_inicio"] == 1250.0, "la apertura trae el manual de ayer"
-    assert c["ajuste_manual_apertura"] == 250.0
+    assert c["saldo_inicio"] == 10_500_000.0, "la apertura es la que declara el banco"
 
 
 def test_el_arrastre_NO_es_acumulado(monkeypatch):
-    """⚠️ **La otra mitad, y la que es fácil de romper 'mejorando'.** Solo se
-    arrastra el día anterior. El saldo que el banco informa hoy YA trae adentro
-    los movimientos de días previos: volver a sumarlos infla el saldo con una
-    pila de ajustes duplicados que crece para siempre.
-
-    Acá el cierre es el del banco + lo de HOY (0), y NO el de ayer: 1000, no 1250.
+    """⚠️ **La mitad que es fácil de romper 'mejorando'** (y que se rompió una vez).
+    El cierre lleva los manuales DE ESE DÍA y nada más. El saldo que el banco
+    informa hoy ya trae adentro los movimientos de días previos: volver a
+    sumarlos infla el saldo con ajustes duplicados que crecen para siempre.
     """
     svc = _mock_manual(monkeypatch,
                        [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0, "ajuste_previo": 250.0}])
+                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0}])
     c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_cierre"] == 1000.0, "el manual de ayer NO se suma otra vez al cierre"
+    assert c["saldo_cierre"] == 1000.0, "sin manual HOY, el cierre es el del banco"
     assert c["ajuste_manual"] is None
-
-
-def test_la_apertura_usa_el_dia_HABIL_anterior(monkeypatch):
-    """El mismo criterio que el tablero de CONCILIAR. Si cada pantalla eligiera
-    su propio «ayer», la apertura de una no sería el cierre de la otra."""
-    from datetime import date
-
-    from api.services import bancos as svc
-    visto = {}
-
-    def _q(sql, params=None):
-        if "movimientos_manuales" in " ".join(str(sql).split()):
-            visto["dias"] = params[-1]
-        return []
-
-    monkeypatch.setattr(svc, "_q", _q)
-    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
-    svc.consolidado("x@y", date(2026, 8, 17))          # un LUNES
-    assert visto["dias"] == [date(2026, 8, 17), date(2026, 8, 14)], \
-        "el viernes anterior, no el domingo"
 
 
 # --------------------------------------------------------------------------- #

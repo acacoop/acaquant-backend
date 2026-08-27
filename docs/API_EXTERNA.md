@@ -196,12 +196,34 @@ que no son los de ellos, o un pico sin motivo.
 python -m scripts.ext_cliente --listar
 python -m scripts.ext_cliente --agregar-cuentas cli_pepito --cuentas 10999
 python -m scripts.ext_cliente --quitar-cuentas  cli_pepito --cuentas 10453
-python -m scripts.ext_cliente --desactivar cli_pepito
+python -m scripts.ext_cliente --aranceles-on  cli_pepito     # empieza a ver el arancel
+python -m scripts.ext_cliente --aranceles-off cli_pepito     # deja de verlo, de acá en adelante
+python -m scripts.ext_cliente --desactivar cli_pepito        # corta el acceso, reversible
+python -m scripts.ext_cliente --borrar     cli_pepito        # baja DEFINITIVA, pide confirmación
 python -m scripts.ext_cliente --podar --dias 90
 ```
 
-Los cambios de cuentas tienen **efecto inmediato**: el scope se resuelve en cada
-request, no viaja dentro del token.
+Los cambios de cuentas y de aranceles tienen **efecto inmediato**: se resuelven en
+cada request, no viajan dentro del token.
+
+**`--desactivar` vs `--borrar`:** el primero corta el acceso y conserva el
+historial (reversible con `--activar`); el segundo es para deshacer un alta
+equivocada y se lleva keys, cuentas y auditoría.
+
+**Los aranceles son asimétricos:** prender es gratis, apagar sólo corta de ahí en
+adelante. Por eso el default del alta es que NO los vea.
+
+### Ver lo que ve un cliente
+
+```
+python -m scripts.ext_ver cli_pepito             # sus cuentas, cobertura y últimas operaciones
+python -m scripts.ext_ver cli_pepito --api-key avk_live_…   # valida además la key real
+```
+
+Es la forma de comprobar un alta **antes** de mandarle las credenciales a nadie,
+y de contestar «¿por qué no ve tal boleto?» mirando exactamente lo mismo que
+mira él. Avisa los dos casos que dan una pantalla vacía sin ningún error: sin
+cuentas autorizadas (403 fail-closed) y cero operaciones (`id_cuenta` equivocado).
 
 ### El interruptor general
 
@@ -286,6 +308,11 @@ integración muere en silencio) y el **tope de destinations por app**.
 
 ## Changelog
 
+- **2026-08-27** — **primera puesta en producción, verificada de punta a punta**:
+  Cloudflare Access en modo Service Auth sobre `/ext` y `/ext/*` (sin token 403,
+  con token inválido 403, con token válido 200), `ext_smoke` 15/15 contra la base
+  real, y un accionista real dado de alta consumiendo la API desde afuera. Se
+  suman `--borrar`, `--aranceles-on/off` y `scripts/ext_ver.py`.
 - **2026-08-27** — el contrato habla el idioma del consumidor: montos como
   **número** JSON; el título se identifica por **`ticker`** (de
   `portafolio.assets`, subconsulta escalar) y no por el string interno de la

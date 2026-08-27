@@ -105,6 +105,25 @@ Endpoints verificados en `api/routers/derivados_agro.py`.
    `mercado.futuros_dlr_snapshot` (cobertura cambiaria) + `mercado.curvas` (LECAPs)
    + `mercado.market_snapshot` (TEA de cada LECAP) → tasa directa / valor final.
 
+   ⚠️ **La columna TNA se DERIVA de la TEA (corregido 2026-08-26).** El motor de
+   curvas publica una sola tasa por bono —la **TEA**, la TIR efectiva anual— y la
+   fila la convertía… nunca: mostraba la TEA cruda bajo un encabezado que decía
+   TNA. Nada fallaba y ninguna celda quedaba en `--`; el mismo papel simplemente
+   mostraba 29,34% acá y 26,01% en RENTA FIJA, donde la TNA sí se deriva desde
+   siempre. La conversión vive UNA sola vez, en **`quant/tasas.py`**
+   (`TNA = TEM×12`, `TEM = (1+TEA)^(1/12) − 1` — la convención de la casa), y la
+   congela `tests/unit/test_mejoras_dispo_tasas.py`.
+
+   Arrastraba a la plata: `tasa_directa` prorrateaba **linealmente una tasa
+   efectiva** (`TEA × días/365`), que no es ninguna de las dos convenciones y
+   sobreestimaba el interés — TEA 30% a 180 días daba 14,79% cuando la convención
+   lineal da 13,08%. Hoy lo lineal se aplica sobre la TNA, que es para lo que
+   existe una tasa nominal, y la fila viaja además con `rendimiento_efectivo`
+   = `(1+TEA)^(días/365) − 1` (13,81% en ese ejemplo): **la plata real** que rinde
+   la Lecap al vencimiento. No es una columna — está en el tooltip de la celda TNA
+   junto con la TEA, para que la pregunta «¿esto es TNA o TEA?» se conteste sin
+   salir de la pantalla.
+
 ---
 
 ## 5. Estado SQL — migración completa

@@ -361,33 +361,93 @@ def _overrides(fecha: date) -> dict[str, bool]:
             WHERE m.fecha = %s""", (fecha,))}
 
 
-def _ajuste_manual(fecha: date) -> dict[int, dict]:
-    """{cuenta_id: {"ajuste": x, "movimientos": n}} de UN día. Una sola query.
+def _manuales(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
+    """Los movimientos manuales de cada cuenta vistos DESDE una fecha.
 
-    El ajuste es **crédito menos débito**: lo que los movimientos manuales le
-    suman o le restan al saldo de esa cuenta ese día.
+    Devuelve, por cuenta:
+
+      `acumulado`   Σ de TODOS los manuales hasta esa fecha inclusive. **Es el
+                    número que hay que sumarle al saldo del banco** para obtener
+                    nuestro saldo real de ese día.
+      `hasta_ayer`  Σ de los anteriores a esa fecha. Es el `acumulado` del día
+                    previo, o sea la APERTURA.
+      `del_dia`     Σ de los cargados ESE día. Es `acumulado − hasta_ayer`, y
+                    sirve para MOSTRAR («hoy se cargaron $X a mano»), nunca para
+                    calcular un saldo.
+      `movimientos_del_dia` / `movimientos`  los conteos de cada cosa.
+
+    ⚠️⚠️ **POR QUÉ ES ACUMULADO, que es todo el asunto (2026-08-27).** Un
+    movimiento manual es plata que el banco **no informa y no va a informar**:
+    Interbanking nunca lo va a tener. Entonces su efecto sobre el saldo **no dura
+    un día, dura para siempre** — el saldo real de cualquier día posterior sigue
+    siendo el del banco MÁS ese movimiento.
+
+    Todo el módulo lo trataba como un ajuste POR DÍA, y por eso el saldo del día
+    de la carga salía perfecto y el del día siguiente volvía a ser el crudo de
+    Interbanking, como si el movimiento no hubiera existido nunca. El usuario lo
+    describió exactamente así: «el saldo de ese día al cierre queda bárbaro, pero
+    luego eso no queda trasladado al otro día».
+
+    ⚠️ El corolario incómodo, y hay que saberlo: **si un manual aparece más tarde
+    en el extracto del banco, se cuenta dos veces y para siempre.** No hay
+    mecanismo de cancelación automática y no puede haberlo (nadie sabe qué línea
+    del extracto corresponde a qué carga manual). El arreglo es del back office:
+    **borrar el movimiento manual** el día que el banco lo informa. Está en la
+    misma pantalla donde se cargó.
+
+    `cuenta_id` acota a una cuenta. Una sola query en los dos casos.
     """
-    return {r["cuenta_id"]: {"ajuste": _f(r["ajuste"]) or 0.0, "movimientos": r["n"]}
-            for r in _q(
-                """SELECT cuenta_id,
-                          -- Los manuales los guardamos nosotros en valor
-                          -- absoluto, pero se usa la MISMA fórmula que con los
-                          -- del banco: una sola regla de signo en todo el módulo.
-                          sum(CASE WHEN tipo = 'C' THEN abs(importe)
-                                   ELSE -abs(importe) END) AS ajuste,
-                          count(*) AS n
-                     FROM bancos.movimientos_manuales
-                    WHERE fecha = %s
-                    GROUP BY cuenta_id""", (fecha,))}
+    # `abs(importe)` + `tipo`: los manuales los guardamos en valor absoluto, pero
+    # se usa la MISMA fórmula de signo que con los del banco — una sola regla en
+    # todo el módulo. Ver `_firmado`.
+    signo = "CASE WHEN tipo = 'C' THEN abs(importe) ELSE -abs(importe) END"
+    sql = f"""
+        SELECT cuenta_id,
+               sum({signo})                                          AS acumulado,
+               sum(CASE WHEN fecha = %s THEN {signo} ELSE 0 END)     AS del_dia,
+               count(*)                                              AS movimientos,
+               count(*) FILTER (WHERE fecha = %s)                    AS movs_dia
+          FROM bancos.movimientos_manuales
+         WHERE fecha <= %s"""
+    if cuenta_id is None:
+        filas = _q(sql + " GROUP BY cuenta_id", (fecha, fecha, fecha))
+    else:
+        filas = _q(sql + " AND cuenta_id = %s GROUP BY cuenta_id",
+                   (fecha, fecha, fecha, cuenta_id))
+
+    out: dict[int, dict] = {}
+    for r in filas:
+        acumulado = round(_f(r["acumulado"]) or 0.0, 2)
+        del_dia = round(_f(r["del_dia"]) or 0.0, 2)
+        out[r["cuenta_id"]] = {
+            "acumulado": acumulado,
+            "hasta_ayer": round(acumulado - del_dia, 2),
+            "del_dia": del_dia,
+            "movimientos": r["movimientos"],
+            "movimientos_del_dia": r["movs_dia"],
+        }
+    return out
 
 
 def _manuales_de(fecha: date, cuenta_id: int) -> list[dict]:
-    """Los movimientos manuales de UNA cuenta en UN día, para el modal."""
+    """TODOS los movimientos manuales de UNA cuenta hasta esa fecha, en orden.
+
+    ⚠️ Trae el histórico, no solo el día, por DOS razones y las dos importan:
+
+    1. El ajuste del saldo es ACUMULADO (ver `_manuales()`), así que la vista
+       necesita el total de todo lo cargado — y sacarlo de esta misma lista es
+       una query en vez de dos. `vista()` la parte en «los del día» (lo que
+       muestra el modal) y «los anteriores» (lo que sigue pesando en el saldo).
+    2. **Sin el histórico a la vista, el acumulado no se puede auditar ni
+       deshacer.** Si un manual aparece después en el extracto del banco queda
+       contado dos veces para siempre, y el único arreglo es borrarlo: para eso
+       hay que poder encontrarlo, y no está en el día de hoy.
+    """
     return _q(
         """SELECT id, fecha, descripcion, importe, tipo, creado_por, creado_at
              FROM bancos.movimientos_manuales
-            WHERE fecha = %s AND cuenta_id = %s
-            ORDER BY creado_at""", (fecha, cuenta_id))
+            WHERE fecha <= %s AND cuenta_id = %s
+            ORDER BY fecha, creado_at""", (fecha, cuenta_id))
 
 
 def _gastos_bancarios(fecha: date, baldes: list[dict]) -> dict[int, dict]:
@@ -666,8 +726,14 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
             desglose[balde] += -_firmado(m)
         desglose = {k: round(v, 2) for k, v in desglose.items()}
 
+    previos: list[dict] = []
     if cuenta_id is not None:
-        manuales = [_manual_publico(r) for r in _manuales_de(fecha, cuenta_id)]
+        # Una sola lectura para las dos cosas: lo del día (el modal) y lo de
+        # antes (que sigue adentro del saldo). Ver `_manuales_de`.
+        todos = [_manual_publico(r) for r in _manuales_de(fecha, cuenta_id)]
+        iso = fecha.isoformat()
+        manuales = [m for m in todos if m["fecha"] == iso]
+        previos = [m for m in todos if m["fecha"] != iso]
 
     # ⚠️ Créditos y débitos siguen siendo la aritmética del EXTRACTO: los
     # manuales no entran. Si entraran, la vista dejaría de poder compararse con
@@ -675,7 +741,21 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
     # los manuales mueven —el saldo— viaja aparte, en `ajuste_manual`.
     creditos = sum(abs(m["importe"] or 0) for m in movimientos if m["tipo"] == "C")
     debitos = sum(abs(m["importe"] or 0) for m in movimientos if m["tipo"] == "D")
+    # Lo cargado ESE día (es la suma de la lista que se muestra abajo) y el
+    # ACUMULADO, que es lo que de verdad está adentro del saldo. Ver `_manuales()`.
     ajuste_manual = round(sum(_firmado(m) for m in manuales), 2)
+    acumulado = round(ajuste_manual + sum(_firmado(m) for m in previos), 2)
+
+    # ⚠️ **El saldo que muestra la pantalla es el NUESTRO, no el del extracto.**
+    # Salía crudo de `extracto_dia.saldo_cierre`, así que una cuenta con
+    # movimientos manuales mostraba acá un número y otro en el CONSOLIDADO —para
+    # la misma cuenta y el mismo día—, y el de acá era el que ignoraba la carga
+    # del back office. El del banco viaja aparte (`saldo_final_banco`) porque es
+    # la evidencia independiente contra la que se concilia: no se pierde, se
+    # nombra.
+    saldo_banco = next((d["saldo_cierre"] for d in dias), None)
+    saldo_final = (None if saldo_banco is None
+                   else round(saldo_banco + acumulado, 2))
 
     resumen = {
         "dias": len(dias),
@@ -688,8 +768,10 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "dias_incompletos": [d["fecha"] for d in dias
                              if d["movimientos_banco"] is not None
                              and d["movimientos_banco"] != d["movimientos_base"]],
-        "saldo_final": next((d["saldo_cierre"] for d in dias), None),
+        "saldo_final": saldo_final,
+        "saldo_final_banco": saldo_banco,
         "ajuste_manual": ajuste_manual,
+        "ajuste_manual_acumulado": round(acumulado, 2),
         "movimientos_manuales": len(manuales),
         "gastos": round(sum(
             -_firmado(m)
@@ -711,6 +793,10 @@ def vista(email: str, cuenta_id: int | None, fecha: date) -> dict:
         "dias": dias,
         "movimientos": movimientos,
         "manuales": manuales,
+        # Los de días anteriores que SIGUEN pesando en el saldo. Van aparte para
+        # que el modal no cambie de contenido, pero viajan: un ajuste permanente
+        # que no se puede ver es un ajuste que no se puede corregir.
+        "manuales_previos": previos,
         "resumen": resumen,
         "sync": ultima_sync(),
     }
@@ -1200,71 +1286,72 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # no esté mapeada.
 
 def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
-    """{cuenta_id: {"valor", "fuente", "ajuste"}} — el saldo al cierre de ese día
-    **tal como lo publicamos**: lo que informó el banco MÁS los movimientos
-    manuales de esa cuenta ese día.
+    """{cuenta_id: {"valor", "fuente", "ajuste", "ajuste_dia"}} — **nuestro saldo
+    al cierre de ese día**: lo que informó el banco MÁS todos los movimientos
+    manuales cargados hasta ese día.
 
-    ⚠️ **Los manuales entran ACÁ y no en el que llama.** Hasta el 2026-08-27 esta
-    función devolvía el saldo pelado de Interbanking y cada consumidor se
-    acordaba (o no) de sumarle el ajuste. `tablero()` se acordaba para el CIERRE
-    de hoy y no para la APERTURA —que es el cierre de AYER— así que el mismo día,
-    leído como cierre y leído como apertura, valía distinto: **la diferencia
-    publicada quedaba inflada exactamente en el ajuste manual del día anterior**,
-    y como el drill-down (`_mayor_de_base`) leía la apertura de la misma función,
-    las dos pantallas mostraban el mismo descuadre falso y se confirmaban entre
-    sí. No fallaba nada: las dos mitades eran coherentes.
+    ⚠️ **El ajuste es ACUMULADO, no del día** — ver `_manuales()`, donde está
+    explicado el porqué. Un manual es plata que el banco nunca va a informar, así
+    que sigue formando parte del saldo todos los días siguientes. Tratarlo como
+    un ajuste de un día era lo que hacía que el saldo saliera bien el día de la
+    carga y volviera al crudo de Interbanking al día siguiente.
 
-    Por eso el ajuste deja de ser un paso que hay que recordar y pasa a ser parte
-    del valor. Es la misma regla que ya declaraban `crear_movimiento_manual()`
-    («impacta SIEMPRE el saldo al cierre») y `consolidado()` («se aplica SIEMPRE,
-    venga el saldo de donde venga»); esta función era la única que no la cumplía.
+    ⚠️ **Los manuales entran ACÁ y no en el que llama.** Antes cada consumidor se
+    acordaba (o no) de sumar el ajuste: `tablero()` se acordaba para el CIERRE de
+    hoy y no para la APERTURA —que es el cierre de AYER—, y `conciliar()` tenía
+    su propia copia de la precedencia. Siendo parte del valor, no hay dónde
+    olvidárselo.
 
     Precedencia del saldo del banco: primero el extracto (el cierre declarado) y
-    si no hay, el saldo informado. En UNA query para todas las cuentas: la vista
-    muestra ~38 filas y hacerlo de a una eran 76 consultas por pantalla.
+    si no hay, el saldo informado. Una cuenta que Interbanking **no informa**
+    (`origen='manual'`) no tiene ninguno de los dos y su saldo **son** sus
+    manuales: arranca de cero y el acumulado es todo. Una cuenta sin nada de nada
+    se omite — «no sabemos» no es «cero».
 
-    `cuenta_id` acota a UNA cuenta —y entonces NO filtra por `activa`, porque el
-    drill-down puede pedir una cuenta dada de baja que el tablero ya no lista.
+    En UNA query para todas las cuentas: la vista muestra ~38 filas y hacerlo de
+    a una eran 76 consultas por pantalla. `cuenta_id` acota a UNA cuenta —y
+    entonces NO filtra por `activa`, porque el drill-down puede pedir una cuenta
+    dada de baja que el tablero ya no lista.
     """
-    # El ajuste manual sale de la MISMA expresión que `_ajuste_manual()`: los
-    # guardamos en valor absoluto + `tipo`, y el signo lo pone una sola regla.
     sql = """
         SELECT c.id AS cuenta_id, e.saldo_cierre,
-               coalesce(s.saldo_operativo, s.saldo_dia) AS informado,
-               coalesce(m.ajuste, 0) AS ajuste
+               coalesce(s.saldo_operativo, s.saldo_dia) AS informado
           FROM bancos.cuentas c
           LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
           LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s
-          LEFT JOIN (SELECT cuenta_id,
-                            sum(CASE WHEN tipo = 'C' THEN abs(importe)
-                                     ELSE -abs(importe) END) AS ajuste
-                       FROM bancos.movimientos_manuales
-                      WHERE fecha = %s
-                      GROUP BY cuenta_id) m ON m.cuenta_id = c.id
          WHERE """
     if cuenta_id is None:
-        filas = _q(sql + "c.activa", (fecha, fecha, fecha))
+        filas = _q(sql + "c.activa", (fecha, fecha))
     else:
-        filas = _q(sql + "c.id = %s", (fecha, fecha, fecha, cuenta_id))
+        filas = _q(sql + "c.id = %s", (fecha, fecha, cuenta_id))
+    manuales = _manuales(fecha, cuenta_id)
 
     out: dict[int, dict] = {}
     for r in filas:
+        cid = r["cuenta_id"]
+        man = manuales.get(cid) or {}
+        ajuste = man.get("acumulado") or 0.0
         if r["saldo_cierre"] is not None:
             base, fuente = _f(r["saldo_cierre"]), "extracto"
         elif r["informado"] is not None:
             base, fuente = _f(r["informado"]), "saldo informado por el banco"
+        elif man.get("movimientos"):
+            # La cuenta que Interbanking no informa: el saldo ES el acumulado de
+            # lo que se cargó a mano. Antes se la omitía —y el tablero decía «no
+            # hay saldo del banco»— porque con el ajuste por día lo único que
+            # había era el movimiento de la fecha, que no es un saldo. Acumulado
+            # sí lo es.
+            base, fuente = 0.0, "manual"
         else:
-            # Sin extracto ni saldo no hay de qué colgar el ajuste. Los manuales
-            # NO alcanzan para inventar un saldo: en una cuenta 100% manual lo
-            # que hay cargado es el movimiento del día, no un acumulado, así que
-            # usarlo como apertura publicaría un número que no es una apertura.
-            # Se omite la cuenta y el que llama dice por qué (ver `tablero`).
             continue
-        ajuste = _f(r["ajuste"]) or 0.0
-        out[r["cuenta_id"]] = {
+        out[cid] = {
             "valor": round((base or 0.0) + ajuste, 2),
-            "fuente": f"{fuente} + ajuste manual" if ajuste else fuente,
-            "ajuste": round(ajuste, 2),
+            # La fuente lo CANTA: un saldo con plata puesta por una persona no se
+            # lee igual que uno que informó el banco entero.
+            "fuente": (fuente if fuente == "manual" or not ajuste
+                       else f"{fuente} + ajuste manual"),
+            "ajuste": ajuste,
+            "ajuste_dia": man.get("del_dia") or 0.0,
         }
     return out
 
@@ -1367,17 +1454,15 @@ def tablero(email: str, fecha: date) -> dict:
         # que el banco no informó y alguien cargó a mano, y va del lado del BANCO
         # (sumarlo del lado del mayor lo contaría al revés). Se lee acá solo para
         # publicarlo aparte, que es lo que le deja decir a la pantalla cuánto de
-        # ese saldo lo puso una persona.
+        # ese saldo lo puso una persona — y por eso es el ACUMULADO, que es lo
+        # que efectivamente está adentro del número, no lo que se cargó hoy.
         ajuste = (cierre or {}).get("ajuste") or 0.0
         cierre_banco = None if cierre is None else cierre["valor"]
 
         saldo_final = None if saldo_inicio is None else round(saldo_inicio + debe + haber, 2)
         diferencia = motivo = None
-        manual = (c.get("origen") or "interbanking") == "manual"
         if saldo_final is None:
-            motivo = ("Interbanking no informa esta cuenta: no hay saldo de apertura"
-                      if manual else
-                      f"no hay saldo del banco al {dia_previo.isoformat()} (la apertura)")
+            motivo = f"no hay saldo al {dia_previo.isoformat()} (la apertura)"
         elif cierre_banco is None:
             motivo = f"no hay saldo del banco al {fecha.isoformat()}"
         else:
@@ -1405,6 +1490,10 @@ def tablero(email: str, fecha: date) -> dict:
             "saldo_final": saldo_final,
             "cierre_banco": cierre_banco,
             "ajuste_manual": round(ajuste, 2) if ajuste else 0.0,
+            # Cuánto de ese acumulado se cargó HOY. Se publica aparte porque son
+            # dos preguntas distintas: «cuánto de este saldo lo puso una persona»
+            # y «qué se tocó hoy».
+            "ajuste_manual_dia": (cierre or {}).get("ajuste_dia") or 0.0,
             "diferencia": diferencia,
             "concilia": concilia,
             "dif_sin_gastos": dif_sin_gastos,
@@ -1978,7 +2067,12 @@ def diferencias(email: str, fecha: date) -> dict:
                     AS neto,
                   count(*) AS n
              FROM bancos.movimientos WHERE fecha = %s GROUP BY cuenta_id""", (fecha,))}
-    manuales = _ajuste_manual(fecha)
+    # ⚠️ Acá va el DEL DÍA, no el acumulado, y es a propósito: esta pantalla
+    # reconstruye la aritmética del BANCO (cierre − cierre == Σ movimientos) con
+    # números crudos de los dos lados. El manual se publica al costado para que
+    # nadie se confunda al comparar con el consolidado; si entrara en la cuenta,
+    # cada ajuste nuestro aparecería como una diferencia del banco.
+    manuales = _manuales(fecha)
 
     def _cierre(cid: int, f: date) -> float | None:
         e = ext.get((cid, f))
@@ -2017,7 +2111,7 @@ def diferencias(email: str, fecha: date) -> dict:
             # contra apertura/cierre del MISMO día. Viaja para poder distinguir
             # un asiento retroactivo de un día que directamente no cuadra.
             "cierra": e.get("cierra"),
-            "ajuste_manual": (manuales.get(cid) or {}).get("ajuste") or None,
+            "ajuste_manual": (manuales.get(cid) or {}).get("del_dia") or None,
         })
 
     _auditar(email, None, previa, fecha, len(filas))
@@ -2069,7 +2163,7 @@ def consolidado(email: str, fecha: date) -> dict:
     )
     baldes = _baldes()
     gastos = _gastos_bancarios(fecha, baldes)
-    manuales = _ajuste_manual(fecha)
+    manuales = _manuales(fecha)
 
     bancos: list[dict] = []
     por_banco: dict[str, dict] = {}
@@ -2082,13 +2176,13 @@ def consolidado(email: str, fecha: date) -> dict:
 
         # Quién manda: el extracto si lo hay, si no el saldo. Nunca los dos.
         man = manuales.get(r["id"]) or {}
-        ajuste = man.get("ajuste") or 0.0
+        ajuste = man.get("acumulado") or 0.0
 
         if fin is not None:
             fuente = "extracto"
         elif del_banco is not None:
             fuente, fin = "saldo", del_banco
-        elif man:
+        elif man.get("movimientos"):
             # El caso del BANCO MANUAL: no hay extracto ni saldo porque el banco
             # no está en Interbanking. Ahí el saldo ES la suma de lo que se cargó
             # a mano, y arranca de cero.
@@ -2101,8 +2195,19 @@ def consolidado(email: str, fecha: date) -> dict:
         # Es lo que el banco no informa: en una cuenta real se suma arriba de su
         # extracto, y en una manual es todo el saldo. Mismo criterio que los
         # REGISTROS MANUALES de Tesorería.
+        #
+        # ⚠️⚠️ Y es el ACUMULADO (ver `_manuales()`): el banco no va a informar
+        # NUNCA esos movimientos, así que siguen formando parte del saldo todos
+        # los días siguientes. Con el ajuste por día, el cierre salía bien el día
+        # de la carga y al día siguiente volvía al crudo de Interbanking.
         if fin is not None and ajuste:
             fin = round(fin + ajuste, 2)
+
+        # La APERTURA lleva el acumulado de AYER, que es el cierre de ayer: si
+        # llevara el de hoy, la variación del día se comería los manuales de hoy
+        # y daría siempre la del banco pelada.
+        if ini is not None and man.get("hasta_ayer"):
+            ini = round(ini + man["hasta_ayer"], 2)
 
         # Si el banco informa las dos cosas y no coinciden, es un hallazgo de
         # conciliación — se publica, no se elige una y se tapa la otra.
@@ -2127,8 +2232,14 @@ def consolidado(email: str, fecha: date) -> dict:
             # Cuánto del cierre lo puso una persona. Se publica aparte para que la
             # vista lo pueda cantar: un saldo con ajuste manual no es lo mismo que
             # uno que informó el banco.
+            # ⚠️ El importe y el conteo se refieren SIEMPRE al mismo conjunto:
+            # `ajuste_manual` es el ACUMULADO, así que `movimientos_manuales` es
+            # el total, no el del día. Cruzarlos hacía que el badge dijera
+            # «incluye $250.000 de 0 movimientos» el día que no se cargó nada.
             "ajuste_manual": round(ajuste, 2) if ajuste else None,
             "movimientos_manuales": man.get("movimientos") or 0,
+            "ajuste_manual_dia": man.get("del_dia") or 0.0,
+            "movimientos_manuales_dia": man.get("movimientos_del_dia") or 0,
             "movimientos": r.get("total_movimientos"),
             # La variación solo existe si el cierre sale del EXTRACTO: restar una
             # apertura de extracto contra un saldo de otra fuente mezclaría dos

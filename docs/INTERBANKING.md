@@ -877,6 +877,51 @@ sistema contable los registra al mes). Viaja con `motivo`.
   declara en `POST_QUE_NO_ESCRIBEN`, una lista corta y explícita: sumar uno ahí
   es el momento en que alguien tiene que justificar por qué no escribe.
 
+### El SALDO INICIAL es el cierre de ayer — manuales incluidos (2026-08-27)
+
+El tablero abre cada fila con el **saldo inicial del día**, que no lo informa el
+mayor (`registrosContables` devuelve movimientos, no saldos): sale de nuestro
+lado, y es **el cierre del día hábil anterior**.
+
+⚠️ **Hasta el 2026-08-27 esa apertura venía SIN los movimientos manuales**, y el
+cierre del mismo día sí los llevaba. O sea: la misma fecha valía distinto según
+se la leyera como cierre o como apertura, y **la diferencia publicada quedaba
+inflada exactamente en el ajuste manual del día anterior** — con el mayor
+perfecto. Un manual de $1M cargado ayer hacía aparecer hoy un descuadre de $1M.
+
+Por qué costó verlo, que es la parte que importa: **nada fallaba**. La apertura
+del drill-down (`_mayor_de_base`) salía de la MISMA función, así que las dos
+pantallas mostraban el mismo número falso y **se confirmaban entre sí**; y
+`conciliar()` tenía su propia copia de la precedencia (extracto → saldo informado
+→ ajuste manual) que sí estaba bien, con lo cual cada mitad era coherente consigo
+misma. Es el patrón de la REGLA #9: dos copias del mismo criterio sin árbitro.
+
+Cómo quedó:
+
+- **El ajuste entra en `_saldos_banco()` y no en el que llama.** Deja de ser un
+  paso que hay que recordar y pasa a ser parte del valor. Es la regla que ya
+  declaraban `crear_movimiento_manual()` («impacta SIEMPRE el saldo al cierre») y
+  `consolidado()` («se aplica SIEMPRE, venga el saldo de donde venga») — esa
+  función era la única que no la cumplía.
+- **`conciliar()` perdió su copia** y lee de `_saldos_banco()` como el resto. Una
+  sola implementación de la precedencia, un solo lugar donde equivocarse.
+- **`ajuste_manual` sigue siendo el de HOY** (cuánto del CIERRE lo puso una
+  persona). El de ayer ya está adentro del saldo inicial; publicarlos mezclados
+  haría que la pantalla explicara el cierre con un número de otro día.
+- **`saldo_inicio_fuente` lo canta**: dice `extracto + ajuste manual` cuando lo
+  hay, y es el tooltip de la celda.
+- ⚠️ **Una cuenta `origen='manual'` sigue sin conciliar, y ahora dice por qué.**
+  No es que le falte el extracto: Interbanking no la informa, y lo que se carga a
+  mano es el **movimiento del día, no un saldo acumulado** — usarlo como apertura
+  publicaría un número que no es una apertura. El motivo lo dice con todas las
+  letras en vez de mandar al back office a buscar un archivo que no existe. (En
+  CONSOLIDADO esa cuenta sí muestra un saldo, que es la suma de sus manuales de
+  ese día: son dos preguntas distintas.)
+
+**Lo que NO cambió**: el arrastre. Cada día se sigue juzgando aislado y un
+descuadre viejo no se ve. Es deliberado — el tablero contesta «¿qué pasó ayer?»,
+no «¿está bien el saldo absoluto?».
+
 ### El umbral, el signo, y no cruzar lados
 
 - ⚠️ **Debajo de UN PESO nominal no hay diferencia.** Caso real: `590.708,27`

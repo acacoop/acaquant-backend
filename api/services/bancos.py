@@ -1199,28 +1199,73 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # camino alternativo (`conciliar()`), que además sirve para una cuenta que todavía
 # no esté mapeada.
 
-def _saldos_banco(fecha: date) -> dict[int, dict]:
-    """{cuenta_id: {"valor", "fuente"}} — lo que el BANCO dice que cerró ese día.
+def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
+    """{cuenta_id: {"valor", "fuente", "ajuste"}} — el saldo al cierre de ese día
+    **tal como lo publicamos**: lo que informó el banco MÁS los movimientos
+    manuales de esa cuenta ese día.
 
-    Misma precedencia que `conciliar()`: primero el extracto (que es el cierre
-    declarado por el banco) y si no hay, el saldo informado. En UNA query para
-    todas las cuentas: la vista muestra ~38 filas y hacerlo de a una eran 76
-    consultas por pantalla.
+    ⚠️ **Los manuales entran ACÁ y no en el que llama.** Hasta el 2026-08-27 esta
+    función devolvía el saldo pelado de Interbanking y cada consumidor se
+    acordaba (o no) de sumarle el ajuste. `tablero()` se acordaba para el CIERRE
+    de hoy y no para la APERTURA —que es el cierre de AYER— así que el mismo día,
+    leído como cierre y leído como apertura, valía distinto: **la diferencia
+    publicada quedaba inflada exactamente en el ajuste manual del día anterior**,
+    y como el drill-down (`_mayor_de_base`) leía la apertura de la misma función,
+    las dos pantallas mostraban el mismo descuadre falso y se confirmaban entre
+    sí. No fallaba nada: las dos mitades eran coherentes.
+
+    Por eso el ajuste deja de ser un paso que hay que recordar y pasa a ser parte
+    del valor. Es la misma regla que ya declaraban `crear_movimiento_manual()`
+    («impacta SIEMPRE el saldo al cierre») y `consolidado()` («se aplica SIEMPRE,
+    venga el saldo de donde venga»); esta función era la única que no la cumplía.
+
+    Precedencia del saldo del banco: primero el extracto (el cierre declarado) y
+    si no hay, el saldo informado. En UNA query para todas las cuentas: la vista
+    muestra ~38 filas y hacerlo de a una eran 76 consultas por pantalla.
+
+    `cuenta_id` acota a UNA cuenta —y entonces NO filtra por `activa`, porque el
+    drill-down puede pedir una cuenta dada de baja que el tablero ya no lista.
     """
-    filas = _q(
-        """SELECT c.id AS cuenta_id, e.saldo_cierre,
-                  coalesce(s.saldo_operativo, s.saldo_dia) AS informado
-             FROM bancos.cuentas c
-             LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
-             LEFT JOIN bancos.saldos      s ON s.cuenta_id = c.id AND s.fecha = %s
-            WHERE c.activa""", (fecha, fecha))
+    # El ajuste manual sale de la MISMA expresión que `_ajuste_manual()`: los
+    # guardamos en valor absoluto + `tipo`, y el signo lo pone una sola regla.
+    sql = """
+        SELECT c.id AS cuenta_id, e.saldo_cierre,
+               coalesce(s.saldo_operativo, s.saldo_dia) AS informado,
+               coalesce(m.ajuste, 0) AS ajuste
+          FROM bancos.cuentas c
+          LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
+          LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s
+          LEFT JOIN (SELECT cuenta_id,
+                            sum(CASE WHEN tipo = 'C' THEN abs(importe)
+                                     ELSE -abs(importe) END) AS ajuste
+                       FROM bancos.movimientos_manuales
+                      WHERE fecha = %s
+                      GROUP BY cuenta_id) m ON m.cuenta_id = c.id
+         WHERE """
+    if cuenta_id is None:
+        filas = _q(sql + "c.activa", (fecha, fecha, fecha))
+    else:
+        filas = _q(sql + "c.id = %s", (fecha, fecha, fecha, cuenta_id))
+
     out: dict[int, dict] = {}
     for r in filas:
         if r["saldo_cierre"] is not None:
-            out[r["cuenta_id"]] = {"valor": _f(r["saldo_cierre"]), "fuente": "extracto"}
+            base, fuente = _f(r["saldo_cierre"]), "extracto"
         elif r["informado"] is not None:
-            out[r["cuenta_id"]] = {"valor": _f(r["informado"]),
-                                   "fuente": "saldo informado por el banco"}
+            base, fuente = _f(r["informado"]), "saldo informado por el banco"
+        else:
+            # Sin extracto ni saldo no hay de qué colgar el ajuste. Los manuales
+            # NO alcanzan para inventar un saldo: en una cuenta 100% manual lo
+            # que hay cargado es el movimiento del día, no un acumulado, así que
+            # usarlo como apertura publicaría un número que no es una apertura.
+            # Se omite la cuenta y el que llama dice por qué (ver `tablero`).
+            continue
+        ajuste = _f(r["ajuste"]) or 0.0
+        out[r["cuenta_id"]] = {
+            "valor": round((base or 0.0) + ajuste, 2),
+            "fuente": f"{fuente} + ajuste manual" if ajuste else fuente,
+            "ajuste": round(ajuste, 2),
+        }
     return out
 
 
@@ -1249,12 +1294,14 @@ def tablero(email: str, fecha: date) -> dict:
 
     Columnas, y de dónde sale cada una:
 
-      saldo_inicio  cierre del BANCO del día hábil ANTERIOR. El mayor no informa
-                    saldos —`registrosContables` devuelve movimientos— así que la
-                    apertura sale de nuestro lado. Consecuencia asumida: **cada
-                    día se juzga aislado y un descuadre arrastrado no se ve**. Es
-                    deliberado; contesta «¿qué pasó ayer?», no «¿está bien el
-                    saldo absoluto?».
+      saldo_inicio  nuestro cierre del día hábil ANTERIOR — el del banco **más
+                    los movimientos manuales de ese día**, o sea exactamente el
+                    mismo número que esa fecha mostró como `cierre_banco`. El
+                    mayor no informa saldos —`registrosContables` devuelve
+                    movimientos— así que la apertura sale de nuestro lado.
+                    Consecuencia asumida: **cada día se juzga aislado y un
+                    descuadre arrastrado no se ve**. Es deliberado; contesta
+                    «¿qué pasó ayer?», no «¿está bien el saldo absoluto?».
       debe/haber    movimientos del MAYOR de ese día.
       saldo_final   saldo_inicio + debe + haber (el haber ya es negativo).
       diferencia    **cierre del BANCO del día − saldo final del mayor.** Los dos
@@ -1285,6 +1332,12 @@ def tablero(email: str, fecha: date) -> dict:
     Sin saldo del banco (feriado, extracto que no llegó) la fila va con
     `diferencia: null` y el motivo: **no se cae a cero**, porque «no sé» y «cero»
     son cosas distintas y confundirlas acá inventa un descuadre.
+
+    ⚠️ Una cuenta de `origen='manual'` cae siempre en ese caso, y el motivo lo
+    dice con todas las letras en vez de culpar a un extracto que nunca va a
+    llegar: Interbanking no la informa y lo que se carga a mano es el MOVIMIENTO
+    del día, no un saldo acumulado, así que no hay apertura que publicar. Ver
+    `_saldos_banco`.
     """
     dia_previo = restar_habiles(fecha, 1)
     cuentas = _q(
@@ -1296,7 +1349,6 @@ def tablero(email: str, fecha: date) -> dict:
     previos, hoy = _saldos_banco(dia_previo), _saldos_banco(fecha)
     mayor = _mayor_del_dia(fecha)
     gastos = _gastos_bancarios(fecha, _baldes())
-    ajustes = _ajuste_manual(fecha)
 
     filas = []
     for c in cuentas:
@@ -1311,16 +1363,21 @@ def tablero(email: str, fecha: date) -> dict:
         debe = (mov or {}).get("debe", 0.0)
         haber = (mov or {}).get("haber", 0.0)
 
-        # El ajuste manual va del lado del BANCO, igual que en `conciliar()`: es
-        # plata que el banco no informó y alguien cargó a mano. Sumarlo del lado
-        # del mayor lo contaría al revés.
-        ajuste = (ajustes.get(cid) or {}).get("ajuste") or 0.0
-        cierre_banco = None if cierre is None else round(cierre["valor"] + ajuste, 2)
+        # El ajuste manual ya viene DENTRO del valor, de los dos lados: es plata
+        # que el banco no informó y alguien cargó a mano, y va del lado del BANCO
+        # (sumarlo del lado del mayor lo contaría al revés). Se lee acá solo para
+        # publicarlo aparte, que es lo que le deja decir a la pantalla cuánto de
+        # ese saldo lo puso una persona.
+        ajuste = (cierre or {}).get("ajuste") or 0.0
+        cierre_banco = None if cierre is None else cierre["valor"]
 
         saldo_final = None if saldo_inicio is None else round(saldo_inicio + debe + haber, 2)
         diferencia = motivo = None
+        manual = (c.get("origen") or "interbanking") == "manual"
         if saldo_final is None:
-            motivo = f"no hay saldo del banco al {dia_previo.isoformat()} (la apertura)"
+            motivo = ("Interbanking no informa esta cuenta: no hay saldo de apertura"
+                      if manual else
+                      f"no hay saldo del banco al {dia_previo.isoformat()} (la apertura)")
         elif cierre_banco is None:
             motivo = f"no hay saldo del banco al {fecha.isoformat()}"
         else:
@@ -1405,8 +1462,11 @@ def _mayor_de_base(cuenta_id: int, fecha: date) -> tuple[dict, dict]:
                "suma": round(sum(m["importe"] for m in movimientos), 2),
                "avisos": []}
 
+    # La apertura sale de la MISMA función que la del tablero —manuales de ese
+    # día incluidos—, así que el cierre que se calcula acá no puede contradecir
+    # al de la grilla. `cuenta_id` acota la query a esta cuenta.
     previo = restar_habiles(fecha, 1)
-    apertura = _saldos_banco(previo).get(cuenta_id)
+    apertura = _saldos_banco(previo, cuenta_id).get(cuenta_id)
     if apertura is None:
         # Sin apertura no hay cierre que calcular. Se devuelve `None` y NO cero:
         # un cero acá se compararía contra el saldo real y fabricaría un
@@ -1442,22 +1502,16 @@ def conciliar(email: str, cuenta_id: int, fecha: date,
         raise ValueError("Esa cuenta no existe.")
     cuenta = _cuenta_publica(cuentas[0])
 
-    ext = _q(
-        """SELECT saldo_cierre FROM bancos.extracto_dia
-            WHERE cuenta_id = %s AND fecha = %s""", (cuenta_id, fecha))
-    nuestro = _f(ext[0]["saldo_cierre"]) if ext and ext[0]["saldo_cierre"] is not None else None
-    fuente = "extracto" if nuestro is not None else None
-    if nuestro is None:
-        sal = _q(
-            """SELECT coalesce(saldo_operativo, saldo_dia) AS saldo FROM bancos.saldos
-                WHERE cuenta_id = %s AND fecha = %s""", (cuenta_id, fecha))
-        if sal:
-            nuestro, fuente = _f(sal[0]["saldo"]), "saldo informado por el banco"
-
-    ajuste = (_ajuste_manual(fecha).get(cuenta_id) or {}).get("ajuste") or 0.0
-    if nuestro is not None and ajuste:
-        nuestro = round(nuestro + ajuste, 2)
-        fuente = f"{fuente} + ajuste manual"
+    # ⚠️ El saldo sale de `_saldos_banco`, la MISMA función que usan el tablero y
+    # `_mayor_de_base`. Acá había una segunda copia de la precedencia
+    # (extracto → saldo informado → ajuste manual): mientras las dos dijeran lo
+    # mismo no pasaba nada, y por eso el día que `_saldos_banco` se olvidó de los
+    # manuales nadie lo vio. Una sola implementación, un solo lugar donde
+    # equivocarse.
+    saldo = _saldos_banco(fecha, cuenta_id).get(cuenta_id)
+    nuestro = saldo["valor"] if saldo else None
+    fuente = saldo["fuente"] if saldo else None
+    ajuste = (saldo or {}).get("ajuste") or 0.0
 
     # Sin `filas` el mayor sale de la base (lo trae `jobs/mayor_sync`); con
     # `filas`, del .xlsx que subieron. De acá para abajo NO se distingue: la

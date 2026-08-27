@@ -961,3 +961,21 @@ def test_un_arreglo_que_pide_datos_lo_declara():
     assert piden == {"completar_ficha"}, (
         f"cambió qué arreglos piden datos: {piden}")
     assert all("pide_datos" in c for c in arreglos.catalogo())
+
+
+def test_el_paquete_de_detectores_publica_todos_sus_modulos():
+    """`agente/detectores/__init__.py` no puede quedarse corto.
+
+    Al sumar `catalogo` quedó fuera del import y de `__all__`. No rompía nada
+    —`from agente.detectores import catalogo` igual funciona—, y esa es
+    justamente la razón por la que hay que congelarlo: un paquete cuyo índice no
+    lista a todos sus miembros miente sobre qué hay adentro, y el próximo que lo
+    lea va a creer que los detectores son tres.
+    """
+    from agente import detectores
+
+    en_disco = {p.stem for p in (RAIZ / "agente" / "detectores").glob("*.py")
+                if p.stem != "__init__"}
+    assert set(detectores.__all__) == en_disco, (
+        f"el paquete lista {sorted(detectores.__all__)} y en disco hay "
+        f"{sorted(en_disco)}")

@@ -43,7 +43,7 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 
 from psycopg.rows import dict_row
 
@@ -81,67 +81,6 @@ def _ensure() -> None:
 
 # ── Controles (cada uno devuelve [{key, detalle}]) ───────────────────────────
 
-# La matriz de forwards que importa a la mesa es SOLO la de la tabla de renta
-# fija: TASA FIJA y CER. Las curvas de ONs (on_*) tienen forwards publicados
-# pero sus faltantes no son accionables (bonos ilíquidos) → ruido.
-CURVAS_FORWARDS = ("tasa_fija", "cer")
-
-
-def _chk_forwards_faltantes() -> list[dict]:
-    """Bonos del master ausentes de la matriz de forwards de su curva + matrices
-    stale. Solo evalúa CURVAS_FORWARDS (tasa_fija/cer) que el motor efectivamente
-    publica (hay doc en mercado_hist)."""
-    from core.curvas_sql import agrupado_por_curva
-    from core.market_snapshot import cols_map
-    grupos = agrupado_por_curva()
-    docs = {r["k"]: r for r in _q(
-        "SELECT DISTINCT ON (k) k, fecha, data FROM mercado.mercado_hist "
-        "WHERE coleccion = 'ForwardsHistorico' AND k = ANY(%s) ORDER BY k, fecha DESC",
-        (list(CURVAS_FORWARDS),))}
-    items: list[dict] = []
-    for curva, doc in docs.items():
-        insts = grupos.get(curva) or []
-        if not insts:
-            continue
-        # Matriz que dejó de publicarse (>4 días cubre finde largo).
-        if doc["fecha"] < date.today() - timedelta(days=4):
-            items.append({"key": f"{curva}::__stale__",
-                          "detalle": f"[{curva}] matriz sin publicar desde {doc['fecha']}"})
-        publicados = set((doc.get("data") or {}).get("tickers") or [])
-        master = {(i.get("ticker_corto") or "").strip(): i["ticker"]
-                  for i in insts if (i.get("ticker_corto") or "").strip() and i.get("ticker")}
-        faltantes = sorted(set(master) - publicados)
-        if not faltantes:
-            continue
-        snap = cols_map([master[tc] for tc in faltantes], ["tea", "duration", "last_price"])
-        for tc in faltantes:
-            m = snap.get(master[tc]) or {}
-            # last_price None O 0 = no operó (el dry-run 2026-07-09 mostró filas
-            # con precio 0: "cotiza sin TEA" era engañoso — no había trade).
-            if not m.get("last_price"):
-                causa = "no operó (sin precio vivo en market_snapshot)"
-            elif m.get("tea") is None:
-                causa = "cotiza pero SIN TEA (motor_curvas no le calculó tasa — revisar flujos/CER del bono)"
-            elif m.get("duration") is None:
-                causa = "cotiza con TEA pero sin duration"
-            else:
-                causa = "tiene TEA+duration y aún no entró a la matriz (revisar motor_forwards)"
-            items.append({"key": f"{curva}::{tc}", "detalle": f"[{curva}] {tc}: {causa}"})
-    return items
-
-
-def _chk_rf_sin_tasa() -> list[dict]:
-    """Bonos del master cotizando (precio vivo) pero sin TEA/TNA — figuran en la
-    tabla de renta fija sin tasa. Mismo criterio que el informe de salud."""
-    rows = _q(
-        "SELECT c.ticker AS ticker_corto FROM mercado.curvas c "
-        "JOIN mercado.market_snapshot ms ON ms.ticker = c.instrumento "
-        "WHERE COALESCE(ms.last_price, 0) > 0 AND COALESCE(ms.tea, 0) = 0 "
-        "ORDER BY c.ticker")
-    return [{"key": r["ticker_corto"], "detalle": f"{r['ticker_corto']}: cotiza sin TEA/TNA"}
-            for r in rows if r.get("ticker_corto")]
-
-
 def _chk_assets_sin_cartera() -> list[dict]:
     """Assets sin CARTERA: su valuación queda SIN CLASIFICAR (el divisor del AuM
     lo decide la cartera) — Manager → Títulos → Assets."""
@@ -151,27 +90,6 @@ def _chk_assets_sin_cartera() -> list[dict]:
         "ORDER BY unidad")
     return [{"key": r["unidad"], "detalle": f"{r['unidad']}: sin cartera"}
             for r in rows if r.get("unidad")]
-
-
-def _chk_unidades_gemelas() -> list[dict]:
-    """Assets cuya `unidad` colisiona con otra al sacarle los espacios de los
-    bordes: son LA MISMA cosa dos veces (REGLA #9). Es el caso OTC del
-    2026-08-22 — una escritura con la identidad stripeada + el upsert de
-    `set_campos` fabricó una fila FANTASMA trimmeada, y tres pantallas quedaron
-    coherentes entre sí contando mentiras (verificado ✔, control cantando,
-    propuesta infinita). El código ya no puede repetirlo (la identidad no se
-    stripea y el agente escribe con `crear=False`); este control existe para
-    que si entra por CUALQUIER otra vía (un import, un tipeo, Aunesa), dure
-    horas y no días. Se repara con `scripts/diag_unidades_fantasma`."""
-    rows = _q(
-        "SELECT btrim(unidad) AS base, count(*) AS n "
-        "FROM portafolio.assets GROUP BY btrim(unidad) HAVING count(*) > 1 "
-        "ORDER BY base")
-    return [{"key": r["base"],
-             "detalle": (f"{r['base']}: {r['n']} filas que son la misma unidad "
-                         "con distintos espacios — reparar con "
-                         "scripts/diag_unidades_fantasma")}
-            for r in rows if r.get("base")]
 
 
 def _chk_fci_incompletos() -> list[dict]:
@@ -196,398 +114,6 @@ def _chk_fci_incompletos() -> list[dict]:
     return out
 
 
-def _chk_titulos_sin_flujo() -> list[dict]:
-    """Bonos que la casa TIENE HOY y que no tienen cronograma de flujos cargado.
-
-    Esto existía como un botón en Manager → VALIDACIONES («Títulos sin flujo»),
-    o sea que solo se enteraba el que se acordaba de apretarlo. Pasa a control
-    (2026-08-19, pedido del user: *«que ni haga falta decirle que hay algo
-    mal»*): así se re-verifica solo todos los días, entra al agente con su
-    historial, y lo que se resuelve desaparece de la lista sin que nadie lo
-    marque.
-
-    **Solo los que están EN CARTERA.** El conciliador completo trae también los
-    que no tenemos, y eso convierte la lista en un catálogo — 300 filas que
-    nadie mira. Un bono sin flujo que no tenemos no cuesta nada hoy; uno que
-    tenemos **no valúa**, y eso sí es plata mal contada.
-
-    Import de api/services permitido: misma excepción documentada que los jobs
-    de precompute (jobs/CLAUDE.md).
-    """
-    from api.services.acreencias import titulos_sin_flujo
-    return [{
-        "key": str(t.get("unidad") or t.get("ticker")),
-        "detalle": (f"{t.get('ticker') or t.get('unidad')}: sin flujo en "
-                    f"{t.get('fuente') or 'ninguna fuente'} — {t.get('motivo') or ''}"
-                    f" (cartera {t.get('cartera') or '?'})").strip(),
-    } for t in titulos_sin_flujo() if t.get("en_cartera")]
-
-
-def _chk_rf_valuada_x1() -> list[dict]:
-    """Renta fija (cartera HD/DL/ARS) cuya valuación en el ÚLTIMO snapshot de
-    tenencia quedó SIN dividir por 100 (cociente valuacion/(precio×cantidad)≈1).
-    Es la firma del bug LEDE (2026-07-24: Aunesa inventó el tipoTitulo 'LEDE',
-    no estaba en TIPOS_DIVISOR_100 → la S13N6 quedó ×100 en el AuM). Si Aunesa
-    inventa OTRO tipo nuevo, aparece acá al día siguiente. Acción: sumar el
-    tipo nuevo a las listas de divisor y corregir la historia de tenencia."""
-    rows = _q(
-        "SELECT unidad, count(*) AS n, sum(valuacion) AS val "
-        "FROM portafolio.tenencia "
-        "WHERE fecha = (SELECT max(fecha) FROM portafolio.tenencia) "
-        "  AND cartera IN ('HD','DL','ARS') "
-        "  AND precio <> 0 AND cantidad <> 0 "
-        "  AND abs(valuacion / (precio * cantidad) - 1) < 0.05 "
-        "GROUP BY unidad ORDER BY sum(valuacion) DESC")
-    return [{
-        "key": r["unidad"],
-        "detalle": (f"{r['unidad']}: RF valuada SIN ÷100 en {r['n']} cuenta(s) "
-                    f"(${float(r['val'] or 0):,.0f}) — ¿tipoTitulo nuevo de Aunesa?"),
-    } for r in rows if r.get("unidad")]
-
-
-def _chk_comitentes_sin_nivel1() -> list[dict]:
-    """Comitentes Activas sin nivel_1 → fuera de la segmentación (Clientes →
-    Segmentación) y de los filtros madre. PRIVADO (keys = id_cuenta)."""
-    rows = _q(
-        "SELECT id_cuenta FROM clientes.comitentes "
-        "WHERE estado = 'Activa' AND (nivel_1 IS NULL OR nivel_1 = '') "
-        "ORDER BY id_cuenta")
-    return [{"key": str(r["id_cuenta"]), "detalle": f"cuenta {r['id_cuenta']}: sin nivel_1"}
-            for r in rows if r.get("id_cuenta")]
-
-
-def _chk_simbolos_cuarentena() -> list[dict]:
-    """Símbolos en cuarentena: ROFEX los rechazó ("Product don't exist") y el WS
-    los excluye de las suscripciones (core/simbolos_cuarentena). La causa de
-    fondo suele ser un ticker mal cargado o un bono vencido en el master —
-    corregirlo ahí es el fix definitivo. Se auto-resuelven si ROFEX los vuelve
-    a aceptar en la ventana de reintento (7d)."""
-    rows = _q(
-        "SELECT ticker, motivo, rechazos, last_seen::date AS ultimo "
-        "FROM mercado.simbolos_cuarentena "
-        "WHERE last_seen >= now() - interval '7 days' ORDER BY ticker")
-    return [{
-        "key": r["ticker"],
-        "detalle": (f"{r['ticker']}: {r['motivo']} — {r['rechazos']} rechazo(s), "
-                    f"último {r['ultimo']}"),
-    } for r in rows if r.get("ticker")]
-
-
-def _chk_contrapartes_pendientes() -> list[dict]:
-    """Conciliador de contrapartes (= botón "Solicitar cuentas" de Manager):
-    cuentas de Aunesa que matchean una contraparte conocida y NO están dadas de
-    alta en clientes.contrapartes. PRIVADO (keys = cuenta; detalle queda en DB).
-    Import de api/services permitido: misma excepción documentada que los jobs
-    de precompute (jobs/CLAUDE.md)."""
-    from api.services.contrapartes_seg import reconciliar
-    res = reconciliar(limit=500)
-    return [{
-        "key": str(c.get("cuenta")),
-        "detalle": (f"cuenta {c.get('cuenta')} '{c.get('denominacion', '')}' → "
-                    f"sugerida: {c.get('contraparte_sugerida')} ({c.get('segmento_sugerido')})"),
-    } for c in res.get("candidatos", []) if c.get("cuenta")]
-
-
-def _chk_ops_sin_tc() -> list[dict]:
-    """Boletos ARS sin `mep` en un día que SÍ tiene cotización en el feed: la vista
-    OPERACIONES en modo DOLARIZAR no los puede convertir con su snapshot.
-
-    Es la firma del incidente 2026-08-10 (jobs/fci_bilateral insertaba sin `mep`
-    → el mercado FCI Bilateral tenía volumen ARS real y ~0 al dolarizar). El
-    service ya cae al TC del día, así que hoy no MIENTE, pero un boleto sin
-    snapshot sigue siendo una fuente de ingesta rota que hay que arreglar.
-
-    Agrupa por (mercado, mes) → pocas keys y se auto-resuelven al rellenarse.
-    Lo anterior al inicio del feed queda afuera: ahí no hay TC que estampar."""
-    rows = _q(
-        "SELECT COALESCE(NULLIF(mercado, ''), '(sin mercado)') AS mercado, "
-        "       to_char(concertacion, 'YYYY-MM') AS mes, count(*) AS n "
-        "FROM operaciones.operaciones "
-        "WHERE anulado_en IS NULL AND moneda = 'ARS' AND (mep IS NULL OR mep = 0) "
-        "  AND concertacion >= (SELECT min(timestamp)::date FROM valuaciones.dolar "
-        "                       WHERE mep IS NOT NULL AND mep > 0) "
-        "GROUP BY 1, 2 ORDER BY 2 DESC, 3 DESC")
-    return [{
-        "key": f"{r['mercado']}::{r['mes']}",
-        "detalle": (f"{r['mercado']} {r['mes']}: {r['n']} boleto(s) ARS sin TC "
-                    f"— la ingesta no estampó `mep`"),
-    } for r in rows]
-
-
-def _chk_patas_sin_precio() -> list[dict]:
-    """Bonos del master cuyo SÍMBOLO no tiene precio: nadie se lo está pidiendo.
-
-    ⚠️ **La pregunta que ninguna de nuestras tablas podía contestar** (incidente
-    2026-08-19). `mercado.timesales` y `market_snapshot` los escribe el motor
-    **solo para lo que suscribe**, así que «no tiene precio» nunca significó «no
-    cotiza»: significaba «no lo estamos escuchando». Se midió con esas tablas y
-    dieron 0 por construcción — el AO29D resultó cotizar a USD 90,76 en cuanto se
-    lo pidió.
-
-    Por eso este control NO concluye nada sobre liquidez: solo señala que hay un
-    símbolo del master que nadie está pidiendo. La respuesta se consigue
-    pidiéndolo, que es lo que hace la acción `mercado.pedir_pata`.
-    """
-    from core.postgres import get_pool
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT c.ticker, c.instrumento, c.curva
-            FROM mercado.curvas c
-            LEFT JOIN mercado.market_snapshot s ON s.ticker = c.instrumento
-            LEFT JOIN mercado.adhoc_subscriptions a
-                   ON a.ticker = c.instrumento AND a.expires_at > now()
-            WHERE c.instrumento IS NOT NULL
-              AND (s.last_price IS NULL OR s.last_price = 0)
-              AND a.ticker IS NULL          -- ya pedido = no hace falta proponerlo
-              -- Y que Primary lo conozca: pedir algo que no existe no informa nada.
-              AND EXISTS (SELECT 1 FROM mercado.especies e
-                           WHERE e.simbolo = c.instrumento)
-            ORDER BY c.ticker
-        """)
-        return [{"key": r[0], "ticker": r[0], "simbolo": r[1], "curva": r[2],
-                 "detalle": f"«{r[1]}» no tiene precio y nadie lo está pidiendo"}
-                for r in cur.fetchall()]
-
-
-def _chk_patas_dolar_sin_pedir() -> list[dict]:
-    """Bonos de curva USD que cotizan por su pata en PESOS teniendo una pata en
-    dólares sembrada **que nadie está pidiendo**.
-
-    Es el hermano nocturno del hallazgo `cotiza_en_pesos`, y existe por lo que el
-    user marcó el 2026-08-19: *«no ofrece una solución o algo, nada»*. El hallazgo
-    describía la situación y se terminaba ahí.
-
-    ⚠️ **No propone cambiar el master.** Apuntar `curvas.instrumento` a la otra
-    pata exige reiniciar `motor_rofex`, y eso no se ve hasta la noche (§0.v). Lo
-    que este control habilita es el paso ANTERIOR y el que sí se ve en el acto:
-    **escuchar** esa pata, para saber si opera. Sin ese dato, el reinicio sería a
-    ciegas — y apuntar el master a una pata que tampoco cotiza es cambiar un
-    problema por otro.
-
-    Solo mira las patas **ya sembradas**: las que están únicamente en el catálogo
-    de Primary hay que sembrarlas primero, y eso lo hace la puerta del agente
-    (`agente.pata`) con el bono a la vista, no un cron.
-
-    ⚠️⚠️ **EL SQL SOLO PRESELECCIONA. QUIÉN DECIDE ES `av_agent_pata.explicar`**
-    (2026-08-22, §0.cf). Este control decía **133** y el botón arregló **16**: los
-    otros 117 contestaron *«ya la escuchamos»*. No era el botón — era que la
-    misma pregunta («¿alguien pide la pata en dólares de este bono?») estaba
-    contestada en DOS lugares con criterios distintos:
-
-      · **Qué pata es.** Acá se elegía por `ORDER BY e.simbolo`, o sea
-        ALFABÉTICO, que devuelve el **cable** (`BPA7C` < `BPA7D`). La acción usa
-        `core.especies.mejor` (MEP sobre cable, 24hs sobre CI). Miraban dos
-        símbolos distintos del mismo bono. Ese bug ya se había arreglado en la
-        puerta y en el diag —está escrito en `_elegir`— y **este control era el
-        tercer lugar que nadie tocó**.
-      · **Qué es «que nadie la pida».** Acá era `adhoc_subscriptions IS NULL`.
-        Pero el motor la puede estar suscribiendo desde el master o desde el
-        universo de portfolio **sin ningún adhoc**, así que estar en
-        `market_snapshot` también cuenta como escucharla. Además el `LEFT JOIN`
-        no distinguía «no está en el snapshot» de «está con precio 0» — que son
-        los dos estados que el AO29 enseñó a separar (§0.v).
-
-    Un control que cuenta 133 y arregla 16 es peor que no tener el control: el
-    número no dice cuánto trabajo hay. Ahora el SQL trae los CANDIDATOS y el
-    veredicto lo da `explicar()`, la misma función que corre al apretar el
-    botón — así el control no puede volver a contar algo que la acción no toca.
-
-    El costo está MEDIDO, no estimado: la corrida del 2026-08-22 llamó a
-    `explicar()` 133 veces en `aplicar` y terminó sin problema. Es un cron
-    nocturno.
-    """
-    from core.postgres import get_pool
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT c.ticker, e.simbolo, c.curva
-            FROM mercado.curvas c
-            JOIN mercado.especies e
-                 ON upper(e.ticker) = upper(c.ticker) AND upper(e.moneda) = 'USD'
-            -- el símbolo que el master usa hoy TIENE precio (si no, el caso es
-            -- `patas_sin_precio`, que es otro control y otra acción)
-            JOIN mercado.market_snapshot s
-                 ON s.ticker = c.instrumento AND s.last_price > 0
-            LEFT JOIN mercado.market_snapshot sd ON sd.ticker = e.simbolo
-            LEFT JOIN mercado.adhoc_subscriptions a
-                   ON a.ticker = e.simbolo AND a.expires_at > now()
-            WHERE upper(coalesce(c.moneda_eje, '')) = 'USD'
-              AND e.simbolo <> c.instrumento
-              AND (sd.last_price IS NULL OR sd.last_price = 0)
-              AND a.ticker IS NULL          -- ya pedida = no hace falta proponerla
-            ORDER BY c.ticker, e.simbolo
-        """)
-        candidatos = cur.fetchall()
-
-    # ── EL VEREDICTO LO DA LA ACCIÓN, NO ESTE SQL ────────────────────────────
-    from agente import pata as av_agent_pata
-
-    vistos: set[str] = set()
-    out = []
-    # ⚠️⚠️ **POR QUÉ SE CUENTA EL DESGLOSE Y NO SOLO EL RESULTADO.** Este control
-    # pasó de 133 a **0** en una corrida, y *«0 porque no hay nada que hacer»* y
-    # *«0 porque me quedé ciego»* se ven EXACTAMENTE IGUAL en la pantalla: los
-    # dos son un tilde verde. Es la misma regla que ya rige para la prueba de
-    # permisos (§0.s): **si el chequeo no pudo mirar, lo tiene que DECIR — el
-    # silencio se lee como un verde.**
-    #
-    # Con el desglose, el verde queda auditable sin volver a consultar nada:
-    # «0 de 133 · 117 ya tienen precio · 16 ya escuchadas». Si mañana dijera
-    # «0 de 0», eso es otra cosa completamente distinta y se ve de una.
-    conteo: dict[str, int] = {}
-    for tk, simbolo, curva in candidatos:
-        if tk in vistos:      # una propuesta por bono: la mesa mira el bono
-            continue
-        vistos.add(tk)
-        # `hay_que_pedirla` es el ÚNICO veredicto con trabajo. Los otros son
-        # estados legítimos que no tienen botón: ya tiene precio, ya la
-        # escuchamos y el mercado no da punta, o el mercado está cerrado y no
-        # se puede afirmar nada todavía.
-        try:
-            d = av_agent_pata.explicar(tk)
-        except Exception:
-            logger.warning("patas_dolar: no pude evaluar %s", tk, exc_info=True)
-            conteo["no_pude"] = conteo.get("no_pude", 0) + 1
-            continue
-        v = (d.get("veredicto") or "?")
-        conteo[v] = conteo.get(v, 0) + 1
-        if v != "hay_que_pedirla":
-            continue
-        # El SÍMBOLO también sale de la acción: si el detector siguiera
-        # nombrando el suyo, la fila diría un símbolo y el botón pediría otro.
-        simbolo = d.get("pedible") or simbolo
-        out.append({"key": tk, "ticker": tk, "simbolo": simbolo, "curva": curva,
-                    "detalle": (f"«{tk}» cotiza en pesos y su pata en dólares "
-                                f"«{simbolo}» no se la pide nadie")})
-    logger.info("patas_dolar: %d con trabajo, de %d bonos evaluados · %s",
-                len(out), len(vistos),
-                " · ".join(f"{k}={n}" for k, n in sorted(conteo.items())) or "sin datos")
-    # **Si no hubo NI UN candidato, el verde no vale.** Un `WHERE` que dejó de
-    # matchear —una columna renombrada, un join que se rompió— produce cero
-    # candidatos y por lo tanto cero hallazgos, con el mismo tilde verde que
-    # «está todo bien». Se avisa fuerte porque es el único caso en que este
-    # control no está diciendo nada.
-    if not vistos:
-        logger.warning("patas_dolar: CERO candidatos — el verde de este control "
-                       "no significa nada. ¿Cambió el esquema de curvas/especies?")
-    return out
-
-
-def _chk_dia_sin_dato() -> list[dict]:
-    """**EL DÍA QUE EL JOB TENÍA QUE ESCRIBIR Y NO ESTÁ.**
-
-    Nace del 2026-08-20: Aunesa contestó HTTP 500 a las 11:00, `jobs/aum` murió
-    y `portafolio.tenencia` se quedó sin el día. El AuM, la Tenencia Valorizada
-    y Títulos en Alquiler mostraron el día anterior **sin ningún cartel**.
-
-    ⚠️ **Mira el RESULTADO, no el proceso.** SALUD ya avisa cuando un job falla,
-    y eso no alcanza por los dos lados: un job puede reventar al final habiendo
-    escrito todo (nada que rehacer) y puede salir en verde sin escribir una fila
-    (todo por rehacer). La única pregunta que importa es si la fecha está en la
-    tabla, y por eso este control consulta la tabla.
-
-    La lista de jobs y el día que le toca a cada uno viven en
-    `agente.rehacer.REHACIBLES` — el mismo lugar del que sale el arreglo, así
-    el control y la acción no pueden discrepar sobre qué día falta.
-    """
-    from agente import rehacer as reh
-    return reh.faltantes()
-
-
-def _chk_patas_equivocadas() -> list[dict]:
-    """**El master suscribe una pata y la correcta es OTRA.** El caso BOPREAL.
-
-    Distinto de `patas_dolar_sin_pedir`, que es su hermano y mira otra cosa: aquél
-    busca una pata en dólares que nadie escucha; **éste busca el CAMPO MAL
-    CARGADO**. `mercado.curvas.instrumento` se llena a mano; la pata que le
-    corresponde la decide **la moneda del EJE de la curva**.
-
-    ⚠️⚠️ **EL ÁRBITRO ES `core.especies.pata_para_el_eje` — el MISMO que usa el
-    detector — y NO `es_default`** (§0.cq). `es_default` es una COPIA del
-    master (`sembrar_especies`: `es_default = simbolo == curvas.instrumento`),
-    así que compararla contra el master es comparar el dato consigo mismo. El
-    costo se midió el 2026-08-22: **11 bonos** de curva USD suscribiendo su
-    pata en PESOS eran INVISIBLES para este control (Primary tenía la default
-    en ARS → el JOIN no devolvía fila) mientras el detector del monitor los
-    cantaba — dos árbitros para la misma pregunta, y la acción
-    `mercado.apuntar_pata` decía «ya no aparece en el control: se resolvió
-    solo» sobre bonos que seguían rotos. REGLA #9 de manual.
-
-    `pata_para_el_eje` ya trae el criterio fino adentro: MEP antes que cable
-    (el cable NO es el MEP) y 24hs antes que CI; y `None` = «no hay pata para
-    ese eje», que no es un problema — una ON hard dollar con una sola especie
-    no está cruzada.
-
-    Y el arreglo ya no exige reiniciar el motor (que era lo que frenaba
-    automatizarlo): `mercado.apuntar_pata` corrige el campo **y pide la pata** en
-    el mismo paso, así el precio entra por el `adhoc_watcher` en 5 s.
-    """
-    from core import especies as _esp
-    from core.postgres import get_pool
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT c.ticker, c.instrumento, c.curva, c.moneda_eje
-            FROM mercado.curvas c
-            WHERE coalesce(c.moneda_eje, '') <> ''
-              AND coalesce(c.instrumento, '') <> ''
-            ORDER BY c.ticker
-        """)
-        bonos = cur.fetchall()
-        cur.execute("SELECT upper(ticker), simbolo, especie, plazo "
-                    "FROM mercado.especies WHERE coalesce(activa, true)")
-        patas: dict[str, list[dict]] = {}
-        for tk, sim, esp, plazo in cur.fetchall():
-            patas.setdefault(tk or "", []).append(
-                {"simbolo": sim, "especie": esp, "plazo": plazo})
-    vistos: set[str] = set()
-    out = []
-    for tk, actual, curva, eje in bonos:
-        tku = (tk or "").strip().upper()
-        if not tku or tku in vistos:      # una propuesta por bono
-            continue
-        mejor = _esp.pata_para_el_eje(patas.get(tku) or [], eje)
-        sugerido = (mejor or {}).get("simbolo") or ""
-        if not sugerido or sugerido == actual:
-            continue
-        vistos.add(tku)
-        out.append({"key": tku, "ticker": tku, "simbolo": actual,
-                    "sugerido": sugerido, "curva": curva,
-                    "detalle": (f"el master de «{tku}» apunta a «{actual}» y a "
-                                f"su eje {str(eje).upper()} le corresponde "
-                                f"«{sugerido}»")})
-    return out
-
-
-def _chk_assets_ticker_partido() -> list[dict]:
-    """**La ficha del título y su curva se llaman distinto.** El caso PLC5O.
-
-    ⚠️ Medido el 2026-08-22: 2 de 2 eran **un carácter tipeado a mano** —
-    `PLC5O`→`PLC50` (la O es un cero) y `S13N6`→`S13B6`. `portafolio.assets` es
-    catálogo de la mesa, se carga a mano, así que esto va a volver a pasar.
-
-    Lo que rompe **no es el AuM** (ese join va por `unidad` y sigue andando, que
-    es lo que hacía tan confuso el hallazgo viejo): rompe
-    `curvas.ticker → assets.ticker → unidad`, el que atribuye la tenencia a su
-    CURVA. El bono suma plata y desaparece de flujos, acreencias y renta fija.
-
-    ⚠️ **NO reimplementa el predicado.** Sale de `core.duplicados`, donde el par
-    ya está declarado con su árbitro (`ticker_curva_vs_assets`). Escribirlo dos
-    veces sería exactamente el problema que ese módulo existe para evitar — y no
-    es hipotético: es lo que pasó con `preferencia`, escrita tres veces y
-    eligiendo distinto en cada una.
-    """
-    from core import duplicados
-    r = duplicados.una("ticker_curva_vs_assets")
-    if not r.get("ok"):
-        # «No pude mirar» NO es «no hay». Se canta como una anomalía propia para
-        # que el silencio no se lea como un verde.
-        return [{"key": "?", "detalle": f"no pude correr el chequeo: "
-                                        f"{r.get('error') or 'sin motivo'}"}]
-    return [{"key": unidad, "unidad": unidad, "esperado": cod, "actual": tk,
-             "detalle": (f"la ficha dice TICKER «{tk or '(vacío)'}» y su unidad "
-                         f"dice «{cod}»")}
-            for unidad, cod, tk in r.get("filas") or []]
-
-
 @dataclass(frozen=True)
 class Control:
     id: str
@@ -597,38 +123,34 @@ class Control:
 
 
 CONTROLES: list[Control] = [
-    Control("patas_sin_precio", "Símbolos del master que nadie está pidiendo", True,
-            _chk_patas_sin_precio),
-    Control("patas_dolar_sin_pedir",
-            "Patas en dólares que nadie pide", True,
-            _chk_patas_dolar_sin_pedir),
-    Control("dia_sin_dato",
-            "El día que un job tenía que escribir y no está", True,
-            _chk_dia_sin_dato),
-    Control("patas_equivocadas",
-            "El master apunta a una pata que no es la default", True,
-            _chk_patas_equivocadas),
-    Control("assets_ticker_partido",
-            "La ficha del título y su curva se llaman distinto", True,
-            _chk_assets_ticker_partido),
-    Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
-    Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
+    # ⚠️⚠️ **QUEDAN DOS DE DIECISÉIS** (2026-08-27), y los dos son transitorios:
+    # se van cuando la habilidad `ficha_incompleta` del agente los reemplace.
+    #
+    # DE LOS CATORCE QUE SE FUERON, SIETE ERAN LITERALMENTE EL AGENTE. Cuando se
+    # rehizo el agente (2026-08-24) se cortó el cable de escritura de estos
+    # controles —dejaron de espejar hallazgos— pero se los dejó CORRIENDO con su
+    # propio cron, mientras los detectores 2.0 se escribían de cero mirando lo
+    # mismo. La migración quedó a la mitad: dos ojos para un problema, y uno de
+    # los dos ya sin manos. Y el que sobraba era peor que redundante: llegaba al
+    # tablero como un aviso genérico —sujeto = el NOMBRE DEL CONTROL— tapando al
+    # que sí traía el botón.
+    #
+    #   patas_sin_precio      -> bono_sin_precio / no_suscripto  (botón: pedir pata)
+    #   patas_equivocadas     -> precio_moneda / pata_equivocada (botón: apuntar pata)
+    #   patas_dolar_sin_pedir -> precio_moneda / cotiza_en_pesos (botón: pata dólar)
+    #   dia_sin_dato          -> motor_caido / job_sin_dato      (botón: rehacer job)
+    #   titulos_sin_flujo     -> bono_sin_flujo / sin_flujo      (botón: alta flujos)
+    #   rf_sin_tasa           -> bono_sin_tasa  (+ el círculo de 1816)
+    #   assets_ticker_partido -> dato_partido / ticker_curva_vs_assets
+    #
+    # Los otros SIETE (forwards_faltantes, unidades_gemelas, rf_valuada_x1,
+    # simbolos_cuarentena, ops_sin_tc, comitentes_sin_nivel1,
+    # contrapartes_pendientes) se dieron de baja por decisión del user
+    # (2026-08-27): **nadie los mira más**. Si alguno hace falta de nuevo, vuelve
+    # como una fila del catálogo del agente, no como un control aparte.
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
-    Control("unidades_gemelas", "Assets duplicados por espacios en la unidad", True,
-            _chk_unidades_gemelas),
-    Control("fci_incompletos", "Assets FCI sin ticker/emisor", True, _chk_fci_incompletos),
-    Control("titulos_sin_flujo", "Bonos en cartera sin cronograma de flujos", True,
-            _chk_titulos_sin_flujo),
-    Control("rf_valuada_x1", "Renta fija valuada sin ÷100 (¿tipo nuevo de Aunesa?)", True,
-            _chk_rf_valuada_x1),
-    Control("simbolos_cuarentena", "Símbolos rechazados por ROFEX (cuarentena)", True,
-            _chk_simbolos_cuarentena),
-    Control("ops_sin_tc", "Boletos ARS sin tipo de cambio (no se dolarizan)", True,
-            _chk_ops_sin_tc),
-    Control("comitentes_sin_nivel1", "Comitentes activos sin nivel 1", False,
-            _chk_comitentes_sin_nivel1),
-    Control("contrapartes_pendientes", "Cuentas de contrapartes sin dar de alta", False,
-            _chk_contrapartes_pendientes),
+    Control("fci_incompletos", "Assets FCI sin ticker/emisor", True,
+            _chk_fci_incompletos),
 ]
 
 
@@ -729,12 +251,35 @@ def render_resumen(resultados: dict[str, dict], errores: dict[str, str],
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _purgar_controles_de_baja() -> int:
+    """Las anomalías de un control que YA NO EXISTE.
+
+    ⚠️ **Un control dado de baja deja su basura ABIERTA para siempre**, y esta
+    es la clase de resto que no se ve desde el código: `_diff_y_persistir`
+    resuelve por AUSENCIA, pero solo dentro del `control_id` que está corriendo.
+    Si el control se borra, nadie vuelve a mirar sus filas: quedan con
+    `resuelto_at IS NULL` eternamente y la tab de Manager las sigue mostrando
+    como problemas vigentes de algo que ya nadie mide.
+
+    Pasó al dar de baja catorce controles de golpe (2026-08-27). Se purga en
+    cada corrida y no una sola vez: así el que borre el próximo control no tiene
+    que acordarse de nada.
+    """
+    vivos = [c.id for c in CONTROLES]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM manager.controles_datos "
+                    " WHERE control_id <> ALL(%s)", (vivos,))
+        return cur.rowcount or 0
+
+
 def main() -> int:
     dry = "--dry" in sys.argv
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("controles_datos") as jr:
         _ensure()
+        if not dry:
+            jr.set_stat("huerfanos_purgados", _purgar_controles_de_baja())
         resultados: dict[str, dict] = {}
         errores: dict[str, str] = {}
         for c in CONTROLES:

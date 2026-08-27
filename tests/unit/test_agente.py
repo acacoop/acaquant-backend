@@ -800,3 +800,66 @@ def test_el_silencio_no_aparece_en_ninguna_pantalla():
         "agente.silenciados", ""), "la vista no expone el silencio a la pantalla"
     assert "agente.silenciados" in (RAIZ / "scripts" / "diag_agente.py").read_text(), (
         "el diag es el único lugar donde el silencio se puede enumerar")
+
+
+def test_motor_caido_pregunta_si_el_dia_esta_en_la_tabla():
+    """**El RESULTADO, no el proceso** — lo único que se rescató de `dia_sin_dato`.
+
+    El detector mira FRESCURA: hace cuánto que la pieza no escribe. Eso falla por
+    los dos lados —un job puede reventar al final habiendo escrito todo (nada que
+    rehacer) y puede salir en verde sin dejar una fila (todo por rehacer)—, así
+    que para los relanzables se pregunta si el DÍA está en la tabla.
+
+    Era la razón de ser del control `dia_sin_dato`, dado de baja el 2026-08-27.
+    Duplicaba al detector en todo menos en esto, y por eso la pregunta se mudó
+    acá en vez de irse con él.
+    """
+    src = (RAIZ / "agente" / "detectores" / "sistema.py").read_text()
+    assert "_falta_el_dia" in src, "motor_caido no pregunta por el día faltante"
+    # Solo para los relanzables y solo sobre lo YA cantado: una query por fila
+    # con hallazgo, nunca un barrido de todos los jobs cada 2 minutos.
+    assert "_falta_el_dia(unidad) if _rehacible(unidad) else None" in src
+    # ⚠️ `None` de `hay_dato` es «no pude mirar», y NO puede publicarse como
+    # «falta el día»: relanzar un job por una consulta que falló es ejecutar a
+    # ciegas, que es lo que `agente/rehacer` existe para no hacer.
+    i = src.index("def _falta_el_dia")
+    assert "hay_dato(job, fecha) is not False" in src[i:i + 900]
+
+
+def test_los_controles_viejos_no_duplican_a_ninguna_habilidad():
+    """Catorce de dieciséis controles se dieron de baja (2026-08-27).
+
+    Siete eran literalmente el agente: cuando se lo rehizo se les cortó el cable
+    de escritura pero se los dejó CORRIENDO con su propio cron, mientras los
+    detectores 2.0 se escribían de cero mirando lo mismo. Llegaban al tablero
+    como un aviso genérico —sujeto = el NOMBRE DEL CONTROL— tapando al hallazgo
+    que sí traía el botón.
+
+    Este test impide que vuelvan a convivir: ningún `control_id` puede llamarse
+    como una regla que ya emite una habilidad.
+    """
+    import re
+
+    src = (RAIZ / "jobs" / "controles_datos.py").read_text()
+    ids = set(re.findall(r'Control\("(\w+)"', src))
+    reglas = set()
+    for f in (RAIZ / "agente" / "detectores").glob("*.py"):
+        reglas |= set(re.findall(r'regla="(\w+)"', f.read_text()))
+    assert not (ids & reglas), (
+        f"estos controles vuelven a duplicar una regla del agente: {ids & reglas}")
+
+
+def test_un_control_dado_de_baja_no_deja_su_basura_abierta():
+    """`_diff_y_persistir` cierra por ausencia **dentro de su `control_id`**.
+
+    Si el control se borra, nadie vuelve a mirar sus filas: quedan con
+    `resuelto_at IS NULL` para siempre y la tab de Manager las sigue mostrando
+    como problemas vigentes de algo que ya nadie mide. Se purga en CADA corrida
+    —no una sola vez— para que el que borre el próximo control no tenga que
+    acordarse de nada.
+    """
+    src = (RAIZ / "jobs" / "controles_datos.py").read_text()
+    assert "def _purgar_controles_de_baja" in src
+    assert "control_id <> ALL(%s)" in src
+    assert "_purgar_controles_de_baja()" in src[src.index("def main"):], (
+        "la purga tiene que correr en cada pasada, no ser una función suelta")

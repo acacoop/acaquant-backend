@@ -64,20 +64,27 @@ from core.postgres import get_pool
 #
 # ⚠️ «NO APLICA» cuenta como vacío igual que el NULL: es lo que el control ya
 # hacía, y tiene razón — una cartera «NO APLICA» no le da divisor a nadie.
-_CARTERA_VACIA = ("(cartera IS NULL OR btrim(cartera) = '' "
-                  "OR upper(btrim(cartera)) = 'NO APLICA')")
+#
+# ⚠️ **TODAS LAS COLUMNAS VAN CALIFICADAS CON `a.`** (bug del 2026-08-27).
+# `cartera` y `ticker` existen en `portafolio.assets` **y** en
+# `portafolio.tenencia`, así que en la query de PLATA —que joinea las dos— un
+# `cartera` pelado es ambiguo y Postgres corta. Y lo peor sería que NO cortara:
+# resolvería contra la tenencia, y estaríamos midiendo la cartera del snapshot
+# en vez de la de la ficha, que es justo la que falta.
+_CARTERA_VACIA = ("(a.cartera IS NULL OR btrim(a.cartera) = '' "
+                  "OR upper(btrim(a.cartera)) = 'NO APLICA')")
 
 CAMPOS: list[tuple[str, str, str]] = [
     # (regla, condición SQL de «falta», qué rompe)
     ("sin_cartera", _CARTERA_VACIA,
      "la valuación queda SIN CLASIFICAR (la cartera decide el divisor)"),
-    ("sin_clase_activo", "(clase_activo IS NULL OR btrim(clase_activo) = '')",
+    ("sin_clase_activo", "(a.clase_activo IS NULL OR btrim(a.clase_activo) = '')",
      "/aca no lo puede abrir por moneda: cae en «sin_clasificar»"),
-    ("sin_emisor", "(emisor IS NULL OR btrim(emisor) = '')",
+    ("sin_emisor", "(a.emisor IS NULL OR btrim(a.emisor) = '')",
      "agrupar por emisor cuenta mal, y las filas suman bien por separado"),
     ("fci_sin_ticker",
-     "(upper(btrim(coalesce(cartera,''))) IN ('FCI','CARTERA FCI') "
-     " AND (ticker IS NULL OR btrim(ticker) = ''))",
+     "(upper(btrim(coalesce(a.cartera,''))) IN ('FCI','CARTERA FCI') "
+     " AND (a.ticker IS NULL OR btrim(a.ticker) = ''))",
      "el fondo sale SIN NOMBRE en /aum → FCI y se fusiona con otros vacíos"),
 ]
 
@@ -110,7 +117,7 @@ def main() -> int:
     _titulo("EL UNIVERSO — sobre qué se está contando")
     tot, vig, con_ten = _q(
         f"SELECT count(*), "
-        f"       count(*) FILTER (WHERE coalesce(vigente, true)), "
+        f"       count(*) FILTER (WHERE coalesce(a.vigente, true)), "
         f"       count(*) FILTER (WHERE {_CON_TENENCIA}) "
         f"  FROM portafolio.assets a")[0]
     fecha = _q(f"SELECT {_ULTIMA_FECHA}")[0][0]
@@ -126,7 +133,7 @@ def main() -> int:
     for regla, cond, _rompe in CAMPOS:
         n_tot, n_vig, n_ten = _q(
             f"SELECT count(*), "
-            f"       count(*) FILTER (WHERE coalesce(vigente, true)), "
+            f"       count(*) FILTER (WHERE coalesce(a.vigente, true)), "
             f"       count(*) FILTER (WHERE {_CON_TENENCIA}) "
             f"  FROM portafolio.assets a WHERE {cond}")[0]
         # La plata que hoy está mal contada por culpa de ese campo. Es el

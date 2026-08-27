@@ -143,6 +143,22 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                 # casi ninguna se podía apretar.
                 regla = ("job_sin_dato" if _rehacible(unidad)
                          else f"pieza_{estado}")
+                # ⚠️ **EL RESULTADO, NO EL PROCESO.** Todo lo de arriba mira la
+                # FRESCURA: hace cuánto que la pieza no escribe. Eso no alcanza
+                # por los dos lados —un job puede reventar al final habiendo
+                # escrito todo (nada que rehacer) y puede salir en verde sin
+                # dejar una fila (todo por rehacer)—, así que para los jobs
+                # relanzables se pregunta lo único que decide: **¿está el día en
+                # la tabla?**
+                #
+                # Era la razón de ser del control `dia_sin_dato`, que se dio de
+                # baja el 2026-08-27 por duplicar al detector. Duplicaba casi
+                # todo menos esto, así que la pregunta se muda acá — al hallazgo
+                # que además trae el botón, en vez de vivir en un aviso aparte.
+                #
+                # Solo se pregunta por las piezas YA marcadas y solo si son
+                # relanzables: es una query por fila cantada, no un barrido.
+                dia = _falta_el_dia(unidad) if _rehacible(unidad) else None
                 out.append(Hallazgo(
                     sujeto=unidad or nombre, regla=regla,
                     severidad=sev, nombre=nombre,
@@ -152,7 +168,10 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                     # De dónde sale el veredicto: qué tabla se miró y qué había.
                     detalle=(f"{p.get('tabla') or 'sin tabla declarada'} · "
                              f"última escritura {p.get('ultima') or 'NUNCA'} · "
-                             f"tolera {p.get('umbral_s') or '?'}s"),
+                             f"tolera {p.get('umbral_s') or '?'}s"
+                             + ("" if dia is None else
+                                f" · EL DÍA {dia['fecha']} NO ESTÁ en "
+                                f"{dia['tabla']}")),
                     que_hacer=(f"Relanzar `{unidad or nombre}` y mirar su log. "
                                f"Cadencia declarada: {p.get('cadencia') or '—'}."
                                + ("" if _rehacible(unidad) else
@@ -166,12 +185,39 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                                "ultima": p.get("ultima"),
                                # Lo que `rehacer_job` necesita para saber a quién
                                # relanzar. Va en la evidencia y no se re-deduce.
-                               "job": p.get("unidad")}))
+                               "job": p.get("unidad"),
+                               # `None` = no es relanzable, o no se pudo mirar.
+                               # **No es `False`**: «no pude comprobar si el día
+                               # está» jamás se publica como «el día falta».
+                               "dia_faltante": (dia or {}).get("fecha"),
+                               "rompe": (dia or {}).get("rompe")}))
     # Lo más grave primero, y los motores antes que los jobs: un motor caído deja
     # a la mesa sin precios AHORA; un job se recupera en la corrida siguiente.
     out.sort(key=lambda h: (0 if h.severidad == "alta" else 1,
                             0 if h.evidencia.get("tipo") == "motor" else 1))
     return out
+
+
+def _falta_el_dia(unidad: str) -> dict | None:
+    """¿El día que este job tenía que escribir está en su tabla?
+
+    Devuelve la ficha del hueco, o `None` — y `None` cubre TRES casos que no se
+    atienden distinto acá: no es relanzable, el día sí está, o **no se pudo
+    mirar**. Ese último es el que importa: `rehacer.hay_dato` devuelve `None`
+    cuando la consulta falla, y publicar eso como «falta el día» sería relanzar
+    un job a ciegas, que es justo lo que ese módulo existe para no hacer.
+    """
+    from agente.rehacer import REHACIBLES, fecha_objetivo, hay_dato
+    corto = (unidad or "").split(".")[-1]
+    job = corto if corto in REHACIBLES else (
+        unidad if unidad in REHACIBLES else "")
+    if not job:
+        return None
+    fecha = fecha_objetivo(job)
+    if not fecha or hay_dato(job, fecha) is not False:
+        return None
+    cfg = REHACIBLES[job]
+    return {"fecha": fecha, "tabla": cfg["tabla"], "rompe": cfg.get("rompe", "")}
 
 
 def _rehacible(unidad: str) -> bool:

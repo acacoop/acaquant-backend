@@ -131,28 +131,6 @@ def fecha_objetivo(job: str, ahora: datetime | None = None) -> str:
     return d.isoformat()
 
 
-def faltantes() -> list[dict]:
-    """Los jobs cuyo día NO está en la tabla. **Es la evidencia, no el error.**
-
-    Lo consume el control `dia_sin_dato` de `jobs/controles_datos`. Devuelve
-    solo lo que se pudo COMPROBAR: si la consulta falla, esa fila no sale — «no
-    pude mirar» nunca se publica como «falta».
-    """
-    out: list[dict] = []
-    for job, cfg in REHACIBLES.items():
-        fecha = fecha_objetivo(job)
-        if not fecha:
-            continue
-        if hay_dato(job, fecha) is not False:
-            continue
-        out.append({
-            "key": f"{job}|{fecha}", "job": job, "fecha": fecha,
-            "tabla": cfg["tabla"],
-            "detalle": (f"{cfg['titulo']}: se miró {cfg['tabla']} y el {fecha} "
-                        f"NO está — {cfg['rompe']}")})
-    return out
-
-
 def hay_dato(job: str, fecha: str) -> bool | None:
     """¿La tabla de ese job tiene ESA fecha? **`None` = no pude mirar.**
 

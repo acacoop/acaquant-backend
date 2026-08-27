@@ -110,19 +110,12 @@ def _svc(monkeypatch, *, cierre=None, movs=(), manuales=()):
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
-        # ⚠️ El ORDEN importa. `_saldos_banco` hace DOS queries: una que joinea
-        # cuentas+extracto+saldos (se reconoce por `saldo_operativo`) y otra a
-        # `_manuales`. La de cuentas a secas —la que valida que la cuenta exista—
-        # matchea el mismo `FROM bancos.cuentas`, así que va después.
+        # ⚠️ El ORDEN importa: `_saldos_banco` trae extracto + saldo informado +
+        # manuales en UNA sola query, así que matchea varios de los substrings de
+        # abajo. Va primera y se reconoce por los manuales, que ninguna otra pide.
         if "movimientos_manuales" in t:
-            acum = sum(m["acumulado"] for m in manuales)
-            dia = sum(m.get("del_dia", m["acumulado"]) for m in manuales)
-            return [{"cuenta_id": 1, "acumulado": acum, "del_dia": dia,
-                     "movimientos": len(manuales),
-                     "movs_dia": sum(1 for m in manuales
-                                     if m.get("del_dia", m["acumulado"]))}]
-        if "saldo_operativo" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": cierre, "informado": None}]
+            return [{"cuenta_id": 1, "saldo_cierre": cierre, "informado": None,
+                     "ajuste": sum(m["ajuste"] for m in manuales)}]
         if "FROM bancos.cuentas" in t:
             return [{"id": 1, "bank_number": "191", "bank_name": "Credicoop",
                      "account_number": "0010701456", "account_type": "CC",
@@ -189,7 +182,7 @@ def test_el_ajuste_manual_entra_y_se_avisa(monkeypatch):
     acá se usara el saldo pelado, dos pantallas dirían dos números para la misma
     cuenta y el mismo día."""
     s = _svc(monkeypatch, cierre=53000.0,
-             manuales=[{"acumulado": 464.73}])
+             manuales=[{"cuenta_id": 1, "ajuste": 464.73, "n": 1}])
     out = s.conciliar("x@y", 1, FECHA, GRILLA[:2])
     assert out["saldo_nuestro"] == 53464.73
     assert out["ajuste_manual"] == 464.73

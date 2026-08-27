@@ -472,11 +472,62 @@ class Regla:
     fn: Callable[[dict], dict[str, object]]
 
 
+
+# ── DERIVADOS: los OTC y los futuros de agro ───────────────────────────────
+#
+# Pedido del user (2026-08-27): *«OTC MAI SOJ o TRI son siempre cartera
+# DERIVADOS»*. Salió de mirar el listado de `ficha_incompleta`: de los 29
+# títulos en cartera de cliente sin CARTERA, la mayoría eran estos.
+#
+# ⚠️⚠️ **VA ACÁ Y NO EN EL AGENTE, y la diferencia es de modelo.** El agente
+# DETECTA; `assets_autofill` DERIVA. Si esta regla viviera adentro del detector
+# habría dos lugares sabiendo cómo se completa una ficha —el job de las 11:40 y
+# el botón— y el día que difieran el botón escribiría algo distinto de lo que el
+# job escribe todas las noches, sin que nada falle (REGLA #9).
+#
+# Puesta acá, el circuito se cierra solo: el job la completa, y en su próxima
+# pasada `ficha_incompleta` ya no la ve y baja el contador. Nadie aprieta nada.
+#
+# ⚠️ Los prefijos NO se inventan acá: son los que el sistema ya usa para los
+# futuros de agro (`api/services/derivados_agro.DISPO_LABELS` → `TRI.` / `MAI.`
+# / `SOJ.`) y el marcador OTC que ya reconocen `jobs/_aum_filters` y
+# `api/services/sin_operador`. Escribir una segunda lista sería exactamente la
+# REGLA #9: dos criterios para la misma pregunta, coherentes cada uno consigo
+# mismo.
+CARTERA_DERIVADOS = "DERIVADOS"
+
+# El TOKEN del commodity, no un `startswith` suelto: `MAI.ROS/ABR27` y
+# `MAI.MIN/JUL27` empiezan con `MAI.`, pero un ticker que casualmente arranque
+# con esas tres letras y NO tenga el punto no es un futuro. El punto es parte
+# del nombre del contrato, así que se exige.
+_PREFIJOS_AGRO = ("MAI.", "SOJ.", "TRI.")
+
+
+def _regla_derivados_otc(row: dict) -> dict[str, str]:
+    """CARTERA = DERIVADOS para los OTC y los futuros de agro.
+
+    Mira la `unidad` Y el `ticker` ya derivado: la unidad de un futuro puede
+    venir como `[MAI.ROS/ABR27 192 P]` (el id ES el contrato) o con descripción,
+    y en el segundo caso el prefijo queda en el ticker y no en el id.
+    """
+    unidad = (row.get("unidad") or "").upper()
+    # El ticker propio si ya está cargado; si no, el que derivaría `_regla_ticker`
+    # en esta misma pasada. Sin esto la regla dependería del ORDEN en que corren
+    # las reglas, que es la clase de acoplamiento que no se ve hasta que falla.
+    tk = (_norm(row.get("ticker")) or _norm(_regla_ticker(row).get("ticker"))).upper()
+
+    es_otc = "OTC" in unidad
+    es_agro = any(x in unidad or tk.startswith(x) for x in _PREFIJOS_AGRO)
+    return {"cartera": CARTERA_DERIVADOS} if (es_otc or es_agro) else {}
+
+
 REGLAS: list[Regla] = [
     Regla("financiamiento", "Pagarés/cheques de FINANCIAMIENTO", _regla_financiamiento),
     Regla("financiamiento_clase", "HD/DL de financiamiento (por nominal)",
           _regla_financiamiento_clase),
     Regla("fci", "Fondos comunes (código CAFCI + nombre)", _regla_fci),
+    Regla("derivados_otc", "CARTERA de los OTC y los futuros de agro",
+          _regla_derivados_otc),
     Regla("ticker", "Ticker derivado de la unidad (resto del catálogo)", _regla_ticker),
     Regla("especies", "Símbolos de mercado ARS/USD desde mercado.especies",
           _regla_especies),

@@ -37,8 +37,6 @@ _CMDS: dict[str, list[str]] = {
     "cleanup_curvas":  ["jobs.cleanup_curvas", "--dry"],
     "backfill_tasas":  ["jobs.backfill_tasas"],
     # Auto-control de calidad de datos: re-corre los controles y actualiza
-    # manager.controles_datos (botón "CORRER AHORA" de la tab).
-    "controles_datos": ["jobs.controles_datos"],
 }
 
 

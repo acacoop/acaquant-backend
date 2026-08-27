@@ -36,7 +36,6 @@ from api.routers.manager import (
     clientes,
     contrapartes,
     control_automatico,
-    controles,
     diagnostico,
     documentos,
     emisores,
@@ -87,7 +86,6 @@ router.include_router(aca.router,         dependencies=_ACA)
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
 router.include_router(latencia.router,    dependencies=_MGR)
-router.include_router(controles.router, dependencies=_MGR)
 router.include_router(diagnostico.router, dependencies=_MGR)
 router.include_router(checks.router,      dependencies=_MGR)
 router.include_router(jobs.router,        dependencies=_MGR)

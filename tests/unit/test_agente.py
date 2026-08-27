@@ -826,45 +826,6 @@ def test_motor_caido_pregunta_si_el_dia_esta_en_la_tabla():
     assert "hay_dato(job, fecha) is not False" in src[i:i + 900]
 
 
-def test_los_controles_viejos_no_duplican_a_ninguna_habilidad():
-    """Catorce de dieciséis controles se dieron de baja (2026-08-27).
-
-    Siete eran literalmente el agente: cuando se lo rehizo se les cortó el cable
-    de escritura pero se los dejó CORRIENDO con su propio cron, mientras los
-    detectores 2.0 se escribían de cero mirando lo mismo. Llegaban al tablero
-    como un aviso genérico —sujeto = el NOMBRE DEL CONTROL— tapando al hallazgo
-    que sí traía el botón.
-
-    Este test impide que vuelvan a convivir: ningún `control_id` puede llamarse
-    como una regla que ya emite una habilidad.
-    """
-    import re
-
-    src = (RAIZ / "jobs" / "controles_datos.py").read_text()
-    ids = set(re.findall(r'Control\("(\w+)"', src))
-    reglas = set()
-    for f in (RAIZ / "agente" / "detectores").glob("*.py"):
-        reglas |= set(re.findall(r'regla="(\w+)"', f.read_text()))
-    assert not (ids & reglas), (
-        f"estos controles vuelven a duplicar una regla del agente: {ids & reglas}")
-
-
-def test_un_control_dado_de_baja_no_deja_su_basura_abierta():
-    """`_diff_y_persistir` cierra por ausencia **dentro de su `control_id`**.
-
-    Si el control se borra, nadie vuelve a mirar sus filas: quedan con
-    `resuelto_at IS NULL` para siempre y la tab de Manager las sigue mostrando
-    como problemas vigentes de algo que ya nadie mide. Se purga en CADA corrida
-    —no una sola vez— para que el que borre el próximo control no tenga que
-    acordarse de nada.
-    """
-    src = (RAIZ / "jobs" / "controles_datos.py").read_text()
-    assert "def _purgar_controles_de_baja" in src
-    assert "control_id <> ALL(%s)" in src
-    assert "_purgar_controles_de_baja()" in src[src.index("def main"):], (
-        "la purga tiene que correr en cada pasada, no ser una función suelta")
-
-
 # ── FICHA INCOMPLETA ───────────────────────────────────────────────────────
 
 def test_ficha_incompleta_emite_un_hallazgo_por_campo():
@@ -1009,3 +970,64 @@ def test_si_el_agente_esta_vivo_lo_contesta_un_solo_lugar():
     cuerpo = "\n".join(l for l in diag.split("\n") if not l.lstrip().startswith("#"))
     assert not re.search(r"hace\s*[<>]=?\s*\d+", cuerpo), (
         "hay un umbral de latido escrito a mano en el diag")
+
+
+def test_los_prefijos_de_agro_no_son_una_segunda_lista():
+    """`_PREFIJOS_AGRO` tiene que decir lo mismo que el sistema ya usa.
+
+    Los contratos de agro están declarados en
+    `api/services/derivados_agro.DISPO_LABELS` (`TRI.ROS.P/DISPO`, etc.) y de
+    ahí salen los tres prefijos. Escribirlos otra vez en `assets_autofill` es la
+    REGLA #9 de manual: dos listas para la misma pregunta, cada una coherente
+    consigo misma, y el día que se agregue un commodity a una y no a la otra
+    nada falla — simplemente un futuro deja de recibir su cartera.
+    """
+    from api.services.derivados_agro import DISPO_LABELS
+    from jobs.assets_autofill import _PREFIJOS_AGRO
+
+    # `MAI.ROS.P/DISPO` → `MAI.`
+    de_agro = {v.split(".", 1)[0] + "." for v in DISPO_LABELS.values()}
+    assert set(_PREFIJOS_AGRO) == de_agro, (
+        f"assets_autofill dice {sorted(_PREFIJOS_AGRO)} y derivados_agro "
+        f"{sorted(de_agro)}")
+
+
+def test_no_queda_ni_un_hilo_del_auto_control_viejo():
+    """El sistema de `controles_datos` se dio de baja ENTERO (2026-08-27).
+
+    Era **un segundo depósito de problemas**: `control_id` la habilidad,
+    `item_key` el sujeto, `first_seen` la fecha de nacimiento, `resuelto_at` el
+    cierre. El mismo modelo que `agente.hallazgos`, con otro reloj y otro
+    criterio — y con un defecto que el agente no tiene: cuando un problema
+    resuelto volvía **reseteaba `first_seen`** y se veía como nuevo, perdiendo
+    justo el dato que en el agente vive en `reincidencias`.
+
+    Se va el job, el service, el router, el cron, la tabla y la tab. Este test
+    persigue los hilos sueltos: un import a un módulo borrado no falla hasta que
+    alguien entra a esa pantalla, que es meses después.
+    """
+    import re
+
+    vivos = []
+    for f in RAIZ.rglob("*.py"):
+        if "site-packages" in str(f) or f.name == "test_agente.py":
+            continue
+        txt = f.read_text()
+        # La MENCIÓN en un comentario está bien —explica por qué algo es como
+        # es—; lo que no puede quedar es el IMPORT o la QUERY.
+        for patron in (r"from jobs\.controles_datos import",
+                       r"from api\.services\.controles_sql import",
+                       r"FROM manager\.controles_datos",
+                       r"INSERT INTO manager\.controles_datos"):
+            if re.search(patron, txt):
+                vivos.append(f"{f.relative_to(RAIZ)}: {patron}")
+    assert not vivos, f"quedan hilos del auto-control viejo: {vivos}"
+
+    for borrado in ("jobs/controles_datos.py", "api/services/controles_sql.py",
+                    "api/routers/manager/controles.py"):
+        assert not (RAIZ / borrado).exists(), f"{borrado} sigue existiendo"
+
+    # Y la tabla se DROPEA en el schema: dejarla huérfana es el resto que costó
+    # encontrar con las 18 tablas del agente viejo.
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    assert "DROP TABLE IF EXISTS manager.controles_datos;" in sql

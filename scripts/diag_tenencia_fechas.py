@@ -46,8 +46,8 @@ def main() -> None:
     c = next((c for c in salud.CONTRATOS
               if c["tabla"] == "portafolio.tenencia"), None)
     print(f"  contrato SALUD: {c}")
-    print("  control `portafolio_diario`: ver manager.controles_datos "
-          "(la fila del diag de arriba dice qué fecha esperó y no encontró)")
+    print("  el día que falta lo canta `motor_caido` / `job_sin_dato` en el "
+          "AV AGENT,\n  con el botón para relanzarlo")
 
 
 if __name__ == "__main__":

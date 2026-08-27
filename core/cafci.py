@@ -7,7 +7,7 @@ fondo (lo que se muestra como `ticker` en el detalle de /aum → FCI).
 
 Fuente única del patrón FCI (código + nombre). Usado por el writer diario
 (`jobs/portafolio_backfill.py` — auto-alta de assets) y el control
-`controles_datos.fci_incompletos`.
+la habilidad `ficha_incompleta` del AV AGENT (regla `fci_sin_ticker`).
 """
 from __future__ import annotations
 

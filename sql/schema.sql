@@ -2603,20 +2603,20 @@ CREATE TABLE IF NOT EXISTS manager.pyrofex_discovery (
     generated_at      timestamptz
 );
 
--- Auto-control de calidad de datos (jobs/controles_datos.py): una fila por anomalía
--- detectada (control_id = chequeo, item_key = clave estable: ticker/unidad/cuenta).
--- El runner diffea contra este estado para alertar SOLO lo nuevo y marcar resueltos.
-CREATE TABLE IF NOT EXISTS manager.controles_datos (
-    control_id  text NOT NULL,
-    item_key    text NOT NULL,
-    detalle     text,
-    first_seen  timestamptz NOT NULL DEFAULT now(),
-    last_seen   timestamptz NOT NULL DEFAULT now(),
-    resuelto_at timestamptz,              -- NULL = anomalía vigente
-    PRIMARY KEY (control_id, item_key)
-);
-CREATE INDEX IF NOT EXISTS ix_controles_datos_activos
-    ON manager.controles_datos(control_id) WHERE resuelto_at IS NULL;
+-- ⚠️ **EL AUTO-CONTROL DE CALIDAD DE DATOS SE DIO DE BAJA** (2026-08-27) y con
+-- él esta tabla, que era **un segundo depósito de problemas**: `control_id` era
+-- la habilidad, `item_key` el sujeto, `first_seen` la fecha de nacimiento y
+-- `resuelto_at` el cierre — el mismo modelo que `agente.hallazgos`, con otro
+-- reloj y otro criterio de «resuelto».
+--
+-- Y con un defecto que el agente no tiene: cuando un problema resuelto volvía,
+-- **reseteaba `first_seen`** y se veía como nuevo. Se perdía el dato más caro
+-- que hay —que ya lo habíamos arreglado y volvió—, que en el agente es la tabla
+-- `reincidencias`.
+--
+-- Se dropea acá y no a mano: dejar la tabla sería exactamente el resto que
+-- costó encontrar con las 18 del agente viejo.
+DROP TABLE IF EXISTS manager.controles_datos;
 
 -- Cuarentena de símbolos que ROFEX rechaza ("Product don't exist"). El WS los
 -- persiste (core/simbolos_cuarentena) y las suscripciones los excluyen mientras

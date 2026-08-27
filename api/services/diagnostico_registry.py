@@ -117,17 +117,6 @@ PIEZAS: list[Pieza] = [
           unidad="jobs.bonos_ohlc_daily",
           cadencia="20:16 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="bonos_ohlc_daily"),
-    Pieza("MERCADOS", "job", "controles_datos (auto-control calidad)", grupo="RENTA FIJA",
-          unidad="jobs.controles_datos",
-          cadencia="16:30 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          run_tipo="controles_datos"),
-    # El aviso diario a cada operador con los saldos de SUS comitentes. Entra al
-    # árbol como cualquier job: si deja de correr, nadie recibe nada y **eso no
-    # se nota desde afuera** — es justo la clase de silencio que el árbol existe
-    # para romper.
-    # ¿Lo que se arregló siguió arreglado? Es lo que convierte el tiempo en
-    # evidencia; si deja de correr, el eval set pierde su mejor señal y nadie lo
-    # nota — no falta ningún dato en pantalla, solo deja de mejorar.
     Pieza("NEGOCIO", "job", "seguimiento (¿el arreglo aguantó?)", grupo="CLIENTES",
           unidad="jobs.seguimiento",
           cadencia="23:50 UTC diario", ventana="diario", umbral_s=int(3 * _D),

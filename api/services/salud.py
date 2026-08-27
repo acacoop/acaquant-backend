@@ -2,7 +2,7 @@
 
 Por qué existe (incidente 2026-08-07): el backfill de tenencias falló dos días
 seguidos y nadie se enteró. No fue por falta de datos —había `job_runs`,
-`controles_datos`, `latencia_endpoints`, el árbol de diagnóstico y hasta triage con
+`latencia_endpoints`, el árbol de diagnóstico y hasta triage con
 IA— sino porque estaban repartidos en seis pantallas que hay que ir a mirar, y
 porque **ninguna respondía la pregunta que importaba**: la card de AuM estaba en
 VERDE con el job muerto hacía 48 h, porque mostraba cómo salieron las corridas que
@@ -390,7 +390,7 @@ def _chequeo_dato(c: dict, ahora: datetime) -> dict:
 # haya observabilidad fuera de SALUD.
 #
 # Cada control_id es su propio chequeo, así se puede silenciar uno sin perder el
-# resto: hoy hay controles accionables (una cuenta sin segmentar) mezclados con
+# resto: hay chequeos accionables mezclados con
 # ruido que nadie va a mirar, y el contador único los tapaba a todos.
 
 def _chequeo_ia() -> dict | None:
@@ -454,62 +454,6 @@ def _chequeo_ia() -> dict | None:
     }
 
 
-def _titulo_control(cid: str) -> str:
-    """El nombre humano del control, del catálogo que ya lo declara.
-
-    Cae al id con guiones bajos convertidos SOLO si el control no está en el
-    catálogo — que puede pasar con uno viejo cuya fila todavía vive en la tabla.
-    Es la degradación correcta: un nombre feo es mejor que una fila sin nombre.
-    """
-    try:
-        from jobs.controles_datos import CONTROLES
-        for c in CONTROLES:
-            if c.id == cid:
-                return c.titulo
-    except Exception:      # pragma: no cover - la pantalla no se cae por esto
-        _log.warning("salud: no pude leer el catálogo de controles", exc_info=True)
-    return cid.replace("_", " ")
-
-
-def _chequeos_controles() -> list[dict]:
-    try:
-        from api.services.controles_sql import listar_controles
-        data = listar_controles(incluir_resueltos_dias=0)
-    except Exception:
-        _log.warning("salud: no pude leer los controles de datos", exc_info=True)
-        return []
-    out: list[dict] = []
-    for cid, grupo in (data.get("controles") or {}).items():
-        activos = grupo.get("activos") or []
-        if not activos:
-            continue
-        # Los controles NO son ERROR: son deuda de datos, no el sistema caído. Un
-        # comitente sin segmentar no rompe nada — hay que corregirlo, no correr.
-        ejemplos = " · ".join(str(a.get("detalle") or a.get("item"))[:60]
-                              for a in activos[:3])
-        out.append({
-            "id": f"control:{cid}",
-            "familia": "control",
-            # ⚠️⚠️ **EL NOMBRE LEGIBLE YA EXISTÍA Y NADIE LO LEÍA** (§0.bq).
-            # Acá decía `cid.replace("_", " ")`, o sea que la pantalla mostraba
-            # el ID del control («comitentes sin nivel1») cuando el catálogo
-            # tiene, desde siempre, «Comitentes activos sin nivel 1». En una
-            # columna angosta el ID se cortaba —`control:comitentes_sin_nive…`—
-            # y la fila dejaba de decir qué es.
-            #
-            # No hace falta un LLM para esto: el texto ya está escrito por quien
-            # dio de alta el control. Se lee del catálogo, que es la fuente.
-            "titulo": _titulo_control(cid),
-            "estado": WARN,
-            "motivo": f"{len(activos)} anomalía{'s' if len(activos) != 1 else ''} sin resolver",
-            "evidencia": ejemplos or "(sin detalle)",
-            "detalle": "control de calidad de datos",
-            "n": len(activos),
-            "ultimo_at": data.get("ultima_corrida"),
-        })
-    return out
-
-
 def _jobs_sin_duplicar(chequeos: list[dict]) -> list[dict]:
     """UN job es UN chequeo, aunque tenga varias líneas de cron.
 
@@ -558,7 +502,6 @@ def evaluar() -> list[dict]:
     ia = _chequeo_ia()
     if ia:
         out.append(ia)
-    out.extend(_chequeos_controles())
     out.sort(key=lambda c: (_PESO.get(c["estado"], 3), c["titulo"]))
     return out
 
@@ -886,26 +829,6 @@ def _detalle_dato(chequeo: dict) -> dict:
     }
 
 
-def _detalle_control(chequeo: dict) -> dict:
-    """TODAS las anomalías del control, con su ítem y su detalle."""
-    cid = str(chequeo.get("id", "")).split(":", 1)[-1]
-    try:
-        from api.services.controles_sql import listar_controles
-        grupo = (listar_controles(incluir_resueltos_dias=7).get("controles") or {}).get(cid, {})
-    except Exception as e:
-        return {"tipo": "control", "error": f"{type(e).__name__}: {e}", "anomalias": []}
-    return {
-        "tipo": "control", "control_id": cid,
-        "anomalias": grupo.get("activos") or [],
-        "resueltas_7d": len(grupo.get("resueltos") or []),
-        "explicacion": (
-            "Cada fila es un caso concreto que hay que corregir en los datos. `desde` "
-            "es cuándo se detectó por primera vez: si lleva semanas, nadie lo está "
-            "mirando. Se resuelven corrigiendo el dato — el control las marca solas "
-            "en la próxima corrida."),
-    }
-
-
 def detalle(chequeo_id: str) -> dict:
     """TODO lo que hay detrás de un chequeo. Reemplaza a las tabs JOBS y CONTROLES.
 
@@ -923,8 +846,6 @@ def detalle(chequeo_id: str) -> dict:
         cuerpo = _detalle_job(ch)
     elif familia == "dato":
         cuerpo = _detalle_dato(ch)
-    elif familia == "control":
-        cuerpo = _detalle_control(ch)
     else:
         cuerpo = {"tipo": familia or "?"}
     return {"chequeo": ch, "historial": historial(chequeo_id=cid, limite=20), **cuerpo}

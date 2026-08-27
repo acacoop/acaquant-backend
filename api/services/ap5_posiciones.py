@@ -596,6 +596,120 @@ def agrupar_consolidado(filas: list[dict]) -> list[dict]:
     return salida
 
 
+def consolidado_detalle(fecha: str, fecha_anterior: str | None,
+                        tab: str, moneda: str, producto: str) -> dict:
+    """De qué está hecha UNA fila del cuadro CONSOLIDADOS: cuenta por cuenta.
+
+    Es la auditoría de la fila, no un cuadro nuevo: contesta «¿de dónde salen
+    estas 15.060 toneladas?» abriendo las cuentas y los símbolos que las suman.
+
+    ⚠️ **Usa EXACTAMENTE los mismos predicados que `por_instrumento()`** — el
+    mismo `_FAMILIA_SQL`, el mismo `_PRODUCTO_SQL`, los mismos `_LARGO`/`_CORTO`
+    y el mismo `sin_otros()`. No es prolijidad: un detalle que se calcula por su
+    cuenta puede contradecir al número que dice explicar, y ahí el que audita
+    termina con dos cifras y ninguna forma de saber cuál es la buena. Es la
+    misma decisión que en Tesorería → BANCOS y en el modal de DÍAS SIN OPERAR.
+
+    ⚠️ **Sólo lo que ENTRA.** Lo excluido (las cuentas `OTROS`, el WTI que no cae
+    en ningún cuadro) no se lista acá: esto explica una fila del cuadro, y meter
+    filas que no la componen invita a sumarlas. Lo que queda afuera se declara
+    en `faltantes`, que es su lugar.
+
+    ⚠️ **`total` se calcula ACÁ y tiene que dar igual que la fila del cuadro.**
+    Viaja en la respuesta justamente para que la pantalla pueda mostrar las dos
+    y el que audita vea que cierran, en vez de tener que creerme.
+    """
+    familia = next((f for f, t in TAB_DE_FAMILIA.items() if t == tab), None)
+    if not fecha or familia is None or not producto:
+        return {"filas": [], "total": {}, "tab": tab, "moneda": moneda,
+                "producto": producto, "etiqueta": ETIQUETAS.get(producto, producto)}
+
+    filas = _q(
+        f"""
+        SELECT p.account AS cuenta,
+               {_NOMBRE_SQL} AS nombre,
+               COALESCE(NULLIF(c.grupo, ''), %(sin)s) AS grupo,
+               p.symbol,
+               p.unit_of_measure AS unidad,
+               max(m.multiplicador) AS multiplicador,
+               sum(p.long_qty)  FILTER (WHERE p.business_date = %(f)s) AS compra_contratos,
+               sum(p.short_qty) FILTER (WHERE p.business_date = %(f)s) AS venta_contratos,
+               sum({_LARGO}) FILTER (WHERE p.business_date = %(f)s) AS compra,
+               sum({_CORTO}) FILTER (WHERE p.business_date = %(f)s) AS venta,
+               count(*)      FILTER (WHERE p.business_date = %(f)s) AS patas,
+               sum(p.daily_settlement) FILTER (WHERE p.business_date = %(f)s) AS acum_hoy,
+               sum(p.daily_settlement) FILTER (
+                 WHERE %(a)s::date IS NOT NULL AND p.business_date = %(a)s::date) AS acum_ayer
+        FROM ap5.portfolio p
+        LEFT JOIN ap5.contratos m ON m.symbol  = p.symbol
+        LEFT JOIN ap5.cuentas   c ON c.account = p.account
+        WHERE (p.business_date = %(f)s
+               OR (%(a)s::date IS NOT NULL AND p.business_date = %(a)s::date))
+          AND {_FAMILIA_SQL} = %(fam)s
+          AND {_PRODUCTO_SQL} = %(prod)s
+          AND COALESCE(p.settlement_currency, '(sin moneda)') = %(mon)s
+          AND {sin_otros("p")}
+        GROUP BY 1, 2, 3, 4, 5
+        ORDER BY 2, 4
+        """,
+        {"f": fecha, "a": fecha_anterior, "fam": familia, "prod": producto,
+         "mon": moneda, "sin": SIN_GRUPO, **PARAMS_FUERA},
+    )
+
+    salida = []
+    for r in filas:
+        # Una cuenta que sólo tenía posición AYER aparece con el acumulado del
+        # día anterior y la posición vacía. No se esconde: es la que explica una
+        # diaria que no se entiende mirando sólo la posición de hoy.
+        compra, venta = _f(r["compra"]), _f(r["venta"])
+        hoy, ayer = _f0(r["acum_hoy"]), _f0(r["acum_ayer"])
+        salida.append({
+            "cuenta": r["cuenta"], "nombre": r["nombre"], "grupo": r["grupo"],
+            "symbol": r["symbol"], "unidad": r["unidad"],
+            "multiplicador": _f(r["multiplicador"]),
+            "compra_contratos": _f0(r["compra_contratos"]),
+            "venta_contratos": _f0(r["venta_contratos"]),
+            "compra": None if compra is None else round(compra, 2),
+            "venta": None if venta is None else round(venta, 2),
+            "neta": (None if compra is None or venta is None
+                     else round(compra - venta, 2)),
+            "patas": r["patas"] or 0,
+            "acum_hoy": round(hoy, 2),
+            "acum_ayer": round(ayer, 2),
+            "diaria": round(hoy - ayer, 2),
+        })
+
+    def _total_posicion(campo: str) -> float | None:
+        """Σ del campo, pero `None` si NINGUNA fila se pudo convertir.
+
+        ⚠️ Replica lo que hace `sum()` de SQL en el cuadro, y por eso no es
+        `_suma()` a secas: con algunos símbolos sin multiplicador la Σ es
+        PARCIAL (y `sin_multiplicador` lo delata), pero si no se pudo convertir
+        ninguno el cuadro muestra vacío — y un cero acá diría «no hay posición»
+        donde en realidad hay posición sin con qué medirla. Si el detalle
+        rellenara ese hueco con 0, contradiría a la fila que dice explicar.
+        """
+        if all(x[campo] is None for x in salida):
+            return None
+        return _suma(salida, campo)
+
+    total = {
+        "compra": _total_posicion("compra"),
+        "venta": _total_posicion("venta"),
+        "neta": _total_posicion("neta"),
+        "acum_hoy": _suma(salida, "acum_hoy"),
+        "acum_ayer": _suma(salida, "acum_ayer"),
+        "diaria": _suma(salida, "diaria"),
+        "cuentas": len({x["cuenta"] for x in salida}),
+        "simbolos": len({x["symbol"] for x in salida}),
+        "sin_multiplicador": sum(1 for x in salida if x["multiplicador"] is None),
+    }
+    return {"tab": tab, "moneda": moneda, "producto": producto,
+            "etiqueta": ETIQUETAS.get(producto, producto),
+            "fecha": fecha, "fecha_anterior": fecha_anterior,
+            "filas": salida, "total": total}
+
+
 def acumulado(fecha: str, fecha_anterior: str | None = None) -> list[dict]:
     """El ACUMULADO por cuenta y moneda, y la DIARIA como hoy − ayer.
 

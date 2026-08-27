@@ -32,36 +32,36 @@ logger = logging.getLogger(__name__)
 _DESCRIPCION = """
 API de **operaciones** para accionistas de ACA Valores.
 
-Devuelve, boleto por boleto, las operaciones de las cuentas autorizadas para tu
-credencial. Sólo lectura.
+Devuelve, operación por operación, los boletos de las cuentas autorizadas para
+su credencial. Es de solo lectura.
 
 ## Autenticación
 
-1. Tu integración pega con el **service token de Cloudflare** en los headers
-   `CF-Access-Client-Id` y `CF-Access-Client-Secret`. Sin eso el request no llega
-   a nuestros servidores.
-2. Cambiás tu **API key** por un **token de acceso**: `POST /v1/auth/token`.
-3. Usás el token como `Authorization: Bearer <token>` en el resto de los
-   endpoints. Dura 30 minutos; pedí uno nuevo cuando venza, o ante un `401` con
+1. Los pedidos incluyen el **service token de Cloudflare** en los headers
+   `CF-Access-Client-Id` y `CF-Access-Client-Secret`. Sin ellos, el pedido no
+   llega a nuestros servidores.
+2. La **API key** se cambia por un **token de acceso**: `POST /v1/auth/token`.
+3. El token se envía como `Authorization: Bearer <token>` en el resto de los
+   endpoints. Dura 30 minutos; se renueva cuando vence, o ante un `401` con
    `code: "token_expirado"`.
 
 La API key es de larga duración y viaja **una sola vez por sesión**; el token es
-el que viaja en cada request.
+el que viaja en cada pedido.
 
 ## Consultas
 
-`GET /v1/operaciones` devuelve **todas** las operaciones del rango pedido, en una
-sola respuesta. No hay páginas ni cursores.
+`GET /v1/operaciones` devuelve **todas** las operaciones del rango solicitado, en
+una sola respuesta. No hay páginas ni cursores.
 
-Para el histórico completo conviene ir por períodos —mes a mes o año a año—: es
-más rápido y no depende de cuántas operaciones tengas. Si un rango es desmedido,
-la API responde `400` pidiendo acortarlo.
+Para el histórico completo conviene consultar por períodos —mes a mes o año a
+año—: es más rápido y no depende del volumen de operaciones. Si un rango resulta
+excesivo, la API responde `400` solicitando acortarlo.
 """
 
 
 # ── modelos de respuesta (son la documentación, no adorno) ───────────────────
 class TokenOut(BaseModel):
-    token: str = Field(description="Usalo como `Authorization: Bearer <token>`.")
+    token: str = Field(description="Se envía como `Authorization: Bearer <token>`.")
     expira_en: int = Field(description="Segundos hasta que venza.")
     cliente: str = Field(description="Nombre del titular de la credencial.")
 
@@ -81,9 +81,9 @@ class OperacionOut(BaseModel):
     cuenta: str | None
     cuenta_nombre: str | None
     ticker: str | None = Field(
-        description="Ticker del título: con esto relacionás la operación contra "
-                    "tu propio catálogo. Puede venir `null` cuando el título "
-                    "todavía no está en nuestro maestro.")
+        description="Ticker del título: permite relacionar la operación con su "
+                    "propio catálogo. Puede venir `null` cuando el título "
+                    "todavía no figura en nuestro maestro.")
     tipo_operacion: str | None
     operacion: str | None = Field(description="Compra / Venta / Suscripción / Rescate / …")
     cantidad: float | None
@@ -91,12 +91,12 @@ class OperacionOut(BaseModel):
     moneda: str | None
     mercado: str | None
     tasa: float | None = Field(
-        description="Sólo boletos MAV (pagarés/cheques): tasa en PORCENTAJE "
-                    "(6 = 6%). `null` no es 0 — 0 sería una tasa real.")
+        description="Solo instrumentos MAV (pagarés, cheques): tasa en PORCENTAJE "
+                    "(6 = 6%). `null` no equivale a 0 — 0 sería una tasa real.")
     mep: float | None = Field(
-        description="Tipo de cambio del día del boleto, para dolarizar con el "
-                    "mismo número que usamos nosotros.")
-    arancel: float | None = Field(default=None, description="Sólo si tu credencial lo incluye.")
+        description="Tipo de cambio del día del boleto, para dolarizar con la "
+                    "misma referencia que utilizamos nosotros.")
+    arancel: float | None = Field(default=None, description="Solo si su credencial lo incluye.")
     arancel_moneda: str | None = Field(default=None, description="Siempre `ARS`.")
 
 
@@ -108,14 +108,14 @@ class OperacionesOut(BaseModel):
 class MetaOut(BaseModel):
     primera_operacion: str | None
     ultima_operacion: str | None = Field(
-        description="Hasta acá llegan tus datos. Un día posterior a esta fecha "
-                    "no es 'sin operaciones': es 'todavía no ingestado'.")
+        description="Hasta esta fecha llegan los datos disponibles. Un día posterior "
+                    "no significa 'sin operaciones': significa 'todavía no procesado'.")
     ultima_ingesta: str | None = Field(description="Cuándo actualizamos por última vez (UTC).")
     total_operaciones: int
 
 
 class TokenIn(BaseModel):
-    apiKey: str = Field(description="La API key que te entregamos.")
+    apiKey: str = Field(description="La API key entregada por ACA Valores.")
 
 
 # ── la app ───────────────────────────────────────────────────────────────────
@@ -182,11 +182,9 @@ async def _auditoria(request: Request, call_next):
 @ext_app.post("/v1/auth/token", response_model=TokenOut, tags=["Auth"])
 @limiter.limit("10/minute;100/hour")
 def auth_token(request: Request, body: TokenIn) -> TokenOut:
-    """Intercambia tu API key por un token de acceso temporal.
+    """Intercambia la API key por un token de acceso temporal.
 
-    Está limitado más fuerte que el resto a propósito: es el único endpoint
-    donde se prueba una credencial de larga duración, así que es el único donde
-    tiene sentido intentar a fuerza bruta.
+    Este endpoint tiene un límite de pedidos más estricto que el resto.
     """
     token, ttl, fila = emitir_token(body.apiKey, ip_del_request(request))
     request.state.cliente_id = fila["cliente_id"]
@@ -204,11 +202,10 @@ def _sellar(request: Request, cli: Cliente, filtros: dict | None = None) -> None
 
 @ext_app.get("/v1/cuentas", response_model=CuentasOut, tags=["Operaciones"])
 def cuentas(request: Request, cli: Cliente = Depends(cliente_actual)) -> CuentasOut:
-    """Qué cuentas alcanza tu credencial.
+    """Qué cuentas alcanza su credencial.
 
-    Existe para que no tengas que preguntarnos por mail qué número te
-    corresponde, y para que puedas verificar de un vistazo que tu integración
-    ve exactamente lo que tiene que ver.
+    Permite verificar de un vistazo que la integración accede exactamente a las
+    cuentas que corresponden, sin tener que consultarlo por otra vía.
     """
     _sellar(request, cli)
     request.state.filas = len(cli.cuentas)
@@ -217,10 +214,10 @@ def cuentas(request: Request, cli: Cliente = Depends(cliente_actual)) -> Cuentas
 
 @ext_app.get("/v1/meta", response_model=MetaOut, tags=["Operaciones"])
 def meta(request: Request, cli: Cliente = Depends(cliente_actual)) -> MetaOut:
-    """Hasta cuándo hay datos tuyos y cuándo se actualizaron por última vez.
+    """Hasta cuándo hay datos disponibles y cuándo se actualizaron por última vez.
 
-    Consultalo antes de concluir que un día no tuvo operaciones: si es posterior
-    a `ultima_operacion`, todavía no llegó.
+    Conviene consultarlo antes de concluir que un día no tuvo operaciones: si la
+    fecha es posterior a `ultima_operacion`, ese día todavía no fue procesado.
     """
     _sellar(request, cli)
     return MetaOut(**lectura.meta(cuentas=cli.cuentas))
@@ -234,10 +231,11 @@ def operaciones(
     hasta: date | None = Query(None, description="Fecha de concertación máxima (AAAA-MM-DD)."),
     cuenta: str | None = Query(
         None,
-        description="Restringí a una o varias de TUS cuentas, separadas por coma. "
-                    "Omitilo para traer todas. Pedir una cuenta ajena devuelve 403."),
+        description="Restringe el resultado a una o varias de sus cuentas, separadas "
+                    "por coma. Si se omite, devuelve todas. Solicitar una cuenta "
+                    "ajena devuelve 403."),
 ) -> OperacionesOut:
-    """Tus operaciones del rango pedido, boleto por boleto. Vienen todas juntas."""
+    """Las operaciones del rango solicitado, boleto por boleto, en una sola respuesta."""
     cuentas_pedidas = resolver_cuentas(cli, cuenta)
     filtros = {"desde": str(desde) if desde else None,
                "hasta": str(hasta) if hasta else None,

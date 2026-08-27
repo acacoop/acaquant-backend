@@ -222,13 +222,12 @@ def test_una_cuenta_sin_mapear_se_marca(tablero):
     assert f["tiene_mayor"] is False
 
 
-def test_sin_saldo_no_se_culpa_al_extracto_del_banco(tablero):
-    """El motivo dice «no hay saldo», a secas. Decía «no hay saldo DEL BANCO», y
-    desde que el acumulado manual es un saldo válido por sí solo eso mandaba al
-    back office a buscar un extracto que en una cuenta manual no existe."""
-    f = tablero(previo=None, mayor={})
+def test_una_cuenta_manual_dice_que_interbanking_no_la_informa(tablero):
+    """No hay extracto ni saldo que esperar: culpar a «no llegó el extracto»
+    manda al back office a buscar un archivo que no existe."""
+    f = tablero(cuentas=[_cuenta(origen="manual")], previo=None, mayor={})
     assert f["saldo_inicio"] is None
-    assert "no hay saldo al" in f["motivo"]
+    assert "Interbanking no informa" in f["motivo"]
 
 
 # ── `_saldos_banco`: DONDE VIVÍA EL BUG ──────────────────────────────────────
@@ -237,59 +236,36 @@ def test_sin_saldo_no_se_culpa_al_extracto_del_banco(tablero):
 # aritmética: estaba en que la entrada venía sin los manuales. Estos tests miran
 # la función sola, que es la única forma de que eso no vuelva a pasar callado.
 
-def _saldos(monkeypatch, fila, manual=None, cuenta_id=None):
-    """Corre `_saldos_banco` con UNA fila cruda de saldo y una de `_manuales`.
-    Devuelve `(resultado, sqls, params)` — las DOS queries que hace."""
-    visto = []
+def _saldos(monkeypatch, fila, cuenta_id=None):
+    """Corre `_saldos_banco` con UNA fila cruda. Devuelve `(resultado, sql, params)`."""
+    visto = {}
 
     def _q(sql, params=None):
-        t = " ".join(str(sql).split())
-        visto.append((t, params))
-        if "movimientos_manuales" in t:
-            if manual is None:
-                return []
-            return [{"cuenta_id": CID, "acumulado": 0, "del_dia": 0,
-                     "movimientos": 1, "movs_dia": 1, **manual}]
-        return [{"cuenta_id": CID, "saldo_cierre": None, "informado": None, **fila}]
+        visto["sql"], visto["params"] = sql, params
+        return [{"cuenta_id": CID, "saldo_cierre": None, "informado": None,
+                 "ajuste": 0, **fila}]
 
     monkeypatch.setattr(bancos, "_q", _q)
     out = bancos._saldos_banco(FECHA, cuenta_id)
-    return out.get(CID), [v[0] for v in visto], [v[1] for v in visto]
+    return out.get(CID), visto["sql"], visto["params"]
 
 
-def _sql_manuales(sqls, params):
-    """La query de los manuales y sus params, sea cual sea el orden."""
-    return next((s, p) for s, p in zip(sqls, params) if "movimientos_manuales" in s)
-
-
-def test_saldos_banco_pide_los_manuales_ACUMULADOS(monkeypatch):
-    """⚠️⚠️ **EL BUG DE 2026-08-27, y es el corazón del asunto.** El banco no va a
-    informar NUNCA un movimiento manual, así que su efecto sobre el saldo no dura
-    un día: dura para siempre. La query tiene que pedir `fecha <= hoy`, no
-    `fecha = hoy`.
-
-    Con `=`, el saldo sale perfecto el día de la carga y al día siguiente vuelve
-    al crudo de Interbanking — exactamente lo que reportó el back office.
-    """
-    _, sqls, params = _saldos(monkeypatch, {"saldo_cierre": 1_000_000})
-    sql, prm = _sql_manuales(sqls, params)
-    assert "fecha <= %s" in sql, "acumulado, no del día"
-    assert prm == (FECHA, FECHA, FECHA)
-
-
-def test_saldos_banco_suma_el_acumulado_no_lo_del_dia(monkeypatch):
-    """El caso que reportó el back office: HOY no se cargó nada a mano, pero el
-    manual de un día anterior sigue siendo parte del saldo."""
-    s, _, _ = _saldos(monkeypatch, {"saldo_cierre": 1_000_000},
-                      manual={"acumulado": 50_000, "del_dia": 0, "movs_dia": 0})
-    assert s["valor"] == 1_050_000.0, "el manual de ayer NO se evapora"
-    assert s["ajuste"] == 50_000.0
-    assert s["ajuste_dia"] == 0.0
+def test_saldos_banco_pide_los_manuales_del_dia(monkeypatch):
+    """⚠️ **EL TEST QUE FALTABA.** La query tiene que traer los manuales de ESA
+    fecha. Sin esto, la función devuelve el saldo pelado de Interbanking y el
+    error queda invisible: cada consumidor parece correcto por su cuenta."""
+    _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1_000_000})
+    assert "bancos.movimientos_manuales" in sql
+    # ACUMULADO: hay movimientos que Interbanking no informa nunca, así que un
+    # ajuste que durara un día dejaría esas cuentas en cero teniendo la plata.
+    assert "fecha <= %s" in sql
+    # Tres veces la misma fecha: extracto, saldos y manuales. Los tres del MISMO
+    # día — mezclarlos es justo el error que se está previniendo.
+    assert params == (FECHA, FECHA, FECHA)
 
 
 def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):
-    s, _, _ = _saldos(monkeypatch, {"saldo_cierre": 1_000_000},
-                      manual={"acumulado": 50_000, "del_dia": 50_000})
+    s, _, _ = _saldos(monkeypatch, {"saldo_cierre": 1_000_000, "ajuste": 50_000})
     assert s["valor"] == 1_050_000.0
     assert s["ajuste"] == 50_000.0
     # La fuente lo CANTA: un saldo con plata puesta por una persona no se puede
@@ -300,8 +276,7 @@ def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):
 def test_saldos_banco_suma_el_ajuste_tambien_al_saldo_informado(monkeypatch):
     """La cuenta QUIETA no tiene extracto (solo se emite con movimientos) y aun
     así puede tener un manual cargado encima."""
-    s, _, _ = _saldos(monkeypatch, {"informado": 800_000},
-                      manual={"acumulado": -25_000})
+    s, _, _ = _saldos(monkeypatch, {"informado": 800_000, "ajuste": -25_000})
     assert s["valor"] == 775_000.0
     assert s["fuente"] == "saldo informado por el banco + ajuste manual"
 
@@ -320,18 +295,19 @@ def test_saldos_banco_gana_el_extracto_sobre_el_informado(monkeypatch):
     assert s["valor"] == 1_000_000.0
 
 
-def test_saldos_banco_la_cuenta_100_por_ciento_MANUAL_arranca_de_cero(monkeypatch):
-    """El banco que no está en Interbanking: sin extracto ni saldo, su saldo ES
-    el acumulado de lo cargado a mano. Con el ajuste POR DÍA esto no se podía
-    hacer —lo del día es un movimiento, no un saldo—; acumulado sí lo es."""
-    s, _, _ = _saldos(monkeypatch, {}, manual={"acumulado": 50_000, "movimientos": 3})
+def test_saldos_banco_la_cuenta_100_por_ciento_MANUAL_tiene_saldo(monkeypatch):
+    """La cuenta que Interbanking no informa (Comafi, BNY, la Patagonia
+    recaudadora): sin extracto ni saldo del banco, su saldo ES el acumulado de lo
+    cargado a mano, arrancando de cero. Con el ajuste por día esto no se podía
+    —lo del día es un movimiento, no un saldo—; acumulado sí lo es."""
+    s, _, _ = _saldos(monkeypatch, {"ajuste": 50_000})
     assert s["valor"] == 50_000.0
     assert s["fuente"] == "manual"
 
 
 def test_saldos_banco_sin_nada_de_nada_se_omite(monkeypatch):
-    """«No sabemos» no es «cero»: caer a cero fabricaría un descuadre del tamaño
-    de la cuenta entera."""
+    """Sin extracto, sin saldo y sin un solo manual no sabemos nada. Caer a cero
+    fabricaría un descuadre del tamaño de la cuenta entera."""
     s, _, _ = _saldos(monkeypatch, {})
     assert s is None
 
@@ -339,8 +315,6 @@ def test_saldos_banco_sin_nada_de_nada_se_omite(monkeypatch):
 def test_saldos_banco_por_cuenta_no_filtra_por_activa(monkeypatch):
     """El drill-down puede pedir una cuenta dada de baja que el tablero ya no
     lista; filtrarla la dejaría sin saldo y fabricaría un descuadre."""
-    _, sqls, prm = _saldos(monkeypatch, {"saldo_cierre": 1.0}, cuenta_id=CID)
-    saldo_sql, saldo_prm = next((s, p) for s, p in zip(sqls, prm)
-                                if "movimientos_manuales" not in s)
-    assert "c.activa" not in saldo_sql
-    assert saldo_prm == (FECHA, FECHA, CID)
+    _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1.0}, cuenta_id=CID)
+    assert "c.activa" not in sql
+    assert params == (FECHA, FECHA, FECHA, CID)

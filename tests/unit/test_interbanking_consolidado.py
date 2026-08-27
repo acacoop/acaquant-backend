@@ -122,6 +122,15 @@ def test_el_cbu_no_se_filtra_ni_por_esta_via(sin_base):
 # Interbanking no tiene todos los bancos de la casa, y el que falta igual mueve
 # plata. Un movimiento manual SIEMPRE impacta el saldo al cierre: en una cuenta
 # real se suma arriba de su extracto y en una manual es todo el saldo.
+def _man(acumulado, del_dia=None, n=1, n_dia=1, cuenta_id=1):
+    """Una fila cruda de `_manuales()`. `del_dia` default = todo el acumulado se
+    cargó hoy, que es el caso de siempre; pasarlo distinto es lo que modela «esto
+    viene de días anteriores»."""
+    return {"cuenta_id": cuenta_id, "acumulado": acumulado,
+            "del_dia": acumulado if del_dia is None else del_dia,
+            "movimientos": n, "movs_dia": n_dia}
+
+
 def _mock_manual(monkeypatch, filas_cuentas, manuales=()):
     from api.services import bancos as svc
 
@@ -149,7 +158,7 @@ def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
     """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
     informa, no una corrección de lo que informó."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2}])
+                       [_man(250.0, n=2, n_dia=2)])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0
     assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
@@ -160,7 +169,7 @@ def test_un_banco_manual_arranca_de_cero(monkeypatch):
     """Sin extracto ni saldo del banco —el caso de un banco que no está en
     Interbanking— el saldo ES la suma de lo cargado a mano."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1}])
+                       [_man(-400.0)])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == -400.0
@@ -190,3 +199,36 @@ def test_una_cuenta_de_interbanking_no_se_borra_a_mano(monkeypatch):
         {"id": 1, "bank_name": "X", "account_number": "1", "origen": "interbanking"}])
     with pytest.raises(ValueError, match="no se borra a mano"):
         svc.borrar_cuenta_manual("x@y", 1)
+
+
+def test_el_manual_de_AYER_sigue_adentro_del_saldo_de_HOY(monkeypatch):
+    """⚠️ **EL BUG DE 2026-08-27.** Un manual es plata que el banco NO va a
+    informar nunca, así que su efecto no dura un día: dura para siempre. Con el
+    ajuste por día, el saldo salía bien el día de la carga y al día siguiente
+    volvía al crudo de Interbanking —«al otro día eso se pasa como saldo que
+    venía directo de interbanking»—.
+
+    Acá no se cargó nada HOY (`del_dia=0`) y el acumulado de ayer sigue valiendo.
+    """
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
+                       [_man(250.0, del_dia=0.0, n=2, n_dia=0)])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_cierre"] == 1250.0, "el manual de ayer NO se evapora"
+    assert c["ajuste_manual"] == 250.0
+    assert c["ajuste_manual_dia"] == 0.0, "pero hoy no se cargó nada"
+    # El importe y el conteo se refieren al MISMO conjunto: acumulado con
+    # acumulado, día con día. Cruzarlos daba «incluye $250.000 de 0 movimientos».
+    assert c["movimientos_manuales"] == 2
+    assert c["movimientos_manuales_dia"] == 0
+
+
+def test_la_apertura_lleva_el_acumulado_de_AYER_no_el_de_hoy(monkeypatch):
+    """Si la apertura llevara el acumulado de hoy, la variación del día se
+    comería los manuales de hoy y daría siempre la del banco pelada."""
+    svc = _mock_manual(monkeypatch,
+                       [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
+                       [_man(250.0, del_dia=100.0, n=2, n_dia=1)])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_inicio"] == 1150.0, "apertura = banco + acumulado de AYER (150)"
+    assert c["saldo_cierre"] == 1250.0
+    assert c["variacion"] == 100.0, "la variación del día ES el manual de hoy"

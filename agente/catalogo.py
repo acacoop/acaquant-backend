@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 
+from agente.detectores import catalogo as cat
 from agente.detectores import datos, mercado, sistema
 from agente.tipos import Habilidad
 from core.postgres import get_pool
@@ -147,6 +148,30 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         que_mira="escrituras de mercado en día NO hábil: algo quedó prendido",
         cada_segundos=15 * _M, ventana="siempre",
         correr=sistema.actividad),
+
+    # ── CATÁLOGO DE TÍTULOS ────────────────────────────────────────────────
+    #
+    # ⚠️ **UN hallazgo por CAMPO, no uno por título.** 379 títulos sin clase son
+    # UN trabajo de carga, no 379 problemas. El control viejo emitía una anomalía
+    # por fila —y por eso su lista no se leía—, y el agente la recibía aplastada
+    # en un aviso genérico cuyo sujeto era el nombre del control. Los dos
+    # defectos son opuestos y los dos hacen lo mismo: que nadie la mire.
+    #
+    # Reemplaza a `assets_sin_cartera` y `fci_incompletos` de
+    # `jobs/controles_datos`, y los EXPANDE a `clase_activo` y `emisor`
+    # (pedido del user 2026-08-27).
+    Habilidad(
+        nombre="ficha_incompleta", tipo="detector", dominio="DATOS",
+        que_mira="títulos en carteras de clientes con la ficha sin completar",
+        cada_segundos=6 * _H, ventana="siempre",
+        correr=cat.ficha_incompleta,
+        # Las CUATRO reglas comparten arreglo: el listado editable es el mismo,
+        # cambia la columna. Se declaran las cuatro igual —y no un `default`—
+        # porque una regla nueva tiene que decidir explícitamente si lo tiene.
+        arreglos={"sin_cartera": "completar_ficha",
+                  "sin_clase_activo": "completar_ficha",
+                  "sin_emisor": "completar_ficha",
+                  "fci_sin_ticker": "completar_ficha"}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────
     Habilidad(

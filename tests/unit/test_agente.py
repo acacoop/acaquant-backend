@@ -863,3 +863,101 @@ def test_un_control_dado_de_baja_no_deja_su_basura_abierta():
     assert "control_id <> ALL(%s)" in src
     assert "_purgar_controles_de_baja()" in src[src.index("def main"):], (
         "la purga tiene que correr en cada pasada, no ser una función suelta")
+
+
+# ── FICHA INCOMPLETA ───────────────────────────────────────────────────────
+
+def test_ficha_incompleta_emite_un_hallazgo_por_campo():
+    """**UN hallazgo por CAMPO, no uno por título** (2026-08-27).
+
+    379 títulos sin clase son UN trabajo de carga, no 379 problemas. El control
+    viejo emitía una anomalía por fila y por eso su lista no se leía; el agente
+    la recibía aplastada en un aviso genérico cuyo sujeto era el nombre del
+    control. Los dos defectos son opuestos y los dos terminan igual: nadie mira.
+
+    El sujeto es el CAMPO, así que el trío queda `ficha_incompleta +
+    clase_activo + sin_clase_activo`: uno solo, estable, que baja de número
+    mientras se completa y se cierra cuando llega a cero.
+    """
+    from agente.detectores import catalogo as cat
+
+    src = inspect.getsource(cat.ficha_incompleta)
+    assert 'sujeto=c["campo"]' in src, "el sujeto tiene que ser el campo"
+    # UN solo `Hallazgo(` en toda la función, adentro del bucle de CAMPOS: si
+    # apareciera un segundo dentro del bucle de filas, volveríamos a los 379.
+    assert src.count("Hallazgo(") == 1
+    assert src.index("for c in CAMPOS") < src.index("Hallazgo(")
+
+
+def test_la_ficha_solo_se_pide_a_lo_que_esta_en_cartera_de_cliente():
+    """El alcance es la tenencia, no el catálogo (decisión del user 2026-08-27).
+
+    Medido ese día: 2.229 assets, 1.604 vigentes, **981 en tenencia**. Pedirle la
+    ficha a los 2.229 sería pedirla para papeles que nadie tiene, y una lista así
+    no se vacía nunca. Con el recorte, completar lo que falta ES terminar el
+    trabajo — que es lo único que hace que un contador pueda llegar a cero.
+    """
+    from agente.detectores import catalogo as cat
+
+    src = (RAIZ / "agente" / "detectores" / "catalogo.py").read_text()
+    assert "_EN_CARTERA_DE_CLIENTE" in inspect.getsource(cat.faltantes)
+    # Una fecha, resuelta por índice: nunca un scan de la tenencia histórica.
+    assert "max(fecha) FROM portafolio.tenencia" in src
+
+
+def test_la_lista_de_faltantes_vive_en_UN_solo_lugar():
+    """El detector cuenta y el arreglo edita **sobre la misma consulta**.
+
+    Si cada uno tuviera la suya, el listado podría ofrecer un título que el aviso
+    no cuenta —o al revés— y nadie lo notaría: las dos mitades seguirían siendo
+    coherentes consigo mismas. Es exactamente el modo de falla de la REGLA #9.
+    """
+    from agente import arreglos
+    from agente.detectores import catalogo as cat
+
+    assert "det.faltantes(c)" in inspect.getsource(arreglos.CompletarFicha.preview)
+    assert "det.faltantes(c)" in inspect.getsource(arreglos.CompletarFicha.aplicar)
+    assert callable(cat.faltantes)
+
+
+def test_completar_ficha_no_escribe_lo_que_manda_el_navegador():
+    """**La puerta recalcula qué unidades puede tocar.**
+
+    El front manda `unidad` y `valor`. Escribir eso directo dejaría que un
+    pedido de afuera modificara CUALQUIER asset del catálogo, incluido uno que
+    el detector no está mirando. Se recalcula el permitido y lo que no está
+    adentro se saltea — y no se pisa: este arreglo COMPLETA, no corrige.
+    """
+    from agente import arreglos
+
+    src = inspect.getsource(arreglos.CompletarFicha.aplicar)
+    assert "permitidas = {" in src
+    assert "if unidad not in permitidas" in src
+    # Y escribe por la puerta única, con crear=False: una unidad que no existe
+    # EXACTA levanta en vez de fabricar un asset fantasma trimmeado (REGLA #9).
+    assert "set_campos(unidad" in src and "crear=False" in src
+
+
+def test_completar_ficha_no_resuelve_el_hallazgo_de_una():
+    """Completar 5 de 379 **no resuelve el problema**, y el arreglo lo declara.
+
+    `inmediato=False` deja el hallazgo `en_curso`: el detector lo va a seguir
+    viendo con 374 y tiene que quedar abierto. Se cierra solo cuando la lista
+    llega a cero, y entonces el cierre es POR ACCIÓN — lo único que habilita la
+    reincidencia si el campo vuelve a quedar vacío.
+    """
+    from agente import arreglos
+
+    assert "inmediato=False" in inspect.getsource(arreglos.CompletarFicha.aplicar)
+
+
+def test_un_arreglo_que_pide_datos_lo_declara():
+    """El front no puede adivinar cuáles llevan listado editable y cuáles son un
+    botón: adivinar significa una lista de ids en el navegador que nadie mantiene
+    igual a la de acá. Se declara con `pide_datos` y viaja en el catálogo."""
+    from agente import arreglos
+
+    piden = {a.id for a in arreglos.ARREGLOS.values() if a.pide_datos}
+    assert piden == {"completar_ficha"}, (
+        f"cambió qué arreglos piden datos: {piden}")
+    assert all("pide_datos" in c for c in arreglos.catalogo())

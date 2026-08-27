@@ -108,10 +108,24 @@ class Arreglo:
     # la confianza en todas las demás — así que cuando no se ve, se dice.
     inmediato = True
 
+    # ⚠️ **¿EL ARREGLO NECESITA QUE UNA PERSONA ELIJA ALGO?** Se declara.
+    #
+    # Casi todos CALCULAN el valor que van a escribir (qué pata suscribir, qué
+    # día rehacer) y por eso el botón es un botón: no hay nada que preguntar.
+    # `completar_ficha` no puede — la clase de activo de un título no se deduce
+    # de ningún lado, la sabe la mesa—, así que su pantalla es un listado
+    # editable y `aplicar` recibe lo que se cargó.
+    #
+    # Sin este flag el front tendría que adivinar cuál de los dos es cada uno, y
+    # adivinar significa una lista de ids en el navegador que nadie mantiene
+    # igual a esta (REGLA #9).
+    pide_datos = False
+
     def preview(self, sujeto: str, ev: dict) -> dict:
         raise NotImplementedError
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         raise NotImplementedError
 
 
@@ -148,7 +162,8 @@ class PedirPata(Arreglo):
                            "la ausencia de precio no prueba que no cotice. El "
                            "motor la levanta en 5 s, sin reiniciar.")}
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         from core import adhoc_subscriptions
         s = self._simbolo(sujeto, ev)
         if not s:
@@ -186,7 +201,8 @@ class PataDolar(Arreglo):
         from agente import pata
         return pata.explicar(sujeto)
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         from agente import pata
         r = pata.pedir(sujeto, por=por)
         if not r.get("ok"):
@@ -227,7 +243,8 @@ class ApuntarPata(Arreglo):
                            "en dólares. Se cambia el master Y se pide la pata, "
                            "porque el motor arma su universo al arrancar.")}
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         from core import adhoc_subscriptions
         d = self._destino(ev)
         if not d:
@@ -270,7 +287,8 @@ class AltaFlujos(Arreglo):
                                       donde=self.donde,
                                       que=f"el cronograma de {sujeto}")
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         from agente import alta
         r = alta.aplicar_flujos(sujeto, actor=por)
         if not r.get("ok") or not r.get("aplicado"):
@@ -300,7 +318,8 @@ class AltaBono(Arreglo):
                                       donde=self.donde,
                                       que=f"{sujeto} (curva 1816: {c})")
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         from agente import alta
         if not (c := self._curva(ev)):
             return Resultado(False, "el hallazgo no trae la curva de 1816")
@@ -349,7 +368,8 @@ class RehacerJob(Arreglo):
                            "mismo lanzador del cron y se verifica mirando la "
                            "tabla, no el código de salida.")}
 
-    def aplicar(self, sujeto: str, ev: dict, por: str = "") -> Resultado:
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
         from agente import rehacer
         job, fecha = self._job_fecha(sujeto, ev)
         r = rehacer.rehacer(job, fecha, por=por)
@@ -366,15 +386,148 @@ class RehacerJob(Arreglo):
                          antes="sin dato", despues=fecha, donde=self.donde)
 
 
+# ── COMPLETAR LA FICHA DE UN TÍTULO ────────────────────────────────────────
+class CompletarFicha(Arreglo):
+    """**El único arreglo que no calcula el valor: lo carga una persona.**
+
+    La clase de activo de un título, o su emisor, no se deducen de ningún lado
+    —`jobs/assets_autofill` corre todas las noches y ya completó todo lo que sus
+    reglas saben derivar, así que lo que queda es, por definición, lo que
+    ninguna regla puede resolver—. Medido el 2026-08-27: **0 derivables** en las
+    cuatro reglas. Un botón «completar automáticamente» sería un botón que
+    siempre dice «no pude», que es justo lo que se sacó del agente viejo.
+
+    Lo que sí se puede es sacarle a la mesa el viaje a Manager: el listado de lo
+    que falta se despliega **adentro del aviso**, se carga ahí, y **se escribe
+    de verdad**. Lo completado desaparece de la lista porque `preview` la
+    recalcula: no hay una foto guardada que pueda quedar vieja.
+
+    ⚠️ **ESCRIBE POR LA PUERTA ÚNICA** (`assets_sql.set_campos`), con
+    `crear=False`. No es un detalle: ese `set_campos` hace el `.strip()` de los
+    valores —un `'HD  '` rompe los filtros que comparan exacto y no falla en el
+    momento—, deja `actualizado_por`, invalida el cache, y con `crear=False` una
+    unidad que no existe EXACTA levanta en vez de fabricar un asset fantasma
+    trimmeado (el incidente OTC del 2026-08-22, REGLA #9).
+    """
+
+    id = "completar_ficha"
+    titulo = "Completar la ficha de los títulos que están en cartera"
+    donde = "portafolio.assets"
+    campo = "ficha"
+    pide_datos = True
+
+    def _campo(self, sujeto: str, ev: dict) -> dict | None:
+        """La definición del campo. **Sale del catálogo de detectores, no del
+        sujeto**: así el arreglo no puede escribir una columna que el detector
+        no mira, ni que no exista."""
+        from agente.detectores.catalogo import CAMPOS
+        objetivo = (ev.get("campo") or sujeto or "").strip()
+        return next((c for c in CAMPOS if c["campo"] == objetivo), None)
+
+    def preview(self, sujeto: str, ev: dict) -> dict:
+        from agente.detectores import catalogo as det
+
+        c = self._campo(sujeto, ev)
+        if c is None:
+            return {"ok": False,
+                    "error": f"«{sujeto}» no es un campo de la ficha"}
+        filas = det.faltantes(c)
+        return {
+            "ok": True,
+            "que_escribe": (f"{c['campo'].upper()} en {len(filas)} título(s) de "
+                            f"carteras de clientes"),
+            "donde": self.donde,
+            "porque": c["rompe"],
+            "puede_aplicar": bool(filas),
+            # LO QUE LA PANTALLA DESPLIEGA. Cada fila trae el resto de la ficha
+            # para que se pueda decidir sin salir de acá: la cartera y el ticker
+            # son lo que dice qué es ese título.
+            "campo": c["campo"],
+            "filas": filas,
+            # Los valores que ese campo YA tiene, para elegir en vez de tipear.
+            # Tipear es como nacen `HD ` y `hd`, que no fallan y rompen filtros.
+            "opciones": det.valores_usados(c["campo"]),
+        }
+
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
+        from api.services.assets_sql import set_campos
+
+        c = self._campo(sujeto, ev)
+        if c is None:
+            return Resultado(False, f"«{sujeto}» no es un campo de la ficha")
+        if not datos:
+            return Resultado(False, "no se cargó ningún valor")
+
+        # ⚠️ **SE VERIFICA CONTRA LA LISTA VIVA, NO CONTRA LO QUE MANDÓ EL
+        # NAVEGADOR.** El front manda `unidad` y `valor`; si se escribiera
+        # directo, esta puerta aceptaría escribir CUALQUIER unidad del catálogo
+        # —incluida una que el detector no está mirando— porque el pedido viene
+        # de afuera. Se recalcula el conjunto permitido acá.
+        from agente.detectores import catalogo as det
+        permitidas = {f["unidad"] for f in det.faltantes(c)}
+
+        escritos, saltados, errores = [], [], []
+        for d in datos:
+            unidad = str((d or {}).get("unidad") or "")
+            valor = str((d or {}).get("valor") or "").strip()
+            if not unidad or not valor:
+                continue                       # fila que no se cargó: no es error
+            if unidad not in permitidas:
+                # Ya no le falta —lo completó otro, o esta pantalla estaba
+                # vieja—. No es un error y **no se pisa**: el valor que ya está
+                # lo puso alguien, y este arreglo COMPLETA, no corrige.
+                saltados.append(unidad)
+                continue
+            try:
+                set_campos(unidad, {c["campo"]: valor}, actor=por, crear=False)
+            except Exception as e:
+                errores.append(f"{unidad[:30]}: {type(e).__name__}")
+                continue
+            escritos.append((unidad, valor))
+            # UNA LÍNEA DE LIBRO POR TÍTULO. Son escrituras distintas sobre
+            # filas distintas: resumirlas en una sola dejaría el libro sin poder
+            # contestar «¿quién le puso HD a este?», que es para lo que existe.
+            libro.registrar(
+                accion=self.id, objetivo=unidad, destino=self.donde,
+                campo=c["campo"], antes="", despues=valor, por=por, ok=True)
+
+        if not escritos:
+            return Resultado(
+                False,
+                (f"no se escribió nada — {len(saltados)} ya estaban completos, "
+                 f"{len(errores)} fallaron"
+                 + (f": {'; '.join(errores[:3])}" if errores else "")))
+
+        quedan = len(permitidas) - len(escritos)
+        return Resultado(
+            True,
+            campo=c["campo"], donde=self.donde,
+            antes="(vacío)",
+            despues=f"{len(escritos)} título(s)",
+            detalle=(f"{len(escritos)} completado(s) · quedan {quedan}"
+                     + (f" · {len(saltados)} ya estaban" if saltados else "")
+                     + (f" · {len(errores)} con error: {'; '.join(errores[:3])}"
+                        if errores else "")),
+            # ⚠️ **`inmediato=False` aunque la escritura sea inmediata.** El
+            # hallazgo es de TODO el campo, así que completar 5 de 379 no lo
+            # resuelve: el detector lo va a seguir viendo con 374 y tiene que
+            # quedar abierto. Se cierra solo cuando la lista llega a cero, y
+            # entonces el cierre es POR ACCIÓN — que es lo único que habilita
+            # la reincidencia si vuelve a faltar.
+            inmediato=False)
+
+
 ARREGLOS: dict[str, Arreglo] = {
     a.id: a for a in (PedirPata(), PataDolar(), ApuntarPata(), AltaFlujos(),
-                      AltaBono(), RehacerJob())
+                      AltaBono(), RehacerJob(), CompletarFicha())
 }
 
 
 def catalogo() -> list[dict]:
     return [{"id": a.id, "titulo": a.titulo, "donde": a.donde,
-             "campo": a.campo, "inmediato": a.inmediato}
+             "campo": a.campo, "inmediato": a.inmediato,
+             "pide_datos": a.pide_datos}
             for a in ARREGLOS.values()]
 
 
@@ -393,7 +546,8 @@ def preview(hallazgo_id: int) -> dict:
         return {"ok": False, "error": str(e)[:300]}
 
 
-def aplicar(hallazgo_id: int, *, por: str = "") -> dict:
+def aplicar(hallazgo_id: int, *, por: str = "",
+            datos: list | None = None) -> dict:
     """Aplica el arreglo de UN hallazgo y mueve su estado.
 
     ⚠️ **`en_curso` y no `resuelto`.** Que la escritura saliera bien no prueba
@@ -418,7 +572,7 @@ def aplicar(hallazgo_id: int, *, por: str = "") -> dict:
                         regla=h["regla"], hallazgo_id=hallazgo_id,
                         por=por) as cuantas:
         try:
-            r = a.aplicar(h["sujeto"], h["evidencia"], por=por)
+            r = a.aplicar(h["sujeto"], h["evidencia"], por=por, datos=datos)
         except Exception as e:
             logger.exception("arreglos: %s falló sobre %s", a.id, h["sujeto"])
             r = Resultado(False, str(e)[:300])

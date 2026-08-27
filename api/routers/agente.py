@@ -102,8 +102,20 @@ def preview(body: UnHallazgo):
     return arreglos.preview(body.id)
 
 
+class Aplicar(BaseModel):
+    id: int = Field(..., ge=1)
+    # Lo que se cargó en el listado editable, para los arreglos que declaran
+    # `pide_datos` (hoy solo `completar_ficha`). El resto lo ignora.
+    #
+    # ⚠️ **ESTO VIENE DEL NAVEGADOR Y NO SE ESCRIBE COMO LLEGA.** El arreglo
+    # recalcula el conjunto permitido antes de tocar nada: sin eso, esta puerta
+    # aceptaría escribir cualquier unidad del catálogo, incluida una que el
+    # detector no está mirando.
+    datos: list[dict] | None = None
+
+
 @router.post("/aplicar")
-def aplicar(body: UnHallazgo, email: str = Depends(get_user_email)):
+def aplicar(body: Aplicar, email: str = Depends(get_user_email)):
     """ESCRIBE. Deja la línea en el libro y el hallazgo queda `en_curso`:
 
     que la escritura saliera bien **no prueba que el problema se fue** — eso lo
@@ -111,7 +123,7 @@ def aplicar(body: UnHallazgo, email: str = Depends(get_user_email)):
     reincidencia.
     """
     from agente import arreglos
-    return arreglos.aplicar(body.id, por=email)
+    return arreglos.aplicar(body.id, por=email, datos=body.datos)
 
 
 class Ignorar(BaseModel):

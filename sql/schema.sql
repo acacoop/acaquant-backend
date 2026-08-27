@@ -5428,6 +5428,44 @@ ALTER TABLE ap5.margenes ADD COLUMN IF NOT EXISTS concepto text NOT NULL DEFAULT
 ALTER TABLE ap5.margenes DROP COLUMN IF EXISTS importe;
 ALTER TABLE ap5.margenes DROP COLUMN IF EXISTS campos;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ap5.activo_integrado — el ACTIVO INTEGRADO cargado A MANO
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- El activo integrado se calcula desde `ap5.margenes` (`Márgenes + Inicial A3`,
+-- sin filtro de cuentas) y **trae errores**, así que por un tiempo la mesa lo
+-- carga a mano (pedido del user, 2026-08-27).
+--
+-- ⚠️ **Tabla APARTE, no una columna en `ap5.margenes`.** Lo que manda el
+-- proveedor y lo que escribe una persona no comparten celda: el job re-corre
+-- todos los días y pisaría el número tipeado sin avisar, y después nadie puede
+-- decir cuál de los dos está viendo. Es la misma decisión que `ap5.cuentas.name`
+-- (manual) contra `denominacion` (de la cámara), y que `assets.name` contra el
+-- autofill.
+--
+-- ⚠️ **El manual NO reemplaza al calculado: convive con él.** La vista muestra
+-- el de la mesa Y lo que decía el automático, con quién lo cargó y cuándo. Un
+-- número tipeado que tapa al calculado sin dejar rastro es exactamente cómo un
+-- error de carga sobrevive semanas.
+--
+-- ⚠️ **La PK incluye la FECHA, y el valor NO se arrastra al día siguiente.** Un
+-- importe cargado el martes que sigue apareciendo el miércoles se lee como el
+-- dato del miércoles, y nadie lo revisó. Cada día se carga o se ve el
+-- calculado, que es lo honesto mientras esto sea manual.
+CREATE TABLE IF NOT EXISTS ap5.activo_integrado (
+    fecha          date    NOT NULL,
+    moneda         text    NOT NULL,
+    importe        numeric NOT NULL,
+    -- Por qué se corrigió. Opcional, pero es lo único que explica una
+    -- diferencia contra el calculado cuando se mira dentro de un mes.
+    nota           text,
+    -- Quién lo escribió. No es decorativo: es un número que va al reporte de la
+    -- mesa y se carga a mano.
+    por            text,
+    actualizado_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, moneda)
+);
+
 -- La PK vieja no tenía `concepto`. Una tabla creada antes del 2026-08-25 tiene
 -- una fila por cuenta con el margen de UN concepto (el último que escribió el
 -- UPSERT) — no hay nada que preservar, pero la PK sí hay que ampliarla o el

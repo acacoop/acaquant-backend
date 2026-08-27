@@ -949,8 +949,106 @@ def activo_integrado(fecha: str) -> dict:
     de compensación que no se puede abrir por comitente (5 filtros y 10 grafías
     de expansión, las 15 devuelven lo mismo).
     """
-    return _card_margenes(fecha, AP5_CONCEPTOS_ACTIVO_INTEGRADO,
+    card = _card_margenes(fecha, AP5_CONCEPTOS_ACTIVO_INTEGRADO,
                           filtra_cuentas=AP5_ACTIVO_INTEGRADO_FILTRA_CUENTAS)
+    return _con_manual(card, fecha)
+
+
+def _con_manual(card: dict, fecha: str | None) -> dict:
+    """Pisa el importe con el que cargó la mesa, **sin borrar el calculado**.
+
+    El activo integrado que sale de la cámara trae errores, así que por un
+    tiempo lo carga una persona (pedido del user, 2026-08-27). Pero el manual
+    **no reemplaza** al automático: convive con él.
+
+    ⚠️ **Cada moneda dice de dónde salió.** `origen: 'manual'|'calculado'`, y la
+    manual arrastra `calculado` (lo que decía la cámara), `por` y
+    `actualizado_at`. Un número tipeado que tapa al calculado sin dejar rastro
+    es exactamente cómo un error de carga sobrevive semanas — y peor: nadie
+    puede decir después cuál de los dos estaba mirando.
+
+    ⚠️ **Una moneda cargada a mano que NO existe en el cálculo igual aparece.**
+    Si se escondiera, cargar una moneda equivocada sería invisible: se guardaría
+    y no se vería nunca. Sale con `calculado: None`.
+
+    ⚠️ **No se arrastra de un día al otro.** La PK de `ap5.activo_integrado` es
+    (fecha, moneda): un importe cargado el martes no aparece el miércoles. Un
+    manual heredado se lee como el dato de hoy sin que nadie lo haya revisado.
+    """
+    if not fecha:
+        return {**card, "editable": True, "manuales": 0}
+
+    manual = {
+        r["moneda"]: r
+        for r in _q(
+            "SELECT moneda, importe, nota, por, actualizado_at "
+            "FROM ap5.activo_integrado WHERE fecha = %(f)s",
+            {"f": fecha},
+        )
+    }
+
+    por_moneda = []
+    for d in card["por_moneda"]:
+        m = manual.pop(d["moneda"], None)
+        if m is None:
+            por_moneda.append({**d, "origen": "calculado", "calculado": d["importe"],
+                               "nota": None, "por": None, "actualizado_at": None})
+            continue
+        por_moneda.append({
+            **d, "importe": round(float(m["importe"]), 2), "origen": "manual",
+            # Lo que decía la cámara queda a la vista, al lado del tipeado.
+            "calculado": d["importe"], "nota": m["nota"], "por": m["por"],
+            "actualizado_at": m["actualizado_at"].isoformat() if m["actualizado_at"] else None,
+        })
+
+    # Lo cargado a mano en una moneda que el cálculo no tiene. No se esconde.
+    for m, r in sorted(manual.items()):
+        por_moneda.append({
+            "moneda": m, "importe": round(float(r["importe"]), 2), "filas": 0,
+            "origen": "manual", "calculado": None, "nota": r["nota"], "por": r["por"],
+            "actualizado_at": r["actualizado_at"].isoformat() if r["actualizado_at"] else None,
+        })
+
+    por_moneda.sort(key=lambda x: x["moneda"])
+    return {**card, "por_moneda": por_moneda, "editable": True,
+            "manuales": sum(1 for d in por_moneda if d["origen"] == "manual")}
+
+
+def guardar_activo_integrado(fecha: str, moneda: str, importe: float | None,
+                             *, nota: str | None, por: str) -> dict:
+    """Carga (o BORRA) el activo integrado manual de una (fecha, moneda).
+
+    ⚠️ **`importe = None` BORRA la fila y vuelve al calculado.** Tiene que haber
+    forma de deshacer sin dejar un cero: un cero cargado a mano y «no hay dato»
+    se ven idénticos en la pantalla, y éste es un número que va al reporte.
+
+    ⚠️ **Guarda QUIÉN y CUÁNDO.** Es un valor tipeado que reemplaza a uno
+    calculado: sin autor y sin hora, dentro de un mes nadie puede decir si el
+    número es de la mesa o de la cámara.
+    """
+    fecha = (fecha or "").strip()
+    moneda = (moneda or "").strip()
+    if not fecha or not moneda:
+        return {"ok": False, "error": "fecha y moneda son obligatorias"}
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        if importe is None:
+            cur.execute("DELETE FROM ap5.activo_integrado "
+                        "WHERE fecha = %s AND moneda = %s", (fecha, moneda))
+            return {"ok": True, "fecha": fecha, "moneda": moneda,
+                    "borrado": cur.rowcount > 0, "importe": None}
+        cur.execute(
+            """
+            INSERT INTO ap5.activo_integrado (fecha, moneda, importe, nota, por)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (fecha, moneda) DO UPDATE
+               SET importe = EXCLUDED.importe, nota = EXCLUDED.nota,
+                   por = EXCLUDED.por, actualizado_at = now()
+            """,
+            (fecha, moneda, importe, (nota or "").strip() or None, por),
+        )
+    return {"ok": True, "fecha": fecha, "moneda": moneda,
+            "importe": round(float(importe), 2), "borrado": False}
 
 
 def actualizado(fecha: str) -> dict:

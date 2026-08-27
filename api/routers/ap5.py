@@ -25,11 +25,35 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import ap5_posiciones as _svc
+from api.services import mesa_dinero as _mesa
 
 router = APIRouter(prefix="/api/ap5", tags=["AP5"])
 
 # El único punto de control de la escritura (ver el docstring del módulo).
 _ESCRIBE = Depends(get_user_email)
+
+
+def require_escritura_mesa(actor: str = Depends(get_user_email)) -> str:
+    """Gate del ACTIVO INTEGRADO manual: escritura de **Mesa de Dinero**.
+
+    ⚠️ **Es un gate MÁS ANGOSTO que el del resto del router**, y a propósito.
+    Todo `/api/ap5` lo cubre el módulo `operaciones` (trader + admin), pero este
+    número es plata que va al reporte de la mesa y se tipea a mano: escribirlo
+    lo puede hacer sólo quien ya tiene escritura en Mesa de Dinero
+    (`operaciones.mesa_dinero_escritores` + admin), que es la allowlist
+    per-PERSONA que la mesa administra en Manager → MESA. Pedido del user
+    (2026-08-27).
+
+    ⚠️ **Reusa `_mesa.puede_escribir`, no una copia de la lista.** Dos
+    allowlists para el mismo permiso se separan sin fallar: se saca a alguien de
+    Manager → MESA y acá sigue pudiendo escribir, sin que nada lo grite.
+
+    Va como dependency y no como chequeo adentro del handler para que
+    `scripts/audit_rbac.py` lo vea al recorrer el árbol de deps.
+    """
+    if not _mesa.puede_escribir(actor):
+        raise HTTPException(403, "sin permiso de escritura en Mesa de Dinero")
+    return actor
 
 
 def _ok(fn, *args, **kwargs):
@@ -50,14 +74,21 @@ def _ok(fn, *args, **kwargs):
 
 @router.get("/vista")
 def vista(fecha: str | None = Query(
-    None, description="'YYYY-MM-DD'; default = el último día CON POSICIÓN")) -> dict:
+        None, description="'YYYY-MM-DD'; default = el último día CON POSICIÓN"),
+          actor: str = Depends(get_user_email)) -> dict:
     """TODA la pantalla en UN request.
 
     Un solo endpoint y no cinco porque los bloques tienen que hablar de la MISMA
     fecha: con llamadas separadas, un job corriendo en el medio dejaría el
     resumen en un día y el ranking en otro **sin que nada falle**.
+
+    ⚠️ `puede_editar_activo_integrado` lo resuelve el ROUTER y no el service:
+    depende de QUIÉN pide, y `api/services/` es puro. Es sólo para que la
+    pantalla no ofrezca un lápiz que va a devolver 403 — **el permiso real lo
+    aplica `require_escritura_mesa` en el POST**, que es el único enforcement.
     """
-    return _ok(_svc.vista, fecha)
+    v = _ok(_svc.vista, fecha)
+    return {**v, "puede_editar_activo_integrado": _mesa.puede_escribir(actor)}
 
 
 @router.get("/fechas")
@@ -97,6 +128,31 @@ def guardar_cuenta(body: CuentaIn, actor: str = _ESCRIBE) -> dict:
     """
     return _ok(_svc.guardar_cuenta, body.account,
                name=body.name, grupo=body.grupo, por=actor)
+
+
+class ActivoIntegradoBody(BaseModel):
+    moneda: str = Field(..., min_length=1, description="La moneda de la card")
+    # `None` BORRA la carga manual y vuelve al calculado. Es la única forma de
+    # deshacer sin dejar un cero, que se ve igual que «no hay dato».
+    importe: float | None = Field(None, description="null = borrar y volver al calculado")
+    nota: str | None = Field(None, max_length=500, description="Por qué se corrigió")
+    fecha: str | None = Field(None, description="YYYY-MM-DD; por defecto el último día")
+
+
+@router.post("/activo-integrado", dependencies=[Depends(require_escritura_mesa)])
+def guardar_activo_integrado(body: ActivoIntegradoBody,
+                             actor: str = _ESCRIBE) -> dict:
+    """Carga a mano el ACTIVO INTEGRADO de una moneda, o borra la carga.
+
+    Es TEMPORAL: el número que sale de la cámara trae errores y por un tiempo lo
+    escribe la mesa. **No borra el calculado** — la card sigue mostrando lo que
+    decía la cámara al lado, con quién lo cargó y cuándo.
+    """
+    hoy, _ = _svc._fecha_valida(body.fecha)
+    if not hoy:
+        raise HTTPException(400, "no hay días con posición para cargar")
+    return _ok(_svc.guardar_activo_integrado, hoy, body.moneda, body.importe,
+               nota=body.nota, por=actor)
 
 
 @router.get("/consolidado/detalle")

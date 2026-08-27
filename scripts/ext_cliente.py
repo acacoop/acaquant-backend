@@ -28,6 +28,10 @@ Uso (desde la raíz, en el Droplet):
     # Cortar el acceso entero de un cliente (reversible con --activar)
     python -m scripts.ext_cliente --desactivar cli_pepito
 
+    # ¿Ve o no ve el arancel que le cobramos? Efecto en el request siguiente.
+    python -m scripts.ext_cliente --aranceles-on  cli_pepito
+    python -m scripts.ext_cliente --aranceles-off cli_pepito
+
     # Deshacer un alta equivocada — baja DEFINITIVA, pide confirmación
     python -m scripts.ext_cliente --borrar cli_pepito
 
@@ -187,6 +191,30 @@ def cuentas_abm(cliente_id: str, cuentas: list[str], quitar: bool) -> int:
     return 0
 
 
+def set_aranceles(cliente_id: str, valor: bool) -> int:
+    """Prende/apaga si este cliente ve el arancel que le cobramos.
+
+    Es por cliente (`ext.clientes.ver_aranceles`), no global, y tiene efecto en
+    el request siguiente: el permiso se lee al armar cada respuesta, no viaja en
+    el token.
+
+    Prender es barato; apagar NO deshace lo que ya se entregó. Por eso el default
+    del alta es que NO lo vea.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE ext.clientes SET ver_aranceles = %s WHERE id = %s",
+                    (valor, cliente_id))
+        n = cur.rowcount
+    if not n:
+        print(f"ERROR: no existe el cliente '{cliente_id}'.")
+        return 2
+    print(f"✓ {cliente_id} → el arancel {'SÍ' if valor else 'NO'} viaja en la respuesta "
+          f"(desde el próximo request).")
+    if not valor:
+        print("  Ojo: esto corta de acá en adelante. Lo que ya se entregó, se entregó.")
+    return 0
+
+
 def borrar(cliente_id: str) -> int:
     """Baja DEFINITIVA de un cliente externo.
 
@@ -296,6 +324,10 @@ def main() -> int:
     ap.add_argument("--activar", metavar="CLIENTE_ID")
     ap.add_argument("--borrar", metavar="CLIENTE_ID",
                     help="Baja DEFINITIVA (pide confirmación). Para deshacer un alta equivocada")
+    ap.add_argument("--aranceles-on", metavar="CLIENTE_ID",
+                    help="Que el cliente EMPIECE a ver el arancel que le cobramos")
+    ap.add_argument("--aranceles-off", metavar="CLIENTE_ID",
+                    help="Que DEJE de verlo (de acá en adelante)")
     ap.add_argument("--listar", action="store_true")
     ap.add_argument("--podar", action="store_true")
     ap.add_argument("--dias", type=int, default=90)
@@ -317,6 +349,10 @@ def main() -> int:
         return cuentas_abm(a.agregar_cuentas, _cuentas(a.cuentas), quitar=False)
     if a.quitar_cuentas:
         return cuentas_abm(a.quitar_cuentas, _cuentas(a.cuentas), quitar=True)
+    if a.aranceles_on:
+        return set_aranceles(a.aranceles_on, True)
+    if a.aranceles_off:
+        return set_aranceles(a.aranceles_off, False)
     if a.borrar:
         return borrar(a.borrar)
     if a.desactivar:

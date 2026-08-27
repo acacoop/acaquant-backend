@@ -120,8 +120,12 @@ def alta(a: argparse.Namespace) -> int:
     print(f"✓ aranceles {'SÍ' if a.aranceles else 'no'}")
     print(f"✓ IPs       {', '.join(ips) if ips else '(sin restricción en la app)'}")
     _mostrar_key(a.alta, key)
-    print("Falta, del lado de Cloudflare: crear el service token del cliente y sumar")
-    print("su common_name a CF_TRUSTED_SERVICE_TOKENS en el .env del Droplet.")
+    print("Falta, del lado de Cloudflare: crear el service token del cliente y")
+    print("apuntarlo en la policy (Service Auth) de la app que cubre /ext.")
+    print()
+    print("⚠️  NO agregar ese token a CF_TRUSTED_SERVICE_TOKENS: esa lista da ADMIN")
+    print("    sobre /api (config.py). El token del accionista no va ahí NUNCA —")
+    print("    /ext no la usa: su credencial es la API key de arriba.")
     return 0
 
 

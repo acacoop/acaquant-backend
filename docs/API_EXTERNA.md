@@ -155,8 +155,16 @@ python -m scripts.ext_cliente --alta "PEPITO SRL" --cuentas 10452,10453
 Crea el cliente, sus cuentas y su primera API key (**se imprime una sola vez**).
 Opcionales: `--aranceles`, `--ips 200.45.12.8,190.2.0.0/24`, `--notas`.
 
-Del lado de Cloudflare, además: crear el **service token** del cliente y sumar su
-`common_name` a `CF_TRUSTED_SERVICE_TOKENS` en el `.env` del Droplet.
+Del lado de Cloudflare, además: crear el **service token** del cliente y elegirlo
+en la policy (**Service Auth**) de la app que cubre `/ext`.
+
+> ⚠️⚠️ **El token del accionista NO va a `CF_TRUSTED_SERVICE_TOKENS`.** Esa lista
+> son los service tokens que `/api` trata como **admin automático**
+> (`config.py:208`) — es para identidades NUESTRAS, como el frontend de Vercel.
+> Meter ahí al accionista le daría acceso de administrador a la API interna de la
+> mesa. `/ext` **no lee esa variable**: su credencial es la API key, y Cloudflare
+> lo frena en el borde. Son dos mecanismos distintos que comparten la palabra
+> "service token" y no hay que mezclarlos.
 
 ### Rotación de key — sin corte
 

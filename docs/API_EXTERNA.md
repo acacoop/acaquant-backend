@@ -266,12 +266,27 @@ Access esté bien configurado se comprueba desde afuera:
   muere en silencio — es la trampa que ya pagamos dos veces con el MCP);
 - **con** service token → tiene que llegar a la API y responder JSON.
 
-### Postman
+### Qué se le entrega al consumidor
 
-`postman/acaquant-ext.postman_collection.json` **se le entrega al consumidor tal
-cual** (no lleva credenciales). Trae el token automático y el request de
-sincronización ya guarda el `actualizado_desde` — es la forma más rápida de
-mostrarle el patrón a su dev sin explicarle nada. Ver `postman/README.md`.
+**Nada de esto vive en el repo**: es material del cliente, no herramienta nuestra,
+y una copia versionada a mano se desincroniza del código sin que nadie lo note.
+El contrato se **genera** cuando hace falta:
+
+```bash
+python -c "import json;from api.ext.app import ext_app;print(json.dumps(ext_app.openapi(),indent=2,ensure_ascii=False))" > acaquant-ext-openapi.json
+```
+
+Ese OpenAPI sale del código, así que no puede mentir; se importa en Postman,
+Insomnia o cualquier generador de clientes y arma la colección sola. Se acompaña
+con una guía de integración en HTML (autenticación, patrón de sincronización,
+campos, errores) para el que no lee un OpenAPI.
+
+⚠️ **`/ext/docs` está detrás de Cloudflare Access**, igual que el resto de `/ext`:
+un browser no puede mandar los headers del service token, así que el dev del
+cliente **no puede abrir esa URL**. Es a propósito (default-deny), y por eso la
+documentación se entrega como archivo. Si alguna vez se quiere una URL viva para
+ellos, hay que sacar `/ext/docs` de la app de Access — decisión de seguridad:
+publicaría la superficie de la API a cualquiera que la pida.
 
 ---
 

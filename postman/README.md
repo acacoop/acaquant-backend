@@ -1,7 +1,6 @@
 # postman/ — colecciones importables
 
-Cuatro colecciones para explorar a mano lo que los jobs consumen por código —
-y una (`acaquant-ext`) que además **se le entrega al consumidor externo**.
+Tres colecciones para explorar a mano lo que los jobs consumen por código.
 **Ningún archivo de acá lleva credenciales**: los environments vienen con los
 campos vacíos y marcados como `secret`, y se completan una sola vez en Postman.
 
@@ -13,8 +12,6 @@ campos vacíos y marcados como `secret`, y se completan una sola vez en Postman.
 | `acaquant-prod.postman_environment.json` | plantilla del environment de producción |
 | `byma-clearing.postman_collection.json` | BYMA Clearing Workflow (garantías + obligaciones), con **token automático** |
 | `byma-clearing.postman_environment.json` | plantilla del environment de BYMA |
-| `acaquant-ext.postman_collection.json` | **API EXTERNA para accionistas** (`/ext`), con **token automático** |
-| `acaquant-ext.postman_environment.json` | plantilla del environment de la API externa |
 
 Importar: en Postman, **Import → Files** y seleccionar los archivos. Después
 elegir el environment en el selector de arriba a la derecha y completar los
@@ -239,26 +236,21 @@ Los requests de estas colecciones son de **lectura**. El backfill de aranceles
 (`POST /aunesa/boletos/backfill`) se dejó afuera a propósito: escribe.
 
 
+
 ---
 
-## 4 · API externa (accionistas) — token automático
+## 4 · API externa (accionistas)
 
-Esta colección **se le puede entregar al consumidor externo tal cual**: no lleva
-credenciales, y el environment viene con los cuatro valores vacíos.
+**La colección de `/ext` NO vive acá** (decisión del user, 2026-08-27): es material
+que se le entrega al consumidor externo, no una herramienta nuestra, y en el repo
+sólo agregaba una copia más para mantener sincronizada a mano.
 
-Un pre-request script a nivel colección cambia la API key por un token de 30 min
-y lo renueva solo a los 25. Nunca hay que copiar un Bearer.
+El contrato es **auto-generado desde el código y no puede quedar viejo**:
 
-Hay que completar cuatro valores:
+```bash
+python -c "import json;from api.ext.app import ext_app;print(json.dumps(ext_app.openapi(),indent=2,ensure_ascii=False))" > acaquant-ext-openapi.json
+```
 
-- `ext_api_key` — la que emite `python -m scripts.ext_cliente --alta …`
-- `cf_client_id` / `cf_client_secret` — el service token de Cloudflare del cliente
-- `ext_base_url` — ya viene con `https://api.acaquant.com/ext`
-
-El request **4. Sincronizar** guarda solo el nuevo `actualizado_desde` en el
-environment: correlo dos veces y la segunda no trae nada. Es el patrón exacto que
-tiene que implementar la integración — y la forma más rápida de mostrárselo a su
-dev sin explicarle nada.
-
-Doc del contrato: `https://api.acaquant.com/ext/docs` · doc de adentro:
+Ese JSON se importa directo en Postman (**Import → File**) y arma la colección
+sola, con todos los endpoints y parámetros al día. Doc del dominio:
 `docs/API_EXTERNA.md`.

@@ -207,6 +207,44 @@ emitidas** (habría que regenerarlas). No rotarlo sin plan.
 
 ---
 
+## 5 bis. Verificación
+
+### End-to-end contra la base real
+
+```
+python -m scripts.ext_smoke
+```
+
+Claude no tiene acceso a producción (REGLA #0), así que **los tests unitarios
+corren con la base simulada**: prueban la lógica, no la cadena. Este script la
+prueba entera —autenticación, scope, paginación, cursor, fail-closed y
+revocación— contra Postgres de verdad.
+
+Crea un cliente **temporal** (`cli_smoke_tmp`) con una cuenta, corre 11
+comprobaciones y **lo borra en un `finally`**. No toca ningún cliente existente
+ni escribe una fila de operaciones. `--dejar` lo conserva para depurar.
+
+La comprobación que importa: **ninguna fila devuelta cae fuera del scope**.
+
+### La capa de Cloudflare, aparte
+
+El smoke corre in-process: verifica el código y la base, **no** el borde. Que CF
+Access esté bien configurado se comprueba desde afuera:
+
+- **sin** service token → tiene que dar **401/403**, nunca el HTML del login
+  (si devuelve HTML, el path scoping está mal y la integración del cliente
+  muere en silencio — es la trampa que ya pagamos dos veces con el MCP);
+- **con** service token → tiene que llegar a la API y responder JSON.
+
+### Postman
+
+`postman/acaquant-ext.postman_collection.json` **se le entrega al consumidor tal
+cual** (no lleva credenciales). Trae el token automático y el request de
+sincronización ya guarda el `actualizado_desde` — es la forma más rápida de
+mostrarle el patrón a su dev sin explicarle nada. Ver `postman/README.md`.
+
+---
+
 ## 6. Configuración
 
 | Variable | Default | Para qué |
@@ -240,6 +278,12 @@ integración muere en silencio) y el **tope de destinations por app**.
 
 ## Changelog
 
+- **2026-08-27** — el contrato habla el idioma del consumidor: montos como
+  **número** JSON; el título se identifica por **`ticker`** (de
+  `portafolio.assets`, subconsulta escalar) y no por el string interno de la
+  unidad; salen `es_cierre` y `etapa`, que eran mecánica nuestra. Se suma
+  `scripts/ext_smoke.py` (verificación end-to-end contra la base real) y la
+  colección de Postman entregable.
 - **2026-08-26** — v1.0.0. Schema `ext` (4 tablas), sub-app `/ext`, 4 endpoints
   (`auth/token`, `cuentas`, `operaciones`, `meta`), ABM por
   `scripts/ext_cliente.py`, invariantes congelados en

@@ -100,13 +100,9 @@ class OperacionOut(BaseModel):
     cuenta: str | None
     cuenta_nombre: str | None
     ticker: str | None = Field(
-        description="Ticker del título. Es la forma de relacionar la operación "
-                    "con tu propio catálogo. Puede venir `null` si el título "
-                    "todavía no está en nuestro maestro — en ese caso usá "
-                    "`descripcion`.")
-    descripcion: str | None = Field(
-        description="Nombre completo de lo operado, tal como lo registramos. "
-                    "Respaldo de `ticker`, no un identificador.")
+        description="Ticker del título: con esto relacionás la operación contra "
+                    "tu propio catálogo. Puede venir `null` cuando el título "
+                    "todavía no está en nuestro maestro.")
     tipo_operacion: str | None
     operacion: str | None = Field(description="Compra / Venta / Suscripción / Rescate / …")
     cantidad: float | None

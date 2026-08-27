@@ -46,7 +46,10 @@ _ACT = ("GREATEST(COALESCE(ingestado_en, to_timestamp(0)), "
 
 # Columnas que viajan SIEMPRE. Deliberadamente NO se exponen `segmento`,
 # `nivel_3`, `es_cierre` ni `etapa`. Los dos primeros son nuestra clasificación
-# comercial interna (cómo segmentamos al cliente). `es_cierre` es una marca
+# comercial interna (cómo segmentamos al cliente). Tampoco viaja el string
+# interno de la unidad de Aunesa: el título se identifica por TICKER y nada más
+# (decisión del user 2026-08-27 — un `ticker` vacío se acepta como tal).
+# `es_cierre` es una marca
 # nuestra —`"CIERRE" in tipo_operacion`, ver operaciones_informes.py:313—, así
 # que el dato ya viaja en `tipo_operacion` con el nombre real de la operación.
 # Y `etapa` (solicitud/liquidacion del FCI bilateral) es la mecánica con la que
@@ -70,11 +73,6 @@ _COLS = [
     # mismo patrón que ya usa la vista de la mesa (operaciones_sql.py:626).
     "(SELECT a.ticker FROM portafolio.assets a "
     " WHERE a.unidad = operaciones.instrumento) AS ticker",
-    # El nombre completo de lo que se operó, tal como lo registramos. Va como
-    # RESPALDO del ticker, no como identificador: si el título todavía no está
-    # en el catálogo (o está sin ticker cargado), `ticker` viene null y sin esto
-    # la fila quedaría sin ninguna forma de saber qué se operó.
-    "instrumento AS descripcion",
     "tipo_operacion",
     "operacion",
     "cantidad",
@@ -226,7 +224,6 @@ def _fila(r: dict, con_arancel: bool) -> dict:
         "cuenta": r["id_cuenta"],
         "cuenta_nombre": r["cuenta_nombre"],
         "ticker": r["ticker"],
-        "descripcion": r["descripcion"],
         "tipo_operacion": r["tipo_operacion"],
         "operacion": r["operacion"],
         "cantidad": _num(r["cantidad"]),

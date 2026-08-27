@@ -1,0 +1,153 @@
+{
+  "info": {
+    "name": "ACA Valores — API de Operaciones (accionistas)",
+    "description": "API EXTERNA (/ext/v1) que le entrega a un accionista SUS operaciones, boleto por boleto. Solo lectura.\n\nEL TOKEN SE SACA SOLO: un pre-request script a nivel COLECCION revisa si hay token vigente y, si no, hace el POST /v1/auth/token con la API key del environment y lo guarda. Nunca hay que copiar un Bearer a mano.\n\nDOS CAPAS DE CREDENCIAL:\n  1. Service token de Cloudflare (CF-Access-Client-Id / -Secret) — va en headers de coleccion, sin eso el request no llega al servidor.\n  2. API key -> token de 30 min.\n\nRequiere el environment 'ACA Valores API externa' con: ext_base_url, ext_api_key, cf_client_id, cf_client_secret.\n\nDoc completa: {{ext_base_url}}/docs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{ext_token}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// TOKEN AUTOMATICO — corre antes de CADA request de la coleccion.",
+          "//",
+          "// El token dura 30 minutos. Si el guardado tiene menos de TTL_MIN, no hace",
+          "// nada; si no, pide uno nuevo y lo guarda. El request '0. Token' se saltea",
+          "// a si mismo para no pedirlo dos veces.",
+          "",
+          "const TTL_MIN = 25;",
+          "",
+          "if (pm.info.requestName === '0. Token') { return; }",
+          "",
+          "const emitido = Number(pm.environment.get('ext_token_ts') || 0);",
+          "const vigente = pm.environment.get('ext_token') && (Date.now() - emitido) < TTL_MIN * 60 * 1000;",
+          "if (vigente) { return; }",
+          "",
+          "pm.sendRequest({",
+          "  url: pm.environment.get('ext_base_url') + '/v1/auth/token',",
+          "  method: 'POST',",
+          "  header: {",
+          "    'Content-Type': 'application/json',",
+          "    'CF-Access-Client-Id': pm.environment.get('cf_client_id'),",
+          "    'CF-Access-Client-Secret': pm.environment.get('cf_client_secret')",
+          "  },",
+          "  body: { mode: 'raw', raw: JSON.stringify({ apiKey: pm.environment.get('ext_api_key') }) }",
+          "}, function (err, res) {",
+          "  if (err) { console.error('no se pudo pedir el token:', err); return; }",
+          "  if (res.code !== 200) { console.error('token rechazado (' + res.code + '):', res.text()); return; }",
+          "  pm.environment.set('ext_token', res.json().token);",
+          "  pm.environment.set('ext_token_ts', Date.now());",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [],
+  "item": [
+    {
+      "name": "0. Token",
+      "request": {
+        "method": "POST",
+        "auth": { "type": "noauth" },
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "CF-Access-Client-Id", "value": "{{cf_client_id}}" },
+          { "key": "CF-Access-Client-Secret", "value": "{{cf_client_secret}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"apiKey\": \"{{ext_api_key}}\"\n}" },
+        "url": { "raw": "{{ext_base_url}}/v1/auth/token", "host": ["{{ext_base_url}}"], "path": ["v1", "auth", "token"] },
+        "description": "Cambia la API key por un token de 30 minutos. Normalmente NO hace falta llamarlo: el pre-request de la coleccion lo hace solo. Queda para debug."
+      }
+    },
+    {
+      "name": "1. Mis cuentas",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "CF-Access-Client-Id", "value": "{{cf_client_id}}" },
+          { "key": "CF-Access-Client-Secret", "value": "{{cf_client_secret}}" }
+        ],
+        "url": { "raw": "{{ext_base_url}}/v1/cuentas", "host": ["{{ext_base_url}}"], "path": ["v1", "cuentas"] },
+        "description": "Que cuentas alcanza esta credencial. Sirve para verificar de un vistazo que la integracion ve exactamente lo que tiene que ver."
+      }
+    },
+    {
+      "name": "2. Cobertura de datos",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "CF-Access-Client-Id", "value": "{{cf_client_id}}" },
+          { "key": "CF-Access-Client-Secret", "value": "{{cf_client_secret}}" }
+        ],
+        "url": { "raw": "{{ext_base_url}}/v1/meta", "host": ["{{ext_base_url}}"], "path": ["v1", "meta"] },
+        "description": "Hasta cuando hay datos y cuando se actualizaron por ultima vez.\n\nConsultalo ANTES de concluir que un dia no tuvo operaciones: si es posterior a `ultima_operacion`, todavia no llego."
+      }
+    },
+    {
+      "name": "3. Operaciones — carga inicial (por fecha)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "CF-Access-Client-Id", "value": "{{cf_client_id}}" },
+          { "key": "CF-Access-Client-Secret", "value": "{{cf_client_secret}}" }
+        ],
+        "url": {
+          "raw": "{{ext_base_url}}/v1/operaciones?desde={{desde}}&hasta={{hasta}}&limit=500",
+          "host": ["{{ext_base_url}}"],
+          "path": ["v1", "operaciones"],
+          "query": [
+            { "key": "desde", "value": "{{desde}}" },
+            { "key": "hasta", "value": "{{hasta}}" },
+            { "key": "limit", "value": "500" },
+            { "key": "cuenta", "value": "", "disabled": true },
+            { "key": "cursor", "value": "", "disabled": true }
+          ]
+        },
+        "description": "La foto de un periodo. Paginar con `cursor` = el `siguiente_cursor` de la respuesta anterior, hasta que `hay_mas` sea false.\n\nGuardar el mayor `actualizado_en` recibido: es el punto de partida de la sincronizacion."
+      }
+    },
+    {
+      "name": "4. Operaciones — sincronizar (por cambios)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Guarda el mayor `actualizado_en` de la pagina para la proxima corrida.",
+              "// Es exactamente el patron que tiene que implementar la integracion.",
+              "const ops = pm.response.json().operaciones || [];",
+              "if (ops.length) {",
+              "  const max = ops.map(o => o.actualizado_en).filter(Boolean).sort().pop();",
+              "  if (max) { pm.environment.set('actualizado_desde', max); }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "CF-Access-Client-Id", "value": "{{cf_client_id}}" },
+          { "key": "CF-Access-Client-Secret", "value": "{{cf_client_secret}}" }
+        ],
+        "url": {
+          "raw": "{{ext_base_url}}/v1/operaciones?actualizado_desde={{actualizado_desde}}&limit=500",
+          "host": ["{{ext_base_url}}"],
+          "path": ["v1", "operaciones"],
+          "query": [
+            { "key": "actualizado_desde", "value": "{{actualizado_desde}}" },
+            { "key": "limit", "value": "500" },
+            { "key": "cursor", "value": "", "disabled": true }
+          ]
+        },
+        "description": "TODO lo que cambio desde la ultima corrida, INCLUIDOS los boletos anulados (llegan con `anulado: true` — hay que darlos de baja del otro lado).\n\nEste request guarda solo el nuevo `actualizado_desde` en el environment: correlo dos veces y la segunda no trae nada.\n\nPedir solo por fecha de operacion NUNCA entera de una anulacion posterior."
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 # postman/ — colecciones importables
 
-Tres colecciones para explorar a mano lo que los jobs consumen por código.
+Cuatro colecciones para explorar a mano lo que los jobs consumen por código —
+y una (`acaquant-ext`) que además **se le entrega al consumidor externo**.
 **Ningún archivo de acá lleva credenciales**: los environments vienen con los
 campos vacíos y marcados como `secret`, y se completan una sola vez en Postman.
 
@@ -12,6 +13,8 @@ campos vacíos y marcados como `secret`, y se completan una sola vez en Postman.
 | `acaquant-prod.postman_environment.json` | plantilla del environment de producción |
 | `byma-clearing.postman_collection.json` | BYMA Clearing Workflow (garantías + obligaciones), con **token automático** |
 | `byma-clearing.postman_environment.json` | plantilla del environment de BYMA |
+| `acaquant-ext.postman_collection.json` | **API EXTERNA para accionistas** (`/ext`), con **token automático** |
+| `acaquant-ext.postman_environment.json` | plantilla del environment de la API externa |
 
 Importar: en Postman, **Import → Files** y seleccionar los archivos. Después
 elegir el environment en el selector de arriba a la derecha y completar los
@@ -234,3 +237,28 @@ vez exportás un environment con valores adentro, no lo commitees.
 
 Los requests de estas colecciones son de **lectura**. El backfill de aranceles
 (`POST /aunesa/boletos/backfill`) se dejó afuera a propósito: escribe.
+
+
+---
+
+## 4 · API externa (accionistas) — token automático
+
+Esta colección **se le puede entregar al consumidor externo tal cual**: no lleva
+credenciales, y el environment viene con los cuatro valores vacíos.
+
+Un pre-request script a nivel colección cambia la API key por un token de 30 min
+y lo renueva solo a los 25. Nunca hay que copiar un Bearer.
+
+Hay que completar cuatro valores:
+
+- `ext_api_key` — la que emite `python -m scripts.ext_cliente --alta …`
+- `cf_client_id` / `cf_client_secret` — el service token de Cloudflare del cliente
+- `ext_base_url` — ya viene con `https://api.acaquant.com/ext`
+
+El request **4. Sincronizar** guarda solo el nuevo `actualizado_desde` en el
+environment: correlo dos veces y la segunda no trae nada. Es el patrón exacto que
+tiene que implementar la integración — y la forma más rápida de mostrárselo a su
+dev sin explicarle nada.
+
+Doc del contrato: `https://api.acaquant.com/ext/docs` · doc de adentro:
+`docs/API_EXTERNA.md`.

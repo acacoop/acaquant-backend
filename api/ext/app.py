@@ -26,7 +26,6 @@ from slowapi.middleware import SlowAPIMiddleware
 from api.ext import db, lectura
 from api.ext.auth import Cliente, cliente_actual, emitir_token, ip_del_request, resolver_cuentas
 from api.ext.ratelimit import limiter
-from config import EXT_MAX_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +48,14 @@ credencial. Sólo lectura.
 La API key es de larga duración y viaja **una sola vez por sesión**; el token es
 el que viaja en cada request.
 
-## Paginación
+## Consultas
 
-`GET /v1/operaciones` devuelve hasta `limit` filas por página. Si `hay_mas` es
-`true`, volvé a pedir con `cursor` = el `siguiente_cursor` de la respuesta
-anterior, hasta que sea `false`. El cursor es un valor opaco: pasalo tal cual.
+`GET /v1/operaciones` devuelve **todas** las operaciones del rango pedido, en una
+sola respuesta. No hay páginas ni cursores.
+
+Para el histórico completo conviene ir por períodos —mes a mes o año a año—: es
+más rápido y no depende de cuántas operaciones tengas. Si un rango es desmedido,
+la API responde `400` pidiendo acortarlo.
 """
 
 
@@ -98,17 +100,9 @@ class OperacionOut(BaseModel):
     arancel_moneda: str | None = Field(default=None, description="Siempre `ARS`.")
 
 
-class PaginacionOut(BaseModel):
-    limit: int
-    devueltas: int
-    hay_mas: bool = Field(description="Si es `true`, volvé a pedir con `siguiente_cursor`.")
-    siguiente_cursor: str | None = Field(
-        description="Valor opaco: pasalo tal cual en `cursor`. No lo interpretes.")
-
-
 class OperacionesOut(BaseModel):
     operaciones: list[OperacionOut]
-    paginacion: PaginacionOut
+    total: int = Field(description="Cuántas operaciones trae esta respuesta.")
 
 
 class MetaOut(BaseModel):
@@ -242,14 +236,12 @@ def operaciones(
         None,
         description="Restringí a una o varias de TUS cuentas, separadas por coma. "
                     "Omitilo para traer todas. Pedir una cuenta ajena devuelve 403."),
-    cursor: str | None = Query(None, description="`siguiente_cursor` de la página anterior."),
-    limit: int = Query(lectura.LIMIT_DEFAULT, ge=1, le=EXT_MAX_LIMIT),
 ) -> OperacionesOut:
-    """Tus operaciones, boleto por boleto."""
+    """Tus operaciones del rango pedido, boleto por boleto. Vienen todas juntas."""
     cuentas_pedidas = resolver_cuentas(cli, cuenta)
     filtros = {"desde": str(desde) if desde else None,
                "hasta": str(hasta) if hasta else None,
-               "cuenta": cuenta, "limit": limit, "cursor": bool(cursor)}
+               "cuenta": cuenta}
     _sellar(request, cli, filtros)
 
     try:
@@ -257,11 +249,9 @@ def operaciones(
             cuentas=cuentas_pedidas,
             desde=str(desde) if desde else None,
             hasta=str(hasta) if hasta else None,
-            cursor=cursor,
-            limit=limit,
             incluir_aranceles=cli.ver_aranceles,
         )
-    except ValueError as e:
+    except lectura.RangoDemasiadoGrande as e:
         return _mal_pedido(str(e))
 
     request.state.filas = len(res["operaciones"])
@@ -270,7 +260,8 @@ def operaciones(
 
 def _mal_pedido(mensaje: str):
     from fastapi import HTTPException
-    raise HTTPException(status_code=400, detail={"code": "parametro_invalido", "message": mensaje})
+    raise HTTPException(status_code=400, detail={"code": "rango_demasiado_grande",
+                                                 "message": mensaje})
 
 
 @ext_app.get("/v1/health", include_in_schema=False)

@@ -152,8 +152,7 @@ def test_el_scope_llega_al_lector_aunque_no_se_pida_cuenta(client, monkeypatch):
 
     def _fake(**kw):
         visto.update(kw)
-        return {"operaciones": [], "paginacion": {
-            "limit": 500, "devueltas": 0, "hay_mas": False, "siguiente_cursor": None}}
+        return {"operaciones": [], "total": 0}
 
     monkeypatch.setattr(lectura, "operaciones", _fake)
     r = client.get("/v1/operaciones", headers={"Authorization": f"Bearer {_token()}"})
@@ -201,8 +200,7 @@ def test_el_arancel_viaja_solo_si_el_cliente_lo_tiene(client, monkeypatch, habil
 
     def _fake(**kw):
         visto.update(kw)
-        return {"operaciones": [], "paginacion": {
-            "limit": 500, "devueltas": 0, "hay_mas": False, "siguiente_cursor": None}}
+        return {"operaciones": [], "total": 0}
 
     monkeypatch.setattr(lectura, "operaciones", _fake)
     client.get("/v1/operaciones", headers={"Authorization": f"Bearer {_token()}"})
@@ -289,8 +287,30 @@ def test_el_titulo_se_identifica_solo_por_ticker():
     assert sin["ticker"] is None
 
 
-def test_cursor_va_y_vuelve():
-    c = lectura._cursor_encode(["2026-08-26T12:00:00Z", "4210"])
-    assert lectura._cursor_decode(c) == ["2026-08-26T12:00:00Z", "4210"]
-    with pytest.raises(ValueError):
-        lectura._partes_cursor("no-es-base64-valido!!", 2)
+def test_un_rango_desmedido_es_400_con_recomendacion(client, monkeypatch):
+    """No hay paginación: si el rango pedido es enorme, en vez de armar un JSON
+    gigante en memoria —y llevarse puesta la API que comparte toda la mesa— se
+    contesta 400 diciendo que consulte por períodos más cortos."""
+    _montar_cliente(monkeypatch)
+
+    def _explota(**kw):
+        raise lectura.RangoDemasiadoGrande("supera las 20.000 operaciones; consultá mes a mes")
+
+    monkeypatch.setattr(lectura, "operaciones", _explota)
+    r = client.get("/v1/operaciones?desde=2000-01-01",
+                   headers={"Authorization": f"Bearer {_token()}"})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "rango_demasiado_grande"
+    assert "mes" in r.json()["detail"]["message"]
+
+
+def test_no_hay_paginacion_en_la_superficie():
+    """Decisión del user: nada de cursores ni páginas. Se pide un rango y viene
+    entero. Este test existe para que no vuelva a entrar por la ventana."""
+    from api.ext.app import ext_app
+
+    params = {p["name"] for p in
+              ext_app.openapi()["paths"]["/v1/operaciones"]["get"]["parameters"]}
+    assert not ({"cursor", "limit", "pagina", "offset"} & params), params
+    campos = ext_app.openapi()["components"]["schemas"]["OperacionesOut"]["properties"]
+    assert set(campos) == {"operaciones", "total"}

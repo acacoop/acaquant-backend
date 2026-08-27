@@ -133,9 +133,8 @@ $824 MM de volumen falso de este lado, corrido a la casa del cliente.
   resuelve antes de la respuesta, así que del otro lado sería jerga sin uso.
   Default-deny: agregar se puede; sacar lo que ya se entregó, no.
 - **`tasa`**: sólo boletos MAV, en PORCENTAJE (6 = 6%). `null` ≠ `0`.
-- **No se devuelve un total** de filas: contar el universo en cada página es caro
-  y no aporta. El contrato es `hay_mas` + `siguiente_cursor`.
-- **Paginación keyset**, no `OFFSET`.
+- **Se devuelve un `total`**, que es simplemente cuántas filas trae la respuesta.
+  Se puede porque no hay páginas: lo que viaja es todo lo que hay.
 - **Nada de instrucciones de uso en el contrato.** Cómo sumar, cómo tratar las
   cauciones o cómo evitar la deriva del punto flotante lo decide quien consume —
   la documentación describe lo que la API devuelve, no lo que hay que hacer con
@@ -303,7 +302,7 @@ publicaría la superficie de la API a cualquiera que la pida.
 | `EXT_JWT_SECRET` | — | **Enciende la API.** Firma los tokens y hashea las keys |
 | `EXT_TOKEN_TTL_SECONDS` | `1800` | Vida del token de acceso |
 | `EXT_ISSUER` | `https://api.acaquant.com/ext` | claim `iss` |
-| `EXT_MAX_LIMIT` | `1000` | Tope de filas por página |
+| `EXT_MAX_FILAS` | `20000` | Tope por consulta (no es una página: es la red anti-consulta-desmedida) |
 
 **Cloudflare** (una vez): Access Application sobre `api.acaquant.com/ext` +
 `/ext/*`, policy **Service Auth**, un service token por cliente. Opcional: regla
@@ -329,6 +328,12 @@ integración muere en silencio) y el **tope de destinations por app**.
 
 ## Changelog
 
+- **2026-08-27** — **fuera la paginación**. Se pide un rango y viene entero, con
+  un `total`. Desaparecen `cursor`, `hay_mas`, `siguiente_cursor` y `limit`; queda
+  `EXT_MAX_FILAS` como red, con un 400 que recomienda consultar mes a mes. El
+  cursor keyset resolvía un problema de escala que este caso no tiene (la cuenta
+  de prueba tenía 76 operaciones) a cambio de un concepto que el consumidor tiene
+  que aprender. Congelado por `test_no_hay_paginacion_en_la_superficie`.
 - **2026-08-27** — se saca el **modo incremental** y con él los campos
   `actualizado_en` y `anulado` (decisión del user). Queda un solo modo:
   `desde`/`hasta` con cursor. Se revierte también `incluir_anulados` de

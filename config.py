@@ -330,5 +330,9 @@ EXT_TOKEN_TTL_SECONDS = int(os.getenv("EXT_TOKEN_TTL_SECONDS", "1800"))  # 30 mi
 # Emisor declarado en el token (claim `iss`).
 EXT_ISSUER = os.getenv("EXT_ISSUER", "https://api.acaquant.com/ext").strip()
 
-# Tope de filas por página. El cliente puede pedir menos, nunca más.
-EXT_MAX_LIMIT = int(os.getenv("EXT_MAX_LIMIT", "1000"))
+# Tope de filas por consulta. NO es paginación: se pide un rango de fechas y se
+# recibe todo lo de ese rango. Esto es la red para que una consulta desmedida
+# (diez años de golpe) no arme un JSON gigante en memoria y se lleve puesta la
+# API que usa toda la mesa. Deliberadamente ALTO: en uso normal no se alcanza, y
+# el que lo alcanza recibe un mensaje que le dice que consulte por mes.
+EXT_MAX_FILAS = int(os.getenv("EXT_MAX_FILAS", "20000"))

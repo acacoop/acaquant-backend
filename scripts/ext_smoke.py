@@ -134,7 +134,7 @@ def main() -> int:
               f"  última ingesta: {m.get('ultima_ingesta')}")
 
         # 5 — EL CHEQUE QUE IMPORTA: ninguna fila fuera del scope
-        r = cli.get("/v1/operaciones?limit=200", headers=h)
+        r = cli.get("/v1/operaciones", headers=h)
         filas = r.json().get("operaciones", []) if r.status_code == 200 else []
         check("/v1/operaciones responde", r.status_code == 200, r.text[:200])
         check("NINGUNA fila fuera del scope",
@@ -149,17 +149,14 @@ def main() -> int:
                   not ({"segmento", "nivel_3", "es_cierre", "etapa",
                     "anulado", "actualizado_en", "instrumento"} & set(filas[0])))
 
-        # 6 — paginación: la segunda página no repite ni saltea
-        r1 = cli.get("/v1/operaciones?limit=2", headers=h)
-        p1 = r1.json()
-        if p1["paginacion"]["hay_mas"]:
-            r2 = cli.get(f"/v1/operaciones?limit=2&cursor={p1['paginacion']['siguiente_cursor']}",
-                         headers=h)
-            b1 = {f["boleto"] for f in p1["operaciones"]}
-            b2 = {f["boleto"] for f in r2.json()["operaciones"]}
-            check("el cursor avanza sin repetir", bool(b2) and not (b1 & b2))
-        else:
-            print("  – paginación: la cuenta tiene ≤2 boletos, no se pudo probar")
+        # 6 — todo viene junto: `total` tiene que coincidir con las filas
+        r = cli.get("/v1/operaciones", headers=h)
+        j = r.json()
+        check("`total` coincide con las filas devueltas",
+              j.get("total") == len(j.get("operaciones", [])),
+              f"total={j.get('total')} filas={len(j.get('operaciones', []))}")
+        check("no quedó ningún rastro de paginación",
+              not ({"paginacion", "cursor", "hay_mas"} & set(j)), f"claves: {sorted(j)}")
 
         # 7 — cuenta ajena: 403, no lista vacía
         r = cli.get(f"/v1/operaciones?cuenta={_AJENA}", headers=h)
@@ -172,7 +169,7 @@ def main() -> int:
             cur.execute("SELECT count(*) FROM operaciones "
                         "WHERE id_cuenta = %s AND anulado_en IS NOT NULL", (cuenta,))
             anulados_en_base = cur.fetchone()[0]
-        r = cli.get("/v1/operaciones?limit=1000", headers=h)
+        r = cli.get("/v1/operaciones", headers=h)
         boletos = {f["boleto"] for f in r.json().get("operaciones", [])}
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT boleto FROM operaciones "

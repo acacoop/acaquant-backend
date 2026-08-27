@@ -14,20 +14,24 @@ exactamente el modo de falla de la REGLA #9.
 ## Qué entrega
 
 Los boletos vigentes de las cuentas del cliente, por rango de fecha de
-concertación, paginados con un cursor keyset sobre `id` (nunca OFFSET).
+concertación. **Sin paginación**: se pide un rango y se devuelve entero.
 
 Los **anulados no viajan**: los filtra `_ops_where` con `anulado_en IS NULL`, el
 mismo predicado que usa la vista de la mesa. Un boleto que se anula deja de
 aparecer, así que volver a consultar un período ya entregado reconcilia solo.
+
+El único límite es `EXT_MAX_FILAS`, y no es una página: es la red para que una
+consulta desmedida no arme un JSON gigante en memoria y se lleve puesta la API
+que comparte toda la mesa. Quien lo alcanza recibe un mensaje que le dice que
+consulte por períodos más cortos.
 """
 from __future__ import annotations
 
-import base64
-import binascii
 from datetime import UTC, datetime
 
 from api.services._sql import _q
 from api.services.operaciones_sql import _ops_where
+from config import EXT_MAX_FILAS
 
 # Columnas que viajan SIEMPRE. Deliberadamente NO se exponen `segmento`,
 # `nivel_3`, `es_cierre` ni `etapa`. Los dos primeros son nuestra clasificación
@@ -66,30 +70,13 @@ _COLS = [
     "mercado",
     "tasa",
     "mep",
-    "id AS _id",
 ]
 _COLS_ARANCEL = ["arancel"]
 
-LIMIT_DEFAULT = 500
 
+class RangoDemasiadoGrande(Exception):
+    """El rango pedido devuelve más de `EXT_MAX_FILAS`. El router la traduce a 400."""
 
-# ── cursor ───────────────────────────────────────────────────────────────────
-def _cursor_encode(partes: list[str]) -> str:
-    """Cursor opaco. base64 de los valores de orden, no un offset.
-
-    Es opaco para que nadie del otro lado construya uno a mano y quede atado a
-    nuestro esquema; NO es una credencial (no otorga acceso — el scope se
-    verifica aparte, en cada request).
-    """
-    return base64.urlsafe_b64encode("|".join(partes).encode()).decode().rstrip("=")
-
-
-def _cursor_decode(cursor: str) -> list[str]:
-    relleno = "=" * (-len(cursor) % 4)
-    try:
-        return base64.urlsafe_b64decode(cursor + relleno).decode().split("|")
-    except (binascii.Error, UnicodeDecodeError, ValueError) as e:
-        raise ValueError("cursor inválido") from e
 
 
 def _iso(v) -> str | None:
@@ -121,16 +108,18 @@ def operaciones(
     cuentas: tuple[str, ...],
     desde: str | None = None,
     hasta: str | None = None,
-    cursor: str | None = None,
-    limit: int = LIMIT_DEFAULT,
     incluir_aranceles: bool = False,
 ) -> dict:
-    """Boletos del scope, paginados por cursor. `cuentas` YA viene verificado."""
+    """Boletos del scope en el rango pedido. `cuentas` YA viene verificado.
+
+    Levanta `RangoDemasiadoGrande` si el resultado supera `EXT_MAX_FILAS`. Se pide
+    UNA fila de más que el tope para poder distinguir "justo el tope" de "se pasó"
+    sin tener que contar el universo entero con un COUNT aparte.
+    """
     where, p = _ops_where(
         scope=cuentas,
         arancel=True,             # sin filtro de moneda + cierres con arancel (caución)
     )
-
     if desde:
         where += " AND concertacion >= %(desde)s"
         p["desde"] = desde
@@ -138,40 +127,22 @@ def operaciones(
         where += " AND concertacion <= %(hasta)s"
         p["hasta"] = hasta
 
-    orden = "id"
-    if cursor:
-        (c_id,) = _partes_cursor(cursor, 1)
-        where += " AND id > %(c_id)s::bigint"
-        p["c_id"] = c_id
-
     cols = list(_COLS) + (_COLS_ARANCEL if incluir_aranceles else [])
-    p["_lim"] = limit + 1          # +1 para saber si hay más SIN contar el total
+    p["_lim"] = EXT_MAX_FILAS + 1
     rows = _q(
         f"SELECT {', '.join(cols)} FROM operaciones "
-        f"WHERE {where} ORDER BY {orden} LIMIT %(_lim)s",
+        f"WHERE {where} ORDER BY concertacion, boleto LIMIT %(_lim)s",
         p,
     )
+    if len(rows) > EXT_MAX_FILAS:
+        raise RangoDemasiadoGrande(
+            f"el rango pedido supera las {EXT_MAX_FILAS:,} operaciones; "
+            "consultá por períodos más cortos (por ejemplo, mes a mes)"
+            .replace(",", ".")
+        )
 
-    hay_mas = len(rows) > limit
-    rows = rows[:limit]
-    siguiente = _cursor_encode([str(rows[-1]["_id"])]) if (hay_mas and rows) else None
-
-    return {
-        "operaciones": [_fila(r, incluir_aranceles) for r in rows],
-        "paginacion": {
-            "limit": limit,
-            "devueltas": len(rows),
-            "hay_mas": hay_mas,
-            "siguiente_cursor": siguiente,
-        },
-    }
-
-
-def _partes_cursor(cursor: str, n: int) -> list[str]:
-    partes = _cursor_decode(cursor)
-    if len(partes) != n:
-        raise ValueError("cursor inválido")
-    return partes
+    filas = [_fila(r, incluir_aranceles) for r in rows]
+    return {"operaciones": filas, "total": len(filas)}
 
 
 def _fila(r: dict, con_arancel: bool) -> dict:

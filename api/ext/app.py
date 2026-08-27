@@ -18,7 +18,7 @@ import time
 from datetime import date
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import JSONResponse, ORJSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -152,7 +152,9 @@ ext_app = FastAPI(
     title="ACA Valores — API de Operaciones",
     version="1.0.0",
     description=_DESCRIPCION,
-    default_response_class=ORJSONResponse,
+    # Sin `default_response_class=ORJSONResponse`: FastAPI ya serializa vía
+    # Pydantic cuando hay `response_model` (que acá lo tienen todos), y pasarlo
+    # emite un DeprecationWarning en cada request — ruido en la salida del smoke.
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

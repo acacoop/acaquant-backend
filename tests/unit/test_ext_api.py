@@ -13,9 +13,8 @@ Los invariantes:
   3. Pedir una cuenta ajena es 403, no una lista vacía.
   4. Revocar una key mata sus tokens ya emitidos, en el acto.
   5. El arancel viaja SÓLO si el cliente lo tiene habilitado.
-  6. `_ops_where` sigue excluyendo anulados por default (la puerta que abrimos
-     para la API externa no puede haberse quedado abierta para la mesa).
-  7. Los montos viajan como texto decimal, nunca float.
+  6. Los boletos ANULADOS nunca salen, y ningún campo interno tampoco.
+  7. Los montos viajan como número.
 """
 from __future__ import annotations
 
@@ -223,21 +222,7 @@ def test_fila_sin_permiso_no_trae_arancel():
     assert con["arancel"] == 9.99 and con["arancel_moneda"] == "ARS"
 
 
-# ── 6. la puerta de los anulados no quedó abierta para la mesa ───────────────
-def test_ops_where_sigue_excluyendo_anulados_por_default():
-    """`incluir_anulados` es para la API externa. Si su default se diera vuelta,
-    TODA la vista de la mesa empezaría a contar boletos anulados en silencio."""
-    from api.services.operaciones_sql import _ops_where
-
-    where_default, _ = _ops_where(moneda="ARS")
-    assert "anulado_en IS NULL" in where_default
-
-    where_ext, _ = _ops_where(arancel=True, incluir_anulados=True)
-    assert "anulado_en IS NULL" not in where_ext
-    # y las otras reglas del predicado siguen ahí (no es una copia degradada)
-    assert "es_cierre" in where_ext and "etapa" in where_ext
-
-
+# ── 6. la mesa no se toca ────────────────────────────────────────────────────
 def test_el_lector_externo_usa_el_predicado_de_la_mesa():
     """Si alguien copia el predicado en vez de reusarlo, el accionista y la mesa
     pueden empezar a decir números distintos sin que falle nada (REGLA #9)."""
@@ -246,6 +231,19 @@ def test_el_lector_externo_usa_el_predicado_de_la_mesa():
     fuente = inspect.getsource(lectura)
     assert "_ops_where" in fuente
     assert "from api.services.operaciones_sql import _ops_where" in fuente
+
+
+def test_los_anulados_no_salen_nunca():
+    """El predicado compartido filtra `anulado_en IS NULL` y la API externa NO
+    tiene forma de pedir lo contrario: no existe parámetro que abra esa puerta."""
+    import inspect
+
+    from api.services.operaciones_sql import _ops_where
+
+    where, _ = _ops_where(arancel=True, scope=("10452",))
+    assert "anulado_en IS NULL" in where
+    # y nada en la API externa puede desactivarlo
+    assert "anulado" not in inspect.getsource(lectura.operaciones)
 
 
 # ── 7. montos como texto decimal ─────────────────────────────────────────────

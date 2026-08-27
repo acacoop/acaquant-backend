@@ -8,7 +8,7 @@ sólo en los tests unitarios con la base simulada.
     python -m scripts.ext_smoke
 
 Qué hace: crea un cliente TEMPORAL (`cli_smoke_…`), le autoriza UNA cuenta,
-corre 10 comprobaciones y **lo borra al final, pase lo que pase** (bloque
+corre las comprobaciones y **lo borra al final, pase lo que pase** (bloque
 `finally`; el borrado del cliente arrastra su key y sus cuentas por CASCADE).
 No toca ningún cliente existente y no escribe una sola fila de operaciones.
 
@@ -146,7 +146,8 @@ def main() -> int:
             check("los montos son NÚMEROS, no texto",
                   filas[0]["bruto"] is None or isinstance(filas[0]["bruto"], int | float))
             check("no se filtran campos internos",
-                  not ({"segmento", "nivel_3", "es_cierre", "etapa"} & set(filas[0])))
+                  not ({"segmento", "nivel_3", "es_cierre", "etapa",
+                    "anulado", "actualizado_en", "instrumento"} & set(filas[0])))
 
         # 6 — paginación: la segunda página no repite ni saltea
         r1 = cli.get("/v1/operaciones?limit=2", headers=h)
@@ -166,12 +167,20 @@ def main() -> int:
               r.status_code == 403 and r.json()["detail"]["code"] == "cuenta_no_autorizada",
               r.text[:200])
 
-        # 8 — modo incremental
-        r = cli.get("/v1/operaciones?actualizado_desde=1970-01-01T00:00:00Z&limit=5", headers=h)
-        check("el modo incremental responde", r.status_code == 200, r.text[:200])
-        r = cli.get("/v1/operaciones?actualizado_desde=2999-01-01T00:00:00Z", headers=h)
-        check("un cursor futuro no trae nada",
-              r.status_code == 200 and r.json()["paginacion"]["devueltas"] == 0)
+        # 8 — los anulados no salen (la fila existe en la base, no en la respuesta)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM operaciones "
+                        "WHERE id_cuenta = %s AND anulado_en IS NOT NULL", (cuenta,))
+            anulados_en_base = cur.fetchone()[0]
+        r = cli.get("/v1/operaciones?limit=1000", headers=h)
+        boletos = {f["boleto"] for f in r.json().get("operaciones", [])}
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT boleto FROM operaciones "
+                        "WHERE id_cuenta = %s AND anulado_en IS NOT NULL", (cuenta,))
+            anulados = {b for (b,) in cur.fetchall()}
+        check(f"los anulados NO salen ({anulados_en_base} en la base)",
+              not (boletos & anulados),
+              f"se filtraron: {sorted(boletos & anulados)}")
 
         # 9 — FAIL-CLOSED en vivo: sin cuentas, 403 (no "ve todo")
         with get_pool().connection() as conn, conn.cursor() as cur:

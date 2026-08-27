@@ -72,7 +72,9 @@ no ve ni el nombre de las rutas internas.
 ### Un solo lector
 
 `api/ext/lectura.py` es la única puerta, y **reusa `operaciones_sql._ops_where`**
-en vez de copiarlo. Las reglas que definen "una operación" no son inferibles
+en vez de copiarlo. ⚠️ **La API externa no modifica una sola línea de código
+existente**: `operaciones_sql.py` está byte a byte igual que antes de este
+desarrollo. Todo lo de `/ext` es aditivo. Las reglas que definen "una operación" no son inferibles
 (el `COALESCE(es_cierre,false)` que hace entrar al FCI bilateral, la regla de
 `etapa` que evita contarlo dos veces, el filtro de anulados). Si se duplicaran,
 el accionista y la mesa se separarían en silencio. Congelado por
@@ -134,6 +136,10 @@ $824 MM de volumen falso de este lado, corrido a la casa del cliente.
 - **No se devuelve un total** de filas: contar el universo en cada página es caro
   y no aporta. El contrato es `hay_mas` + `siguiente_cursor`.
 - **Paginación keyset**, no `OFFSET`.
+- **Nada de instrucciones de uso en el contrato.** Cómo sumar, cómo tratar las
+  cauciones o cómo evitar la deriva del punto flotante lo decide quien consume —
+  la documentación describe lo que la API devuelve, no lo que hay que hacer con
+  ello (criterio del user, 2026-08-27).
 
 ### `/v1/meta` no es decorativo
 
@@ -323,6 +329,13 @@ integración muere en silencio) y el **tope de destinations por app**.
 
 ## Changelog
 
+- **2026-08-27** — se saca el **modo incremental** y con él los campos
+  `actualizado_en` y `anulado` (decisión del user). Queda un solo modo:
+  `desde`/`hasta` con cursor. Se revierte también `incluir_anulados` de
+  `_ops_where` —lo había agregado para eso y ya no lo usa nadie—, con lo cual
+  `operaciones_sql.py` vuelve a estar idéntico al original. Fuera del contrato,
+  además, las instrucciones de uso (cauciones, precisión numérica): la doc
+  describe lo que devuelve la API, no cómo usarla.
 - **2026-08-27** — **primera puesta en producción, verificada de punta a punta**:
   Cloudflare Access en modo Service Auth sobre `/ext` y `/ext/*` (sin token 403,
   con token inválido 403, con token válido 200), `ext_smoke` 15/15 contra la base

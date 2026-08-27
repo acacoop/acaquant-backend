@@ -11,23 +11,14 @@ Si se duplicaran, el día que cambie una el accionista y la mesa dirían número
 distintos, cada mitad coherente consigo misma, y **nada fallaría** — es
 exactamente el modo de falla de la REGLA #9.
 
-## Los dos modos de lectura, y por qué hacen falta los dos
+## Qué entrega
 
-**FOTO** (`desde`/`hasta`) — "dame agosto". Ordena por `id` y pagina por `id`.
-Es para la carga inicial y para reportes.
+Los boletos vigentes de las cuentas del cliente, por rango de fecha de
+concertación, paginados con un cursor keyset sobre `id` (nunca OFFSET).
 
-**INCREMENTAL** (`actualizado_desde`) — "dame todo lo que cambió desde mi última
-corrida". Es el modo que sostiene una integración viva, y existe porque **un
-boleto de un día viejo cambia después**: backfills, la tasa que rellena
-`jobs/ops_tasa_mav`, la etapa que escribe `jobs/fci_bilateral`, y sobre todo las
-ANULACIONES. Un consumidor que sólo pidiera por fecha de concertación se
-quedaría con datos viejos y no se enteraría nunca.
-
-⚠️ **La anulación NO toca `ingestado_en`** (`operaciones_informes.py:511` y
-`anulados.py:82` hacen `SET anulado_en = now()` y nada más). Por eso el reloj de
-esta API es `GREATEST(ingestado_en, anulado_en)` y no `ingestado_en` a secas: si
-mirara sólo la ingesta, el aviso de que un boleto se anuló **nunca llegaría**, que
-es justo el evento que más importa entregar.
+Los **anulados no viajan**: los filtra `_ops_where` con `anulado_en IS NULL`, el
+mismo predicado que usa la vista de la mesa. Un boleto que se anula deja de
+aparecer, así que volver a consultar un período ya entregado reconcilia solo.
 """
 from __future__ import annotations
 
@@ -37,12 +28,6 @@ from datetime import UTC, datetime
 
 from api.services._sql import _q
 from api.services.operaciones_sql import _ops_where
-
-# El reloj de la API: cuándo cambió esta fila POR ÚLTIMA VEZ, sea por ingesta o
-# por anulación. `to_timestamp(0)` (epoch) para las filas viejas sin ingesta, así
-# el orden es total y el cursor no puede saltearse una.
-_ACT = ("GREATEST(COALESCE(ingestado_en, to_timestamp(0)), "
-        "COALESCE(anulado_en, to_timestamp(0)))")
 
 # Columnas que viajan SIEMPRE. Deliberadamente NO se exponen `segmento`,
 # `nivel_3`, `es_cierre` ni `etapa`. Los dos primeros son nuestra clasificación
@@ -81,8 +66,6 @@ _COLS = [
     "mercado",
     "tasa",
     "mep",
-    "(anulado_en IS NOT NULL) AS anulado",
-    f"{_ACT} AS actualizado_en",
     "id AS _id",
 ]
 _COLS_ARANCEL = ["arancel"]
@@ -138,22 +121,14 @@ def operaciones(
     cuentas: tuple[str, ...],
     desde: str | None = None,
     hasta: str | None = None,
-    actualizado_desde: str | None = None,
     cursor: str | None = None,
     limit: int = LIMIT_DEFAULT,
     incluir_aranceles: bool = False,
 ) -> dict:
-    """Boletos del scope, paginados por cursor. `cuentas` YA viene verificado.
-
-    En modo INCREMENTAL los anulados VIAJAN (con `anulado: true`): es la única
-    forma de que el consumidor borre de su lado un boleto que dejó de valer. En
-    modo FOTO no viajan — una foto de agosto es lo que efectivamente se operó.
-    """
-    incremental = actualizado_desde is not None
+    """Boletos del scope, paginados por cursor. `cuentas` YA viene verificado."""
     where, p = _ops_where(
         scope=cuentas,
         arancel=True,             # sin filtro de moneda + cierres con arancel (caución)
-        incluir_anulados=incremental,
     )
 
     if desde:
@@ -163,24 +138,11 @@ def operaciones(
         where += " AND concertacion <= %(hasta)s"
         p["hasta"] = hasta
 
-    if incremental:
-        # El filtro por columna va aparte del ORDER BY para que el planner pueda
-        # usar los índices reales (`ix_ops_ingestado`, `ix_ops_anulado`); la
-        # expresión GREATEST no es indexable por sí sola.
-        where += (" AND (ingestado_en >= %(act)s OR anulado_en >= %(act)s)"
-                  f" AND {_ACT} >= %(act)s")
-        p["act"] = actualizado_desde
-        orden = f"{_ACT}, id"
-        if cursor:
-            c_ts, c_id = _partes_cursor(cursor, 2)
-            where += f" AND ({_ACT}, id) > (%(c_ts)s::timestamptz, %(c_id)s::bigint)"
-            p["c_ts"], p["c_id"] = c_ts, c_id
-    else:
-        orden = "id"
-        if cursor:
-            (c_id,) = _partes_cursor(cursor, 1)
-            where += " AND id > %(c_id)s::bigint"
-            p["c_id"] = c_id
+    orden = "id"
+    if cursor:
+        (c_id,) = _partes_cursor(cursor, 1)
+        where += " AND id > %(c_id)s::bigint"
+        p["c_id"] = c_id
 
     cols = list(_COLS) + (_COLS_ARANCEL if incluir_aranceles else [])
     p["_lim"] = limit + 1          # +1 para saber si hay más SIN contar el total
@@ -192,11 +154,7 @@ def operaciones(
 
     hay_mas = len(rows) > limit
     rows = rows[:limit]
-    siguiente = None
-    if hay_mas and rows:
-        ult = rows[-1]
-        siguiente = (_cursor_encode([_iso(ult["actualizado_en"]) or "", str(ult["_id"])])
-                     if incremental else _cursor_encode([str(ult["_id"])]))
+    siguiente = _cursor_encode([str(rows[-1]["_id"])]) if (hay_mas and rows) else None
 
     return {
         "operaciones": [_fila(r, incluir_aranceles) for r in rows],
@@ -236,8 +194,6 @@ def _fila(r: dict, con_arancel: bool) -> dict:
         # TC del día del boleto, para que el consumidor pueda dolarizar con el
         # MISMO número que usamos nosotros y no con uno propio.
         "mep": _num(r["mep"]),
-        "anulado": bool(r["anulado"]),
-        "actualizado_en": _iso(r["actualizado_en"]),
     }
     if con_arancel:
         out["arancel"] = _num(r["arancel"])

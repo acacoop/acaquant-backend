@@ -36,45 +36,24 @@ API de **operaciones** para accionistas de ACA Valores.
 Devuelve, boleto por boleto, las operaciones de las cuentas autorizadas para tu
 credencial. Sólo lectura.
 
-## Cómo autenticarse
+## Autenticación
 
-1. Tu integración pega desde una IP autorizada, con el **service token de
-   Cloudflare** en los headers `CF-Access-Client-Id` y `CF-Access-Client-Secret`.
-   Sin eso el request no llega a nuestros servidores.
+1. Tu integración pega con el **service token de Cloudflare** en los headers
+   `CF-Access-Client-Id` y `CF-Access-Client-Secret`. Sin eso el request no llega
+   a nuestros servidores.
 2. Cambiás tu **API key** por un **token de acceso**: `POST /v1/auth/token`.
 3. Usás el token como `Authorization: Bearer <token>` en el resto de los
-   endpoints. Dura 30 minutos; pedí uno nuevo cuando venza (o ante un `401`
-   con `code: "token_expirado"`).
+   endpoints. Dura 30 minutos; pedí uno nuevo cuando venza, o ante un `401` con
+   `code: "token_expirado"`.
 
-Tu API key es de larga duración y viaja **una sola vez por sesión**; el token es
-el que viaja en cada request. Si necesitás rotar la key, pedinos una nueva: las
-dos conviven mientras hacés el cambio, así no tenés que coordinar un corte.
+La API key es de larga duración y viaja **una sola vez por sesión**; el token es
+el que viaja en cada request.
 
-## Cómo sincronizar sin perderte cambios
+## Paginación
 
-Un boleto **puede cambiar después** del día en que se operó: se completa un
-dato, o **se anula**. Por eso hay dos modos de lectura:
-
-* **Carga inicial** — `GET /v1/operaciones?desde=...&hasta=...`, paginando con
-  `siguiente_cursor` hasta que `hay_mas` sea `false`.
-* **Sincronización** — `GET /v1/operaciones?actualizado_desde=<timestamp de tu
-  última corrida>`. Trae **todo lo que cambió**, incluidos los boletos
-  **anulados** (llegan con `"anulado": true`): esos hay que darlos de baja de tu
-  lado. Guardá el mayor `actualizado_en` que recibiste y usalo en la próxima
-  corrida.
-
-Si sólo pedís por fecha de operación, nunca te vas a enterar de una anulación
-posterior.
-
-## Cómo reproducir nuestros totales
-
-* Las cauciones aparecen dos veces: la **apertura** y su **cierre**
-  (`tipo_operacion` lo dice). El **volumen** operado cuenta sólo la apertura; el
-  **arancel** de la caución, en cambio, viene **en el cierre**. Si sumás las dos
-  filas duplicás el volumen.
-* Los importes son números. Si vas a conciliar sumando decenas de miles de
-  filas, sumá en **centavos** (enteros): es la forma estándar de que no se
-  acumule la deriva decimal del punto flotante.
+`GET /v1/operaciones` devuelve hasta `limit` filas por página. Si `hay_mas` es
+`true`, volvé a pedir con `cursor` = el `siguiente_cursor` de la respuesta
+anterior, hasta que sea `false`. El cursor es un valor opaco: pasalo tal cual.
 """
 
 
@@ -115,8 +94,6 @@ class OperacionOut(BaseModel):
     mep: float | None = Field(
         description="Tipo de cambio del día del boleto, para dolarizar con el "
                     "mismo número que usamos nosotros.")
-    anulado: bool = Field(description="Si es `true`, dala de baja de tu lado.")
-    actualizado_en: str | None = Field(description="Última modificación (UTC). Es el reloj del cursor.")
     arancel: float | None = Field(default=None, description="Sólo si tu credencial lo incluye.")
     arancel_moneda: str | None = Field(default=None, description="Siempre `ARS`.")
 
@@ -261,10 +238,6 @@ def operaciones(
     cli: Cliente = Depends(cliente_actual),
     desde: date | None = Query(None, description="Fecha de concertación mínima (AAAA-MM-DD)."),
     hasta: date | None = Query(None, description="Fecha de concertación máxima (AAAA-MM-DD)."),
-    actualizado_desde: str | None = Query(
-        None,
-        description="Timestamp ISO-8601 (UTC). Modo sincronización: devuelve todo "
-                    "lo que cambió desde ese momento, **incluidos los anulados**."),
     cuenta: str | None = Query(
         None,
         description="Restringí a una o varias de TUS cuentas, separadas por coma. "
@@ -272,15 +245,10 @@ def operaciones(
     cursor: str | None = Query(None, description="`siguiente_cursor` de la página anterior."),
     limit: int = Query(lectura.LIMIT_DEFAULT, ge=1, le=EXT_MAX_LIMIT),
 ) -> OperacionesOut:
-    """Tus operaciones, boleto por boleto.
-
-    Dos modos, y conviene usar los dos: `desde`/`hasta` para la carga inicial,
-    `actualizado_desde` para mantenerla al día. Ver la descripción de la API.
-    """
+    """Tus operaciones, boleto por boleto."""
     cuentas_pedidas = resolver_cuentas(cli, cuenta)
     filtros = {"desde": str(desde) if desde else None,
                "hasta": str(hasta) if hasta else None,
-               "actualizado_desde": actualizado_desde,
                "cuenta": cuenta, "limit": limit, "cursor": bool(cursor)}
     _sellar(request, cli, filtros)
 
@@ -289,7 +257,6 @@ def operaciones(
             cuentas=cuentas_pedidas,
             desde=str(desde) if desde else None,
             hasta=str(hasta) if hasta else None,
-            actualizado_desde=actualizado_desde,
             cursor=cursor,
             limit=limit,
             incluir_aranceles=cli.ver_aranceles,

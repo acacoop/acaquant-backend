@@ -1,8 +1,12 @@
 """Detectores de DATOS y SEGURIDAD. Doc: `docs/AGENT_2.0.md` §5."""
 from __future__ import annotations
 
+import logging
+
 from agente import reloj
 from agente.tipos import Hallazgo, SinDatos
+
+logger = logging.getLogger(__name__)
 
 
 # ═══ dato_partido ══════════════════════════════════════════════════════════
@@ -74,6 +78,28 @@ def permiso_flojo(u: dict) -> list[Hallazgo]:
         d = seguridad.declarado()
     except Exception as e:
         raise SinDatos(f"no pude leer la superficie HTTP: {e}") from e
+
+    # ⚠️⚠️ **LA FOTO LA SACA ESTA HABILIDAD, Y ANTES DE COMPARAR.**
+    #
+    # `comparar()` lee las DOS últimas fechas de `manager.superficie_dia`. Si
+    # nadie escribe esa tabla, compara dos fotos viejas **para siempre**: sigue
+    # contestando `ok`, sigue sin reportar nada, y un endpoint que pierde el gate
+    # mañana no lo ve nunca. Es la falla que no falla.
+    #
+    # Y eso es exactamente lo que pasó: la foto la sacaba `jobs/db_tamano.py`,
+    # que se borró al rehacer el agente (2026-08-24) sin que nadie tomara su
+    # lugar. Desde entonces esta habilidad venía comparando el 23 contra el 24 de
+    # agosto, en verde.
+    #
+    # **La memoria es de quien la usa.** Sacarla acá cuesta cero red (el árbol de
+    # rutas ya está en proceso) y es idempotente por día: la clave es
+    # fecha+path+métodos, así que re-sacarla pisa la del día en vez de duplicar.
+    try:
+        seguridad.sacar_foto()
+    except Exception as e:
+        # No es `SinDatos`: sin foto de HOY igual se puede reportar lo que la
+        # lectura del árbol ya vio. Lo que se pierde es el delta, no todo.
+        logger.warning("agente/permiso_flojo: no pude sacar la foto de hoy (%s)", e)
 
     cambios = {}
     try:

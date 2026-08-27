@@ -666,24 +666,15 @@ def _diff_y_persistir(control_id: str, items: list[dict]) -> dict:
                 (now, control_id, resueltos))
         conn.commit()
 
-    # ── Y COMO OBJETOS, con el ciclo común (§0.bg) ──────────────────────────
-    #
-    # Acá el cierre por ausencia es el caso LIMPIO, y conviene decir por qué:
-    # a esta función **solo se llega si `c.fn()` no levantó** (en `main()` está
-    # adentro del `try`, y si el control explota se anota en `errores` y no se
-    # persiste nada). O sea que una lista vacía significa de verdad «no hay
-    # anomalías», y no «no pude mirar» — que es la distinción que costó los dos
-    # bugs anteriores (§0.be, §0.bf).
+    # ⚠️ **EL CIERRE POR AUSENCIA ACÁ ES EL CASO LIMPIO**, y conviene decir por
+    # qué: a esta función **solo se llega si `c.fn()` no levantó** (en `main()`
+    # está adentro del `try`, y si el control explota se anota en `errores` y no
+    # se persiste nada). O sea que una lista vacía significa de verdad «no hay
+    # anomalías», y no «no pude mirar» — que es la distinción que costó dos bugs.
     #
     # Un `origen` por control: cada uno concilia SU universo y no toca el de al
     # lado. Y `_diff_y_persistir` es el único camino de escritura, así que el
     # cron y el botón ↻ CHEQUEAR AHORA dejan exactamente el mismo estado.
-    try:
-        _espejar_items(control_id, por_key, resueltos)
-    except Exception as e:
-        logging.getLogger(__name__).warning(
-            "controles_datos: no pude espejar %s en items (%s)", control_id, e)
-
     # Antigüedad del activo más viejo (para que el mensaje diga "roto hace N días").
     viejo = _q("SELECT min(first_seen) AS f FROM manager.controles_datos "
                "WHERE control_id = %s AND resuelto_at IS NULL", (control_id,))
@@ -693,20 +684,6 @@ def _diff_y_persistir(control_id: str, items: list[dict]) -> dict:
         "detalles_nuevos": [por_key[k] for k in nuevos[:20]],
         "dias_mas_viejo": (now - mas_viejo).days if mas_viejo else 0,
     }
-
-
-def _espejar_items(control_id: str, por_key: dict, resueltos: list[str]) -> None:
-    """Las anomalías de un control, como objetos con ciclo de vida.
-
-    Los controles NO escriben en el agente. Lo hacía el agente viejo y era una
-    de sus SEIS puertas escribiendo estado.
-    """
-    # ⚠️ **LOS CONTROLES YA NO ESPEJAN HALLAZGOS** (AGENT 2.0). Antes cada
-    # control escribía en la memoria del agente por su cuenta: era una de las
-    # seis puertas que escribían estado. Ahora el agente los LEE a través de la
-    # habilidad `salud`, que es la única que los convierte en hallazgos.
-    return {"ok": True, "espejado": 0}
-
 
 
 # ── Render resumen (stdout / log del job) ────────────────────────────────────

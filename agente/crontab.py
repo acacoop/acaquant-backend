@@ -112,15 +112,6 @@ def comparar() -> dict:
             "sin_declarar": sorted(maquina - repo)}
 
 
-def detectar_crontab() -> list[dict]:
-    """Hallazgos. **Nunca levanta**: corre con los demás detectores del sistema."""
-    try:
-        return _detectar()
-    except Exception as e:
-        logger.warning("agente/crontab: no pude comparar (%s)", e)
-        return []
-
-
 def _detectar() -> list[dict]:
     from agente.reloj import hhmm as _hhmm
 

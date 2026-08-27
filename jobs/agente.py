@@ -2,8 +2,9 @@
 
 **Reemplaza a los CUATRO relojes del agente viejo**: el daemon del centinela
 (30 s), `av_agent_sistema` (cron cada 10 min), `av_agent` (cron 4×/día) y el
-detector de seguridad que vivía adentro de `jobs/db_tamano`, que ni siquiera era
-un job del agente.
+detector de seguridad que vivía adentro de `jobs/db_tamano` —que ni siquiera era
+un job del agente—. Los cuatro están borrados; si ves alguno nombrado en un
+comentario, es residuo.
 
 Acá hay uno. La agenda vive en el catálogo: cada habilidad declara su ritmo y su
 ventana, y el motor pregunta a quién le toca.

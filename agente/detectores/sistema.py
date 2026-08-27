@@ -245,6 +245,26 @@ def _todavia_no_le_toco(p: dict, ahora) -> bool:
 
 
 # ═══ tabla_quieta ══════════════════════════════════════════════════════════
+# Cada cuánto se rebarre el perfil de tablas, y a partir de cuándo se considera
+# que ya no se puede mirar con él. Son DOS números y no uno: entre 20 y 48 horas
+# el perfil está viejo pero todavía sirve —una tabla no cambia de ritmo en un
+# día—; pasadas las 48 el universo es de otra época y seguir opinando sería
+# exactamente la mentira que el invariante 1 prohíbe.
+PERFIL_VENCE_H = 20
+PERFIL_CIEGO_H = 48
+
+
+def _perfil_vencido(tablas, *, tope_h: int = PERFIL_VENCE_H) -> bool:
+    """¿Hace cuánto se midió el perfil? **Sin perfil = vencido**, no = al día:
+    la primera corrida tiene que barrer, no asumir que ya está."""
+    from datetime import UTC, datetime, timedelta
+    filas = tablas.perfiles()
+    medidos = [f["medido_at"] for f in filas if f.get("medido_at")]
+    if not medidos:
+        return True
+    return max(medidos) < datetime.now(UTC) - timedelta(hours=tope_h)
+
+
 def tabla_quieta(u: dict) -> list[Hallazgo]:
     """Tablas que dejaron de escribir cuando deberían estar escribiendo.
 
@@ -252,8 +272,36 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
     que son un punto ciego total. Las 8 con contrato declarado las sigue mirando
     SALUD, que es más estricto porque el aprendido se acostumbra al problema.
     """
-    from agente import tablas
+    from agente import reloj, tablas
     from core import escribe
+
+    # ⚠️⚠️ **EL PERFIL SE LO MANTIENE ESTA HABILIDAD.** `perfiles()` lee
+    # `manager.tabla_perfil`: QUÉ tablas hay y CADA CUÁNTO escribe cada una. El
+    # atraso se mide en vivo más abajo, pero **el universo y el ritmo salen de
+    # ahí**, así que si nadie refresca ese perfil esta habilidad queda mirando
+    # para siempre la foto del día que se sacó: una tabla nueva no entra nunca,
+    # y una que cambió de ritmo se sigue juzgando con el viejo. Y reporta `ok`.
+    #
+    # Pasó de verdad: el barrido lo corría `jobs/db_tamano.py`, que se borró al
+    # rehacer el agente (2026-08-24) sin que nadie tomara su lugar.
+    #
+    # **Por qué acá y no en un cron nuevo**: el agente tiene UN reloj. La memoria
+    # es de la habilidad que la usa, igual que la foto de superficie en
+    # `permiso_flojo`.
+    #
+    # **Por qué con guarda**: el barrido mide ~190 tablas, una query cada una.
+    # Corre como mucho UNA vez por día y **fuera de rueda** — no puede robarle
+    # tiempo a los motores, que es la REGLA #4. Los otros 47 pases del día leen
+    # el perfil y no lo tocan.
+    try:
+        if _perfil_vencido(tablas) and not reloj.en_rueda():
+            r = tablas.barrer()
+            logger.info("tabla_quieta: perfil rebarrido — %s tablas, %s con ritmo",
+                        r.get("tablas"), r.get("con_ritmo"))
+    except Exception as e:
+        # No se corta: un barrido que falla deja el perfil viejo, y con el perfil
+        # viejo todavía se puede mirar. Lo que NO se puede es no enterarse.
+        logger.warning("tabla_quieta: no pude rebarrer el perfil (%s)", e)
 
     try:
         con_contrato = tablas._ya_tienen_contrato()
@@ -261,6 +309,16 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
         vivo = tablas._ultimo_dato_vivo(con_ritmo)
     except Exception as e:
         raise SinDatos(f"no pude leer el perfil de las tablas: {e}") from e
+
+    # **Un perfil viejo NO se lee como un tablero limpio.** Si el barrido no pudo
+    # correr y la foto quedó vieja de verdad, esta corrida no vio la base de hoy
+    # y no puede cerrar nada por ausencia — el invariante 1, aplicado a su propia
+    # memoria.
+    if _perfil_vencido(tablas, tope_h=PERFIL_CIEGO_H):
+        raise SinDatos(
+            f"el perfil de tablas tiene más de {PERFIL_CIEGO_H} h y el barrido no "
+            f"pudo refrescarlo: estaría juzgando la base de hoy con el universo "
+            f"de otro día")
 
     out = []
     for i, p in enumerate(con_ritmo):

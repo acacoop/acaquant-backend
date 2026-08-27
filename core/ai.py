@@ -61,50 +61,19 @@ _TAREAS: dict[str, dict] = {
     # front), `controles_resumen` (una llamada por día cuyo texto terminaba en un
     # `print()` del log) y `salud_diagnostico` (lo generaba el panel de SALUD, que
     # se fue del front). Antes de sumar una tarea nueva: **quién la mira**.
-    "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
-    # AV AGENT — analista del DIAGNÓSTICO MASIVO (api/services/av_agent_analista.py).
-    # tier pro + thinking ENABLED: es análisis de PATRONES sobre decenas de casos,
-    # la tarea más pesada de todo el programa. Lo que se le pide NO es repetir los
-    # diagnósticos —esos ya los hizo el agente, deterministas— sino lo que ninguna
-    # fila individual puede decir: qué causas dominan, cuáles se contradicen entre
-    # sí, y cuáles huelen a bug del agente en vez de a dato mal cargado.
-    # ⚠️ **max_tokens 12000 y no 4000** (medido 2026-08-18, `ia.trazas`): con 4000
-    # la llamada volvió `out=4000` exacto, `respuesta 0 chars` y `razonamiento
-    # 2000` — el modelo gastó TODO el presupuesto de salida razonando y nunca
-    # llegó a escribir. El razonamiento CUENTA como output: el tope tiene que
-    # cubrir pensar Y contestar.
-    "av_agent_informe": {"tier": "pro", "max_tokens": 12000, "timeout_s": 240,
-                         "thinking": "enabled"},
-    # AV AGENT — SUGERIR UN VALOR para un caso que la regla determinista no supo
-    # resolver (api/services/av_agent_hacer.py). tier pro: la sugerencia la va a
-    # aprobar una persona y después se ESCRIBE en el catálogo, así que un error
-    # acá no es una respuesta fea, es un dato mal cargado en producción.
     #
-    # thinking DISABLED y max_tokens acotado, al revés que `av_agent_informe`:
-    # no es análisis de patrones, es clasificar N nombres contra una lista
-    # CERRADA de opciones.
-    "av_agent_accion": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
-                        "thinking": "disabled"},
+    # ⚠️ Se fueron también las TRES del AV AGENT viejo (`av_agent_informe`,
+    # `av_agent_accion`, `av_agent_error`): AGENT 2.0 no usa IA en ninguna de sus
+    # 17 habilidades —`usa_ia` es False en las 17— y los services que las
+    # invocaban ya no existen. Quedaba la CONFIG (tier, tokens, timeout) de tres
+    # tareas que nadie podía llamar, que es la peor clase de código muerto: hace
+    # creer que el agente usa IA cuando no la usa.
+    "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
     # RESEARCH — destila el mail diario de 1816 a la vista /research
     # (jobs/research_mail.py). NO es una tarea de agente: es INGESTA, y lo que
     # produce se lee en pantalla todos los días.
     "research_destilar": {"tier": "flash", "max_tokens": 2000, "timeout_s": 90,
                           "thinking": "disabled"},
-    # AV AGENT — TRADUCIR UNA LÍNEA DE LOG a castellano llano
-    # (api/services/av_agent_errores.py). Pedido del user 2026-08-21: *«acá es
-    # donde hay que meter un LLM que explique qué es el error… poner una línea
-    # de código y decir que no anda es inentendible»*.
-    #
-    # **`flash` y no `pro`, y max_tokens chico**: no decide nada. Traduce UNA
-    # oración y no puede tocar un dato — a qué afecta sale de la ficha
-    # declarada, no del modelo. Es la tarea más barata que puede tener valor.
-    #
-    # Y sobre todo: se llama **una vez por PATRÓN**, no por fila. El mismo error
-    # sale 90 veces en 6 horas y la explicación se persiste en
-    # `agente.av_agent_errores` — si no, esta tarea sería la más cara de todas
-    # por lejos.
-    "av_agent_error": {"tier": "flash", "max_tokens": 300, "timeout_s": 45,
-                       "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

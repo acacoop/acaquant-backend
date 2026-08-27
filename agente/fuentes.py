@@ -131,14 +131,6 @@ def primary() -> set[str] | None:
     return _una_vez("primary", _leer)
 
 
-def cotiza_en_primary(simbolo: str) -> bool | None:
-    """`None` = no pude saberlo. **No es `False`.**"""
-    p = primary()
-    if p is None:
-        return None
-    return simbolo.strip() in p
-
-
 def tickers_en_primary() -> set[str] | None:
     """Los tickers que Primary lista, sacados del símbolo tal cual.
 
@@ -176,16 +168,6 @@ def en_cartera() -> set[str] | None:
                 " WHERE t.aum = 'si' AND a.ticker IS NOT NULL AND a.ticker <> ''")
             return {r[0] for r in cur.fetchall()}
     return _una_vez("en_cartera", _leer)
-
-
-def tickers_en_assets() -> set[str] | None:
-    def _leer():
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT upper(btrim(ticker)) "
-                        "FROM portafolio.assets "
-                        "WHERE ticker IS NOT NULL AND ticker <> ''")
-            return {r[0] for r in cur.fetchall()}
-    return _una_vez("tickers_assets", _leer)
 
 
 # ── EL UNIVERSO DE 1816 ────────────────────────────────────────────────────

@@ -104,25 +104,3 @@ def hhmm(ahora=None) -> str:
     """
     return ahora_utc(ahora).astimezone(AR_TZ).strftime("%d/%m %H:%M")
 
-
-def segundos_de_rueda(desde: datetime, hasta: datetime | None = None) -> float:
-    """Segundos de MERCADO ABIERTO entre dos instantes.
-
-    Una tabla de rueda a las 20:30 ART lleva 3½ h sin escribir y **eso no es un
-    atraso**: el mercado cerró. Medir el atraso en tiempo de reloj es lo que
-    hacía que el agente cantara 47 hallazgos falsos por noche.
-    """
-    hasta = ahora_utc(hasta)
-    if hasta <= desde:
-        return 0.0
-    total, cur = 0.0, desde
-    while cur < hasta:
-        fin_dia = (cur + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0)
-        tope = min(fin_dia, hasta)
-        if dia_habil(cur):
-            abre = cur.replace(hour=RUEDA_UTC[0], minute=0, second=0, microsecond=0)
-            cierra = cur.replace(hour=RUEDA_UTC[1], minute=0, second=0, microsecond=0)
-            total += max(0.0, (min(tope, cierra) - max(cur, abre)).total_seconds())
-        cur = tope
-    return total

@@ -615,3 +615,107 @@ def test_las_vistas_del_agente_se_dropean_antes_de_recrearse():
         assert f"DROP VIEW IF EXISTS agente.{v};\n{crear}" in sql, (
             f"agente.{v} se recrea sin DROP previo: agregarle una columna en "
             f"el medio corta el deploy con «cannot change name of view column»")
+
+
+# ── QUE NO VUELVA EL CÓDIGO MUERTO ─────────────────────────────────────────
+
+def test_ninguna_funcion_publica_del_agente_quedo_sin_llamador():
+    """**Una función pública que nadie llama es una trampa, no un sobrante.**
+
+    Al rehacer el agente quedaron adentro del paquete cuatro detectores del
+    modelo viejo —`crontab.detectar_crontab`, `latencia.detectar_latencia`,
+    `seguridad.detectar_seguridad`, `tablas.detectar_tablas`— cada uno duplicado
+    por su equivalente en `detectores/`. Ninguno corría. El daño no es el
+    espacio: es que el próximo que abra el archivo va a creer que ESE es el
+    detector, y que dos de ellos se tragaban el error devolviendo `[]`, que es
+    justo lo que el invariante 6 prohíbe.
+
+    Se busca la referencia por NOMBRE en todo el repo, no la llamada: un detector
+    se declara en el catálogo sin paréntesis (`correr=mercado.bono_sin_tasa`) y
+    eso cuenta como uso.
+    """
+    import ast
+    import re
+
+    fuente = {}
+    for p in (RAIZ / "agente").rglob("*.py"):
+        fuente[p] = p.read_text()
+    todo = "\n".join(p.read_text() for p in RAIZ.rglob("*.py")
+                     if "site-packages" not in str(p) and ".venv" not in str(p))
+
+    huerfanas = []
+    for archivo, src in fuente.items():
+        for n in ast.parse(src).body:
+            if not isinstance(n, ast.FunctionDef) or n.name.startswith("_"):
+                continue
+            # `main`/`run` son puntos de entrada: los llama la línea de comandos.
+            if n.name in {"main", "run"}:
+                continue
+            usos = len(re.findall(r"\b" + re.escape(n.name) + r"\b", todo))
+            # 1 = su propia definición. Menos de 2 = nadie más la nombra.
+            if usos < 2:
+                huerfanas.append(f"{archivo.relative_to(RAIZ)}::{n.name}")
+    assert not huerfanas, (
+        "funciones públicas del agente que nadie llama — o se usan, o se borran: "
+        + ", ".join(sorted(huerfanas)))
+
+
+def test_ningun_modulo_del_agente_decide_en_silencio_que_no_hay_nada():
+    """Invariante 6, **en todo el paquete y no solo en `detectores/`**.
+
+    El test viejo miraba `agente/detectores/sistema.py`. Los cuatro detectores
+    huérfanos vivían un directorio más arriba y hacían exactamente lo prohibido:
+    `except Exception: … return []`. Quedaban fuera del control por dónde
+    estaban, no por lo que hacían.
+    """
+    import re
+
+    malos = []
+    for p in (RAIZ / "agente").rglob("*.py"):
+        src = p.read_text()
+        # `except …:` cuyo cuerpo devuelve una lista vacía = «no pude mirar» se
+        # convierte en «no hay nada», callado.
+        if re.search(r"except\s+[^\n]*:\s*\n(\s+#[^\n]*\n)*\s+return \[\]", src):
+            malos.append(str(p.relative_to(RAIZ)))
+    assert not malos, (
+        f"{malos} traducen un fallo a lista vacía: eso lo decide el MOTOR, "
+        f"el detector levanta `SinDatos`")
+
+
+def test_no_quedan_tareas_de_ia_del_agente_viejo():
+    """AGENT 2.0 no usa IA en ninguna habilidad. Dejar la CONFIG de tres tareas
+    que nadie puede invocar hace creer lo contrario al que lee el gateway."""
+    src = (RAIZ / "core" / "ai.py").read_text()
+    import re
+    declaradas = set(re.findall(r'^\s*"(av_agent_\w+)":\s*\{', src, re.M))
+    assert not declaradas, f"tareas de IA del agente viejo aún declaradas: {declaradas}"
+
+
+def test_toda_habilidad_que_depende_de_una_foto_la_mantiene_ella():
+    """**El bug que no falla: leer una foto que nadie saca.**
+
+    `tabla_quieta` lee el perfil de las ~190 tablas y `permiso_flojo` lee la foto
+    de la superficie HTTP. Las dos fotos las escribía `jobs/db_tamano.py`, que se
+    borró al rehacer el agente. Desde entonces las dos habilidades comparaban una
+    foto de agosto contra sí misma, reportaban `ok`, y no podían ver ni una tabla
+    nueva ni un endpoint que perdiera su gate.
+
+    No hay forma de deducir esto del código: hay que declarar que la habilidad es
+    dueña de su memoria. Este test lo sostiene.
+    """
+    sistema = (RAIZ / "agente" / "detectores" / "sistema.py").read_text()
+    datos = (RAIZ / "agente" / "detectores" / "datos.py").read_text()
+
+    i = sistema.index("def tabla_quieta")
+    cuerpo = sistema[i:sistema.index("\ndef ", i + 10)]
+    assert "tablas.barrer()" in cuerpo, "tabla_quieta no rebarre su propio perfil"
+    assert "en_rueda()" in cuerpo, "el rebarrido tiene que evitar la rueda (REGLA #4)"
+
+    j = datos.index("def permiso_flojo")
+    fin = datos.find("\ndef ", j + 10)
+    cuerpo = datos[j:] if fin < 0 else datos[j:fin]
+    assert "seguridad.sacar_foto()" in cuerpo, (
+        "permiso_flojo compara contra una foto que nadie saca")
+    assert (cuerpo.index("seguridad.sacar_foto()")
+            < cuerpo.index("seguridad.comparar()")), (
+        "la foto de hoy va ANTES de comparar, o el delta es de ayer contra ayer")

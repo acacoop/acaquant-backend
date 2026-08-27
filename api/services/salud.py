@@ -513,9 +513,11 @@ def _chequeos_controles() -> list[dict]:
 def _jobs_sin_duplicar(chequeos: list[dict]) -> list[dict]:
     """UN job es UN chequeo, aunque tenga varias líneas de cron.
 
-    `av_agent_live` corre con dos entradas del crontab (una para el arranque de
-    la rueda y otra para el resto), y como el id es `job:<label>` la pantalla
-    mostraba **la misma fila dos veces, idéntica** — lo que el user vio y marcó.
+    El caso que lo motivó fue `av_agent_live` (ya borrado): corría con dos
+    entradas del crontab —una para el arranque de la rueda y otra para el resto—
+    y como el id es `job:<label>` la pantalla mostraba **la misma fila dos veces,
+    idéntica**. El job no está más; la regla sí, porque el patrón de un job con
+    dos líneas de cron sigue existiendo.
     Un tablero que repite un problema hace pensar que son dos, y en un listado de
     17 eso no es cosmético: cambia la cuenta.
 

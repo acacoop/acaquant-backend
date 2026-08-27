@@ -135,45 +135,6 @@ def comparar() -> list[dict]:
     return out
 
 
-def detectar_latencia() -> list[dict]:
-    """El detector, para el monitor de rueda. **Cero red y una sola query.**
-
-    Corre con los demás detectores live cada pocos minutos, que es lo que el user
-    pidió como «en tiempo real». La ventana es de 2 horas y no de minutos porque
-    el agregado es por HORA: pedirle a este dato una resolución que no tiene sería
-    inventar precisión.
-    """
-    try:
-        casos = comparar()
-    except Exception as e:
-        logger.warning("agente/latencia: no pude comparar: %s", e)
-        return []
-    out = []
-    for c in casos:
-        if c["roto"]:
-            out.append(_h("errores", c["endpoint"], "alta",
-                          f"{c['errores']} de {c['n']} requests fallaron (5xx)",
-                          {"texto": f"en las últimas {VENTANA_H} h. Un endpoint "
-                                    f"que rompe está roto tarde lo que tarde: "
-                                    f"esto NO pasa por la comparación con su "
-                                    f"normalidad.",
-                           "errores": c["errores"], "requests": c["n"]}))
-        if c["degradado"]:
-            out.append(_h("mas_lento", c["endpoint"],
-                          "alta" if (c["veces"] or 0) >= 5 else "media",
-                          f"tarda {c['veces']}× su normal · {c['avg_ms']} ms "
-                          f"contra {c['base_ms']} ms",
-                          {"texto": f"{c['n']} requests en las últimas "
-                                    f"{VENTANA_H} h, pico {c['max_ms']} ms. La "
-                                    f"referencia es la MEDIANA de sus propias "
-                                    f"{BASE_H} h previas, no el promedio de "
-                                    f"otros endpoints: se compara contra sí mismo.",
-                           "avg_ms": c["avg_ms"], "base_ms": c["base_ms"],
-                           "veces": c["veces"], "max_ms": c["max_ms"],
-                           "requests": c["n"]}))
-    return out
-
-
 def _h(regla: str, endpoint: str, severidad: str, motivo: str,
        evidencia: dict) -> dict:
     """`evidencia` como **dict** (la columna es `jsonb` y el resto del agente la
@@ -182,26 +143,3 @@ def _h(regla: str, endpoint: str, severidad: str, motivo: str,
     return {"tipo": "latencia", "ticker": endpoint, "regla": regla,
             "severidad": severidad, "motivo": motivo, "evidencia": evidencia}
 
-
-def como_viene() -> dict:
-    """Para el explicador. Lo LENTO y lo DEGRADADO son cosas distintas y viajan
-    separadas — confundirlas es exactamente lo que hacía inútil a la pantalla."""
-    from datetime import UTC, datetime, timedelta
-
-    corte = datetime.now(UTC) - timedelta(hours=VENTANA_H)
-    filas = []
-    for endpoint, serie in _series().items():
-        rec = [f for f in serie if f["hora"] >= corte]
-        n = sum(int(f["n"] or 0) for f in rec)
-        if not n:
-            continue
-        filas.append({
-            "endpoint": endpoint, "n": n,
-            "avg_ms": round(sum(int(f["total_ms"] or 0) for f in rec) / n),
-            "max_ms": max(int(f["max_ms"] or 0) for f in rec),
-            "lentas": sum(int(f["lentas"] or 0) for f in rec),
-            "errores": sum(int(f["errores"] or 0) for f in rec)})
-    filas.sort(key=lambda x: -x["avg_ms"] * x["n"])   # el que más TIEMPO consume
-    return {"ventana_h": VENTANA_H, "endpoints": filas[:15],
-            "degradados": comparar(),
-            "total_requests": sum(f["n"] for f in filas)}

@@ -63,11 +63,6 @@ def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
         return {"ok": False, "error": str(ex)[:200]}
 
 
-def enviar_muchos(mensajes: list[dict]) -> dict:
-    ok = sum(1 for m in (mensajes or []) if enviar(**m).get("ok"))
-    return {"ok": True, "enviados": ok, "total": len(mensajes or [])}
-
-
 def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
                  detalle: str = "") -> dict:
     """Lo mismo, con una tabla adentro. Existe para que el que la recibe pueda

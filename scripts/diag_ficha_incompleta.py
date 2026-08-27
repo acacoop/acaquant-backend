@@ -1,4 +1,4 @@
-"""`scripts/diag_ficha_incompleta.py` — CUÁNTA FICHA FALTA, y a cuánta plata toca.
+"""`scripts/diag_ficha_incompleta.py` — CUÁNTA FICHA FALTA, y de qué forma.
 
 Read-only. Es la MEDICIÓN previa a darle al agente la habilidad `ficha_incompleta`
 (pedido del user 2026-08-27: expandir el control `assets_sin_cartera` para que
@@ -21,8 +21,16 @@ contesta este script, y por eso mide las TRES ventanas por separado.
                  una pantalla**: el resto es catálogo. Es el mismo criterio que
                  el control `titulos_sin_flujo` ya aplica y que el detector del
                  agente todavía no («un bono sin flujo que no tenemos no cuesta
-                 nada hoy; uno que tenemos NO VALÚA, y eso sí es plata mal
-                 contada»).
+                 nada hoy; uno que tenemos NO VALÚA»).
+
+    Y LA PREGUNTA QUE DECIDE LA FORMA DE LA HABILIDAD
+    =================================================
+
+    **¿Son N problemas o son tres grupos?** 379 títulos sin clase no son 379
+    problemas si caen en tres carteras: ahí es UNA decisión de la mesa aplicada
+    a un grupo. Si están desparramados en veinte, es una lista y hay que
+    atacarla de otra forma. Un hallazgo por fila sobre 379 filas no lo lee
+    nadie — y agrupar sin mirar cómo se reparten sería inventar el criterio.
 
     QUÉ ROMPE CADA CAMPO (verificado en el código, no supuesto)
     ==========================================================
@@ -128,27 +136,42 @@ def main() -> int:
 
     # ── LO QUE FALTA, POR VENTANA ──────────────────────────────────────────
     _titulo("QUÉ FALTA — el mismo campo, en las tres ventanas")
-    print(f"  {'REGLA':18} {'TODO':>7} {'VIGENTE':>9} {'C/TENENCIA':>11} "
-          f"{'PLATA (últ. foto)':>20}")
+    print(f"  {'REGLA':18} {'TODO':>7} {'VIGENTE':>9} {'C/TENENCIA':>11}")
     for regla, cond, _rompe in CAMPOS:
         n_tot, n_vig, n_ten = _q(
             f"SELECT count(*), "
             f"       count(*) FILTER (WHERE coalesce(a.vigente, true)), "
             f"       count(*) FILTER (WHERE {_CON_TENENCIA}) "
             f"  FROM portafolio.assets a WHERE {cond}")[0]
-        # La plata que hoy está mal contada por culpa de ese campo. Es el
-        # número que decide si la regla es `alta` o es catálogo.
-        plata = _q(
-            f"SELECT coalesce(sum(t.valuacion), 0) "
-            f"  FROM portafolio.tenencia t "
-            f"  JOIN portafolio.assets a ON a.unidad = t.unidad "
-            f" WHERE t.fecha = {_ULTIMA_FECHA} AND {cond}")[0][0]
-        print(f"  {regla:18} {n_tot:>7,} {n_vig:>9,} {n_ten:>11,} "
-              f"{float(plata):>20,.0f}")
+        print(f"  {regla:18} {n_tot:>7,} {n_vig:>9,} {n_ten:>11,}")
 
     print("\n  QUÉ ROMPE CADA UNO:")
     for regla, _cond, rompe in CAMPOS:
         print(f"    {regla:18} → {rompe}")
+
+    # ── ¿SON N PROBLEMAS O SON TRES GRUPOS? ────────────────────────────────
+    #
+    # **Esta es la pregunta que decide la forma de la habilidad.** 379 títulos
+    # sin clase no son 379 problemas si son tres carteras: ahí es UNA decisión
+    # de la mesa aplicada a un grupo. Si en cambio están desparramados en veinte
+    # carteras, entonces sí es una lista y hay que atacarla por otro lado.
+    #
+    # Un hallazgo por fila sobre 379 filas no lo lee nadie, y agrupar sin mirar
+    # cómo se reparten sería inventar el criterio.
+    _titulo("CÓMO SE REPARTEN — solo los que TIENEN TENENCIA")
+    for regla, cond, _r in CAMPOS:
+        filas = _q(
+            f"SELECT coalesce(nullif(btrim(a.cartera), ''), '(sin cartera)'), "
+            f"       count(*) "
+            f"  FROM portafolio.assets a "
+            f" WHERE {cond} AND {_CON_TENENCIA} "
+            f" GROUP BY 1 ORDER BY 2 DESC LIMIT 12")
+        n = sum(c for _, c in filas)
+        if not n:
+            continue
+        print(f"\n  {regla}  ({n} con tenencia, top {len(filas)} carteras)")
+        for cartera, c in filas:
+            print(f"      {cartera[:34]:34} {c:>5}")
 
     # ── ¿CUÁNTOS TENDRÍAN BOTÓN? ───────────────────────────────────────────
     #
@@ -168,9 +191,15 @@ def main() -> int:
                          ("herencia", lambda: af.anotar_herencia(filas))):
             try:
                 fn()
+                print(f"  · pasada «{paso}»: corrió")
             except Exception as e:
-                print(f"  ⚠ la pasada «{paso}» no corrió ({type(e).__name__}: "
+                print(f"  ⚠ la pasada «{paso}» NO corrió ({type(e).__name__}: "
                       f"{e}) — el conteo de derivables queda POR DEBAJO del real")
+        # ⚠️ **CERO DERIVABLES SE LEE DE DOS FORMAS Y NO SON LA MISMA**: «no hay
+        # nada que ninguna regla pueda completar» (el job nocturno ya hizo todo
+        # lo suyo y lo que queda es carga manual) o «la pasada no corrió y no
+        # medí nada». Por eso las dos líneas de arriba se imprimen siempre.
+        print(f"  · catálogo leído: {len(filas):,} filas\n")
 
         derivables: dict[str, int] = {}
         for f in filas:

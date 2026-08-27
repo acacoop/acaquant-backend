@@ -33,7 +33,7 @@ from api.services import bancos as svc
 
 # Si esto sube, NO es un test roto: es una query nueva por request. Subilo a
 # mano solo si esa query hace falta de verdad.
-TOPES = {"consolidado": 11, "vista": 10}
+TOPES = {"consolidado": 12, "vista": 10}
 
 FECHA = date(2026, 8, 14)
 _CUENTA = {"id": 1, "bank_number": "034", "bank_name": "Pata", "account_number": "20",
@@ -55,6 +55,13 @@ _DIA = {"fecha": FECHA, "saldo_apertura": 1.0, "saldo_cierre": 2.0,
 # precio de que el equipo pueda editar las columnas sin pedir un deploy. Los
 # MOVIMIENTOS MANUALES son otra más (10/9 → 11/10): impactan el saldo al cierre,
 # así que no hay forma de armar el consolidado sin leerlos.
+#
+# Y el consolidado subió otra vez (11 → 12) el 2026-08-27: su SALDO INICIO pasó a
+# ser **nuestro cierre del día hábil anterior** —«el saldo inicial de hoy es el
+# saldo final de ayer»—, y eso es data de OTRO día que su propia query no trae.
+# Se paga un roundtrip (~8,5ms) en vez de meter dos LEFT JOIN más y una segunda
+# subquery de manuales en una query que ya es grande: la alternativa era más
+# rápida en papel y bastante más fácil de romper.
 _BALDE = {"clave": "iva", "etiqueta": "IVA", "grupo": "concepto", "orden": 10,
           "matcher_id": 1, "campo": "descripcion_ib", "operador": "igual",
           "valor": "IVA"}
@@ -70,6 +77,11 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
         hechas.append(t)
+        # `_saldos_banco` joinea cuentas + extracto + saldos + manuales: va
+        # primero porque su SQL matchea varios de los `if` de abajo.
+        if "AS informado" in t:
+            return [{"cuenta_id": 1, "saldo_cierre": 2.0, "informado": None,
+                     "ajuste": 0}]
         if "FROM bancos.cuentas" in t:
             return [_CUENTA]
         if "movimientos_manuales" in t:

@@ -256,6 +256,9 @@ def test_saldos_banco_pide_los_manuales_del_dia(monkeypatch):
     error queda invisible: cada consumidor parece correcto por su cuenta."""
     _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1_000_000})
     assert "bancos.movimientos_manuales" in sql
+    # ACUMULADO: hay movimientos que Interbanking no informa nunca, así que un
+    # ajuste que durara un día dejaría esas cuentas en cero teniendo la plata.
+    assert "fecha <= %s" in sql
     # Tres veces la misma fecha: extracto, saldos y manuales. Los tres del MISMO
     # día — mezclarlos es justo el error que se está previniendo.
     assert params == (FECHA, FECHA, FECHA)
@@ -292,11 +295,20 @@ def test_saldos_banco_gana_el_extracto_sobre_el_informado(monkeypatch):
     assert s["valor"] == 1_000_000.0
 
 
-def test_saldos_banco_no_inventa_un_saldo_con_solo_manuales(monkeypatch):
-    """⚠️ La cuenta 100% manual: sin extracto ni saldo, lo cargado a mano es el
-    MOVIMIENTO del día, no un acumulado. Publicarlo como saldo daría una apertura
-    que no es una apertura — se omite y el tablero dice por qué."""
+def test_saldos_banco_la_cuenta_100_por_ciento_MANUAL_tiene_saldo(monkeypatch):
+    """La cuenta que Interbanking no informa (Comafi, BNY, la Patagonia
+    recaudadora): sin extracto ni saldo del banco, su saldo ES el acumulado de lo
+    cargado a mano, arrancando de cero. Con el ajuste por día esto no se podía
+    —lo del día es un movimiento, no un saldo—; acumulado sí lo es."""
     s, _, _ = _saldos(monkeypatch, {"ajuste": 50_000})
+    assert s["valor"] == 50_000.0
+    assert s["fuente"] == "manual"
+
+
+def test_saldos_banco_sin_nada_de_nada_se_omite(monkeypatch):
+    """Sin extracto, sin saldo y sin un solo manual no sabemos nada. Caer a cero
+    fabricaría un descuadre del tamaño de la cuenta entera."""
+    s, _, _ = _saldos(monkeypatch, {})
     assert s is None
 
 

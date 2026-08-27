@@ -122,11 +122,15 @@ def test_el_cbu_no_se_filtra_ni_por_esta_via(sin_base):
 # Interbanking no tiene todos los bancos de la casa, y el que falta igual mueve
 # plata. Un movimiento manual SIEMPRE impacta el saldo al cierre: en una cuenta
 # real se suma arriba de su extracto y en una manual es todo el saldo.
-def _mock_manual(monkeypatch, filas_cuentas, manuales=()):
+def _mock_manual(monkeypatch, filas_cuentas, manuales=(), previos=()):
     from api.services import bancos as svc
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
+        # `_saldos_banco` (la apertura = nuestro cierre de ayer). Va primero: su
+        # SQL menciona cuentas Y manuales, así que matchea los `if` de abajo.
+        if "AS informado" in t:
+            return list(previos)
         if "FROM bancos.cuentas" in t:
             return filas_cuentas
         if "movimientos_manuales" in t:
@@ -149,7 +153,7 @@ def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
     """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
     informa, no una corrección de lo que informó."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2}])
+                       [{"cuenta_id": 1, "ajuste": 250.0, "del_dia": 250.0, "n": 2, "n_dia": 2}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0
     assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
@@ -160,7 +164,7 @@ def test_un_banco_manual_arranca_de_cero(monkeypatch):
     """Sin extracto ni saldo del banco —el caso de un banco que no está en
     Interbanking— el saldo ES la suma de lo cargado a mano."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1}])
+                       [{"cuenta_id": 1, "ajuste": -400.0, "del_dia": -400.0, "n": 1, "n_dia": 1}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == -400.0
@@ -201,37 +205,44 @@ def test_una_cuenta_de_interbanking_no_se_borra_a_mano(monkeypatch):
 # acumulando TODO, que le suma al saldo una pila de movimientos que el banco ya
 # tiene adentro de su propio número.
 
-def test_la_apertura_del_consolidado_NO_lleva_el_manual_de_ayer(monkeypatch):
-    """⚠️ **Medido en simulación, y contradice lo que parecía obvio.**
-    `saldo_apertura` es lo que **el banco declara** que abrió hoy, y el banco
-    suele haber absorbido el movimiento durante la noche: el 26 cierra en
-    10.000.000 sin ver el cheque de 500.000 y el 27 **abre en 10.500.000 ya con
-    él**. Sumarle el manual daría 11.000.000 — el movimiento contado dos veces.
-
-    La apertura que SÍ es «nuestro cierre de ayer» es la de CONCILIAR, que se
-    calcula de nuestro lado y no de lo que declara el banco. Son dos preguntas
-    distintas: acá «¿con qué dice el banco que abrió?», allá «¿con qué veníamos
-    nosotros?».
-    """
-    svc = _mock_manual(monkeypatch,
-                       [_cuenta(saldo_apertura=10_500_000.0, saldo_cierre=10_500_000.0)],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0}])
-    c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_inicio"] == 10_500_000.0, "la apertura es la que declara el banco"
-
-
-def test_el_arrastre_NO_es_acumulado(monkeypatch):
-    """⚠️ **La mitad que es fácil de romper 'mejorando'** (y que se rompió una vez).
-    El cierre lleva los manuales DE ESE DÍA y nada más. El saldo que el banco
-    informa hoy ya trae adentro los movimientos de días previos: volver a
-    sumarlos infla el saldo con ajustes duplicados que crecen para siempre.
-    """
+def test_la_apertura_es_NUESTRO_cierre_de_ayer(monkeypatch):
+    """Literal del back office: «el saldo inicial de hoy sería el saldo final de
+    ayer». No es el `saldo_apertura` del extracto —eso es lo que declara el
+    banco, y viaja aparte en `saldo_inicio_banco` para que DIFERENCIAS pueda
+    mirar el salto entre los dos."""
     svc = _mock_manual(monkeypatch,
                        [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0}])
+                       previos=[{"cuenta_id": 1, "saldo_cierre": 1000.0,
+                                 "informado": None, "ajuste": 250.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_cierre"] == 1000.0, "sin manual HOY, el cierre es el del banco"
-    assert c["ajuste_manual"] is None
+    assert c["saldo_inicio"] == 1250.0, "nuestro cierre de ayer, con su manual"
+    assert c["saldo_inicio_banco"] == 1000.0, "y el del banco no se pierde"
+
+
+def test_el_manual_de_AYER_sigue_adentro_del_saldo_de_HOY(monkeypatch):
+    """⚠️ **EL CASO QUE DEFINIÓ EL MODELO.** El 25 el saldo figura en 0 y se carga
+    un manual de +100.000 que Interbanking NO informa nunca. El 26 el banco sigue
+    diciendo 0 → el saldo tiene que seguir siendo 100.000, no volver a cero.
+
+    Acá el acumulado vale 100.000 y lo del día es 0: nadie cargó nada hoy.
+    """
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=0.0)],
+                       [{"cuenta_id": 1, "ajuste": 100_000.0, "del_dia": 0.0,
+                         "n": 1, "n_dia": 0}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_cierre"] == 100_000.0, "el manual del 25 NO se evapora el 26"
+    assert c["ajuste_manual_dia"] == 0.0, "aunque hoy no se haya cargado nada"
+
+
+def test_un_manual_EN_CONTRA_lo_saca_y_eso_tambien_persiste(monkeypatch):
+    """Cómo se deshace, que es lo que hace que el acumulado no crezca sin control:
+    el día que el movimiento aparece en el extracto, el back office carga otro
+    manual por el importe opuesto. Los dos se cancelan de ahí en adelante."""
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=100_000.0)],
+                       [{"cuenta_id": 1, "ajuste": 0.0, "del_dia": -100_000.0,
+                         "n": 2, "n_dia": 1}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_cierre"] == 100_000.0, "el banco ya lo informa: no se cuenta dos veces"
 
 
 # --------------------------------------------------------------------------- #

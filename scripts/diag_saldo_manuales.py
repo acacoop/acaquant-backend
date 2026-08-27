@@ -5,12 +5,16 @@ READ-ONLY. Solo hace SELECT; no escribe una sola fila.
 **Para qué existe.** El back office reportó que una cuenta con registros manuales
 muestra el saldo correcto el día que se carga el movimiento y **al día siguiente
 arranca con el saldo crudo de Interbanking**, sin el manual. La regla que tiene
-que cumplirse es una sola:
+que cumplirse:
 
-    cierre(ayer)  ==  apertura(hoy)
+    saldo(F)          =  saldo del banco(F)  +  Σ manuales hasta F
+    saldo_inicial(F)  =  saldo(F − 1 hábil)
 
-y el cierre de un día es `saldo del banco + los manuales DE ESE DÍA`. No se
-acumula: el saldo que el banco informa hoy ya trae adentro lo de días previos.
+o sea «el saldo inicial de hoy es el saldo final de ayer», aplicado todos los
+días. Es ACUMULADO porque hay movimientos que Interbanking no informa nunca
+(Comafi, BNY, la Patagonia recaudadora): si el ajuste durara un día, esas cuentas
+volverían a cero teniendo la plata. Cuando un manual SÍ termina apareciendo en el
+extracto, el back office carga otro EN CONTRA y los dos se cancelan.
 
 Este diag lo muestra numéricamente, cuenta por cuenta y día por día, y marca con
 `<<<` las filas donde la apertura no coincide con el cierre anterior — que es
@@ -72,7 +76,7 @@ def main() -> None:
                  if c["origen"] == "manual" else ""))
         print("-" * 104)
         print(f"{'fecha':<12}{'saldo banco':>16}{'manual del día':>16}"
-              f"{'CIERRE':>16}{'apert. banco':>16}{'APERTURA=ayer':>16}")
+              f"{'ACUMULADO':>16}{'SALDO':>16}{'INICIAL=ayer':>16}")
         print("-" * 104)
 
         # Se recorre el día anterior primero para poder mostrar la APERTURA de
@@ -82,39 +86,40 @@ def main() -> None:
         d = desde
         while d <= hasta:
             fila = _q(
-                """SELECT e.saldo_apertura, e.saldo_cierre,
+                """SELECT e.saldo_cierre,
                           coalesce(s.saldo_operativo, s.saldo_dia) AS informado,
                           (SELECT sum(CASE WHEN tipo = 'C' THEN abs(importe)
                                            ELSE -abs(importe) END)
                              FROM bancos.movimientos_manuales m
-                            WHERE m.cuenta_id = %s AND m.fecha = %s) AS manual
+                            WHERE m.cuenta_id = %s AND m.fecha = %s) AS manual,
+                          (SELECT sum(CASE WHEN tipo = 'C' THEN abs(importe)
+                                           ELSE -abs(importe) END)
+                             FROM bancos.movimientos_manuales m
+                            WHERE m.cuenta_id = %s AND m.fecha <= %s) AS acum
                      FROM (SELECT 1) x
                      LEFT JOIN bancos.extracto_dia e
                             ON e.cuenta_id = %s AND e.fecha = %s
                      LEFT JOIN bancos.saldos s
                             ON s.cuenta_id = %s AND s.fecha = %s""",
-                (c["id"], d, c["id"], d, c["id"], d))
+                (c["id"], d, c["id"], d, c["id"], d, c["id"], d))
             r = fila[0] if fila else {}
             banco = _f(r.get("saldo_cierre"))
             if banco is None:
                 banco = _f(r.get("informado"))
-            apert_banco = _f(r.get("saldo_apertura"))
             man = _f(r.get("manual")) or 0.0
-            cierre = None if banco is None else round(banco + man, 2)
+            acum = _f(r.get("acum")) or 0.0
+            saldo = (None if banco is None and not acum
+                     else round((banco or 0.0) + acum, 2))
 
-            # La apertura que usa la app es el CIERRE del día anterior —el
-            # nuestro, con su manual adentro—, no la apertura cruda del banco.
-            marca = ""
-            if (apert_banco is not None and cierre_previo is not None
-                    and round(cierre_previo - apert_banco, 2)):
-                marca = (f"   <<< la apertura del banco viene "
-                         f"{round(cierre_previo - apert_banco, 2):,.2f} abajo de "
-                         f"nuestro cierre de ayer")
+            # `<<<` = el acumulado no es lo del día, o sea que hay manuales de
+            # días anteriores pesando. Es justo donde el modelo viejo mostraba
+            # el saldo crudo de Interbanking.
+            marca = "   <<< acá fallaba" if round(acum - man, 2) else ""
 
-            print(f"{d.isoformat():<12}{_plata(banco)}{_plata(man)}{_plata(cierre)}"
-                  f"{_plata(apert_banco)}{_plata(cierre_previo)}{marca}")
+            print(f"{d.isoformat():<12}{_plata(banco)}{_plata(man)}{_plata(acum)}"
+                  f"{_plata(saldo)}{_plata(cierre_previo)}{marca}")
 
-            cierre_previo = cierre
+            cierre_previo = saldo
             d += timedelta(days=1)
 
         detalle = _q(
@@ -132,12 +137,13 @@ def main() -> None:
 
     print("=" * 104)
     print("Cómo leerlo:")
-    print("  · CIERRE   = saldo banco + manual DE ESE DÍA. Es lo que muestran")
+    print("  · SALDO    = saldo banco + ACUMULADO de manuales. Es lo que muestran")
     print("               CONSOLIDADO, el saldo de la vista y CIERRE BANCO de CONCILIAR.")
-    print("  · APERTURA = el CIERRE del día hábil anterior. Es el SALDO INICIO de")
-    print("               CONCILIAR y el saldo de inicio del CONSOLIDADO.")
-    print("  · NO se acumula: el manual de anteayer NO se vuelve a sumar hoy, porque")
-    print("    el saldo que informa el banco ya lo tiene adentro.")
+    print("  · INICIAL  = el SALDO del día hábil anterior («el saldo inicial de hoy")
+    print("               es el saldo final de ayer»).")
+    print("  · Las filas marcadas son las que el modelo viejo mostraba SIN el manual.")
+    print("  · Si un manual aparece DESPUÉS en el extracto, el back office carga otro")
+    print("    EN CONTRA ese día: los dos se cancelan y el saldo no se duplica.")
 
 
 if __name__ == "__main__":

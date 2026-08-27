@@ -149,7 +149,7 @@ def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
     """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
     informa, no una corrección de lo que informó."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2}])
+                       [{"cuenta_id": 1, "ajuste": 250.0, "n": 2, "ajuste_previo": 0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0
     assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
@@ -160,7 +160,7 @@ def test_un_banco_manual_arranca_de_cero(monkeypatch):
     """Sin extracto ni saldo del banco —el caso de un banco que no está en
     Interbanking— el saldo ES la suma de lo cargado a mano."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1}])
+                       [{"cuenta_id": 1, "ajuste": -400.0, "n": 1, "ajuste_previo": 0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == -400.0
@@ -190,3 +190,94 @@ def test_una_cuenta_de_interbanking_no_se_borra_a_mano(monkeypatch):
         {"id": 1, "bank_name": "X", "account_number": "1", "origen": "interbanking"}])
     with pytest.raises(ValueError, match="no se borra a mano"):
         svc.borrar_cuenta_manual("x@y", 1)
+
+
+# --------------------------------------------------------------------------- #
+# EL ARRASTRE ES DE UN DÍA — ni cero ni todos (decisión del back office 2026-08-27)
+# --------------------------------------------------------------------------- #
+# «Lo que hay un día pasa para el otro y listo». Las dos mitades de la regla
+# tienen test, porque el modelo se rompió una vez por cada lado: primero no
+# arrastraba nada (el saldo volvía al crudo de Interbanking), y después se probó
+# acumulando TODO, que le suma al saldo una pila de movimientos que el banco ya
+# tiene adentro de su propio número.
+
+def test_la_apertura_lleva_el_manual_de_AYER(monkeypatch):
+    """El cierre de ayer ES la apertura de hoy. Si el manual entra en uno y no en
+    el otro, el mismo número vale distinto según de qué lado se lo mire — y la
+    columna arranca el día con el saldo crudo del banco."""
+    svc = _mock_manual(monkeypatch,
+                       [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
+                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0, "ajuste_previo": 250.0}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_inicio"] == 1250.0, "la apertura trae el manual de ayer"
+    assert c["ajuste_manual_apertura"] == 250.0
+
+
+def test_el_arrastre_NO_es_acumulado(monkeypatch):
+    """⚠️ **La otra mitad, y la que es fácil de romper 'mejorando'.** Solo se
+    arrastra el día anterior. El saldo que el banco informa hoy YA trae adentro
+    los movimientos de días previos: volver a sumarlos infla el saldo con una
+    pila de ajustes duplicados que crece para siempre.
+
+    Acá el cierre es el del banco + lo de HOY (0), y NO el de ayer: 1000, no 1250.
+    """
+    svc = _mock_manual(monkeypatch,
+                       [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
+                       [{"cuenta_id": 1, "ajuste": 0.0, "n": 0, "ajuste_previo": 250.0}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["saldo_cierre"] == 1000.0, "el manual de ayer NO se suma otra vez al cierre"
+    assert c["ajuste_manual"] is None
+
+
+def test_la_apertura_usa_el_dia_HABIL_anterior(monkeypatch):
+    """El mismo criterio que el tablero de CONCILIAR. Si cada pantalla eligiera
+    su propio «ayer», la apertura de una no sería el cierre de la otra."""
+    from datetime import date
+
+    from api.services import bancos as svc
+    visto = {}
+
+    def _q(sql, params=None):
+        if "movimientos_manuales" in " ".join(str(sql).split()):
+            visto["dias"] = params[-1]
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    svc.consolidado("x@y", date(2026, 8, 17))          # un LUNES
+    assert visto["dias"] == [date(2026, 8, 17), date(2026, 8, 14)], \
+        "el viernes anterior, no el domingo"
+
+
+# --------------------------------------------------------------------------- #
+# VISTA — el saldo de la pantalla es el NUESTRO, no el crudo del extracto
+# --------------------------------------------------------------------------- #
+def test_la_vista_muestra_el_saldo_CON_los_manuales(monkeypatch):
+    """⚠️ Salía crudo de `extracto_dia.saldo_cierre`, así que una cuenta con
+    movimientos manuales mostraba acá un número y otro en el CONSOLIDADO —misma
+    cuenta, mismo día— y el de acá era el que ignoraba la carga del back office.
+
+    El del banco no se pierde: viaja en `saldo_final_banco`, que es la evidencia
+    independiente contra la que se concilia.
+    """
+    from api.services import bancos as svc
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "FROM bancos.extracto_dia" in t and "e.saldo_apertura" in t:
+            return [{"fecha": FECHA, "saldo_apertura": 900.0, "saldo_cierre": 1000.0,
+                     "total_creditos": 0, "total_debitos": 0, "total_movimientos": 0,
+                     "cierra": True, "diferencia": 0, "sincronizado_at": None,
+                     "movimientos_base": 0}]
+        if "FROM bancos.movimientos_manuales" in t:
+            return [{"id": 1, "fecha": FECHA, "descripcion": "cheque",
+                     "importe": 250.0, "tipo": "C", "creado_por": "x@y",
+                     "creado_at": None}]
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    r = svc.vista("x@y", 1, FECHA)["resumen"]
+    assert r["saldo_final"] == 1250.0, "el saldo de la pantalla lleva el manual"
+    assert r["saldo_final_banco"] == 1000.0, "y el del banco viaja aparte"
+    assert r["ajuste_manual"] == 250.0

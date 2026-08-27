@@ -129,14 +129,60 @@ IZQUIERDA, DERECHA, OTRO_LADO, FUERA = "izq", "der", "otro", "fuera"
 _LADO_POR_GRUPO = {
     "COOPERATIVAS": IZQUIERDA,
     "MUNDO ACA": DERECHA,
-    # ⚠️ **`OTROS` NO es lo mismo que «sin grupo».** Sin grupo = nadie lo
-    # clasificó todavía, y esas cuentas SÍ se muestran (en su propio panel)
-    # justamente para que se note que falta clasificarlas. `OTROS` es una
-    # decisión tomada: esta cuenta no va en el reporte. Si las dos se trataran
-    # igual, esconder lo no clasificado haría desaparecer cuentas sin que nadie
-    # lo pida.
+    # `OTROS` = FUERA. La explicación completa está en `sin_otros()`, arriba:
+    # no se muestra Y no se suma, y no es lo mismo que «sin grupo».
     "OTROS": FUERA,
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# `OTROS` NO ENTRA EN NADA — y eso lo tiene que garantizar la ESTRUCTURA
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Una cuenta marcada `OTROS` no entra en ningún número de esta vista: ni en el
+# ranking, ni en el consolidado, ni en las diferencias del día, ni en el
+# acumulado, ni en los faltantes, ni en POSICIONES DE ACA. No es que se
+# muestre aparte: **no se suma**.
+#
+# ⚠️ **Por qué hay UN filtro y no un `if` en cada función.** Hasta hoy la
+# exclusión vivía en UN solo lugar —`rankings()`, en Python— y las otras seis
+# queries sumaban `OTROS` sin enterarse. Eso no falla: cada mitad de la
+# pantalla es coherente consigo misma, los totales cierran, y el ranking y el
+# consolidado simplemente hablan de universos distintos. Es el mismo modo de
+# falla de la REGLA #9 — se descubre mirando una pantalla, tarde.
+#
+# Por eso el filtro es SQL y se llama `sin_otros(alias)`: va adentro de la
+# query, no arriba en Python, así una función nueva que lo olvide no queda
+# "casi bien" — queda contando cuentas que la mesa decidió no contar. Y
+# `tests/unit/test_ap5_otros.py` recorre el módulo y EXIGE que toda query
+# sobre `ap5.portfolio` lo lleve, o esté en una lista de excepciones con su
+# motivo escrito.
+#
+# ⚠️ **`OTROS` NO es «sin grupo».** Sin grupo = nadie lo clasificó todavía, y
+# esas cuentas SÍ entran y SÍ se muestran, justamente para que se note que
+# falta clasificarlas. `OTROS` es una decisión tomada.
+GRUPOS_FUERA_DEL_REPORTE = ("OTROS",)
+
+
+def sin_otros(alias: str = "p") -> str:
+    """El predicado SQL que deja afuera a los grupos excluidos.
+
+    Se pega con `AND` a cualquier `WHERE` sobre `ap5.portfolio`. Va como
+    `NOT EXISTS` y no como `JOIN` a propósito: así se suma a una query que ya
+    tiene sus propios joins sin tocarlos, y no puede duplicar filas.
+
+    ⚠️ **La normalización acá y en `normalizar_grupo()` tienen que coincidir.**
+    En SQL es `upper(btrim(...))`, en Python además se sacan los acentos. Son
+    lo mismo mientras los valores excluidos sean ASCII — y eso lo congela un
+    test, porque el día que alguien agregue un grupo con acento las dos mitades
+    empezarían a decidir distinto sin que falle nada.
+    """
+    return (f"NOT EXISTS (SELECT 1 FROM ap5.cuentas cx WHERE cx.account = {alias}.account"
+            " AND upper(btrim(cx.grupo)) = ANY(%(fuera)s))")
+
+
+# Los llamadores lo pasan tal cual: `{**params, **PARAMS_FUERA}`.
+PARAMS_FUERA = {"fuera": list(GRUPOS_FUERA_DEL_REPORTE)}
 
 
 def normalizar_grupo(g: str) -> str:
@@ -210,9 +256,13 @@ def fechas() -> list[dict]:
     return [
         {"fecha": r["fecha"], "filas": r["filas"], "cuentas": r["cuentas"]}
         for r in _q(
-            "SELECT to_char(business_date, 'YYYY-MM-DD') AS fecha, count(*) AS filas, "
-            "count(DISTINCT account) AS cuentas FROM ap5.portfolio "
-            "GROUP BY business_date ORDER BY business_date DESC"
+            "SELECT to_char(p.business_date, 'YYYY-MM-DD') AS fecha, count(*) AS filas, "
+            "count(DISTINCT p.account) AS cuentas FROM ap5.portfolio p "
+            # Un día en el que sólo se movió `OTROS` no es un día del reporte:
+            # ofrecerlo dejaría a toda la pantalla en cero sin explicación.
+            f"WHERE {sin_otros('p')} "
+            "GROUP BY p.business_date ORDER BY p.business_date DESC",
+            PARAMS_FUERA,
         )
     ]
 
@@ -252,24 +302,26 @@ def diferencias_del_dia(fecha: str, fecha_anterior: str | None = None) -> list[d
     futuro en Pesos, y un total único de las dos no significa nada.
     """
     filas = _q(
-        """
+        f"""
         WITH hoy AS (
             SELECT settlement_currency AS moneda,
                    sum(daily_settlement) AS acum,
                    count(DISTINCT account) AS cuentas
-            FROM ap5.portfolio WHERE business_date = %(f)s
+            FROM ap5.portfolio p
+            WHERE p.business_date = %(f)s AND {sin_otros("p")}
             GROUP BY 1
         ), ayer AS (
             SELECT settlement_currency AS moneda, sum(daily_settlement) AS acum
-            FROM ap5.portfolio
-            WHERE %(a)s::date IS NOT NULL AND business_date = %(a)s::date
+            FROM ap5.portfolio p
+            WHERE %(a)s::date IS NOT NULL AND p.business_date = %(a)s::date
+              AND {sin_otros("p")}
             GROUP BY 1
         )
         SELECT h.moneda, h.acum, h.cuentas, y.acum AS acum_ayer
         FROM hoy h LEFT JOIN ayer y ON y.moneda = h.moneda
         ORDER BY 1
         """,
-        {"f": fecha, "a": fecha_anterior},
+        {"f": fecha, "a": fecha_anterior, **PARAMS_FUERA},
     )
     return [
         {
@@ -399,8 +451,9 @@ def por_instrumento(fecha: str, fecha_anterior: str | None) -> list[dict]:
         "count(*) FILTER (WHERE m.multiplicador IS NULL) AS sin_multiplicador "
         "FROM ap5.portfolio p "
         "LEFT JOIN ap5.contratos m ON m.symbol = p.symbol "
-        "WHERE p.business_date = %(f)s GROUP BY 1, 2, 3, 4 ORDER BY 1, 2",
-        {"f": fecha},
+        f"WHERE p.business_date = %(f)s AND {sin_otros('p')} "
+        "GROUP BY 1, 2, 3, 4 ORDER BY 1, 2",
+        {"f": fecha, **PARAMS_FUERA},
     )
 
     # ⚠️ **El acumulado NO se suma entre días.** `daily_settlement` ya viene
@@ -415,10 +468,11 @@ def por_instrumento(fecha: str, fecha_anterior: str | None) -> list[dict]:
             "sum(p.daily_settlement) FILTER ("
             "  WHERE %(a)s::date IS NOT NULL AND p.business_date = %(a)s::date) AS ayer "
             "FROM ap5.portfolio p "
-            "WHERE p.business_date = %(f)s "
-            "   OR (%(a)s::date IS NOT NULL AND p.business_date = %(a)s::date) "
+            "WHERE (p.business_date = %(f)s "
+            "       OR (%(a)s::date IS NOT NULL AND p.business_date = %(a)s::date)) "
+            f"  AND {sin_otros('p')} "
             "GROUP BY 1, 2",
-            {"f": fecha, "a": fecha_anterior},
+            {"f": fecha, "a": fecha_anterior, **PARAMS_FUERA},
         )
     }
     acumulado_desde = fecha_anterior
@@ -542,6 +596,120 @@ def agrupar_consolidado(filas: list[dict]) -> list[dict]:
     return salida
 
 
+def consolidado_detalle(fecha: str, fecha_anterior: str | None,
+                        tab: str, moneda: str, producto: str) -> dict:
+    """De qué está hecha UNA fila del cuadro CONSOLIDADOS: cuenta por cuenta.
+
+    Es la auditoría de la fila, no un cuadro nuevo: contesta «¿de dónde salen
+    estas 15.060 toneladas?» abriendo las cuentas y los símbolos que las suman.
+
+    ⚠️ **Usa EXACTAMENTE los mismos predicados que `por_instrumento()`** — el
+    mismo `_FAMILIA_SQL`, el mismo `_PRODUCTO_SQL`, los mismos `_LARGO`/`_CORTO`
+    y el mismo `sin_otros()`. No es prolijidad: un detalle que se calcula por su
+    cuenta puede contradecir al número que dice explicar, y ahí el que audita
+    termina con dos cifras y ninguna forma de saber cuál es la buena. Es la
+    misma decisión que en Tesorería → BANCOS y en el modal de DÍAS SIN OPERAR.
+
+    ⚠️ **Sólo lo que ENTRA.** Lo excluido (las cuentas `OTROS`, el WTI que no cae
+    en ningún cuadro) no se lista acá: esto explica una fila del cuadro, y meter
+    filas que no la componen invita a sumarlas. Lo que queda afuera se declara
+    en `faltantes`, que es su lugar.
+
+    ⚠️ **`total` se calcula ACÁ y tiene que dar igual que la fila del cuadro.**
+    Viaja en la respuesta justamente para que la pantalla pueda mostrar las dos
+    y el que audita vea que cierran, en vez de tener que creerme.
+    """
+    familia = next((f for f, t in TAB_DE_FAMILIA.items() if t == tab), None)
+    if not fecha or familia is None or not producto:
+        return {"filas": [], "total": {}, "tab": tab, "moneda": moneda,
+                "producto": producto, "etiqueta": ETIQUETAS.get(producto, producto)}
+
+    filas = _q(
+        f"""
+        SELECT p.account AS cuenta,
+               {_NOMBRE_SQL} AS nombre,
+               COALESCE(NULLIF(c.grupo, ''), %(sin)s) AS grupo,
+               p.symbol,
+               p.unit_of_measure AS unidad,
+               max(m.multiplicador) AS multiplicador,
+               sum(p.long_qty)  FILTER (WHERE p.business_date = %(f)s) AS compra_contratos,
+               sum(p.short_qty) FILTER (WHERE p.business_date = %(f)s) AS venta_contratos,
+               sum({_LARGO}) FILTER (WHERE p.business_date = %(f)s) AS compra,
+               sum({_CORTO}) FILTER (WHERE p.business_date = %(f)s) AS venta,
+               count(*)      FILTER (WHERE p.business_date = %(f)s) AS patas,
+               sum(p.daily_settlement) FILTER (WHERE p.business_date = %(f)s) AS acum_hoy,
+               sum(p.daily_settlement) FILTER (
+                 WHERE %(a)s::date IS NOT NULL AND p.business_date = %(a)s::date) AS acum_ayer
+        FROM ap5.portfolio p
+        LEFT JOIN ap5.contratos m ON m.symbol  = p.symbol
+        LEFT JOIN ap5.cuentas   c ON c.account = p.account
+        WHERE (p.business_date = %(f)s
+               OR (%(a)s::date IS NOT NULL AND p.business_date = %(a)s::date))
+          AND {_FAMILIA_SQL} = %(fam)s
+          AND {_PRODUCTO_SQL} = %(prod)s
+          AND COALESCE(p.settlement_currency, '(sin moneda)') = %(mon)s
+          AND {sin_otros("p")}
+        GROUP BY 1, 2, 3, 4, 5
+        ORDER BY 2, 4
+        """,
+        {"f": fecha, "a": fecha_anterior, "fam": familia, "prod": producto,
+         "mon": moneda, "sin": SIN_GRUPO, **PARAMS_FUERA},
+    )
+
+    salida = []
+    for r in filas:
+        # Una cuenta que sólo tenía posición AYER aparece con el acumulado del
+        # día anterior y la posición vacía. No se esconde: es la que explica una
+        # diaria que no se entiende mirando sólo la posición de hoy.
+        compra, venta = _f(r["compra"]), _f(r["venta"])
+        hoy, ayer = _f0(r["acum_hoy"]), _f0(r["acum_ayer"])
+        salida.append({
+            "cuenta": r["cuenta"], "nombre": r["nombre"], "grupo": r["grupo"],
+            "symbol": r["symbol"], "unidad": r["unidad"],
+            "multiplicador": _f(r["multiplicador"]),
+            "compra_contratos": _f0(r["compra_contratos"]),
+            "venta_contratos": _f0(r["venta_contratos"]),
+            "compra": None if compra is None else round(compra, 2),
+            "venta": None if venta is None else round(venta, 2),
+            "neta": (None if compra is None or venta is None
+                     else round(compra - venta, 2)),
+            "patas": r["patas"] or 0,
+            "acum_hoy": round(hoy, 2),
+            "acum_ayer": round(ayer, 2),
+            "diaria": round(hoy - ayer, 2),
+        })
+
+    def _total_posicion(campo: str) -> float | None:
+        """Σ del campo, pero `None` si NINGUNA fila se pudo convertir.
+
+        ⚠️ Replica lo que hace `sum()` de SQL en el cuadro, y por eso no es
+        `_suma()` a secas: con algunos símbolos sin multiplicador la Σ es
+        PARCIAL (y `sin_multiplicador` lo delata), pero si no se pudo convertir
+        ninguno el cuadro muestra vacío — y un cero acá diría «no hay posición»
+        donde en realidad hay posición sin con qué medirla. Si el detalle
+        rellenara ese hueco con 0, contradiría a la fila que dice explicar.
+        """
+        if all(x[campo] is None for x in salida):
+            return None
+        return _suma(salida, campo)
+
+    total = {
+        "compra": _total_posicion("compra"),
+        "venta": _total_posicion("venta"),
+        "neta": _total_posicion("neta"),
+        "acum_hoy": _suma(salida, "acum_hoy"),
+        "acum_ayer": _suma(salida, "acum_ayer"),
+        "diaria": _suma(salida, "diaria"),
+        "cuentas": len({x["cuenta"] for x in salida}),
+        "simbolos": len({x["symbol"] for x in salida}),
+        "sin_multiplicador": sum(1 for x in salida if x["multiplicador"] is None),
+    }
+    return {"tab": tab, "moneda": moneda, "producto": producto,
+            "etiqueta": ETIQUETAS.get(producto, producto),
+            "fecha": fecha, "fecha_anterior": fecha_anterior,
+            "filas": salida, "total": total}
+
+
 def acumulado(fecha: str, fecha_anterior: str | None = None) -> list[dict]:
     """El ACUMULADO por cuenta y moneda, y la DIARIA como hoy − ayer.
 
@@ -571,13 +739,14 @@ def acumulado(fecha: str, fecha_anterior: str | None = None) -> list[dict]:
                    {_FAMILIA_SQL} AS familia,
                    sum(daily_settlement) AS acumulado
             FROM ap5.portfolio p
-            WHERE business_date = %(f)s
+            WHERE business_date = %(f)s AND {sin_otros("p")}
             GROUP BY 1, 2, 3
         ), ayer AS (
             SELECT account, settlement_currency AS moneda,
                    sum(daily_settlement) AS acumulado
             FROM ap5.portfolio p
             WHERE %(a)s::date IS NOT NULL AND business_date = %(a)s::date
+              AND {sin_otros("p")}
             GROUP BY 1, 2
         )
         SELECT h.account AS cuenta,
@@ -591,7 +760,7 @@ def acumulado(fecha: str, fecha_anterior: str | None = None) -> list[dict]:
         LEFT JOIN ayer y ON y.account = h.account AND y.moneda = h.moneda
         ORDER BY 2, 4
         """,
-        {"f": fecha, "a": fecha_anterior, "sin": SIN_GRUPO},
+        {"f": fecha, "a": fecha_anterior, "sin": SIN_GRUPO, **PARAMS_FUERA},
     )
     salida = []
     for r in filas:
@@ -618,25 +787,32 @@ def _faltantes(fecha: str) -> dict:
     sin_mult = _q(
         "SELECT p.symbol, p.unit_of_measure AS unidad, count(*) AS filas "
         "FROM ap5.portfolio p LEFT JOIN ap5.contratos m ON m.symbol = p.symbol "
-        "WHERE p.business_date = %(f)s AND m.symbol IS NULL "
+        # Un símbolo que sólo tiene `OTROS` no le falta a nadie: no se suma en
+        # ningún lado, así que declararlo sería pedir que arreglen un dato que
+        # no se usa.
+        f"WHERE p.business_date = %(f)s AND m.symbol IS NULL AND {sin_otros('p')} "
         "GROUP BY 1, 2 ORDER BY 1",
-        {"f": fecha},
+        {"f": fecha, **PARAMS_FUERA},
     )
     resto = _q(
         "SELECT count(*) FILTER (WHERE c.name IS NULL AND c.denominacion IS NULL) AS sin_nombre, "
         "count(*) FILTER (WHERE c.grupo IS NULL OR c.grupo = '') AS sin_grupo, "
+        # ⚠️ El filtro va sobre la SUBCONSULTA de posición, no sobre `c`: acá
+        # se cuentan cuentas SIN GRUPO, y una cuenta sin grupo nunca es `OTROS`
+        # — filtrar `c` no cambiaría nada y confundiría las dos cosas.
         "count(*) AS cuentas FROM ap5.cuentas c "
-        "WHERE c.account IN (SELECT account FROM ap5.portfolio WHERE business_date = %(f)s)",
-        {"f": fecha},
+        "WHERE c.account IN (SELECT p.account FROM ap5.portfolio p "
+        f"                   WHERE p.business_date = %(f)s AND {sin_otros('p')})",
+        {"f": fecha, **PARAMS_FUERA},
     )
     # Lo que NO entra en ninguna tab (hoy `otros`: el WTI, que se mide en
     # barriles). Se cuenta para que una posición sin pantalla no quede invisible.
     fuera = _q(
         f"SELECT {_FAMILIA_SQL} AS familia, count(DISTINCT p.account) AS cuentas, "
         "count(DISTINCT p.symbol) AS simbolos "
-        "FROM ap5.portfolio p WHERE p.business_date = %(f)s "
+        f"FROM ap5.portfolio p WHERE p.business_date = %(f)s AND {sin_otros('p')} "
         "GROUP BY 1 HAVING " + _FAMILIA_SQL.strip() + " NOT IN ('agro', 'dolar')",
-        {"f": fecha},
+        {"f": fecha, **PARAMS_FUERA},
     )
 
     r = resto[0] if resto else {}
@@ -880,7 +1056,23 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
        que tiene abajo.
     """
     if cuenta not in AP5_CUENTAS_ACA:
-        return {"cuenta": cuenta, "permitida": False, "filas": [], "totales": []}
+        return {"cuenta": cuenta, "permitida": False, "filas": [], "totales": [],
+                "excluida": False}
+
+    # ⚠️ **`OTROS` tampoco entra acá**, aunque la cuenta esté en la allowlist:
+    # «no entra en el cálculo de nada» incluye esta tab. Pero se DICE —
+    # `excluida: True`— en vez de devolver una lista vacía: «no tiene posición»
+    # y «está marcada para no contarse» son dos cosas distintas y se verían
+    # idénticas. Esconderlo sería el mismo cero silencioso que esta vista
+    # persigue en todas partes.
+    marcada = _q(
+        "SELECT 1 FROM ap5.cuentas c WHERE c.account = %(c)s "
+        "AND upper(btrim(c.grupo)) = ANY(%(fuera)s)",
+        {"c": cuenta, **PARAMS_FUERA},
+    )
+    if marcada:
+        return {"cuenta": cuenta, "permitida": True, "filas": [], "totales": [],
+                "excluida": True}
 
     filas = _q(
         f"""
@@ -900,10 +1092,11 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
         FROM ap5.portfolio p
         LEFT JOIN ap5.contratos m ON m.symbol = p.symbol
         WHERE p.business_date = %(f)s AND p.account = %(c)s
+          AND {sin_otros("p")}
         GROUP BY 1, 2, 3, 4
         ORDER BY 2, 1
         """,
-        {"f": fecha, "c": cuenta},
+        {"f": fecha, "c": cuenta, **PARAMS_FUERA},
     )
 
     salida: list[dict] = []
@@ -955,7 +1148,7 @@ def posiciones_aca(fecha: str, cuenta: str) -> dict:
     for t in totales.values():
         t["diferencias"] = round(t["diferencias"], 2)
     return {
-        "cuenta": cuenta, "permitida": True, "filas": salida,
+        "cuenta": cuenta, "permitida": True, "excluida": False, "filas": salida,
         "totales": sorted(totales.values(),
                           key=lambda t: (t["familia"], t["moneda"] or "")),
     }

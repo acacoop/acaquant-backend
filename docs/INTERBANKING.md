@@ -877,6 +877,74 @@ sistema contable los registra al mes). Viaja con `motivo`.
   declara en `POST_QUE_NO_ESCRIBEN`, una lista corta y explícita: sumar uno ahí
   es el momento en que alguien tiene que justificar por qué no escribe.
 
+### El cierre de ayer ES la apertura de hoy (2026-08-27)
+
+**Lo que reportó el back office:** una cuenta con registros manuales cierra
+perfecto el día de la carga, y **al día siguiente arranca con el saldo crudo de
+Interbanking**, sin el manual. Textual:
+
+> «el usuario pone el registro manual y el saldo de ese día al cierre queda
+> bárbaro… pero luego eso no queda trasladado al otro día, al otro día eso se
+> pasa como saldo que venía directo de interbanking (que no es que está mal) pero
+> el manual hay que tomarlo»
+
+**La regla, y es una sola:**
+
+```
+cierre(F)    =  saldo del banco(F)  +  manuales DE ESE DÍA
+apertura(F)  =  cierre(F − 1 hábil)
+```
+
+⚠️⚠️ **NO se acumula, y esto es una decisión explícita del back office**, no una
+simplificación: *«no hay que arrastrar todos los de todos los días… si no le vas
+a sumar un montón de movimientos manuales. Lo que hay un día pasa para el otro y
+listo»*. El saldo que Interbanking informa **hoy ya trae adentro** los movimientos
+de días anteriores —por eso «no es que está mal»—, así que volver a sumarlos
+inflaría el saldo con una pila de ajustes duplicados que crece para siempre.
+Se arrastra **un día**: el cierre de ayer, que es la apertura de hoy.
+
+Las dos mitades tienen test (`test_interbanking_consolidado.py`), porque el
+modelo se rompió una vez por cada lado — primero no arrastraba nada, y después se
+probó acumulando todo.
+
+Dónde faltaba aplicarlo, que era el bug:
+
+| Pantalla | Campo | Estaba | Ahora |
+|---|---|---|---|
+| CONCILIAR | `saldo_inicio` | saldo crudo del banco de ayer | cierre de ayer (`_saldos_banco`) |
+| CONCILIAR | `cierre_banco` | ya estaba bien | ídem, vía la misma función |
+| Drill-down | `saldo_nuestro` | copia propia de la precedencia | la misma `_saldos_banco()` |
+| CONSOLIDADO | `saldo_cierre` | ya estaba bien | ídem |
+| CONSOLIDADO | `saldo_inicio` | apertura cruda del extracto | + manual del día hábil anterior |
+| Vista (modal) | `resumen.saldo_final` | crudo de `extracto_dia` | + manual del día; el crudo va en `saldo_final_banco` |
+| DIFERENCIAS | — | del día, al costado | **igual, a propósito** |
+
+`DIFERENCIAS` no se toca: reconstruye la aritmética del BANCO (`cierre − cierre ==
+Σ movimientos`) con números crudos de los dos lados, y publica el manual al
+costado. Si entrara en la cuenta, cada ajuste nuestro aparecería como una
+diferencia del banco.
+
+Tres cosas que quedaron en su lugar:
+
+- **`_saldos_banco()` es el único lugar que arma un saldo**, con el manual
+  adentro del valor. Antes cada consumidor se acordaba (o no) de sumarlo:
+  `tablero()` se acordaba para el CIERRE y no para la APERTURA, y `conciliar()`
+  tenía su propia copia de la precedencia (extracto → saldo informado → ajuste).
+  Dos copias del mismo criterio sin árbitro — REGLA #9. Ahora hay una.
+- **El día previo es el HÁBIL anterior en las dos pantallas.** Si cada una
+  eligiera su propio «ayer», la apertura de una no sería el cierre de la otra.
+- **No cuesta queries.** `_ajuste_manual(fecha, previa)` trae los dos días en una
+  sola consulta y la vista sale de la lista que ya se leía; el tope de
+  `test_interbanking_queries` sigue en pie.
+
+**Verificarlo en prod**: `python -m scripts.diag_saldo_manuales` (read-only) lista,
+por cuenta y por día, `saldo banco + manual = CIERRE` y la apertura del día
+siguiente, marcando dónde no coinciden.
+
+**Lo que NO cambió**: el arrastre del MAYOR en CONCILIAR. Cada día se sigue
+juzgando aislado y un descuadre contable viejo no se ve. Es deliberado — el
+tablero contesta «¿qué pasó ayer?», no «¿está bien el saldo absoluto?».
+
 ### El umbral, el signo, y no cruzar lados
 
 - ⚠️ **Debajo de UN PESO nominal no hay diferencia.** Caso real: `590.708,27`

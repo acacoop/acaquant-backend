@@ -142,7 +142,7 @@ def test_los_manuales_NO_ensucian_la_conciliacion(monkeypatch):
                          {"cuenta_id": 1, "fecha": AYER, "saldo_apertura": 0.0,
                           "saldo_cierre": 0.0, "cierra": True}],
               movs=[],
-              manuales=[{"cuenta_id": 1, "ajuste": 999.0, "n": 1}])
+              manuales=[{"cuenta_id": 1, "ajuste": 999.0, "n": 1, "ajuste_previo": 0}])
     f = _fila(s.diferencias("x@y", HOY))
     assert f["sin_explicar"] == 0.0, "el ajuste manual no es una diferencia del banco"
     assert f["ajuste_manual"] == 999.0, "pero se muestra, para que nadie se confunda"

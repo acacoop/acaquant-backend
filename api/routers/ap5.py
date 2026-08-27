@@ -99,6 +99,27 @@ def guardar_cuenta(body: CuentaIn, actor: str = _ESCRIBE) -> dict:
                name=body.name, grupo=body.grupo, por=actor)
 
 
+@router.get("/consolidado/detalle")
+def consolidado_detalle(
+    tab: str = Query(..., description="agro | dolar"),
+    moneda: str = Query(..., description="La moneda del cuadro"),
+    producto: str = Query(..., description="Código del producto: SOJ, MAI, DLR…"),
+    fecha: str | None = Query(None, description="YYYY-MM-DD"),
+) -> dict:
+    """De qué está hecha UNA fila del cuadro CONSOLIDADOS: cuenta por cuenta.
+
+    ⚠️ **Es AUDITORÍA, no una vista nueva.** Sale del mismo service y de los
+    mismos predicados que el cuadro, así que su total tiene que dar igual que la
+    fila que explica — y viaja en la respuesta para poder mostrarlo al lado.
+    """
+    hoy, ayer = _svc._fecha_valida(fecha)
+    if not hoy:
+        return {"tab": tab, "moneda": moneda, "producto": producto,
+                "etiqueta": producto, "filas": [], "total": {},
+                "fecha": None, "fecha_anterior": None}
+    return _ok(_svc.consolidado_detalle, hoy, ayer, tab, moneda, producto)
+
+
 @router.get("/aca/cuentas")
 def aca_cuentas() -> list[dict]:
     """Las cuentas propias que se pueden elegir en POSICIONES DE ACA.
@@ -121,6 +142,6 @@ def aca(cuenta: str = Query(..., description="Número de cuenta propia"),
     """
     hoy, _ = _svc._fecha_valida(fecha)
     if not hoy:
-        return {"cuenta": cuenta, "permitida": True,
+        return {"cuenta": cuenta, "permitida": True, "excluida": False,
                 "filas": [], "totales": [], "fecha": None}
     return {**_ok(_svc.posiciones_aca, hoy, cuenta), "fecha": hoy}

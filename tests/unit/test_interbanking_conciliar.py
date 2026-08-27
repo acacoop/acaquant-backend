@@ -110,17 +110,17 @@ def _svc(monkeypatch, *, cierre=None, movs=(), manuales=()):
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
+        # ⚠️ El ORDEN importa: `_saldos_banco` trae extracto + saldo informado +
+        # manuales en UNA sola query, así que matchea varios de los substrings de
+        # abajo. Va primera y se reconoce por los manuales, que ninguna otra pide.
+        if "movimientos_manuales" in t:
+            return [{"cuenta_id": 1, "saldo_cierre": cierre, "informado": None,
+                     "ajuste": sum(m["ajuste"] for m in manuales)}]
         if "FROM bancos.cuentas" in t:
             return [{"id": 1, "bank_number": "191", "bank_name": "Credicoop",
                      "account_number": "0010701456", "account_type": "CC",
                      "currency": "ARS", "account_label": "ACA", "activa": True,
                      "origen": "interbanking"}]
-        if "extracto_dia" in t:
-            return [{"saldo_cierre": cierre}] if cierre is not None else []
-        if "movimientos_manuales" in t:
-            return list(manuales)
-        if "FROM bancos.saldos" in t:
-            return []
         if "FROM bancos.movimientos" in t:
             return list(movs)
         return []

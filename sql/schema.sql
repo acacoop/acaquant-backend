@@ -4023,6 +4023,42 @@ CREATE INDEX IF NOT EXISTS ix_bancos_manuales_fecha
     ON bancos.movimientos_manuales (fecha, cuenta_id);
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- CIERRE DIARIO SELLADO — el saldo de un banco a una fecha, guardado como DATO
+--
+-- ⚠️ **Pedido explícito del back office (2026-08-27)**: «el saldo al cierre tiene
+-- que quedar como un valor con fecha y banco y usarse al otro día, no hay que
+-- hacer cálculos raros». Y tiene tres razones que lo hacen mejor que recalcular:
+--
+--   1. **El saldo inicial de un día deja de ser un cálculo y pasa a ser una
+--      lectura.** Cada vez que se recalculaba la apertura a partir del extracto
+--      y los manuales aparecía una forma nueva de equivocarse: primero no
+--      sumaba los manuales, después los sumaba todos.
+--   2. **La retención de 3 fechas no lo borra.** `extracto_dia` y `saldos` los
+--      purga `interbanking_sync`, así que el saldo del día anterior puede
+--      desaparecer y con él la apertura de hoy. Esto queda.
+--   3. **Es auditable**: se ve qué saldo se selló, de qué fuente salió y cuánto
+--      de eso lo puso una persona.
+--
+-- Se sella el cierre de un día cada vez que ese día cambia: cuando la ingesta de
+-- Interbanking trae datos nuevos y cuando alguien carga o borra un movimiento
+-- manual. Re-sellar es idempotente (upsert por cuenta+fecha).
+CREATE TABLE IF NOT EXISTS bancos.cierres_diarios (
+    cuenta_id      bigint NOT NULL REFERENCES bancos.cuentas(id) ON DELETE CASCADE,
+    fecha          date   NOT NULL,
+    saldo          numeric NOT NULL,
+    -- De dónde salió el saldo del banco: extracto | saldo informado | manual.
+    fuente         text,
+    -- Cuánto de ese saldo lo puso una persona ese día. Se guarda para poder
+    -- explicar el número sin volver a calcularlo.
+    ajuste_manual  numeric NOT NULL DEFAULT 0,
+    sellado_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (cuenta_id, fecha)
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_cierres_fecha
+    ON bancos.cierres_diarios (fecha);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DESGLOSE de los gastos — en qué columna cae cada gasto
 --
 -- El total de gastos no alcanza: el back office necesita ver cuánto es IVA,

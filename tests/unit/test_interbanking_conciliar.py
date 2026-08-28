@@ -113,9 +113,14 @@ def _svc(monkeypatch, *, cierre=None, movs=(), manuales=()):
         # ⚠️ El ORDEN importa: `_saldos_banco` trae extracto + saldo informado +
         # manuales en UNA sola query, así que matchea varios de los substrings de
         # abajo. Va primera y se reconoce por los manuales, que ninguna otra pide.
-        if "movimientos_manuales" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": cierre, "informado": None,
-                     "ajuste": sum(m["ajuste"] for m in manuales)}]
+        # `_saldos_banco` toca cinco tablas en una query; se reconoce por su
+        # alias `AS sellado` y va PRIMERO, o cae en los `if` de abajo.
+        if "AS sellado" in t:
+            man = sum(m["ajuste"] for m in manuales)
+            return [{"cuenta_id": 1, "sellado": None, "saldo_cierre": cierre,
+                     "informado": None, "neto": 0, "ajuste": man, "acumulado": man}]
+        if "cierres_diarios" in t:
+            return []          # la apertura no se usa en estos tests
         if "FROM bancos.cuentas" in t:
             return [{"id": 1, "bank_number": "191", "bank_name": "Credicoop",
                      "account_number": "0010701456", "account_type": "CC",

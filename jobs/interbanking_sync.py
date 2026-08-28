@@ -54,6 +54,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from api.services import bancos  # puro (sin FastAPI), como en otros jobs
 from core import interbanking as ib
 from core.calendario import restar_habiles
 from core.job_runs import JobRunLogger
@@ -543,6 +544,21 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
             msg = f"{type(e).__name__}: {e}"
             logger.warning("cuenta %s (%s): %s", c["id"], c.get("bank_name"), msg)
             _log_sync(c.get("id"), d1, d2, 0, 0, 0, 0, None, False, msg)
+
+    # ⚠️ **SELLAR EL CIERRE, ANTES DE PURGAR.** El saldo al cierre de cada día se
+    # guarda como un valor con fecha y banco (`bancos.cierres_diarios`) y es lo
+    # que se lee como saldo INICIAL del día siguiente — sin recalcular nada.
+    #
+    # Va antes de la purga a propósito: la purga borra `extracto_dia` y `saldos`
+    # de los días viejos, así que si se sellara después ya no habría de dónde.
+    if stats["cuentas_ok"]:
+        for d in sorted({d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)}):
+            try:
+                stats["cierres_sellados"] = (stats.get("cierres_sellados", 0)
+                                             + len(bancos.sellar_cierre(d)))
+            except Exception as e:
+                logger.warning("no pude sellar el cierre de %s: %s: %s",
+                               d, type(e).__name__, e)
 
     # La purga va al FINAL y solo si la corrida trajo datos: si Interbanking
     # estuvo caído no se guardó nada, y borrar igual dejaría la base con menos

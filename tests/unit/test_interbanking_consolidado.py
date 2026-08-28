@@ -127,9 +127,11 @@ def _mock_manual(monkeypatch, filas_cuentas, manuales=(), previos=()):
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
-        # `_saldos_banco` (la apertura = nuestro cierre de ayer). Va primero: su
-        # SQL menciona cuentas Y manuales, así que matchea los `if` de abajo.
-        if "AS informado" in t:
+        # `_saldos_banco` (5 tablas en una query) se reconoce por `AS sellado`.
+        if "AS sellado" in t:
+            return []
+        # La APERTURA se LEE del cierre sellado de ayer.
+        if "cierres_diarios" in t:
             return list(previos)
         if "FROM bancos.cuentas" in t:
             return filas_cuentas
@@ -153,7 +155,7 @@ def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
     """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
     informa, no una corrección de lo que informó."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "del_dia": 250.0, "n": 2, "n_dia": 2}])
+                       [{"cuenta_id": 1, "ajuste": 250.0, "acumulado": 250.0, "n": 2}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0
     assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
@@ -164,7 +166,7 @@ def test_un_banco_manual_arranca_de_cero(monkeypatch):
     """Sin extracto ni saldo del banco —el caso de un banco que no está en
     Interbanking— el saldo ES la suma de lo cargado a mano."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": -400.0, "del_dia": -400.0, "n": 1, "n_dia": 1}])
+                       [{"cuenta_id": 1, "ajuste": 0.0, "acumulado": -400.0, "n": 0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == -400.0
@@ -212,37 +214,47 @@ def test_la_apertura_es_NUESTRO_cierre_de_ayer(monkeypatch):
     mirar el salto entre los dos."""
     svc = _mock_manual(monkeypatch,
                        [_cuenta(saldo_apertura=1000.0, saldo_cierre=1000.0)],
-                       previos=[{"cuenta_id": 1, "saldo_cierre": 1000.0,
-                                 "informado": None, "ajuste": 250.0}])
+                       previos=[{"cuenta_id": 1, "saldo": 1250.0,
+                                 "fuente": "extracto", "ajuste_manual": 250.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_inicio"] == 1250.0, "nuestro cierre de ayer, con su manual"
+    assert c["saldo_inicio"] == 1250.0, "el cierre SELLADO de ayer, leído tal cual"
     assert c["saldo_inicio_banco"] == 1000.0, "y el del banco no se pierde"
 
 
-def test_el_manual_de_AYER_sigue_adentro_del_saldo_de_HOY(monkeypatch):
-    """⚠️ **EL CASO QUE DEFINIÓ EL MODELO.** El 25 el saldo figura en 0 y se carga
-    un manual de +100.000 que Interbanking NO informa nunca. El 26 el banco sigue
-    diciendo 0 → el saldo tiene que seguir siendo 100.000, no volver a cero.
+def test_el_cierre_usa_el_manual_DEL_DIA_no_el_acumulado(monkeypatch):
+    """⚠️⚠️ **EL BUG QUE ENCONTRÓ EL BACK OFFICE (2026-08-27).** El saldo que
+    informa Interbanking **ya trae adentro** los movimientos de días anteriores.
+    Si el cierre les suma además todos los manuales históricos, da MÁS que
+    «Interbanking + los manuales del día» y la diferencia entre dos días no se
+    explica con NADA de lo que la pantalla muestra — que fue exactamente el
+    síntoma.
 
-    Acá el acumulado vale 100.000 y lo del día es 0: nadie cargó nada hoy.
+    Acá el banco cierra en 1.000, hay 250 de manuales viejos y 0 cargados hoy:
+    el cierre tiene que ser 1.000, no 1.250.
     """
-    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=0.0)],
-                       [{"cuenta_id": 1, "ajuste": 100_000.0, "del_dia": 0.0,
-                         "n": 1, "n_dia": 0}])
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
+                       [{"cuenta_id": 1, "ajuste": 0.0, "acumulado": 250.0, "n": 0}])
     c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_cierre"] == 100_000.0, "el manual del 25 NO se evapora el 26"
-    assert c["ajuste_manual_dia"] == 0.0, "aunque hoy no se haya cargado nada"
+    assert c["saldo_cierre"] == 1000.0, "el manual viejo YA está en el saldo del banco"
 
 
-def test_un_manual_EN_CONTRA_lo_saca_y_eso_tambien_persiste(monkeypatch):
-    """Cómo se deshace, que es lo que hace que el acumulado no crezca sin control:
-    el día que el movimiento aparece en el extracto, el back office carga otro
-    manual por el importe opuesto. Los dos se cancelan de ahí en adelante."""
-    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=100_000.0)],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "del_dia": -100_000.0,
-                         "n": 2, "n_dia": 1}])
+def test_lo_del_dia_SI_se_suma(monkeypatch):
+    """La otra mitad: lo que se carga hoy todavía no lo tiene el banco."""
+    svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
+                       [{"cuenta_id": 1, "ajuste": 250.0, "acumulado": 900.0, "n": 1}])
     c = _fila(svc.consolidado("x@y", FECHA))
-    assert c["saldo_cierre"] == 100_000.0, "el banco ya lo informa: no se cuenta dos veces"
+    assert c["saldo_cierre"] == 1250.0, "banco + lo de HOY, y nada de lo viejo"
+
+
+def test_la_cuenta_que_el_banco_NO_informa_si_acumula(monkeypatch):
+    """La excepción, y la razón por la que existe: sin extracto ni saldo no hay
+    ningún número del banco que absorba los manuales viejos. Ahí el saldo ES el
+    acumulado — si no, la cuenta volvería a cero teniendo la plata."""
+    svc = _mock_manual(monkeypatch, [_cuenta()],
+                       [{"cuenta_id": 1, "ajuste": 0.0, "acumulado": 100_000.0, "n": 0}])
+    c = _fila(svc.consolidado("x@y", FECHA))
+    assert c["fuente"] == "manual"
+    assert c["saldo_cierre"] == 100_000.0
 
 
 # --------------------------------------------------------------------------- #
@@ -277,3 +289,70 @@ def test_la_vista_muestra_el_saldo_CON_los_manuales(monkeypatch):
     assert r["saldo_final"] == 1250.0, "el saldo de la pantalla lleva el manual"
     assert r["saldo_final_banco"] == 1000.0, "y el del banco viaja aparte"
     assert r["ajuste_manual"] == 250.0
+
+
+# --------------------------------------------------------------------------- #
+# EL CIERRE SELLADO — un valor con fecha y banco, que se LEE al otro día
+# --------------------------------------------------------------------------- #
+# Pedido del back office (2026-08-27): «el saldo al cierre tiene que quedar como
+# un valor con fecha y banco y usarse al otro día, no hay que hacer cálculos
+# raros». Cada vez que la apertura se RECALCULABA aparecía una forma nueva de
+# equivocarse: primero no sumaba los manuales, después los sumaba todos.
+
+def test_la_apertura_se_LEE_del_sellado_y_no_se_recalcula(monkeypatch):
+    """⚠️ El valor sellado MANDA, aunque no coincida con lo que daría recalcular.
+    Es la garantía de que el saldo inicial de hoy es exactamente el número que
+    ayer se mostró como cierre: si la apertura pudiera recalcularse, volvería a
+    poder diferir del cierre que el back office ya miró y dio por bueno.
+    """
+    from api.services import bancos as svc
+    visto = {"recalculo": False}
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "cierres_diarios" in t:
+            return [{"cuenta_id": 1, "saldo": 999_999.0, "fuente": "extracto",
+                     "ajuste_manual": 0.0}]
+        if "AS sellado" in t:
+            visto["recalculo"] = True          # esto NO se puede llamar para ayer
+            return []
+        if "FROM bancos.cuentas" in t:
+            return [_cuenta(saldo_apertura=1.0, saldo_cierre=1.0)]
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec", lambda sql, params=None: 1)
+    monkeypatch.setattr("core.roles.get_user_role", lambda *a, **k: "sales")
+    c = svc.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
+    assert c["saldo_inicio"] == 999_999.0, "manda el sellado, no el recálculo"
+
+
+def test_si_el_dia_no_esta_sellado_se_sella_al_vuelo(monkeypatch):
+    """Hace falta para que la pantalla no muestre «—» el primer día después del
+    deploy, ni con un día viejo que nunca se selló."""
+    from api.services import bancos as svc
+    escrituras = []
+    leidas = {"n": 0}
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        # ⚠️ `_saldos_banco` JOINEA `cierres_diarios`, así que se lo reconoce por
+        # su alias propio y va primero.
+        if "AS sellado" in t:
+            return [{"cuenta_id": 1, "sellado": None, "saldo_cierre": 500.0,
+                     "informado": None, "neto": 0, "ajuste": 0, "acumulado": 0}]
+        if "cierres_diarios" in t:
+            leidas["n"] += 1
+            return []          # el día no está sellado → hay que sellarlo
+        if "FROM bancos.cuentas" in t:
+            return [_cuenta(saldo_cierre=1.0)]
+        return []
+
+    monkeypatch.setattr(svc, "_q", _q)
+    monkeypatch.setattr(svc, "_exec",
+                        lambda sql, params=None: escrituras.append(sql) or 1)
+    monkeypatch.setattr("core.roles.get_user_role", lambda *a, **k: "sales")
+    c = svc.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
+    assert any("cierres_diarios" in " ".join(str(e).split()) for e in escrituras), \
+        "tiene que haber sellado"
+    assert c["saldo_inicio"] == 500.0

@@ -64,6 +64,10 @@ def tablero(monkeypatch):
                       "fuente": "extracto + ajuste manual" if ajuste else "extracto"}}
 
     monkeypatch.setattr(bancos, "_saldos_banco", _saldos)
+    # ⚠️ La APERTURA se LEE del cierre sellado de ayer, no se recalcula. El stub
+    # devuelve lo mismo que `_saldos_banco(PREVIO)` porque eso es justamente lo
+    # que se sella: el sellado es una copia del cierre, no otro número.
+    monkeypatch.setattr(bancos, "_cierre_sellado", lambda f: _saldos(f))
 
     def correr(**kw):
         estado.update(kw)
@@ -242,8 +246,8 @@ def _saldos(monkeypatch, fila, cuenta_id=None):
 
     def _q(sql, params=None):
         visto["sql"], visto["params"] = sql, params
-        return [{"cuenta_id": CID, "saldo_cierre": None, "informado": None,
-                 "ajuste": 0, **fila}]
+        return [{"cuenta_id": CID, "sellado": None, "saldo_cierre": None,
+                 "informado": None, "neto": 0, "ajuste": 0, "acumulado": 0, **fila}]
 
     monkeypatch.setattr(bancos, "_q", _q)
     out = bancos._saldos_banco(FECHA, cuenta_id)
@@ -256,12 +260,12 @@ def test_saldos_banco_pide_los_manuales_del_dia(monkeypatch):
     error queda invisible: cada consumidor parece correcto por su cuenta."""
     _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1_000_000})
     assert "bancos.movimientos_manuales" in sql
-    # ACUMULADO: hay movimientos que Interbanking no informa nunca, así que un
-    # ajuste que durara un día dejaría esas cuentas en cero teniendo la plata.
-    assert "fecha <= %s" in sql
-    # Tres veces la misma fecha: extracto, saldos y manuales. Los tres del MISMO
-    # día — mezclarlos es justo el error que se está previniendo.
-    assert params == (FECHA, FECHA, FECHA)
+    # Trae los DOS: el del día (para la cuenta que informa el banco) y el
+    # acumulado (para la que no). Cuál se usa lo decide el bucle.
+    assert "AS ajuste" in sql and "AS acumulado" in sql
+    # El día PREVIO (para leer su cierre sellado) y después cinco veces la
+    # fecha: extracto, saldos, movimientos del banco, manual del día y acumulado.
+    assert params == (PREVIO, FECHA, FECHA, FECHA, FECHA, FECHA)
 
 
 def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):
@@ -300,7 +304,7 @@ def test_saldos_banco_la_cuenta_100_por_ciento_MANUAL_tiene_saldo(monkeypatch):
     recaudadora): sin extracto ni saldo del banco, su saldo ES el acumulado de lo
     cargado a mano, arrancando de cero. Con el ajuste por día esto no se podía
     —lo del día es un movimiento, no un saldo—; acumulado sí lo es."""
-    s, _, _ = _saldos(monkeypatch, {"ajuste": 50_000})
+    s, _, _ = _saldos(monkeypatch, {"acumulado": 50_000})
     assert s["valor"] == 50_000.0
     assert s["fuente"] == "manual"
 
@@ -317,4 +321,4 @@ def test_saldos_banco_por_cuenta_no_filtra_por_activa(monkeypatch):
     lista; filtrarla la dejaría sin saldo y fabricaría un descuadre."""
     _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1.0}, cuenta_id=CID)
     assert "c.activa" not in sql
-    assert params == (FECHA, FECHA, FECHA, CID)
+    assert params[-1] == CID

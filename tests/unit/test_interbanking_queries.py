@@ -33,7 +33,7 @@ from api.services import bancos as svc
 
 # Si esto sube, NO es un test roto: es una query nueva por request. Subilo a
 # mano solo si esa query hace falta de verdad.
-TOPES = {"consolidado": 12, "vista": 10}
+TOPES = {"consolidado": 14, "vista": 10}
 
 FECHA = date(2026, 8, 14)
 _CUENTA = {"id": 1, "bank_number": "034", "bank_name": "Pata", "account_number": "20",
@@ -79,9 +79,9 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
         hechas.append(t)
         # `_saldos_banco` joinea cuentas + extracto + saldos + manuales: va
         # primero porque su SQL matchea varios de los `if` de abajo.
-        if "AS informado" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": 2.0, "informado": None,
-                     "ajuste": 0}]
+        if "AS sellado" in t:
+            return [{"cuenta_id": 1, "sellado": None, "saldo_cierre": 2.0,
+                     "informado": None, "neto": 0, "ajuste": 0, "acumulado": 0}]
         if "FROM bancos.cuentas" in t:
             return [_CUENTA]
         if "movimientos_manuales" in t:

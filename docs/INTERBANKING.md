@@ -877,89 +877,93 @@ sistema contable los registra al mes). Viaja con `motivo`.
   declara en `POST_QUE_NO_ESCRIBEN`, una lista corta y explícita: sumar uno ahí
   es el momento en que alguien tiene que justificar por qué no escribe.
 
-### El saldo inicial de hoy ES el saldo final de ayer (2026-08-27)
+### El CIERRE SELLADO — el saldo queda como un dato, no como un cálculo (2026-08-27)
 
-**Lo que reportó el back office:** una cuenta con registros manuales cierra
-bárbaro el día de la carga y **al día siguiente vuelve al saldo crudo de
-Interbanking**, sin el manual. Textual del operador:
-
-> «Los saldos del comafi, bny, y el pata recaudadora: que el saldo final del día
-> traiga al otro día el saldo inicial (ejemplo, el saldo inicial de hoy sería el
-> saldo final de ayer)»
-
-**La regla es esa recursión, aplicada todos los días:**
+**La regla, dicha por el back office y aplicada literal:**
 
 ```
-saldo(F)          =  saldo del banco(F)  +  ajuste(F)
-ajuste(F)         =  ajuste(F−1)  +  manuales cargados en F   =  Σ manuales ≤ F
-saldo_inicial(F)  =  saldo(F−1 hábil)
+cierre(F)  =  CIERRE SELLADO de F−1  +  movimientos del banco de F
+                                      +  movimientos manuales de F
 ```
 
-⚠️ **El ajuste es ACUMULADO, y eso NO es lo mismo que "arrastrar un montón".**
-La recursión «el inicial de hoy es el final de ayer» **es** la suma de todos los
-manuales hasta hoy: son el mismo número. Y tiene que ser así porque **hay
-movimientos que Interbanking no informa NUNCA** (Comafi, BNY, la Patagonia
-recaudadora): si el ajuste durara un día, esas cuentas volverían a cero al día
-siguiente teniendo la plata.
+> «el saldo al cierre del 26 —el dato que se veía en pantalla y que quedó ok—
+> más los movimientos del 27 automáticos y manual, da bien»
+>
+> «el saldo al cierre tiene que quedar como un valor con fecha y banco y usarse
+> al otro día, no hay que hacer cálculos raros»
 
-**El ejemplo con el que se definió**, verificado corriendo el código:
+Se parte del número que el back office **ya miró y dio por bueno**, y se le suma
+lo que pasó. El saldo no se vuelve a armar desde cero todos los días.
 
-| Fecha | Interbanking | Manual del día | Saldo | Saldo inicial |
-|---|---:|---:|---:|---:|
-| mar 25/08 | 0 | **+100.000** | 100.000 | — |
-| mié 26/08 | 0 | — | **100.000** | 100.000 |
-| jue 27/08 | 0 | — | **100.000** | 100.000 |
+`bancos.cierres_diarios` (PK `cuenta_id, fecha`) guarda ese valor con su fuente y
+cuánto de él lo puso una persona.
 
-Antes del arreglo, el 26 mostraba **0** y CONCILIAR cantaba una diferencia falsa
-de **−100.000** con el mayor perfecto.
+**Por qué NO se usa el saldo absoluto que informa Interbanking para el día:**
+porque el banco a veces mueve su saldo por cosas que no están en su lista de
+movimientos —un asiento con fecha vieja que recién impacta hoy, el «salto de
+apertura» que analiza `diferencias()`—. Cuando eso pasa, el saldo absoluto y «lo
+que veníamos + lo que pasó» dejan de coincidir, y el que el back office puede
+auditar es el segundo: **cada peso sale de una fila que se ve en pantalla.**
 
-⚠️ **Cómo se deshace — la pieza que hace que el acumulado no crezca sin control.**
-Si un manual TERMINA apareciendo en el extracto, el saldo quedaría contado dos
-veces. Ahí **el back office carga otro manual EN CONTRA** el día que aparece, y
-como el ajuste es acumulado los dos se cancelan de ahí en adelante. Verificado en
-simulación: el 27 Interbanking informa 100.000, el acumulado queda en 0 y el
-saldo sigue siendo 100.000 — no 200.000. Es el mecanismo que ya usa la mesa; el
-sistema **no** intenta aparear solo una línea del extracto con una carga manual.
+#### Los tres intentos, porque cada uno falló distinto
 
-Dónde se aplica, todo desde `_ajuste_manual()`:
+Vale documentarlos: los tres parecían correctos y los tres se rompieron en
+producción, cada uno a un día distinto de haberse cargado el manual.
 
-| Pantalla | Campo | Estaba | Ahora |
-|---|---|---|---|
-| CONCILIAR | `saldo_inicio` | saldo crudo del banco de ayer | nuestro cierre de ayer |
-| CONCILIAR | `cierre_banco` | banco + manual del día | banco + **acumulado** |
-| Drill-down | `saldo_nuestro` | copia propia de la precedencia | la misma `_saldos_banco()` |
-| CONSOLIDADO | `saldo_cierre` | banco + manual del día | banco + **acumulado** |
-| CONSOLIDADO | `saldo_inicio` | apertura cruda del extracto | nuestro cierre de ayer (el crudo va en `saldo_inicio_banco`) |
-| Vista (modal) | `resumen.saldo_final` | crudo de `extracto_dia` | banco + acumulado (`saldo_final_banco` lleva el crudo) |
-| DIFERENCIAS | — | del día, al costado | **igual, a propósito** |
+| Intento | Regla | Cómo falló |
+|---|---|---|
+| 1 | manual solo el día de la carga | al día siguiente el saldo volvía al crudo de Interbanking: **la plata desaparecía** |
+| 2 | Σ de TODOS los manuales | el saldo del banco ya traía los viejos adentro → **contados dos veces**, el cierre daba de más |
+| 3 (hoy) | sellado de ayer + lo de hoy | el manual entra **una vez**, el día que se carga, y queda adentro del sellado |
 
-`DIFERENCIAS` no se toca: reconstruye la aritmética del BANCO (`cierre − cierre ==
-Σ movimientos`) con números crudos de los dos lados, y publica el manual al
-costado. Si entrara en la cuenta, cada ajuste nuestro aparecería como una
-diferencia del banco.
+El síntoma del intento 2 es el que hay que recordar: el cierre daba MÁS que
+«Interbanking + los manuales del día», y **la diferencia entre dos días no se
+explicaba con nada de lo que la pantalla mostraba**. Un número que no se puede
+reconstruir mirando la pantalla es un número que nadie puede auditar.
 
-Cuatro cosas que quedaron en su lugar:
+#### Cuándo se sella
 
-- **`_saldos_banco()` es el único lugar que arma un saldo**, con el ajuste
-  adentro del valor. Antes cada consumidor se acordaba (o no) de sumarlo:
-  `tablero()` se acordaba para el CIERRE y no para la APERTURA, y `conciliar()`
-  tenía su propia copia de la precedencia. Dos copias del mismo criterio sin
-  árbitro — REGLA #9. Ahora hay una.
-- **La cuenta que Interbanking no informa tiene saldo propio**: sin extracto ni
-  saldo del banco, su saldo ES el acumulado manual arrancando de cero. Con el
-  ajuste por día no se podía —lo del día es un movimiento, no un saldo—.
-- **Si falta el día anterior** (feriado, ingesta que falló), la apertura cae a la
-  que declara el banco: es su propio cierre de ayer, la mejor respuesta
-  disponible a la misma pregunta. `saldo_inicio_banco` deja ver de dónde salió.
-- **El histórico de manuales viaja** (`manuales_previos` en la vista). Un ajuste
-  permanente que no se puede ver es un ajuste que no se puede corregir, y la
-  corrección es cargar la contrapartida.
+- **`jobs/interbanking_sync`**, en cada corrida, para los días que trajo — y
+  **antes de purgar**: la purga borra `extracto_dia`/`saldos` de los días viejos,
+  así que sellar después se quedaría sin insumo.
+- **Al cargar o borrar un movimiento manual**, para esa fecha: el cierre de ese
+  día cambió.
+- **Al vuelo**, si una pantalla pide un día que no está sellado. Hace falta para
+  que no se vea «—» el primer día después del deploy.
+- **`python -m scripts.sellar_cierres`** para sembrar el histórico. ⚠️ Va de la
+  fecha más vieja a la más nueva: sellar el 27 antes que el 26 haría que el 27
+  arranque del saldo crudo en vez del cierre bueno.
 
-**Verificarlo en prod**: `python -m scripts.diag_saldo_manuales` (read-only).
+Re-sellar es idempotente (upsert por cuenta+fecha).
 
-**Lo que NO cambió**: el arrastre del MAYOR en CONCILIAR. Cada día se sigue
-juzgando aislado y un descuadre contable viejo no se ve. Es deliberado — el
-tablero contesta «¿qué pasó ayer?», no «¿está bien el saldo absoluto?».
+#### El arranque
+
+Sin cierre sellado del día anterior se cae al saldo que informa Interbanking para
+ese día más los manuales del día, y la `fuente` lo dice. Una cuenta que
+Interbanking no informa nunca y no tiene sellado arranca del acumulado de sus
+manuales. Sin extracto, sin saldo, sin sellado y sin un solo manual se omite:
+«no sabemos» no es «cero».
+
+#### Dónde se usa
+
+| Pantalla | Campo | Qué es |
+|---|---|---|
+| CONCILIAR | `saldo_inicio` | **lectura** del cierre sellado del día hábil anterior |
+| CONCILIAR | `cierre_banco` | `_saldos_banco(hoy)` — sellado de ayer + lo de hoy |
+| Drill-down | `saldo_nuestro` | la misma `_saldos_banco()` |
+| CONSOLIDADO | `saldo_cierre` | ídem; `saldo_inicio` es el sellado de ayer |
+| Vista (modal) | `resumen.saldo_final` | banco + manual del día (`saldo_final_banco` lleva el crudo) |
+| DIFERENCIAS | — | **sin tocar**: reconstruye la aritmética del BANCO con números crudos |
+
+⚠️ `_saldos_banco()` es el **único** lugar que arma un saldo. Antes cada
+consumidor se acordaba (o no) de sumar el manual, y `conciliar()` tenía su propia
+copia de la precedencia — dos copias del mismo criterio sin árbitro, REGLA #9.
+
+**Costo**: el consolidado pasó de 11 a 14 queries en el PEOR caso (leer el
+sellado + sellar al vuelo). En régimen son 12: el sellado al vuelo corre una sola
+vez por fecha.
+
+**Verificarlo**: `python -m scripts.diag_saldo_manuales` (read-only).
 
 ### El umbral, el signo, y no cruzar lados
 

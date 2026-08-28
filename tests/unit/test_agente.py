@@ -1466,3 +1466,49 @@ def test_ver_que_haria_muestra_lo_que_se_va_a_ejecutar():
     for f in a:
         assert "posicionValuada" not in f.read_text(), (
             f"{f.name} reconstruye el endpoint del job en vez de leer su log")
+
+
+def test_un_trabajo_de_ocho_minutos_no_es_un_request_http():
+    """Por qué el botón moría de una forma distinta cada vez.
+
+    Medido el 2026-08-28 corriendo el job a mano: **502 segundos** (1.885
+    cuentas, 6.311 filas). Y el proxy de Next que sirve `/api/agente` declara
+    `maxDuration = 30` **segundos**. O sea que este arreglo NUNCA podía
+    contestar a tiempo: el `ESPERA_S = 30 * 60` del backend era una fantasía
+    porque del otro lado nadie esperaba más de medio minuto.
+
+    Los tres intentos murieron distinto —sin explicación, con SIGTERM, «corrió y
+    no escribió»— y las tres veces se buscó el bug adentro del job, que
+    funcionaba perfecto.
+
+    Un trabajo así se LARGA y se confirma después. Es para lo que existe
+    `Resultado(inmediato=False)`: deja el hallazgo en `en_curso` y, cuando el
+    detector no lo ve más, `registro` lo cierra **POR ACCIÓN** — que es
+    justamente lo que hay que anotar.
+    """
+    c = _codigo(rehacer._correr)
+    assert "Popen" in c and "subprocess.run" not in c, (
+        "esperar a que termine es lo que no puede funcionar acá")
+    assert "start_new_session=True" in c, (
+        "el job tiene que quedar en su propia sesión, no colgando del que lo largó")
+    assert rehacer.ESPERA_CORTA_S <= 30, (
+        "más que el maxDuration del proxy y el request se corta igual")
+    assert not hasattr(rehacer, "ESPERA_S"), "volvió la espera de 30 minutos"
+
+    # Cuando quedó lanzado NO se verifica: medir antes de que termine es
+    # afirmar que no escribió algo que todavía está escribiendo.
+    r = _codigo(rehacer.rehacer)
+    i = r.index("lanzado")
+    assert "hay_dato" not in r[i:i + 400]
+
+    # Y el arreglo lo declara `inmediato=False`, que es lo que dispara el
+    # `en_curso` → cierre POR ACCIÓN.
+    a = _codigo(arreglos.RehacerJob.aplicar)
+    j = a.index("lanzado")
+    assert "inmediato=False" in a[j:j + 400]
+    assert "Resultado(True" in a[j:j + 400], (
+        "«se largó y todavía no terminó» NO es un fracaso")
+
+    # Cuánto tarda es un DATO declarado, no una impresión: es lo que se le
+    # muestra al que aprieta para que sepa cuánto esperar.
+    assert rehacer.REHACIBLES["portafolio_diario"]["dura_aprox_s"] > 0

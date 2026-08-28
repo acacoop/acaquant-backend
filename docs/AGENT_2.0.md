@@ -1245,6 +1245,16 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (7)** — **Un trabajo de ocho minutos no es un request HTTP.**
+  Medido corriendo el job a mano: **502 s** (1.885 cuentas, 6.311 filas). El
+  proxy de Next que sirve `/api/agente` declara `maxDuration = 30` **segundos**,
+  así que el `ESPERA_S = 30 * 60` del backend era una fantasía: el botón NUNCA
+  podía contestar a tiempo, y cada intento moría distinto —sin explicación, con
+  SIGTERM, «corrió y no escribió»— mandando a buscar el bug adentro de un job
+  que funcionaba. Ahora `_correr` larga con `Popen(start_new_session=True)`,
+  espera 20 s, y si sigue corriendo devuelve `Resultado(inmediato=False)`: el
+  hallazgo queda `en_curso` y **el detector lo cierra POR ACCIÓN** cuando el día
+  aparece. Cuánto tarda es un dato declarado (`dura_aprox_s`), no una impresión.
 - **2026-08-28 (6)** — **Un número no es un diagnóstico, y la tarjeta muestra
   qué se consulta.** El botón contestó «salió con código -15»: un `returncode`
   negativo **no es un error del job**, es una señal que lo mató desde afuera —y

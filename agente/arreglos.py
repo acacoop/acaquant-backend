@@ -394,6 +394,15 @@ class RehacerJob(Arreglo):
         from agente import rehacer
         job, fecha = self._job_fecha(sujeto, ev)
         r = rehacer.rehacer(job, fecha, por=por)
+        if r.get("lanzado"):
+            # ⚠️ **SE LARGÓ Y TODAVÍA NO TERMINÓ, y eso NO es un fracaso.**
+            # `inmediato=False` deja el hallazgo en `en_curso`; cuando el
+            # detector deje de verlo se cierra POR ACCIÓN, que es exactamente
+            # lo que hay que anotar. Contestar «no escribió» a los 20 segundos
+            # de un trabajo de ocho minutos era medir antes de tiempo.
+            return Resultado(True, str(r.get("detalle") or "lo largué"),
+                             campo=self.campo, despues=fecha, donde=self.donde,
+                             inmediato=False)
         if not r.get("ok"):
             # ⚠️ **LO QUE DIJO EL JOB VIAJA CON EL ERROR.** «Corrió sin error y
             # la tabla sigue sin el día» es un diagnóstico incompleto: dice qué

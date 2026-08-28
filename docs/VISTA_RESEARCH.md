@@ -55,7 +55,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
    desde la DB** (la vista lee SQL, 0 créditos por carga). Ver §5.2.
 4. **La ingesta de mails NO se reescribe: se reusa P6.** `jobs/research_mail.py`
    + tabla `ia.research` ya están construidos y probados (idempotentes, con
-   destilado IA y full-text español). La vista los consume. Ver §6.
+   full-text español). La vista los consume. Ver §6.
 5. **La API es la fuente de la verdad de los números; nada se recalcula a mano.**
    TNA/TEA/duration/paridad salen de 1816 tal cual (tienen su motor de cálculo con
    convenciones por curva). Nuestro `mercado.curvas` (renta fija propia) es OTRA
@@ -67,8 +67,9 @@ del producto — la mesa lee a 1816 todas las mañanas.
 7. **La IA NO interviene por defecto — solo on-demand (decisión del user
    2026-07-17).** LO PRINCIPAL es que los textos del research aparezcan BIEN en
    acaquant (el crudo, limpio y legible). NADA de gasto automático de tokens: el
-   destilado IA al ingestar se APAGÓ (queda opt-in con `--destilar`). La IA se
-   consume SOLO cuando alguien pregunta (el copiloto, Nivel 2) — no "por gastar".
+   destilado IA al ingestar se APAGÓ (2026-07-17) y se BORRÓ (2026-08-28): nunca
+   corrió —el flag no estaba en el cron— y ninguna pantalla lo dibujaba. **Hoy
+   esta vista no tiene una sola línea de IA.**
 
 ---
 
@@ -83,7 +84,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
         │  SERIES HISTÓRICAS ★ · cálculo teórico     │  + reportes mensuales                 │
         │                                           │                                       │
         │  core/mercado_1816.py (cliente + token)   │  jobs/research_mail.py  (YA existe P6)│
-        │  jobs/mercado_1816_series.py (diario)     │  → ia.research (crudo + destilado+FTS)│
+        │  jobs/mercado_1816_series.py (diario)     │  → ia.research (crudo + FTS)          │
         │  → research.mkt_1816_series (SQL)          │                                       │
         │  la vista lee SQL (0 créditos)            │  la vista lee SQL + FTS               │
         └─────────────────────────────────────────┴──────────────────────────────────────┘
@@ -497,12 +498,11 @@ solo la tercera necesita IA.
 
 - `jobs/research_mail.py` (cron `*/30` 10-14 UTC L-V): lee la casilla por **IMAP
   readonly**, filtra por remitente, persiste el mail **CRUDO** en `ia.research`
-  (fuente de verdad, citable; dedup por `Message-ID` → idempotente) + un
-  **DESTILADO** del LLM `{resumen, temas[], hechos[]}` (tarea `research_destilar`,
-  flash). Mail tratado como DATO hostil (anti prompt-injection). LLM caído → queda
-  `destilado NULL` y el próximo run lo reintenta (el crudo nunca se pierde).
-- Tabla `ia.research (fecha, fuente, asunto, message_id, cuerpo, destilado jsonb,
-  destilado_modelo, created_at)` + **full-text español** (`to_tsvector('spanish',
+  (fuente de verdad, citable; dedup por `Message-ID` → idempotente). **No usa
+  IA**: tenía un DESTILADO opcional del LLM `{resumen, temas[], hechos[]}` que se
+  borró el 2026-08-28 (nunca corrió y nadie lo mostraba).
+- Tabla `ia.research (fecha, fuente, asunto, message_id, cuerpo, created_at)`
+  + **full-text español** (`to_tsvector('spanish',
   cuerpo)`) → "¿qué decía el research sobre el BCRA?" se responde con FTS (ADOPTAR
   YA: full-text antes que vectores, QuantAI).
 - Maneja HTML de mail → texto plano, headers MIME, fecha ART.
@@ -530,9 +530,9 @@ solo la tercera necesita IA.
 
 ### 5.3 Qué muestra la vista (pilar B)
 
-- **Timeline** de research por fecha (diario + mensual, separados), con el
-  **destilado** arriba (resumen + temas + hechos con su número) y el **crudo**
-  expandible (citable).
+- **Timeline** de research por fecha (diario + mensual, separados) con el
+  **crudo** limpio y legible. (El plan original ponía un destilado del LLM arriba;
+  se construyó, nunca se prendió y se borró el 2026-08-28 — ver §changelog.)
 - **Buscador FTS** ("mostrame lo que dijeron sobre las Lelink / la licitación /
   el superávit") sobre el cuerpo.
 - Marca de fuente/fecha; nada de IA presentado como dato verificado (data
@@ -548,7 +548,7 @@ solo la tercera necesita IA.
   - **MARKET DATA:** selector de ticker(s) + campos + rango → **gráfico de series**
     (la estrella) + tabla de indicadores de hoy + la calculadora teórica. Toggles de
     `fuente`/`plazo`/`moneda`.
-  - **RESEARCH:** timeline de mails (diario/mensual) + buscador FTS + destilado.
+  - **RESEARCH:** timeline de mails (diario/mensual) + buscador FTS.
 - **Routes Next "live":** las que sirvan snapshot de hoy necesitan
   `dynamic="force-dynamic"` + `revalidate=0` + `Cache-Control:no-store`
   (patrón live-fallback del repo).
@@ -736,6 +736,41 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-08-28 (20) — SE BORRÓ EL DESTILADO, y con él la IA de todo el sistema
+
+**Decisión del user:** *«ese destilado no tiene sentido, no se usa en absoluto; el
+research se guarda y se muestra así nomás»*.
+
+**Y era exacto por partida doble**, que es lo que hace este caso didáctico. El
+destilado tenía DOS candados independientes y ninguno lo puso nadie a propósito:
+
+1. **Nunca corrió.** Era opt-in por `--destilar` y esa línea del crontab no lo
+   lleva. Así que `ia.research.destilado` quedó siempre en NULL.
+2. **No tenía dónde mostrarse.** El campo viajaba en el payload de
+   `/research1816/mails`, pero `grep -rni destilado src/` en el frontend devolvía
+   **dos líneas, las dos declaraciones de tipo**: `ResearchDestilado` estaba
+   definido en `research-view.tsx` y no se usaba en una sola línea de JSX.
+
+O sea: una feature apagada, sin lector, sosteniendo el gateway de IA entero. Y
+**no fallaba nada** — no había error ni alerta, simplemente nadie lo miraba.
+
+**Qué se borró con él:** `_SYSTEM_DESTILAR`, `_destilar()` y
+`_reintentar_pendientes()` de `jobs/research_mail.py`; las columnas
+`ia.research.{destilado, destilado_modelo}`; y —porque era su única tarea
+productiva— **el gateway completo**: `core/ai.py`, `core/llm.py`,
+`api/services/ia_obs.py`, las tablas `ia.trazas` e `ia.config`, el chequeo
+`ia:gateway` de SALUD y tres suites de test. **858 líneas de infraestructura de
+IA que no servían a nadie.**
+
+**Qué NO cambió**: el mail crudo se sigue ingestando igual (IMAP, dedup por
+Message-ID, FTS español) y la vista lo muestra igual. Para el usuario de
+`/research` no cambió una sola pantalla.
+
+⚠️ **Sacar las columnas del schema NO las borra** — `apply_schema` no tiene un
+solo DROP. Lo hace `python -m scripts.drop_tablas_ia` (dry-run por default), que
+además **se niega a dropear las columnas si alguna tiene datos**: la premisa es
+que están 100% en NULL, y si no lo están hay que mirarlo antes de borrar.
 
 ### 2026-08-15 (19) — El objetivo real: automatizar mercado.curvas (diag de mapeo)
 El user explicó para qué es todo esto: **no es Research, es subirle el nivel al

@@ -2231,140 +2231,62 @@ sin reconciliar).
 
 ---
 
-## 4.11 IA — QUÉ QUEDA, Y QUÉ SE FUE
+## 4.11 IA — NO HAY
 
-> **Esta sección describía el PROGRAMA QUANTAI: el copiloto, el asistente de
-> negocio, el vigía, el triage, el control de calidad. Nada de eso existe.** El
-> copiloto se dio de baja el 2026-08-19 (*«sirvió como inicial pero no cumplió
-> con la necesidad»* — `AV_AGENT.md` §0.k) y sus últimos restos —endpoints,
-> tablas, maquinaria de tool-calling— el 2026-08-28. Se reescribió entera en vez
-> de parcharla: 172 líneas describiendo features borradas no son documentación
-> desactualizada, son una trampa.
+**El sistema no usa inteligencia artificial en ningún lado.** Ni una llamada a un
+modelo, ni una clave de proveedor, ni una tabla que guarde una respuesta. Esta
+sección existe para que nadie la busque, y para que el que quiera volver a meter
+IA sepa qué se probó y por qué no quedó.
 
-### Qué hay de IA hoy, completo
+### Lo que hubo, y por qué se fue
 
-| Pieza | Dónde | ¿Llama al modelo? |
+| Qué | Cuándo se fue | Por qué |
 |---|---|---|
-| **Gateway** — tareas, presupuestos, trazas, ruteo por proveedor | `core/ai.py` | es la puerta |
-| **Transporte y ruteo** — HTTP, auth, retry, dialecto, precios | `core/llm.py` | es el cable |
-| **Destilado del research 1816** | `jobs/research_mail.py` (`research_destilar`) | **Sí — la única** |
-| **Smoke del gateway** | `scripts/smoke_ai.py` (`smoke`) | manual |
-| **Briefing de apertura** | `GET /api/ia/briefing` → `briefing.py` | **NO** — 100% determinista |
-| **AV AGENT** (18 habilidades) | `agente/` | **NO** — `usa_ia=False` en las 18 |
+| **Asistente legacy** (`api/agent/` + `POST /api/chat`) | 2026-06-03 | reemplazado por el copiloto |
+| **Copiloto de mesa** por vista, **asistente de negocio**, **guía de la plataforma** con navegación asistida, **vigía** de `/trading` | 2026-08-19 | *«sirvió como inicial pero no cumplió con la necesidad»*. Un copiloto **contesta lo que le preguntás**: requiere que ya sepas qué preguntar, y no deja nada atrás. El backfill de tenencias falló dos días y nadie iba a preguntarle «¿corrió el backfill?» |
+| **Triage de incidentes** (cada 10 min) y **control de calidad de conversaciones** (diario) | 2026-08-19 | escribían en tablas que **nadie abrió nunca** |
+| **MCP server** (13 tools de renta variable + OAuth 2.1) | 2026-08-28 | no lo consumía nadie, y su provider OAuth quedaba alcanzable sin autenticar |
+| **Destilado del research 1816** — la última tarea | 2026-08-28 | *«ese destilado no tiene sentido, no se usa en absoluto; el research se guarda y se muestra así nomás»* |
+| **El gateway** (`core/ai.py`, `core/llm.py`), `ia.trazas`, `ia.config` | 2026-08-28 | se fueron con la última tarea: 858 líneas de infraestructura sin nada que servir |
 
-⚠️ **Y la única tarea productiva está APAGADA**: el destilado es opt-in por
-`--destilar` y la línea del crontab no lo lleva, así que `ia.research.destilado`
-queda NULL. Aunque corriera, **ninguna pantalla lo renderiza**: el campo viaja en
-el payload de `/research1816/mails` y `ResearchDestilado` está declarado en
-`research-view.tsx` sin un solo uso en JSX. O sea: **hoy el sistema no gasta un
-token, y el gateway entero sostiene una feature sin lector.**
+### La lección, que es lo único que vale la pena guardar
 
-> **La regla, antes de sumar una tarea nueva: ¿QUIÉN MIRA SU SALIDA?**
+El destilado tenía **dos candados independientes**, y ninguno de los dos lo puso
+nadie a propósito:
+
+1. **Nunca corrió**: era opt-in por el flag `--destilar` y la línea del cron no
+   lo llevaba.
+2. **No tenía dónde mostrarse**: el campo viajaba en el payload de
+   `/research1816/mails` y ningún componente lo dibujaba (`ResearchDestilado`
+   estaba declarado en `research-view.tsx` sin un solo uso en JSX).
+
+O sea: una feature apagada, sin lector, sosteniendo 858 líneas de gateway. **Y no
+fallaba nada** — ese es el punto. No había error, no había alerta; simplemente
+nadie lo miraba.
+
+> **LA REGLA, si algún día vuelve la IA: ¿QUIÉN MIRA SU SALIDA?**
 > `triage_incidente` corrió cada diez minutos durante semanas contra una tabla
 > que nadie abrió, y no se notó **porque funcionaba**: no fallaba, no daba error,
-> solo gastaba. Eso es más difícil de detectar que un bug.
+> solo gastaba. Eso es más difícil de detectar que un bug. Antes de sumar una
+> tarea de IA, la respuesta no puede ser «queda en una tabla».
 
-### Endpoints (`/api/ia`, gate `_IA = [verify_api_key, require_module("ia")]`)
+### Lo que la gente confunde con IA, y no lo es
 
-| M | Path | W |
-|---|---|---|
-| GET | `/briefing` | — |
+- **El BRIEFING** (`GET /api/ia/briefing`, modal de HOME 10:00 ART) — futuros US,
+  dólar oficial (MAE live + A3500) y cierres MEP/CCL con variaciones. **100%
+  determinista, cero tokens, nunca gastó uno.** Es lo único que queda bajo el
+  prefijo `/api/ia`, que hoy es un nombre histórico.
+- **El AV AGENT** (`agente/`, 18 habilidades) — `usa_ia=False` en las 18, y hay
+  un test que lo congela verificando que `core/ai.py` no vuelva a existir.
+- **La vista RESEARCH** — el mail de 1816 se guarda crudo y se muestra tal cual.
+  BCRA, FRED y las series de 1816 son ingestas de API, sin modelo en el medio.
 
-Uno solo, y **no es IA**. Los otros cinco (`/observabilidad`, `/presupuesto` GET
-y POST, `/presupuesto/usuario`, `/saldo`) se borraron el 2026-08-28: alimentaban
-la pill IA de Manager → OBSERVABILIDAD, que se había dado de baja el 08-19
-(*«el historial de 874 llamadas no se abrió nunca»*) dejándolos sin un solo
-consumidor en los dos repos.
+### RBAC del prefijo `/api/ia`
 
-**El invariante de REGLA #8 no se aflojó**: `test_rbac.py::test_al_invitado_solo_
-le_queda_el_BRIEFING_bajo_api_ia` congela que lo único no-admin bajo `/api/ia` es
-el briefing. Es ESTRUCTURAL (recorre el router), así que cubre también al
-endpoint que todavía no existe — por eso se pudo borrar su duplicado de lista
-fija en `test_rbac_superficie.py`.
-
-### Observabilidad — qué se guarda de cada llamada
-
-Writer único `core/ai.py::_trazar()` (best-effort). Tabla **`ia.trazas`**: `id`,
-`ts`, `tarea`, `modelo`, `usuario` (o `guest:<email>`), `tokens_in`,
-`tokens_out`, `cache_hit_tokens`, `cache_miss_tokens` (el caché de prefijo es
-~10× más barato), `latencia_ms`, `ok`, `error` (cap 700), `detalle` (cap 600),
-`respuesta` (cap 1500), `razonamiento` (cap 2000, debug, nunca se muestra),
-`feedback`, `conv_id`. Retención 90d (`jobs/cleanup_retencion`).
-
-**Su único lector es el AV AGENT**, no una pantalla: el chequeo `ia:gateway`
-(`api/services/salud.py`) llama a `ia_obs.observabilidad(dias=1, limit=1)` y mira
-gasto y errores del día — una señal que te busca, en vez de un tablero que hay
-que ir a abrir.
-
-⚠️ **Ese chequeo hoy no puede distinguir «todo bien» de «nadie llamó»**: sin
-llamadas devuelve OK con motivo *"sin llamadas hoy"*. Es correcto para lo que
-mide (costos), pero no sirve como señal de que la IA está viva.
-
-`ia_obs.py` quedó SOBREDIMENSIONADO para ese único caller: los filtros
-(`tarea`/`usuario`/`solo_error`/`q`), la paginación y el historial existían para
-la pill borrada y hoy nadie los pasa. Achicarlo es un cambio de comportamiento,
-no un borrado, y va aparte.
-
-El **gasto no se pide al proveedor** (OpenAI no expone saldo): se **calcula** con
-`core/llm._PRECIOS` (USD/1M) descontando tokens de caché; modelo sin precio →
-"—", **jamás un número inventado**.
-
-### Presupuestos y límites
-
-- **Precedencia**: tabla `ia.config` **>** env var **>** default. Cache 60s.
-- **Tope GLOBAL diario** (`budget_dia_global` / `AI_BUDGET_TOKENS_DIA`, def **2.000.000**) = techo duro.
-- **Tope por USUARIO** (`AI_BUDGET_TOKENS_DIA_USUARIO`, def **1.000.000**).
-- **Excepción personal** por email (clave `budget_dia_usuario:<email>`).
-- **Invitados**: `guest:<email>`, tope propio **100.000** (`AI_BUDGET_TOKENS_DIA_INVITADO`).
-- La suma de topes por usuario PUEDE superar el global — el global corta igual. Se computa sobre `ia.trazas` del día UTC.
-- **Ya no se editan por HTTP** (los endpoints se fueron): hoy es `ia.config` o env var.
-- **Best-effort**: si la DB no responde NO bloquea (es control de costos, no gate de seguridad).
-- Otros límites: 1 retry solo ante timeout/conexión/5xx (**nunca 4xx**), `max_tokens` y `timeout_s` por tarea.
-
-**Registro de tareas (`core/ai.py::_TAREAS`)** — de once quedan dos:
-
-| Tarea | Tier | Proveedor | max_tokens | timeout | thinking |
-|---|---|---|---|---|---|
-| `smoke` | flash | deepseek | 64 | 30s | disabled |
-| `research_destilar` | flash | deepseek | 2000 | 90s | disabled |
-
-Ruteo: default `deepseek` (`deepseek-v4-flash`/`-pro`), `openai` (`gpt-5.6-luna`/
-`gpt-5.6-terra`, `no_entrena: True`) sin tareas asignadas hoy. **Invariante
-`_ruteo_seguro`**: una tarea con `datos:"negocio"` SOLO corre en un proveedor con
-`no_entrena=True`; si no, el gateway **niega la llamada** (fail-closed, no cae al
-default — caer sería mandar los números de la empresa justo al que entrena con
-ellos).
-
-### El research diario 1816 — la única ingesta con LLM
-
-`jobs/research_mail.py` (`*/30 10-14 * * 1-5`): IMAP read-only, filtro por
-remitente (match sobre From + asunto + cuerpo → cubre reenvíos), dedup por
-`Message-ID` UNIQUE → idempotente. Persiste el **cuerpo CRUDO** (fuente citable)
-+ FTS español en `ia.research`; el destilado es **opt-in con `--destilar`**. Env:
-`RESEARCH_IMAP_USER/PASSWORD`, `RESEARCH_MAIL_FROM`, `RESEARCH_IMAP_HOST`.
-
-El prompt (`_SYSTEM_DESTILAR`) trata el mail como **DATO, no instrucciones** e
-ignora órdenes embebidas. Su salida se parsea a mano (recorta backticks, busca
-`{`…`}`) y si no cierra queda pendiente para la próxima corrida — candidato claro
-a salida estructurada por schema, que los dos proveedores soportan.
-
-### Dos lecciones que sobrevivieron al copiloto
-
-1. **El razonamiento cuenta como output**: un `max_tokens` corto devuelve
-   respuesta VACÍA. Por eso `thinking` va apagado cuando la tarea es clasificar y
-   no razonar.
-2. **Una tool no falla: ENMUDECE.** Leer una clave que el service nunca emite da
-   "sin datos" siempre, y el modelo improvisa. De ahí la prohibición del patrón
-   `r.get("a") or r.get("b")` en el código de IA.
-
-### Descartado — no re-proponer sin novedad
-
-Copiloto por vista · asistente de negocio · guía de la plataforma y navegación
-asistida · vigía de `/trading` · triage de incidentes · control de calidad de
-conversaciones · chatbot global con tools por RBAC · MCP como base del copiloto ·
-**Telegram: decomiso TOTAL** (2026-07-25) · `POST /api/asistente/chat` · P4 prep
-de reuniones comerciales · el bloque **Agenda** del briefing (sin fuente: Finnhub
-free muerto, FMP devuelve 402).
+Queda un endpoint (`/briefing`) y **el invariante de REGLA #8 sigue congelado**:
+`test_rbac.py::test_al_invitado_solo_le_queda_el_BRIEFING_bajo_api_ia` recorre el
+router y exige que todo lo demás bajo ese prefijo lleve `require_admin`. Es
+estructural, así que cubre también al endpoint que todavía no existe.
 
 ## 4.12 ACA — RESUMEN EJECUTIVO DE INVERSIONES
 

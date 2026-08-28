@@ -1,14 +1,13 @@
 """api/services/research_sql.py — lectura del research diario (mails de 1816) para
 la vista RESEARCH (pilar B, Nivel 1). Doc madre: docs/VISTA_RESEARCH.md.
 
-Lee `ia.research` (lo escribe jobs/research_mail.py — QuantAI P6): el mail CRUDO
-(fuente de verdad) + el DESTILADO del LLM ({resumen, temas, hechos}). Puro (sin
-FastAPI). El `tipo` (diario/mensual) se deriva del asunto al vuelo — todavía no es
-columna (ver docs/VISTA_RESEARCH.md §5.2).
+Lee `ia.research` (lo escribe jobs/research_mail.py): el mail CRUDO, que es lo
+único que hay — el DESTILADO del LLM se borró el 2026-08-28 (nunca corrió y
+ninguna pantalla lo dibujaba). Puro (sin FastAPI). El `tipo` (diario/mensual) se
+deriva del asunto al vuelo — todavía no es columna (ver docs/VISTA_RESEARCH.md §5.2).
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 
@@ -114,18 +113,6 @@ def _tipo_de_asunto(asunto: str | None) -> str:
     return "otro"
 
 
-def _parse_destilado(v) -> dict | None:
-    """El jsonb puede volver ya como dict (psycopg) o como texto — normaliza."""
-    if v is None:
-        return None
-    if isinstance(v, dict):
-        return v
-    try:
-        return json.loads(v)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
-
-
 def _fila(r: dict) -> dict:
     return {
         "id": r["id"],
@@ -137,7 +124,6 @@ def _fila(r: dict) -> dict:
         # `texto` = crudo limpio para MOSTRAR (sin headers/pie del reenvío). El
         # crudo original queda en la DB (fuente de verdad, FTS, citas).
         "texto": _limpiar_para_mostrar(r.get("cuerpo")),
-        "destilado": _parse_destilado(r.get("destilado")),
     }
 
 
@@ -152,7 +138,7 @@ def listar_research(limit: int = 30, offset: int = 0) -> dict:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, fecha, fuente, asunto, cuerpo, destilado "
+                "SELECT id, fecha, fuente, asunto, cuerpo "
                 "FROM ia.research ORDER BY fecha DESC, id DESC "
                 "LIMIT %s OFFSET %s",
                 (limit, offset),
@@ -179,7 +165,7 @@ def buscar_research(q: str, limit: int = 30) -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, fecha, fuente, asunto, cuerpo, destilado,
+                SELECT id, fecha, fuente, asunto, cuerpo,
                        ts_headline('spanish', cuerpo, plainto_tsquery('spanish', %s),
                                    'StartSel=«, StopSel=», MaxWords=40, MinWords=20, '
                                    'ShortWord=3') AS fragmento

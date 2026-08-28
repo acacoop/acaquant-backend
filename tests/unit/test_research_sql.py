@@ -1,7 +1,7 @@
 """Tests de las funciones puras de la vista Research (api/services/research_sql.py).
 
 Congela la derivación de `tipo` desde el asunto (sin columna todavía) y el parseo
-del destilado jsonb. La lectura SQL se prueba contra DB en integration. Doc madre:
+La lectura SQL se prueba contra DB en integration. Doc madre:
 docs/VISTA_RESEARCH.md.
 """
 from __future__ import annotations
@@ -52,11 +52,3 @@ def test_limpiar_para_mostrar():
     assert "\n\nEL TESORO RETIRARÁ" in out
     assert svc._limpiar_para_mostrar(None) == ""
     assert svc._limpiar_para_mostrar("") == ""
-
-
-def test_parse_destilado():
-    d = {"resumen": "x", "temas": ["a"], "hechos": []}
-    assert svc._parse_destilado(d) == d                      # ya dict → tal cual
-    assert svc._parse_destilado('{"resumen": "x"}') == {"resumen": "x"}  # texto → parseado
-    assert svc._parse_destilado(None) is None
-    assert svc._parse_destilado("no es json") is None        # basura → None, no rompe

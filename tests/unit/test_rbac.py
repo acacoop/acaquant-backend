@@ -116,14 +116,16 @@ def test_al_invitado_solo_le_queda_el_BRIEFING_bajo_api_ia():
     assert app is not None
 
 
-def test_el_invitado_conserva_su_identidad_y_su_tope():
-    """Cada invitado es `guest:<email>`: su propio tope diario, y jamás confundido
-    con un interno."""
-    from core import ai
+def test_el_invitado_conserva_su_identidad():
+    """Cada invitado es `guest:<email>` y JAMÁS se confunde con un interno.
 
-    g = f"{roles.GUEST_PREFIX}cliente@externo.com"
-    assert roles.es_invitado_id(g) and not roles.es_invitado_id("nico@acavalores.com")
-    assert ai.presupuesto_dia_usuario(g) == 100_000
+    Este test tenía una segunda mitad —que cada invitado tuviera su propio tope
+    diario de tokens— que se fue el 2026-08-28 con el gateway de IA. La primera
+    mitad sigue siendo un invariante de REGLA #8 y por eso no se borró con ella:
+    el prefijo es lo que impide que un email externo se cuente como de la mesa.
+    """
+    assert roles.es_invitado_id(f"{roles.GUEST_PREFIX}cliente@externo.com")
+    assert not roles.es_invitado_id("nico@acavalores.com")
 
 
 def test_prefijo_api_ia_mapea_al_modulo_ia():

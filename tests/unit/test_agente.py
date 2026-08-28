@@ -728,12 +728,24 @@ def test_ningun_modulo_del_agente_decide_en_silencio_que_no_hay_nada():
 
 
 def test_no_quedan_tareas_de_ia_del_agente_viejo():
-    """AGENT 2.0 no usa IA en ninguna habilidad. Dejar la CONFIG de tres tareas
-    que nadie puede invocar hace creer lo contrario al que lee el gateway."""
-    src = (RAIZ / "core" / "ai.py").read_text()
-    import re
-    declaradas = set(re.findall(r'^\s*"(av_agent_\w+)":\s*\{', src, re.M))
-    assert not declaradas, f"tareas de IA del agente viejo aún declaradas: {declaradas}"
+    """AGENT 2.0 no usa IA en ninguna habilidad.
+
+    Este test miraba el registro de tareas de `core/ai.py` para que no quedara
+    declarada la CONFIG de las tres tareas del agente viejo (que nadie podía
+    invocar, pero hacían creer lo contrario al que leía el gateway).
+
+    Desde el 2026-08-28 el invariante es MÁS FUERTE y no hace falta leer un
+    registro: **el gateway no existe**. `core/ai.py` y `core/llm.py` se borraron
+    con la última tarea de IA del sistema, así que ninguna habilidad puede llamar
+    a un modelo aunque quisiera. Si alguno de esos archivos vuelve, este test lo
+    canta y hay que decidir explícitamente qué lo trajo de vuelta.
+    """
+    for muerto in ("ai.py", "llm.py"):
+        assert not (RAIZ / "core" / muerto).exists(), (
+            f"volvió core/{muerto}: el sistema no tenía gateway de IA. Si es a "
+            "propósito, actualizá este test y docs/MAPA_APP.md §4.11")
+    sin_ia = [h.nombre for h in catalogo.HABILIDADES.values() if h.usa_ia]
+    assert not sin_ia, f"habilidades que declaran usa_ia: {sin_ia}"
 
 
 def test_toda_habilidad_que_depende_de_una_foto_la_mantiene_ella():

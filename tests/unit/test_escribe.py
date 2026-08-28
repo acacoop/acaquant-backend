@@ -4,8 +4,10 @@ La primera medición de cobertura (§0.ap) puso a `tabla_quieta · sin_escribir`
 la pared más cara —8 casos— y sus ejemplos fueron `ia.trazas`,
 `manager.role_audit` y `manager.salud_eventos`. Ninguna tiene un job atrás:
 
-    ia.trazas          ← `core/ai.py`, una fila por CADA llamada al LLM
     manager.role_audit ← `core/roles.py`, cuando alguien CAMBIA un rol
+
+(`ia.trazas` era el otro ejemplo y se borró el 2026-08-28 con el gateway de IA.
+El invariante no cambió: cambió el ejemplo.)
 
 Están quietas porque no pasó nada. Ponerle un botón «relanzar» a esa pared habría
 sido construir una puerta a ninguna parte — peor que no tenerla, porque promete.
@@ -20,9 +22,8 @@ from core import escribe
 
 def test_las_de_EVENTO_se_reconocen():
     """Las escribe `core/`: las dispara una request o una acción, no un reloj."""
-    assert escribe.la_dispara("ia.trazas") == escribe.EVENTO
     assert escribe.la_dispara("manager.role_audit") == escribe.EVENTO
-    assert escribe.quien_escribe("ia.trazas") == ["core.ai"]
+    assert escribe.quien_escribe("manager.role_audit") == ["core.roles"]
 
 
 def test_las_de_RELOJ_tambien_y_dicen_QUE_RELANZAR():
@@ -35,7 +36,7 @@ def test_las_de_RELOJ_tambien_y_dicen_QUE_RELANZAR():
 def test_una_tabla_de_EVENTO_no_tiene_que_relanzar_nada():
     """**Es el punto entero.** Si devolviera un módulo, el botón prometería algo
     que no existe."""
-    assert escribe.que_relanzar("ia.trazas") == ""
+    assert escribe.que_relanzar("manager.role_audit") == ""
 
 
 def test_NO_SE_no_es_EVENTO():

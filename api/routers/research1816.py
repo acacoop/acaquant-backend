@@ -75,7 +75,7 @@ def mails(
     """Timeline del research diario (mails de 1816), más nuevo primero.
 
     Returns:
-        {items: [{id, fecha, fuente, asunto, tipo, cuerpo, destilado}], total}
+        {items: [{id, fecha, fuente, asunto, tipo, cuerpo}], total}
     """
     return svc.listar_research(limit=limit, offset=offset)
 

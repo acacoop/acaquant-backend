@@ -11,7 +11,6 @@ La primera medición de cobertura (§0.ap) puso a `tabla_quieta · sin_escribir`
 
 Mirando quién las escribe, ninguna tiene un job atrás:
 
-    ia.trazas             ← `core/ai.py`, una fila por CADA LLAMADA al LLM
     manager.role_audit    ← `core/roles.py`, cuando alguien CAMBIA un rol
     manager.salud_eventos ← cuando un chequeo TRANSICIONA
 

@@ -2933,83 +2933,18 @@ ALTER TABLE operaciones.negocio_movimientos SET (autovacuum_vacuum_scale_factor=
 ALTER TABLE operaciones.operaciones         SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_analyze_scale_factor=0.05);
 ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 
--- ─────────────────────────────────────────────────────────────────────────────
--- IA — observabilidad del gateway core/ai.py (QuantAI Fase 0, docs/QUANTAI.md)
--- Cada llamada a un LLM deja una fila acá (el "job_runs" de la IA). El
--- presupuesto diario del gateway (global y por usuario) se calcula sumando los
--- tokens de HOY sobre esta tabla. `feedback` guarda el 👍(1)/👎(-1) del usuario
--- en outputs interactivos (NULL = sin feedback). Retención: cleanup de Postgres
--- (no TTL nativo), igual que manager.job_runs.
--- ─────────────────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS ia.trazas (
-    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ts          timestamptz NOT NULL DEFAULT now(),
-    tarea       text NOT NULL,
-    modelo      text NOT NULL,
-    usuario     text,
-    tokens_in   integer,
-    tokens_out  integer,
-    latencia_ms integer,
-    ok          boolean NOT NULL,
-    error       text,
-    feedback    smallint,
-    detalle     text,   -- extracto del pedido (ej. la pregunta), cap en core/ai
-    respuesta   text,   -- extracto de la respuesta del modelo, cap en core/ai
-    razonamiento text,  -- extracto del reasoning_content (thinking), cap en core/ai
-    conv_id     text    -- conversación del copiloto (cada chat su mundo)
-);
--- Telemetría del caché de prefijo del proveedor (2026-07-20): el proveedor
--- cobra ~10x menos los tokens servidos desde caché — estas columnas miden
--- cuánto del prompt pegó en caché (valida el diseño prefijo-estable del
--- copiloto y muestra el ahorro real en OBSERVABILIDAD).
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS cache_hit_tokens  integer;
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS cache_miss_tokens integer;
-CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
-CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
--- Columnas agregadas 2026-07-11 (panel OBSERVABILIDAD → IA: detalle por llamada)
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS detalle text;
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS respuesta text;
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS razonamiento text;
--- 2026-07-12: conversaciones separadas del copiloto (cada chat su mundo)
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS conv_id text;
-
--- Extremos históricos PRE-serie (2005 → arranque de la serie diaria) por
--- underlying. Decisión user 2026-07-11: NO cargar 20 años de velas — el
--- script scripts/backfill_extremos_hist.py releva el máximo y el mínimo de
--- Yahoo y guarda SOLO los lados que SUPERAN a los de la serie viva (si el
--- extremo ya está en 2024+, no se guarda nada). Lector:
--- api/services/copiloto._extremos_serie (merge con la serie).
-CREATE TABLE IF NOT EXISTS mercado.precios_extremos_hist (
-    ticker      text PRIMARY KEY,
-    max_high    numeric,
-    max_fecha   date,
-    min_low     numeric,
-    min_fecha   date,
-    desde       date NOT NULL,
-    hasta       date NOT NULL,
-    updated_at  timestamptz NOT NULL DEFAULT now()
-);
-
--- Config editable del gateway de IA (presupuestos de tokens). Se edita desde
--- Manager → OBSERVABILIDAD → IA (solo admin). Precedencia en core/ai.py:
--- esta tabla > env var > default del código. Claves: budget_dia_global,
--- budget_dia_usuario. El GLOBAL es techo duro del día: aunque la suma de los
--- topes por usuario lo supere en papel, el gasto total no puede pasarlo
--- (cada llamada chequea los dos).
-CREATE TABLE IF NOT EXISTS ia.config (
-    clave       text PRIMARY KEY,
-    valor       bigint NOT NULL,
-    updated_at  timestamptz NOT NULL DEFAULT now(),
-    updated_by  text
-);
-
-
--- ── SIETE TABLAS QUE VIVÍAN ACÁ SE DROPEARON (2026-08-28) ─────────────────────
--- `manager.asistente_mappings` · `manager.asistente_chats` ·
--- `manager.salud_diagnosticos` · `ia.triage_incidentes` · `ia.triage_estado` ·
--- `ia.calidad_flags` · `ia.calidad_estado`.
+-- ── NUEVE TABLAS QUE VIVÍAN ACÁ SE DROPEARON (2026-08-28) ─────────────────────
+-- Del copiloto y el asistente de negocio: `manager.asistente_mappings` ·
+-- `manager.asistente_chats` · `manager.salud_diagnosticos` ·
+-- `ia.triage_incidentes` · `ia.triage_estado` · `ia.calidad_flags` ·
+-- `ia.calidad_estado`.
 --
--- Eran del copiloto y del asistente de negocio, dados de baja el 2026-08-19
+-- Y del GATEWAY DE IA, borrado el mismo día al irse su última tarea:
+-- **`ia.trazas`** (una fila por llamada al modelo — el "job_runs" de la IA) y
+-- **`ia.config`** (los topes diarios de tokens). Sin `core/ai.py` no hay quien
+-- las escriba ni quien las lea.
+--
+-- Los primeros siete eran del copiloto y del asistente, dados de baja el 2026-08-19
 -- (`docs/AV_AGENT.md` §0.k). El código se borró entonces y las tablas se
 -- dejaron a propósito —*borrar código es reversible con un `git revert`, borrar
 -- datos no*—. Nueve días después, medido: **ninguna tenía una sola referencia
@@ -3017,13 +2952,13 @@ CREATE TABLE IF NOT EXISTS ia.config (
 --
 -- ⚠️ Sacarlas de acá NO las borra de una base que ya las tiene: `apply_schema`
 -- es NO destructivo (no tiene un solo DROP). El DROP lo hace, con backup a CSV
--- y dry-run por default, `python -m scripts.drop_tablas_ia_huerfanas`.
+-- y dry-run por default, `python -m scripts.drop_tablas_ia`.
 
--- Research diario de mercado (QuantAI — memoria de mercado, docs/QUANTAI.md).
--- jobs/research_mail.py lee la casilla por IMAP, persiste el mail CRUDO (fuente
--- de verdad, siempre citable) + un DESTILADO del LLM (resumen/temas/hechos) que
--- es lo que se inyecta barato como contexto al copiloto/briefing. destilado NULL
--- = pendiente (el LLM falló al ingestar; el próximo run lo reintenta).
+-- Research diario de mercado. jobs/research_mail.py lee la casilla por IMAP y
+-- persiste el mail CRUDO, que es lo que se MUESTRA tal cual en la vista Research.
+-- Tenía dos columnas más —`destilado` (jsonb con {resumen, temas, hechos} que
+-- generaba un LLM) y `destilado_modelo`— borradas el 2026-08-28: el flag que las
+-- llenaba nunca estuvo en el cron y ninguna pantalla las dibujaba.
 CREATE TABLE IF NOT EXISTS ia.research (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     fecha        date NOT NULL,          -- día del research (header Date del mail, ART)
@@ -3031,13 +2966,10 @@ CREATE TABLE IF NOT EXISTS ia.research (
     asunto       text,
     message_id   text UNIQUE,            -- dedup (Message-ID del mail): re-correr no duplica
     cuerpo       text NOT NULL,          -- texto completo del mail (fuente de verdad)
-    destilado    jsonb,                  -- {resumen, temas[], hechos[]} — generado por LLM
-    destilado_modelo text,
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_ia_research_fecha ON ia.research (fecha DESC);
--- Full-text español sobre el cuerpo ("¿qué decía el research sobre X?") —
--- ADOPTAR YA de QUANTAI.md: FTS antes que vectores.
+-- Full-text español sobre el cuerpo ("¿qué decía el research sobre X?").
 CREATE INDEX IF NOT EXISTS ix_ia_research_fts ON ia.research
     USING gin (to_tsvector('spanish', cuerpo));
 

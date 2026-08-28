@@ -9,7 +9,6 @@ de Supabase. Este job es ese cron.
 TABLAS Y TTL (columna de timestamp LEÍDA del schema, no adivinada):
 
     manager.job_runs           started_at     60d   schema.sql: "TTL 60d lo aplica el writer/cleanup"
-    ia.trazas                  ts             90d   SIN TTL en el schema → default 90d (ver abajo)
     portafolio.backfill_log    actualizado    90d   SIN TTL en el schema → default 90d
     operaciones.ordenes_audit  ts            365d   SIN TTL en el schema → AUDITORÍA (ver abajo)
     manager.role_audit         ts            365d   SIN TTL en el schema → AUDITORÍA (ver abajo)
@@ -34,7 +33,7 @@ REGLA #4 del repo (un backfill a ciegas causó dos veces CPU 100%):
 Uso:
     python -m jobs.cleanup_retencion                    # borra (modo del cron)
     python -m jobs.cleanup_retencion --dry-run          # NO borra: cuenta e informa
-    python -m jobs.cleanup_retencion --tabla ia.trazas  # una sola tabla (repetible)
+    python -m jobs.cleanup_retencion --tabla manager.job_runs  # una sola tabla (repetible)
     python -m jobs.cleanup_retencion --batch 2000 --sleep 1.0
 """
 from __future__ import annotations
@@ -71,8 +70,6 @@ class Retencion:
 TABLAS: tuple[Retencion, ...] = (
     Retencion("manager.job_runs", "started_at", 60,
               "schema.sql: TTL 60d lo aplica el writer/cleanup"),
-    Retencion("ia.trazas", "ts", 90,
-              "sin TTL en el schema → default 90d"),
     Retencion("portafolio.backfill_log", "actualizado", 90,
               "sin TTL en el schema → default 90d"),
     Retencion("operaciones.ordenes_audit", "ts", 365,

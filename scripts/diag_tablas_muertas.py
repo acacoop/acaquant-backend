@@ -307,10 +307,6 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 def _aplicar(muertas: list[dict]) -> int:
     """DROPEA el bloque ①, volviendo a preguntar en el momento de borrar.
 
@@ -325,6 +321,28 @@ def _aplicar(muertas: list[dict]) -> int:
     if not muertas:
         print("  Nada que borrar: el bloque ① está vacío.\n")
         return 0
+
+    # ⚠️⚠️ **UNA TABLA DECLARADA NO SE PUEDE BORRAR, SE PUEDE BORRAR DOS VECES.**
+    # `sql/schema.sql` la vuelve a crear en el próximo `apply_schema`, que corre
+    # en CADA deploy. Y no falla ni avisa: el `CREATE TABLE IF NOT EXISTS` sale
+    # bien, el deploy queda verde, y la tabla está de nuevo.
+    #
+    # Pasó el 2026-08-28 con las 18 del agente viejo: se dropearon, el deploy de
+    # una hora después las recreó las 18 —con los dos `INSERT` que siembran la
+    # fila de `control` y `latido`, así que volvieron con datos— y sólo se supo
+    # porque este mismo diag contó 220 tablas y al rato 236.
+    #
+    # Así que acá se corta: primero se saca el `CREATE` del archivo, después se
+    # dropea. Las dos mitades o ninguna.
+    declaradas_aca = [f["nombre"] for f in muertas if f["declarada"]]
+    if declaradas_aca:
+        print("\n  ✖ ABORTO: estas están DECLARADAS en sql/schema.sql, así que el\n"
+              "     próximo `apply_schema` las recrea y el borrado no dura nada:\n")
+        for n in sorted(declaradas_aca):
+            print(f"       {n}")
+        print("\n     Sacá su bloque de sql/schema.sql, commiteá, y recién ahí\n"
+              "     volvé a correr esto.\n")
+        return 1
 
     print(f"\n═══ BORRANDO {len(muertas)} TABLA(S) ═══\n")
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -342,3 +360,7 @@ def _aplicar(muertas: list[dict]) -> int:
     libera = sum(f["bytes"] for f in muertas)
     print(f"\n✔ {len(muertas)} tabla(s) borradas · {_mb(libera)} liberados\n")
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

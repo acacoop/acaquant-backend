@@ -1767,3 +1767,46 @@ def test_el_estado_del_hallazgo_solo_se_muestra_si_habla_de_esa_linea():
     src = _codigo(vista.historial)
     assert "h.sujeto IS DISTINCT FROM a.sujeto" in src
     assert "THEN NULL" in src
+
+
+def test_lo_de_derivados_no_tiene_emisor_y_eso_se_declara():
+    """Regla del user (2026-08-28): *«derivados = otros»*.
+
+    Un futuro o una opción no tiene emisor en el sentido de un bono —no hay una
+    empresa que se haya endeudado—, así que el campo se completa con el balde
+    que ya usa la mesa y deja de figurar como ficha incompleta.
+
+    ⚠️ Va en `jobs/assets_autofill` y no en el agente: **ahí viven las reglas de
+    lo que se puede derivar**, con el invariante que las hace seguras —solo
+    completa vacíos, y lo cargado a mano que difiera se REPORTA como conflicto
+    en vez de pisarse—.
+    """
+    import ast as _ast
+
+    src = (RAIZ / "jobs" / "assets_autofill.py").read_text()
+    mod = _ast.parse(src)
+    fns = {n.name: n for n in mod.body if hasattr(n, "name")}
+    ns: dict = {"_norm": lambda x: (x or "").strip(),
+                "CARTERA_DERIVADOS": "DERIVADOS", "EMISOR_DERIVADOS": "OTROS",
+                "_PREFIJOS_AGRO": ("MAI.", "SOJ.", "TRI."),
+                "_regla_ticker": lambda r: {}}
+    for n in ("_regla_derivados_otc", "_regla_emisor_derivados"):
+        exec(compile(_ast.Module([fns[n]], []), "<t>", "exec"), ns)
+    regla = ns["_regla_emisor_derivados"]
+
+    assert regla({"unidad": "[GFGC8000OC]", "cartera": "DERIVADOS"}) == {"emisor": "OTROS"}
+    # Y también para el que TODAVÍA no tiene cartera pero la va a recibir en
+    # esta misma pasada: si no, un OTC nuevo esperaría a la corrida de mañana.
+    assert regla({"unidad": "[OTC - MAI.ROS/JUL26]", "cartera": ""}) == {"emisor": "OTROS"}
+    # Nada más se toca.
+    assert regla({"unidad": "[8295] BHP", "cartera": "RENTA VARIABLE"}) == {}
+    assert regla({"unidad": "[AL30]", "cartera": "HD"}) == {}
+
+    # La regla está declarada en el catálogo y `emisor` es un campo escribible:
+    # sin lo segundo el job levanta `ValueError` en vez de escribir en silencio.
+    assert 'Regla("emisor_derivados"' in src
+    i = src.index("_ESCRIBIBLES = frozenset(")
+    assert '"emisor"' in src[i:i + 400]
+    # Y el motor solo completa vacíos — lo cargado a mano se reporta, no se pisa.
+    j = src.index("if _vacio(actual):")
+    assert "conflictos.append" in src[j:j + 400]

@@ -2676,35 +2676,6 @@ CREATE TABLE IF NOT EXISTS manager.latencia_endpoints (
 );
 CREATE INDEX IF NOT EXISTS ix_latencia_endpoints_hora ON manager.latencia_endpoints (hora DESC);
 
--- ── ASISTENTE DE NEGOCIO (QuantAI P7, docs/QUANTAI.md) ────────────────────────
--- Mapping ficha↔identidad de la ADUANA (core/pii_gateway.py). Es la tabla de
--- traducción CLIENTE_1 → nombre real de cada chat: VIVE EN EL PERÍMETRO y
--- JAMÁS viaja al proveedor LLM. TTL corto (48h) — la limpia oportunista
--- guardar_mapping() en cada escritura.
-CREATE TABLE IF NOT EXISTS manager.asistente_mappings (
-    chat_id     text PRIMARY KEY,
-    email       text NOT NULL,             -- dueño del chat (nadie continúa el de otro)
-    mapping     jsonb NOT NULL,            -- {fichas, valores, contadores}
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS ix_asistente_mappings_updated
-    ON manager.asistente_mappings (updated_at);
-
--- Transcript del asistente de negocio (nombres REALES — perímetro; el acceso
--- lo gatea el módulo RBAC `asistente`, admin-only). Escrito por
--- api/services/asistente.py en cada turno; el historial que se re-inyecta al
--- LLM se RE-tokeniza al cargar (jamás viaja crudo).
-CREATE TABLE IF NOT EXISTS manager.asistente_chats (
-    id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    chat_id   text NOT NULL,
-    email     text NOT NULL,
-    ts        timestamptz NOT NULL DEFAULT now(),
-    rol       text NOT NULL,               -- 'user' | 'assistant'
-    contenido text NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_asistente_chats_chat  ON manager.asistente_chats (chat_id, ts);
-CREATE INDEX IF NOT EXISTS ix_asistente_chats_email ON manager.asistente_chats (email, ts);
 
 -- ── FAIR VALUE (curva cuadrática TEA=β0+β1·d+β2·d² + residuos + z-scores) ─────
 -- Decomiso 2026-06-28: jobs/fair_value.py pasa de Mongo a SQL-NATIVE (write_native,
@@ -3066,52 +3037,21 @@ CREATE TABLE IF NOT EXISTS ia.config (
     updated_by  text
 );
 
--- Triage de incidentes (QuantAI P2, docs/QUANTAI.md) — REACTIVO. jobs/triage.py
--- lee las fallas nuevas de manager.job_runs, las agrupa por FIRMA (dedup) y SOLO
--- una firma NUEVA gasta un diagnóstico del LLM (guarda de costo). La memoria
--- experiencial ("¿esto ya pasó?") vive acá: una firma conocida NO se re-diagnostica,
--- solo suma ocurrencias — con el tiempo, más determinista y menos tokens.
-CREATE TABLE IF NOT EXISTS ia.triage_incidentes (
-    firma          text PRIMARY KEY,          -- 'tipo::firma-normalizada' del error
-    tipo           text NOT NULL,             -- job que falla
-    primera_vez    timestamptz NOT NULL DEFAULT now(),
-    ultima_vez     timestamptz NOT NULL DEFAULT now(),
-    ocurrencias    integer NOT NULL DEFAULT 1,
-    muestra_error  text,                      -- muestra del error crudo (PII scrubeada)
-    diagnostico    jsonb,                     -- {causa, hecho, hipotesis, recomendacion, confianza}
-    modelo         text,                      -- modelo que diagnosticó (NULL = sin diagnosticar)
-    estado         text NOT NULL DEFAULT 'nuevo',   -- nuevo | diagnosticado | playbook | resuelto
-    notificado_at  timestamptz
-);
-CREATE INDEX IF NOT EXISTS ix_triage_ultima ON ia.triage_incidentes (ultima_vez DESC);
 
--- Watermark del triage: hasta qué started_at ya procesó (idempotencia + reactividad).
-CREATE TABLE IF NOT EXISTS ia.triage_estado (
-    id                text PRIMARY KEY,        -- 'watermark'
-    ultimo_procesado  timestamptz
-);
-
--- CONTROL DE CALIDAD de las conversaciones de IA (jobs/ia_calidad.py). Cierra el
--- loop: en vez de que un humano lea trazas a mano, un job diario marca las
--- respuestas sospechosas (👎 del usuario + un crítico barato que busca los modos
--- de falla YA conocidos: ranking a mano, deflexión, causalidad inventada, tool
--- muda…). NO auto-corrige nada — solo las trae a revisión.
-CREATE TABLE IF NOT EXISTS ia.calidad_flags (
-    traza_id    bigint PRIMARY KEY,            -- la llamada marcada (ia.trazas.id)
-    ts          timestamptz NOT NULL DEFAULT now(),
-    tarea       text,
-    usuario     text,
-    modo        text,                          -- ranking_a_mano | deflexion | causalidad | tool_muda | voto_negativo | otro
-    severidad   text,                          -- alto | medio | bajo
-    nota        text,                          -- por qué (una línea del crítico)
-    revisado    boolean NOT NULL DEFAULT false
-);
-CREATE INDEX IF NOT EXISTS ix_calidad_flags_ts ON ia.calidad_flags (ts DESC);
-
-CREATE TABLE IF NOT EXISTS ia.calidad_estado (
-    id                text PRIMARY KEY,        -- 'watermark'
-    ultimo_procesado  timestamptz
-);
+-- ── SIETE TABLAS QUE VIVÍAN ACÁ SE DROPEARON (2026-08-28) ─────────────────────
+-- `manager.asistente_mappings` · `manager.asistente_chats` ·
+-- `manager.salud_diagnosticos` · `ia.triage_incidentes` · `ia.triage_estado` ·
+-- `ia.calidad_flags` · `ia.calidad_estado`.
+--
+-- Eran del copiloto y del asistente de negocio, dados de baja el 2026-08-19
+-- (`docs/AV_AGENT.md` §0.k). El código se borró entonces y las tablas se
+-- dejaron a propósito —*borrar código es reversible con un `git revert`, borrar
+-- datos no*—. Nueve días después, medido: **ninguna tenía una sola referencia
+-- en el código**, ni writer, ni lector, ni FK. Existían solo en este archivo.
+--
+-- ⚠️ Sacarlas de acá NO las borra de una base que ya las tiene: `apply_schema`
+-- es NO destructivo (no tiene un solo DROP). El DROP lo hace, con backup a CSV
+-- y dry-run por default, `python -m scripts.drop_tablas_ia_huerfanas`.
 
 -- Research diario de mercado (QuantAI — memoria de mercado, docs/QUANTAI.md).
 -- jobs/research_mail.py lee la casilla por IMAP, persiste el mail CRUDO (fuente
@@ -3288,17 +3228,6 @@ CREATE TABLE IF NOT EXISTS manager.salud_vistos (
     PRIMARY KEY (email, evento_id)
 );
 
--- Diagnóstico con IA de un chequeo de SALUD que YA se confirmó persistente. Se
--- cachea por (chequeo_id, evento_id): el mismo incidente NO se re-diagnostica —
--- si no, cada poll de la vista gastaría tokens repitiendo lo mismo.
-CREATE TABLE IF NOT EXISTS manager.salud_diagnosticos (
-    chequeo_id text   NOT NULL,
-    evento_id  bigint NOT NULL,             -- la transición que lo disparó
-    texto      text,
-    modelo     text,
-    creado_at  timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (chequeo_id, evento_id)
-);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- FINANCIAMIENTO → CALCULADORA DE DESCUENTO (panel 4 de la tab FINANCIAMIENTO).

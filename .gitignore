@@ -65,3 +65,6 @@ docs/*.json
 discovery_*.txt
 
 # Si alguna vez hace falta versionar uno puntual: `git add -f <archivo>`.
+
+# Backups de scripts de borrado (CSV de tablas antes de un DROP) — nunca al repo
+backups/

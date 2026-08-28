@@ -472,6 +472,15 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
             f"pudo refrescarlo: estaría juzgando la base de hoy con el universo "
             f"de otro día")
 
+    # ⚠️ El ritmo DECLARADO en `deploy/crontab.txt`, resuelto UNA vez por
+    # corrida: son ~190 tablas y leer el crontab por cada una sería el mismo
+    # trabajo repetido. Le gana al medido — ver `tablas.frescura`.
+    try:
+        declarado = tablas.declarados()
+    except Exception as e:
+        logger.warning("tabla_quieta: sin ritmo declarado (%s)", e)
+        declarado = {}
+
     out = []
     for i, p in enumerate(con_ritmo):
         if i in vivo:
@@ -479,7 +488,8 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
         nombre = f"{p['schema']}.{p['tabla']}"
         if nombre in con_contrato:
             continue
-        f = tablas.frescura(p)
+        d = declarado.get(nombre)
+        f = tablas.frescura(p, declarado=d)
         if f["estado"] != "atrasada":
             continue
         # ⚠️ **UNA TABLA DE EVENTOS NO TIENE CADENCIA: TIENE OCASIONES.** Está
@@ -491,9 +501,16 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
             sujeto=nombre, regla="sin_escribir",
             severidad="alta" if p["cadencia"] == "tiempo_real" else "media",
             problema=str(f["motivo"]),
-            detalle=(f"{p['col_fecha']} = {f['ultimo_dato']} · venía cada "
-                     f"{_humano(p.get('intervalo_p50_s') or 0)} · "
-                     f"{p['filas']:,} filas"),
+            # ⚠️ **DE DÓNDE SALE EL «DEBERÍA» — declarado o medido.** No es un
+            # detalle: un ritmo medido puede estar equivocado (una ráfaga diaria
+            # se lee como live) y uno declarado no. Quien lee la tarjeta tiene
+            # que poder distinguirlos sin abrir el código.
+            detalle=(f"{p['col_fecha']} = {f['ultimo_dato']} · "
+                     + (f"su cron ({d['job']}) admite hasta "
+                        f"{_humano(d['hueco_s'])} sin escribir" if d else
+                        f"venía cada {_humano(p.get('intervalo_p50_s') or 0)} "
+                        f"(medido, no declarado)")
+                     + f" · {p['filas']:,} filas"),
             que_hacer=f"Relanzar {escribe.que_relanzar(nombre) or 'el job que la escribe'}.",
             evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                        "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],

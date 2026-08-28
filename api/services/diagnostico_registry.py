@@ -171,12 +171,21 @@ PIEZAS: list[Pieza] = [
           tabla="agro_opciones_snapshot", ts_expr="data->>'updated_at'"),
 
     # ── MERCADOS · RENTA VARIABLE ──────────────────────────
-    # motor_cedears: CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24.
-    # El monitor de frescura por colección es Mongo-only → queda informativo hasta que la
-    # infra de diagnóstico lea frescura de SQL (follow-up, lo necesitan todos los motores
-    # que migren). El motor sigue vigilable por systemd `Active` / skill /motor-status.
+    # ⚠️⚠️ **ESTA PIEZA NO TENÍA DE DÓNDE LEER, Y POR ESO DECÍA «NUNCA».**
+    #
+    # El comentario de acá decía que la frescura por colección era Mongo-only y
+    # que esto quedaba «informativo hasta el follow-up». **Ese follow-up ya se
+    # hizo** —`Pieza.tabla` lee de Postgres y lo usan todas las demás— pero a
+    # esta nunca le pusieron la tabla. Sin `tabla` ni `run_tipo`,
+    # `diagnostico._frescura` devuelve `(None, None)` → estado `sin_datos` → el
+    # AV AGENT lo canta como **«nunca dejó un rastro: puede no haber corrido
+    # jamás»** con el motor perfectamente vivo. Lo levantó el user el 2026-08-28.
+    #
+    # El motor escribe `mercado.cedears_snapshot` (su docstring lo dice, y la
+    # tabla tiene `updated_at`): no había nada que investigar, solo que declarar.
     Pieza("MERCADOS", "motor", "motor_cedears", grupo="RENTA VARIABLE", unidad="motor_cedears",
-          cadencia="live", ventana="rueda", umbral_s=60),
+          cadencia="live", ventana="rueda", umbral_s=60,
+          tabla="cedears_snapshot"),
     Pieza("MERCADOS", "job", "precios_acciones_daily", grupo="RENTA VARIABLE", unidad="jobs.precios_acciones_daily",
           cadencia="22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="precios_acciones_daily"),

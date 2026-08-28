@@ -263,7 +263,8 @@ TOLERANCIA_S: dict[str, int] = {
 }
 
 
-def frescura(perfil: dict, *, ahora: datetime | None = None) -> dict:
+def frescura(perfil: dict, *, ahora: datetime | None = None,
+             declarado: dict | None = None) -> dict:
     """**¿Está al día según lo que se espera de ELLA?** — la pregunta del user.
 
     «Si portfolio en AuM actualiza con fecha T-1, ok: qué día es hoy, cuándo es
@@ -287,6 +288,45 @@ def frescura(perfil: dict, *, ahora: datetime | None = None) -> dict:
     atraso = (ahora - ult).total_seconds()
     tope = TOLERANCIA_S.get(cad, 3 * 86400)
     unidad = "de reloj"
+
+    # ⚠️⚠️ **SI EL RITMO ESTÁ DECLARADO, LE GANA AL MEDIDO. SIEMPRE.**
+    #
+    # Medir la mediana entre filas funciona para un motor y **falla feo para un
+    # job que corre una vez al día y appendea un lote**: adentro del lote las
+    # filas están separadas por milisegundos, así que la mediana dice «tiempo
+    # real» y este detector le empieza a exigir el ritmo de un feed live.
+    #
+    # Medido el 2026-08-28: **7 de los 10 hallazgos abiertos** eran eso.
+    # `research.mkt_1816_series` —un append diario de las 22:00 UTC— figuraba
+    # como «tiempo real, cada 2 s», y `mercado.canje_cierre`, post-cierre, como
+    # «cada 0 s». Ninguna estaba rota.
+    #
+    # La guarda que ya existía (`_dias_con_escritura`) pregunta *«¿escribió en
+    # muchos días distintos?»* y un job diario contesta que **sí**: escribe todos
+    # los días… una vez. Distingue «escribe seguido» de «escribió mucho una vez»,
+    # pero no **«escribe todo el día»** de **«escribe todos los días»**.
+    #
+    # Y el dato bueno estaba al lado todo el tiempo: `deploy/crontab.txt`. No se
+    # sube ninguna tolerancia —eso taparía las tablas que sí importan—: se deja
+    # de adivinar algo que está escrito.
+    if declarado and declarado.get("hueco_s"):
+        # Margen sobre el hueco: un job que corre 22:00 y tarda 15 min está al
+        # filo de las 24 h exactas todos los días. 1,5× es la misma proporción
+        # que usa el árbol de diagnóstico entre «lento» y «crítico».
+        tope = int(declarado["hueco_s"] * MARGEN_DECLARADO)
+        # Un job de reloj NO se mide en tiempo de mercado: corre a la hora que
+        # corre, y muchos corren de noche.
+        unidad = "de reloj"
+        if declarado.get("solo_habiles"):
+            tope += _segundos_de_finde(ult, ahora)
+        ok = atraso <= tope
+        return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
+                "tope_s": int(tope), "ultimo_dato": ult.isoformat(),
+                "unidad": unidad, "declarado": True,
+                "motivo": ("al día" if ok else
+                           f"no escribe hace {_humano(atraso)} y su cron dice "
+                           f"cada {_humano(declarado['hueco_s'])} como mucho"
+                           f" · {hora_ar(ahora)}")}
 
     # ⚠️ **UNA TABLA DE RUEDA SE MIDE EN TIEMPO DE MERCADO, NO DE RELOJ.**
     #
@@ -333,6 +373,9 @@ def frescura(perfil: dict, *, ahora: datetime | None = None) -> dict:
 # Las cadencias que solo tienen sentido MIENTRAS el mercado opera. Una `diaria`
 # no entra: un job diario corre a la hora que corre, y muchos corren de noche.
 _MIDEN_EN_RUEDA = frozenset({"tiempo_real", "intradiaria"})
+
+# Cuánto más que el hueco declarado se tolera antes de decir «atrasada».
+MARGEN_DECLARADO = 1.5
 
 
 def _segundos_de_rueda(desde: datetime, hasta: datetime) -> int:
@@ -500,3 +543,32 @@ def _ultimo_dato_vivo(perfiles_: list[dict]) -> dict[int, object]:
         logger.warning("contexto: no pude leer el último dato en vivo (%s)", e)
         return {}
 
+
+def declarados() -> dict[str, dict]:
+    """`schema.tabla` → el ritmo que su job DECLARA en el crontab.
+
+    Junta las dos mitades que el sistema ya tenía sueltas:
+
+        `core.escribe.que_relanzar(tabla)`  → QUÉ job la escribe
+        `core.crontab.ritmo_declarado()`    → CADA CUÁNTO corre ese job
+
+    Ninguna de las dos es nueva: el agente ya las usaba por separado —una para
+    escribir el `que_hacer`, la otra para `cron_desalineado`— y nunca se
+    preguntó una a la otra. Por eso adivinaba un ritmo que estaba escrito.
+
+    Se resuelve UNA vez por corrida y no por tabla: son ~190 tablas y leer el
+    crontab 190 veces sería el mismo trabajo repetido.
+    """
+    from core import crontab, escribe
+    try:
+        ritmos = crontab.ritmo_declarado()
+    except Exception as e:
+        logger.warning("tablas: no pude leer el ritmo del crontab (%s)", e)
+        return {}
+    out: dict[str, dict] = {}
+    for nombre in escribe.tablas_con_escritor():
+        job = escribe.que_relanzar(nombre)
+        r = ritmos.get((job or "").strip())
+        if r:
+            out[nombre] = {**r, "job": job}
+    return out

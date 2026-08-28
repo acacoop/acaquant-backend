@@ -1523,3 +1523,92 @@ def test_un_trabajo_de_ocho_minutos_no_es_un_request_http():
     # Cuánto tarda es un DATO declarado, no una impresión: es lo que se le
     # muestra al que aprieta para que sepa cuánto esperar.
     assert rehacer.REHACIBLES["portafolio_diario"]["dura_aprox_s"] > 0
+
+
+def test_el_ritmo_declarado_le_gana_al_medido():
+    """Medir la mediana entre filas funciona para un motor y **falla feo para un
+    job que corre una vez al día y appendea un lote**: adentro del lote las filas
+    están separadas por milisegundos, la mediana dice «tiempo real», y el
+    detector le empieza a exigir el ritmo de un feed live.
+
+    Medido el 2026-08-28: **7 de los 10 hallazgos abiertos de `tabla_quieta`**
+    eran eso. `research.mkt_1816_series` —un append diario de las 22:00 UTC—
+    figuraba como «tiempo real, cada 2 s»; `mercado.canje_cierre`, post-cierre,
+    como «cada 0 s». Ninguna estaba rota.
+
+    La guarda que ya existía (`_dias_con_escritura`) pregunta *«¿escribió en
+    muchos días distintos?»* y un job diario contesta que **sí**: escribe todos
+    los días… una vez. Distingue «escribe seguido» de «escribió mucho una vez»,
+    pero no **«escribe todo el día»** de **«escribe todos los días»**.
+
+    Y el dato bueno estaba al lado: `deploy/crontab.txt`.
+    """
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+
+    from agente import tablas
+    from core import crontab
+
+    # 1. El hueco sale del cron de verdad y es el MÁS LARGO que admite — no un
+    #    promedio sobre 24 h, que para un job con ventana da un número que no
+    #    existe (`*/30 12-23` no corre cada hora: corre cada media hora de 12 a
+    #    23 y después no corre en doce y media).
+    assert crontab.hueco_maximo("0 22 * * 1-5") == 86400
+    assert crontab.hueco_maximo("*/30 12-23 * * *") == int(12.5 * 3600)
+    assert crontab.hueco_maximo("0 12,14,16,18,20,22 * * 1-5") == 14 * 3600
+    # Lo que no se entiende NO se inventa: quien no sabe se abstiene y el que
+    # pregunta se queda con lo que medía. Adivinar un ritmo declarado es peor
+    # que no declararlo, porque tapa la señal con una cifra que parece dura.
+    assert crontab.hueco_maximo("raro") is None
+    assert crontab.hueco_maximo("") is None
+
+    # 2. Y le gana al medido: el caso real, con sus datos reales.
+    ahora = _dt(2026, 8, 28, 15, 5, tzinfo=_U)          # viernes 12:05 ART
+    perfil = {"cadencia": "tiempo_real", "intervalo_p50_s": 2,
+              "ultimo_dato": _dt(2026, 8, 27, 22, 0, 22, tzinfo=_U)}
+    assert tablas.frescura(perfil, ahora=ahora)["estado"] == "atrasada"
+    ok = tablas.frescura(perfil, ahora=ahora, declarado={
+        "hueco_s": 86400, "solo_habiles": True, "job": "jobs.mercado_1816_series"})
+    assert ok["estado"] == "ok" and ok["declarado"] is True
+
+    # 3. ⚠️ Y una tabla live DE VERDAD —sin cron que la declare— tiene que
+    #    seguir gritando: esto no es subir una tolerancia, que taparía justo las
+    #    que importan. Es dejar de adivinar lo que está escrito.
+    live = {"cadencia": "tiempo_real", "intervalo_p50_s": 2,
+            "ultimo_dato": _dt(2026, 8, 28, 12, 21, tzinfo=_U)}
+    assert tablas.frescura(live, ahora=ahora)["estado"] == "atrasada"
+
+    # 4. Las dos mitades se juntan por una sola puerta: quién escribe la tabla
+    #    (`core.escribe`) y cada cuánto corre ese job (`core.crontab`). Ninguna
+    #    es nueva — el agente ya usaba las dos por separado y nunca se
+    #    preguntaron una a la otra.
+    d = _codigo(tablas.declarados)
+    assert "escribe.que_relanzar" in d and "crontab.ritmo_declarado" in d
+
+
+def test_ninguna_pieza_de_diagnostico_se_queda_sin_fuente():
+    """Una `Pieza` sin `tabla` ni `run_tipo` ni `coll` **no tiene de dónde leer**.
+
+    `diagnostico._frescura` devuelve `(None, None)` → estado `sin_datos` → y el
+    AV AGENT la canta como *«nunca dejó un rastro: puede no haber corrido
+    jamás»* con el motor perfectamente vivo. Le pasó a `motor_cedears`: su
+    comentario decía que quedaba «informativo hasta el follow-up», el follow-up
+    se hizo (todas las demás leen de Postgres) y **a esa nunca le pusieron la
+    tabla**. El user lo levantó desde la pantalla el 2026-08-28.
+
+    No es un olvido que se pueda repetir sin que se note: una Pieza muda no
+    falla, afirma que algo nunca corrió.
+    """
+    import ast as _ast
+
+    src = (RAIZ / "api" / "services" / "diagnostico_registry.py").read_text()
+    mudas = []
+    for n in _ast.walk(_ast.parse(src)):
+        if not (isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "Pieza"):
+            continue
+        if {k.arg for k in n.keywords} & {"tabla", "run_tipo", "coll"}:
+            continue
+        mudas.append(n.args[2].value if len(n.args) > 2 else f"línea {n.lineno}")
+    assert not mudas, (
+        "estas piezas no tienen de dónde leer la frescura y el agente las va a "
+        f"cantar como «nunca corrió»: {mudas}")

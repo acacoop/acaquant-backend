@@ -158,3 +158,8 @@ def que_relanzar(tabla: str) -> str:
         if _QUIEN_DISPARA.get(m.split(".")[0]) == RELOJ:
             return m
     return ""
+
+
+def tablas_con_escritor() -> list[str]:
+    """Las `schema.tabla` para las que se encontró quién les escribe."""
+    return sorted(_mapa())

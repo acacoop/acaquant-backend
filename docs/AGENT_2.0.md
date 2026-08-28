@@ -1245,6 +1245,24 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (9)** — **El ritmo de un job está declarado en el crontab y el
+  agente lo estaba adivinando.** `tablas.medir()` calcula la mediana entre filas
+  para clasificar una tabla: funciona para un motor y falla feo para un job que
+  corre una vez al día y appendea un lote —adentro del lote las filas están
+  separadas por milisegundos, así que la mediana dice «tiempo real»—. Medido:
+  **7 de los 10 hallazgos abiertos de `tabla_quieta`** eran eso
+  (`research.mkt_1816_series`, un append de las 22:00 UTC, figuraba como «cada
+  2 s»). La guarda que existía pregunta *«¿escribió en muchos días distintos?»*
+  y un job diario contesta que sí: distingue «escribe seguido» de «escribió
+  mucho una vez», pero no **«escribe todo el día»** de **«escribe todos los
+  días»**. Ahora `core.crontab.hueco_maximo()` da el hueco más largo que el cron
+  admite y `tablas.declarados()` junta las dos mitades que ya existían sueltas
+  (`escribe.que_relanzar` = quién escribe · `crontab.ritmo_declarado` = cada
+  cuánto). **No se sube ninguna tolerancia** —eso taparía las tablas que sí
+  importan— y una tabla live sin cron declarado sigue gritando igual.
+  Aparte: `motor_cedears` era la **única** de las 55 Piezas de diagnóstico sin
+  `tabla`/`run_tipo`, así que no tenía de dónde leer y el agente la cantaba como
+  «nunca dejó un rastro» con el motor vivo. Un test prohíbe que vuelva a pasar.
 - **2026-08-28 (8)** — **«¿Confirmación de qué?»** La columna de estado del
   HISTORIAL habla del PROBLEMA, no de la escritura —eso ya lo afirma la línea,
   con su ✔ y su de-qué-valor-a-qué-valor— y decía «esperando confirmación», que

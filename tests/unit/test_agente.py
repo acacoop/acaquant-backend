@@ -1411,3 +1411,58 @@ def test_preguntar_y_no_traer_nada_no_es_un_exito():
     # Lo que sí entra es no tener a quién preguntarle, que es otra cosa.
     i = job.index("if not universo:")
     assert "raise RuntimeError" in job[i:i + 300]
+
+
+def test_un_numero_no_es_un_diagnostico():
+    """User (2026-08-28), viendo el resultado del botón: *«salió con código
+    -15»*.
+
+    Un `returncode` **negativo no es un error del job**: es una señal que lo
+    mató desde afuera, y eso se atiende en un lugar completamente distinto. Con
+    el número pelado, el que lee se va a buscar el bug adentro de un job que
+    funcionaba.
+    """
+    m = rehacer._por_que_murio
+    assert "SIGTERM" in m(-15) and "NO falló el job" in m(-15)
+    assert "api.service" in m(-15), (
+        "SIGTERM acá tiene una causa concreta: el job corre como hijo del "
+        "proceso de la API, así que un deploy se lo lleva puesto")
+    assert "SIGKILL" in m(-9)
+    assert "TIMEOUT" in m(124), "124 es `timeout(1)`, no un error del código"
+    assert "adentro del job" in m(1)
+
+
+def test_ver_que_haria_muestra_lo_que_se_va_a_ejecutar():
+    """User (2026-08-28): *«estaría bueno que acá también se vean los
+    parámetros que usa para la consulta»*.
+
+    Dos mitades, y cada una la dice quien la sabe:
+
+      · **el comando y la verificación** salen de `REHACIBLES` — la MISMA
+        declaración que se ejecuta, así que no puede quedar desactualizada;
+      · **qué le pide a la fuente** (endpoint, `desde`, timeouts, reintentos) lo
+        imprime el JOB en su log, porque `POSICION_URL` y `_PARAMS_BASE` viven
+        ahí. Si el agente los reconstruyera, el día que cambie uno la pantalla
+        mostraría el viejo y nadie se enteraría (REGLA #9).
+    """
+    from unittest.mock import patch
+
+    with patch.object(rehacer, "hay_dato", return_value=False), \
+         patch.object(rehacer, "fecha_objetivo", return_value="2026-08-27"):
+        p = arreglos.RehacerJob().preview("portafolio_diario",
+                                          {"job": "portafolio_diario"})
+    pasos = " ".join(x["detalle"] for x in p["pasos"])
+    assert "run_job.sh portafolio_diario" in pasos
+    assert "jobs.portafolio_backfill --diario" in pasos
+    assert "portafolio.tenencia" in pasos and "2026-08-27" in pasos
+
+    job = (RAIZ / "jobs" / "portafolio_backfill.py").read_text()
+    i = job.index('print(f"       consulta: GET')
+    linea = job[i:i + 600]
+    for x in ("POSICION_URL", "_PARAMS_BASE", "desde", "TIMEOUT_DEFAULT", "RETRIES"):
+        assert x in linea, f"la consulta impresa no dice «{x}»"
+    # Y el agente NO la reimplementa.
+    a = (RAIZ / "agente").rglob("*.py")
+    for f in a:
+        assert "posicionValuada" not in f.read_text(), (
+            f"{f.name} reconstruye el endpoint del job en vez de leer su log")

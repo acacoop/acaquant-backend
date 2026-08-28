@@ -1245,6 +1245,18 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (6)** — **Un número no es un diagnóstico, y la tarjeta muestra
+  qué se consulta.** El botón contestó «salió con código -15»: un `returncode`
+  negativo **no es un error del job**, es una señal que lo mató desde afuera —y
+  SIGTERM acá tiene una causa concreta: el arreglo lanza el job como hijo del
+  proceso de la API, así que un `systemctl restart api.service` (un deploy) se
+  lo lleva puesto. `_por_que_murio()` traduce señales, el 124 de `timeout(1)` y
+  el resto. Además «ver qué haría» muestra **el comando exacto** y la
+  verificación que va a correr (salen de `REHACIBLES`, la misma declaración que
+  se ejecuta), y el JOB imprime en su log el endpoint, el `desde`, los timeouts
+  y los reintentos con que le pega a Aunesa — lo dice él porque `POSICION_URL` y
+  `_PARAMS_BASE` viven ahí, y el agente lo lee del log en vez de reconstruirlo
+  (un test prohíbe que lo reimplemente).
 - **2026-08-28 (5)** — **La salida del job estaba en el ARCHIVO, no en stdout.**
   El arreglo anterior hizo viajar `p.stdout` hasta la pantalla y lo que llegaba
   era la cadena vacía: `run_job.sh` redirige todo con `>> "$LOG"`, así que

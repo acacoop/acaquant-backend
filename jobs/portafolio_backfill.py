@@ -380,6 +380,20 @@ def _run_backfill(logger=None) -> int:
             continue
 
         print(f"[{iso}] desde={desde} · pendientes={len(pend)} (ya hechas={len(hechas)})")
+        # ⚠️ **QUÉ SE LE PIDE A AUNESA, EXACTO.** Pedido del user (2026-08-28):
+        # *«hay que ver hasta qué está consultando… estaría bueno que acá también
+        # se vean los parámetros que usa para la consulta»*.
+        #
+        # Lo dice el JOB y no el agente, a propósito: la URL y los params viven
+        # acá (`POSICION_URL`, `_PARAMS_BASE`). Si el agente los reconstruyera,
+        # el día que cambie uno la pantalla mostraría el viejo y nadie se
+        # enteraría — el mismo patrón que ya nos costó cuatro incidentes.
+        # El agente lee el log del job, así que esto llega solo a la tarjeta.
+        print(f"       consulta: GET {POSICION_URL.format('<id_cuenta>')}"
+              f"?desde={desde}&"
+              + "&".join(f"{k}={v}" for k, v in _PARAMS_BASE.items())
+              + f"  · timeout {TIMEOUT_DEFAULT}s ({TIMEOUT_HEAVY}s las pesadas)"
+              f" · {RETRIES} reintentos por cuenta · {workers} en paralelo")
         tot["cuentas_pedidas"] += len(pend)
         t0 = time.monotonic()
         registros: list[dict] = []

@@ -365,12 +365,29 @@ class RehacerJob(Arreglo):
     def preview(self, sujeto: str, ev: dict) -> dict:
         from agente import rehacer
         job, fecha = self._job_fecha(sujeto, ev)
+        cfg = rehacer.REHACIBLES.get(job) or {}
         hay = rehacer.hay_dato(job, fecha)
         return {"ok": True, "que_escribe": f"correr `{job}` para {fecha}",
                 "donde": self.donde, "ya_hay_dato": hay,
+                # ⚠️ **EL COMANDO EXACTO, no una descripción de él.** «Ver qué
+                # haría» tiene que mostrar lo que se va a ejecutar: sale de la
+                # declaración (`REHACIBLES`), que es la misma que corre — no
+                # puede quedar desactualizado respecto de lo que pasa.
+                "pasos": [{"titulo": "lo que se va a ejecutar",
+                           "detalle": f'{rehacer.RUN_JOB} {job} '
+                                      f'{cfg.get("timeout", "")} '
+                                      f'{cfg.get("comando", "")}',
+                           "estado": "ok"},
+                          {"titulo": "y después se verifica",
+                           "detalle": (f'SELECT 1 FROM {cfg.get("tabla", "?")} '
+                                       f'WHERE {cfg.get("columna", "?")}::date '
+                                       f"= '{fecha}'"),
+                           "estado": "ok"}],
                 "porque": ("el job no dejó el dato de ese día. Se relanza por el "
                            "mismo lanzador del cron y se verifica mirando la "
-                           "tabla, no el código de salida.")}
+                           "tabla, no el código de salida. Qué le pide a la "
+                           "fuente lo imprime el propio job en su log, y eso "
+                           "vuelve acá cuando termina.")}
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "",
                 datos: list | None = None) -> Resultado:

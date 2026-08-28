@@ -346,7 +346,37 @@ def _correr(cfg: dict) -> dict:
                           "Esperá a que termine y volvé a intentar.")}
     return {"ok": p.returncode == 0, "salida": salida,
             **({} if p.returncode == 0
-               else {"error": f"salió con código {p.returncode}"})}
+               else {"error": _por_que_murio(p.returncode)})}
+
+
+def _por_que_murio(rc: int) -> str:
+    """De un número a una frase. **«salió con código -15» no es un diagnóstico.**
+
+    Un `returncode` NEGATIVO no es un error del job: es una SEÑAL que lo mató
+    desde afuera, y eso se atiende en un lugar completamente distinto.
+    """
+    if rc == 124:
+        # `timeout(1)` sale 124 cuando mata al comando por exceder su
+        # presupuesto. No es un bug del job: es que tardó más de lo declarado.
+        return ("el job se pasó de su TIMEOUT y el lanzador lo cortó a mitad de "
+                "camino. Lo que alcanzó a escribir quedó; volvé a intentarlo "
+                "(se retoma solo desde donde iba).")
+    if rc >= 0:
+        return (f"el job salió con error (código {rc}) — el problema está "
+                "adentro del job, mirá su log")
+    try:
+        import signal
+        nombre = signal.Signals(-rc).name
+    except Exception:
+        nombre = f"señal {-rc}"
+    if -rc == 15:      # SIGTERM
+        return (f"NO falló el job: lo MATARON con {nombre} desde afuera. Este "
+                "arreglo lanza el job como hijo del proceso de la API, así que "
+                "un `systemctl restart api.service` —o sea, un deploy— se lo "
+                "lleva puesto a mitad de camino. Volvé a intentarlo sin "
+                "deployar encima.")
+    return (f"NO falló el job: lo mató {nombre} desde afuera (código {rc}). "
+            "No es un error del código del job.")
 
 
 def _lo_que_dijo(log, desde: int) -> str:

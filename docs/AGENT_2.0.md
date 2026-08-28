@@ -1245,6 +1245,16 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (10)** — **Una fecha de negocio no es un timestamp de escritura.**
+  `COLS_FECHA` mezcla dos cosas: `updated_at` dice cuándo se escribió la fila,
+  `fecha`/`ts_cierre` dicen **de qué día son los datos**. Medir el atraso contra
+  la segunda suma hasta 24 h que no existen — el cierre del 27 se escribe el 27
+  a las 20:35, pero su `fecha` dice `2026-08-27 00:00`. Medido: **7 tablas de
+  cierre** salieron juntas con «hace 1,7 días» teniendo el dato correcto. No hay
+  que declarar qué tabla es de negocio: **el dato se delata solo** (ningún job
+  escribe a las 00:00:00.000000), así que un valor a medianoche exacta se mide
+  desde el FIN de ese día. Una tabla con timestamp real no se toca, y si pasa el
+  fin de semana sin escribirse sigue gritando.
 - **2026-08-28 (9)** — **El ritmo de un job está declarado en el crontab y el
   agente lo estaba adivinando.** `tablas.medir()` calcula la mediana entre filas
   para clasificar una tabla: funciona para un motor y falla feo para un job que

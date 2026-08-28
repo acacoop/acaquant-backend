@@ -492,6 +492,24 @@ def ventana(dias_atras: int = 1, hoy: date | None = None) -> tuple[date, date]:
     return max(desde, hasta - timedelta(days=60)), hasta
 
 
+def _dias_entre(desde: date, hasta: date) -> list[date]:
+    """Los días del rango, inclusive. **Exige `date` y no acepta texto.**
+
+    Existe como función y no como comprensión suelta por lo que pasó el
+    2026-08-28: adentro de `run()` conviven las MISMAS dos fechas en dos formas
+    —`desde`/`hasta` como `date` y `d1`/`d2` en ISO, para la API y para el log—
+    y el bloque nuevo tomó las de texto. `d2 - d1` levanta `TypeError` y se
+    llevó puesta la corrida entera, después de haber traído bien las cuentas.
+
+    Acá el tipo lo dice la firma, y si alguien le pasa los strings falla en la
+    línea que corresponde en vez de a mitad de una corrida buena.
+    """
+    if not isinstance(desde, date) or not isinstance(hasta, date):
+        raise TypeError("_dias_entre espera date, no texto ISO "
+                        f"({type(desde).__name__}, {type(hasta).__name__})")
+    return [desde + timedelta(days=i) for i in range((hasta - desde).days + 1)]
+
+
 def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -> dict:
     desde, hasta = ventana(dias_atras)
     d1, d2 = desde.isoformat(), hasta.isoformat()
@@ -552,7 +570,12 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
     # Va antes de la purga a propósito: la purga borra `extracto_dia` y `saldos`
     # de los días viejos, así que si se sellara después ya no habría de dónde.
     if stats["cuentas_ok"]:
-        for d in sorted({d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)}):
+        # ⚠️ `desde`/`hasta` (que son `date`), NO `d1`/`d2` — que son los MISMOS
+        # días en ISO, para la API y para el log. Acá había `d2 - d1` y eso es
+        # restar dos strings: `TypeError: unsupported operand type(s) for -:
+        # 'str' and 'str'`, reventando la corrida ENTERA de las 13:00 después de
+        # haber traído bien todas las cuentas.
+        for d in _dias_entre(desde, hasta):
             try:
                 stats["cierres_sellados"] = (stats.get("cierres_sellados", 0)
                                              + len(bancos.sellar_cierre(d)))

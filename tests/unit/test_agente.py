@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -1612,3 +1613,79 @@ def test_ninguna_pieza_de_diagnostico_se_queda_sin_fuente():
     assert not mudas, (
         "estas piezas no tienen de dónde leer la frescura y el agente las va a "
         f"cantar como «nunca corrió»: {mudas}")
+
+
+def test_una_fecha_de_negocio_no_es_un_timestamp_de_escritura():
+    """`COLS_FECHA` mezcla dos cosas que no son comparables.
+
+    `updated_at`/`ingestado_en` dicen **cuándo se escribió la fila**;
+    `fecha`/`ts_cierre` dicen **de qué día son los datos**. Medir el atraso
+    contra la segunda suma hasta 24 h que no existen: el cierre del 27 se
+    escribe el 27 a las 20:35, pero su `fecha` dice `2026-08-27 00:00`.
+
+    Medido el 2026-08-28 a las 17:06 UTC: **siete tablas de cierre** salieron
+    todas juntas con «hace 1,7 días» **teniendo el dato correcto** — el cierre
+    del 28 todavía no había pasado.
+
+    Y no hace falta declarar qué tabla es de negocio: **el dato se delata solo**.
+    Un valor a medianoche EXACTA no es un instante de escritura —ningún job
+    escribe a las 00:00:00.000000— es un día.
+    """
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+
+    from agente import tablas
+
+    dec = {"hueco_s": 86400, "solo_habiles": True, "job": "jobs.snapshot_cierre"}
+    cierre = {"cadencia": "diaria", "intervalo_p50_s": 86400,
+              "ultimo_dato": _dt(2026, 8, 27, tzinfo=_U)}      # medianoche exacta
+
+    # El viernes a la tarde, con el cierre del 27 cargado: está AL DÍA.
+    assert tablas.frescura(cierre, ahora=_dt(2026, 8, 28, 17, 6, tzinfo=_U),
+                           declarado=dec)["estado"] == "ok"
+    # ⚠️ Y sigue detectando: si pasa el fin de semana sin escribirse, grita.
+    assert tablas.frescura(cierre, ahora=_dt(2026, 8, 31, 15, 0, tzinfo=_U),
+                           declarado=dec)["estado"] == "atrasada"
+
+    # Un TIMESTAMP de verdad no se toca: son las 16:35:09, no medianoche.
+    vivo = {"cadencia": "tiempo_real", "intervalo_p50_s": 1,
+            "ultimo_dato": _dt(2026, 8, 28, 16, 35, 9, 480627, tzinfo=_U)}
+    assert tablas.frescura(vivo, ahora=_dt(2026, 8, 28, 17, 6, tzinfo=_U)
+                           )["estado"] == "atrasada"
+
+
+def test_las_dos_formas_de_la_misma_fecha_no_se_mezclan():
+    """`jobs/interbanking_sync` reventó la corrida de las 13:00 con
+    `TypeError: unsupported operand type(s) for -: 'str' and 'str'`.
+
+    Adentro de `run()` conviven las MISMAS dos fechas en dos formas —`desde`
+    y `hasta` como `date`, `d1` y `d2` en ISO para la API y para el log— y el
+    bloque nuevo de sellado tomó las de texto: `d2 - d1`. Se llevó puesta la
+    corrida entera **después** de haber traído bien todas las cuentas.
+
+    Es el mismo modo de falla de siempre —dos representaciones del mismo dato
+    sin árbitro— pero acá SÍ falla ruidoso, y por eso se encontró en horas y no
+    en días.
+    """
+    import ast as _ast
+
+    src = (RAIZ / "jobs" / "interbanking_sync.py").read_text()
+
+    # El rango es una función con firma tipada: si le pasan los strings, falla
+    # en su propia línea y no a mitad de una corrida buena.
+    mod = _ast.parse(src)
+    fn = next(n for n in mod.body if getattr(n, "name", "") == "_dias_entre")
+    ns: dict = {"date": date, "timedelta": timedelta}
+    exec(compile(_ast.Module([fn], []), "<t>", "exec"), ns)
+    assert ns["_dias_entre"](date(2026, 8, 27), date(2026, 8, 28)) == [
+        date(2026, 8, 27), date(2026, 8, 28)]
+    with pytest.raises(TypeError):
+        ns["_dias_entre"]("2026-08-27", "2026-08-28")
+
+    # Y el bloque de sellado usa la función, no las variables de texto.
+    # `_codigo()` y no el archivo crudo: el comentario que dejamos ahí NOMBRA el
+    # `d2 - d1` que se sacó, y grepear el texto entero haría fallar el test por
+    # haberlo explicado bien. (Tercera vez que muerde esta trampa.)
+    codigo = _codigo(src)
+    assert "_dias_entre(desde, hasta)" in codigo
+    assert "d2 - d1" not in codigo

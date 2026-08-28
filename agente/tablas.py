@@ -285,7 +285,31 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
                            "estatica": "se cargó de una sola vez",
                            "eventual": "no tiene un ritmo: no se le puede exigir "
                                        "frescura"}.get(cad, "sin columna de fecha")}
-    atraso = (ahora - ult).total_seconds()
+    # ⚠️⚠️ **UNA FECHA DE NEGOCIO NO ES UN TIMESTAMP DE ESCRITURA.**
+    #
+    # `COLS_FECHA` mezcla dos cosas distintas: `updated_at`/`ingestado_en` dicen
+    # CUÁNDO SE ESCRIBIÓ la fila, y `fecha`/`ts_cierre` dicen **de qué día son
+    # los datos**. Medir el atraso contra la segunda suma hasta 24 h de retraso
+    # que no existe: el cierre del 27 se escribe el 27 a las 20:35, pero su
+    # `fecha` dice `2026-08-27 00:00`.
+    #
+    # Medido el 2026-08-28 a las 17:06 UTC: siete tablas de cierre
+    # (`bonos_ohlc_daily`, `cedears_ohlc_daily`, `day_trading_stats`,
+    # `eikon_cierres`, `fair_value_residuos`, `snapshots_cierre_hist`) salieron
+    # todas juntas con «hace 1,7 días» **teniendo el dato correcto**: el cierre
+    # del 28 todavía no había pasado.
+    #
+    # No hace falta declarar qué tabla es de negocio: **el dato se delata solo.**
+    # Un valor a medianoche EXACTA no es un instante de escritura —ningún job
+    # escribe a las 00:00:00.000000— es un día. Y entonces la pregunta correcta
+    # no es «¿hace cuánto de ese instante?» sino «¿hace cuánto que TERMINÓ ese
+    # día?».
+    if (ult.hour, ult.minute, ult.second, ult.microsecond) == (0, 0, 0, 0):
+        ult_efectivo = ult + timedelta(days=1)   # el día cierra a las 24:00
+    else:
+        ult_efectivo = ult
+
+    atraso = (ahora - ult_efectivo).total_seconds()
     tope = TOLERANCIA_S.get(cad, 3 * 86400)
     unidad = "de reloj"
 
@@ -318,7 +342,7 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
         # corre, y muchos corren de noche.
         unidad = "de reloj"
         if declarado.get("solo_habiles"):
-            tope += _segundos_de_finde(ult, ahora)
+            tope += _segundos_de_finde(ult_efectivo, ahora)
         ok = atraso <= tope
         return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
                 "tope_s": int(tope), "ultimo_dato": ult.isoformat(),
@@ -346,11 +370,11 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
     # minutos que abrió, así que una tabla que escribió ayer al cierre recién
     # acumula diez minutos de atraso, no diecisiete horas.
     if cad in _MIDEN_EN_RUEDA:
-        atraso = _segundos_de_rueda(ult, ahora)
+        atraso = _segundos_de_rueda(ult_efectivo, ahora)
         unidad = "de rueda"
     elif cad == "diaria_habil":
         # En una tabla de días hábiles, el fin de semana NO cuenta como atraso.
-        tope += _segundos_de_finde(ult, ahora)
+        tope += _segundos_de_finde(ult_efectivo, ahora)
     ok = atraso <= tope
     return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
             "tope_s": int(tope), "ultimo_dato": ult.isoformat(),

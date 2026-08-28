@@ -2728,7 +2728,9 @@ CREATE TABLE IF NOT EXISTS mercado.ons_ignoradas (
 -- web que sirve a la mesa.
 --
 -- ⚠️ Sacarlas de acá NO las borra: `apply_schema` no tiene un solo DROP. El DROP
--- lo hace `python -m scripts.drop_schema_mcp` (dry-run por default, backup a CSV).
+-- se corrió a mano el 2026-08-28 con `scripts/drop_schema_mcp.py` (backup a CSV),
+-- y ese script se borró después de cumplir (REGLA #5). El schema `mcp` ya no
+-- existe en la base.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- RESEARCH — schema de la vista Research (1816 / BCRA). Las tablas Refinitiv

@@ -34,8 +34,9 @@ Y por eso mismo el corte duro es por DATOS, no por código: una tabla con filas
 NUNCA entra en la lista de borrado automático, por más huérfana que se vea.
 
 Uso:
-    python -m scripts.diag_tablas_muertas            # el informe
+    python -m scripts.diag_tablas_muertas            # el informe, read-only
     python -m scripts.diag_tablas_muertas --sql      # + genera sql/drop_muertas.sql
+    python -m scripts.diag_tablas_muertas --aplicar  # DROPEA el bloque ①
 """
 from __future__ import annotations
 
@@ -46,7 +47,12 @@ from datetime import UTC, datetime
 
 from agente import peso, tablas
 from core import escribe
-from core.postgres import get_pool
+
+# ⚠️ El carril de JOBS, no el de la web. Este diag pega ~2 queries por tabla
+# (476 en la última corrida) y encima el `--aplicar` toma un lock de DDL. El pool
+# web tiene 16 conexiones y es el que le contesta a la mesa; el de jobs tiene 4
+# reservadas justamente para que un batch no la starve (`core/postgres.py`).
+from core.postgres import get_job_pool as get_pool
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
 
@@ -279,6 +285,9 @@ def main() -> int:
           "     del código es un regex; un INSERT con el nombre en una variable no se\n"
           "     ve. Por eso el bloque ② no se borra solo y el ① exige además 0 filas.\n")
 
+    if "--aplicar" in sys.argv:
+        return _aplicar(muertas)
+
     if quiere_sql:
         if not muertas:
             print("  (--sql) No hay nada en el bloque ①: no genero archivo.\n")
@@ -300,3 +309,36 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _aplicar(muertas: list[dict]) -> int:
+    """DROPEA el bloque ①, volviendo a preguntar en el momento de borrar.
+
+    ⚠️ **La verificación se repite ACÁ y no se confía en la del informe.** Entre
+    que se armó la lista y que alguien aprieta pueden pasar minutos, un job
+    puede haber escrito, y el informe no es una reserva sobre el estado de la
+    base. Si alguna dejó de estar vacía, **aborta entera**: media limpieza es
+    peor que ninguna, porque el que la corrió cree que terminó.
+
+    Todo en UNA transacción, por lo mismo.
+    """
+    if not muertas:
+        print("  Nada que borrar: el bloque ① está vacío.\n")
+        return 0
+
+    print(f"\n═══ BORRANDO {len(muertas)} TABLA(S) ═══\n")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for f in sorted(muertas, key=lambda x: x["nombre"]):
+            sch, tab = f["nombre"].split(".", 1)
+            cur.execute(f'SELECT EXISTS (SELECT 1 FROM "{sch}"."{tab}")')
+            if (cur.fetchone() or [False])[0]:
+                conn.rollback()
+                print(f"  ✖ {f['nombre']} YA NO ESTÁ VACÍA. Aborto todo, no se "
+                      "borró nada.\n     Volvé a correr el informe.\n")
+                return 1
+            cur.execute(f'DROP TABLE IF EXISTS "{sch}"."{tab}"')
+            print(f"  ✓ {f['nombre']}")
+        conn.commit()
+    libera = sum(f["bytes"] for f in muertas)
+    print(f"\n✔ {len(muertas)} tabla(s) borradas · {_mb(libera)} liberados\n")
+    return 0

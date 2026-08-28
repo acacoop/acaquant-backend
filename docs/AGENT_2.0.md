@@ -87,6 +87,29 @@ Campos que lleva sí o sí:
 `habilidad + sujeto + regla`. Ese trío es lo que permite decir "esto ya lo
 vimos". El `id` identifica la ocurrencia; el trío identifica el problema.
 
+> ⚠️ **Y por eso el `sujeto` NO puede ser una constante** (2026-08-28). Si un
+> detector emite «N cosas están mal» con un sujeto fijo, esas N comparten
+> identidad y el agente las trata como UN problema: «no me interesa» las calla a
+> todas —y a las que aparezcan después—, `veces` cuenta vueltas de la bolsa, y
+> arreglar una no cierra nada, solo baja un número.
+>
+> El síntoma se ve en la pantalla y es fácil de confundir con un problema de
+> redacción: **la habilidad, el `nombre` y el `problema` dicen los tres lo
+> mismo**. Es la firma de que el sujeto no tiene el dato, así que hubo que
+> escribir a mano de qué es el problema mientras el dato real —cuál cron, cuál
+> título— se iba a `evidencia`, que ninguna pantalla dibuja.
+>
+> La regla, entonces, es mecánica: **si tenés que redactar a mano de qué es el
+> problema, el sujeto está mal elegido.** Lo congela
+> `test_de_que_es_el_problema_nunca_se_escribe_a_mano`, que prohíbe un `nombre=`
+> con string literal en cualquier detector.
+>
+> El sujeto correcto es **lo que se atiende de a uno**. Para `ficha_incompleta`
+> es el CAMPO (379 títulos sin clase son un trabajo de carga, no 379 problemas);
+> para `cron_desalineado` es cada CRON, porque uno puede ser legítimo y el otro
+> basura. Y tiene que ser único: el nombre del job solo no alcanza —23 se repiten
+> en `deploy/crontab.txt`— así que `crontab.sujeto()` le mete el horario.
+
 ### 1.2 `agente.habilidades` — el CATÁLOGO
 
 Una fila por habilidad. **Es la tabla que hoy no existe y que resuelve el
@@ -1222,6 +1245,15 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28** — **El `sujeto` no puede ser una constante** (§1.1).
+  `cron_desalineado` emitía UN hallazgo por regla con `sujeto="crontab"` y el
+  conteo en el texto; pasa a **uno por cron**, con el nombre del job de `nombre`
+  y la línea cruda en `detalle`. Se borra `crontab._detectar()` (formato viejo,
+  sin llamador), `alta._aplicar_parche_local` y `umbrales.GRACIA_ARRANQUE_MIN`
+  (la gracia la resuelve `_todavia_no_le_toco`). Nuevo helper de tests `_codigo()`:
+  los asserts que prohíben un string ahora ignoran comentarios y docstrings — en
+  este repo los comentarios NOMBRAN el bug que evitan, así que grepear el archivo
+  entero hacía fallar al test por documentar bien.
 - **2026-08-24** — **IMPLEMENTADO** (§11). El paquete `agente/`, el daemon
   único, las cuatro tablas, los 16 detectores, los 6 arreglos, el router de 11
   endpoints y el modal de tres tabs. Se borraron 29 services, 6 jobs,

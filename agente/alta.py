@@ -3315,50 +3315,6 @@ def _diagnostico_local(doc: dict, rama: str, est: dict) -> list[dict]:
     return ps
 
 
-def _aplicar_parche_local(sim: dict, *, actor: str = "") -> dict:
-    """Escribe el parche del arreglo local. **En la columna Y en el blob.**
-
-    `moneda_flujo` existe como COLUMNA en `mercado.curvas` y además vive adentro
-    del jsonb `data`, que es de donde lo lee `core/curvas_sql` (no está en
-    `_COLS_FUERA_DEL_BLOB`). Escribir uno solo dejaría al otro contradiciéndolo —
-    que es exactamente la enfermedad que este arreglo viene a curar. Mismo
-    criterio que `jobs/ficha_1816` con el emisor.
-    """
-    import json
-
-    from agente import libro as acc
-    from core.postgres import get_pool
-
-    tk, parche = sim["ticker"], sim["parche"]
-    antes = {k: sim.get("_antes_campos", {}).get(k) for k in parche}
-    try:
-        sets, vals = ["data = COALESCE(data, '{}'::jsonb) || %s::jsonb"], [
-            json.dumps(parche)]
-        for col in ("moneda_flujo",):        # las que además son columna
-            if col in parche:
-                sets.append(f"{col} = %s")
-                vals.append(parche[col])
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(f"UPDATE mercado.curvas SET {', '.join(sets)} "
-                        "WHERE ticker = %s", (*vals, tk))
-            filas = cur.rowcount or 0
-    except Exception as e:
-        acc.registrar(accion="arreglar_bono", objetivo=tk, ok=False,
-                      error=str(e)[:300], por=actor, antes=antes)
-        return {**sim, "aplicado": False, "error": f"no se pudo escribir: {e}"}
-    if not filas:
-        return {**sim, "aplicado": False, "error": "el UPDATE no tocó ninguna fila"}
-
-    acc.registrar(accion="arreglar_bono", objetivo=tk, por=actor, antes=antes,
-                  detalle={"causa": sim.get("causa"), "campos": list(parche),
-                           "parche": parche,
-                           "paridad_antes": (sim.get("antes") or {}).get("paridad"),
-                           "paridad_despues": sim.get("paridad")})
-    return {**sim, "aplicado": True,
-            "aviso": "los motores leen mercado.curvas al arrancar: reiniciar "
-                     "motor_curvas para que la métrica nueva llegue a la vista"}
-
-
 _CAUSAS_CUADRO = ("escala_del_cuadro", "campo_de_amortizacion")
 
 

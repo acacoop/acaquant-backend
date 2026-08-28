@@ -28,10 +28,6 @@ LAT_FACTOR, LAT_MIN_DELTA_MS, LAT_MIN_ERRORES = 2.5, 300, 3
 # las llamadas reales: nunca en el camino feliz, porque 1816 cobra por llamada.
 PROV_VENTANA_S, PROV_MINIMO_FALLOS = 20 * 60, 1
 
-# MOTORES. Los primeros minutos de rueda no son un motor caído: es un motor
-# arrancando.
-GRACIA_ARRANQUE_MIN = 30
-
 DEFAULTS = {
     "paridad_min": PARIDAD_MIN, "paridad_max": PARIDAD_MAX,
     "precio_viejo_min": PRECIO_VIEJO_MIN,

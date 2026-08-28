@@ -402,6 +402,20 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
 
 
 # ═══ cron_desalineado ══════════════════════════════════════════════════════
+#
+# ⚠️ **UN HALLAZGO POR CRON, no uno por bolsa** (2026-08-28). Antes las dos
+# reglas emitían UN hallazgo con `sujeto="crontab"` y el conteo en el texto, y
+# los nombres de los jobs —que `crontab.que_job()` ya calculaba— se enterraban
+# en `evidencia`, que AHORA no dibuja. La tarjeta terminaba diciendo tres veces
+# lo mismo (la habilidad, el `nombre` a mano, el `problema`) y **ninguna decía
+# CUÁL cron**.
+#
+# El texto era el síntoma; el defecto era el SUJETO. Con `sujeto="crontab"` los
+# N crons comparten el trío `habilidad+sujeto+regla`, o sea comparten identidad:
+#   · «no me interesa» sobre uno callaba a TODOS — y a los que aparecieran
+#     después, que es exactamente lo que no se quiere silenciar;
+#   · `veces` contaba vueltas de la bolsa, no de cada cron;
+#   · arreglar uno no cerraba nada: solo bajaba el número.
 def cron_desalineado(u: dict) -> list[Hallazgo]:
     """El crontab del repo contra el de la máquina, **en las dos direcciones**.
 
@@ -417,27 +431,32 @@ def cron_desalineado(u: dict) -> list[Hallazgo]:
         raise SinDatos("no pude leer el crontab de la máquina: no sé si los "
                        "crons del repo están instalados")
 
+    # (regla, severidad, líneas, qué le pasa, qué hacer)
+    lados = (
+        ("sin_instalar", "alta", r["sin_instalar"],
+         "está en `deploy/crontab.txt` y NO en la máquina: no se ejecuta",
+         "Instalar el crontab del repo: "
+         "`crontab /root/TradingAV/deploy/crontab.txt`."),
+        ("sin_declarar", "media", r["sin_declarar"],
+         "corre en la máquina y `deploy/crontab.txt` no lo declara",
+         "Agregarlo a `deploy/crontab.txt` o sacarlo de la máquina: la próxima "
+         "instalación se lo lleva puesto."),
+    )
     out = []
-    if (faltan := r["sin_instalar"]):
-        out.append(Hallazgo(
-            sujeto="crontab", regla="sin_instalar", severidad="alta",
-            nombre="crons del repo que no corren",
-            problema=f"{len(faltan)} cron(s) están en `deploy/crontab.txt` y NO "
-                     f"en la máquina: no se ejecutan · {reloj.hhmm()}",
-            que_hacer="Instalar el crontab del repo: "
-                      "`crontab /root/TradingAV/deploy/crontab.txt`.",
-            evidencia={"jobs": [crontab._que_job(x) for x in faltan],
-                       "lineas": faltan[:20]}))
-    if (sobran := r["sin_declarar"]):
-        out.append(Hallazgo(
-            sujeto="crontab", regla="sin_declarar", severidad="media",
-            nombre="crons que corren sin estar declarados",
-            problema=f"{len(sobran)} cron(s) corren en la máquina y el repo no "
-                     f"los declara · {reloj.hhmm()}",
-            que_hacer="Agregarlos a `deploy/crontab.txt` o sacarlos de la "
-                      "máquina: la próxima instalación se los lleva puestos.",
-            evidencia={"jobs": [crontab._que_job(x) for x in sobran],
-                       "lineas": sobran[:20]}))
+    for regla, sev, lineas, pasa, hacer in lados:
+        for linea in lineas:
+            out.append(Hallazgo(
+                sujeto=crontab.sujeto(linea), regla=regla, severidad=sev,
+                # El NOMBRE es el job, sacado de la línea. Nunca escrito a mano:
+                # si hay que redactar de qué es el problema, el sujeto está mal.
+                nombre=crontab.que_job(linea),
+                problema=f"{pasa} · {reloj.hhmm()}",
+                # LA LÍNEA CRUDA. Es el único dato que dice qué corre y cuándo,
+                # y hasta ahora vivía en un jsonb que ninguna pantalla lee.
+                detalle=linea,
+                que_hacer=hacer,
+                evidencia={"job": crontab.que_job(linea), "linea": linea,
+                           "lado": "repo" if regla == "sin_instalar" else "maquina"}))
     return out
 
 

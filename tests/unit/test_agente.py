@@ -5,13 +5,41 @@ Cada uno corresponde a un invariante del doc, y a un bug real del agente viejo.
 """
 from __future__ import annotations
 
+import ast
 import inspect
+import textwrap
 from pathlib import Path
 
 import pytest
 
 from agente import arreglos, catalogo, registro, tipos
 from agente.detectores import datos, mercado, sistema
+
+
+def _codigo(fuente) -> str:
+    """La fuente SIN comentarios ni docstrings.
+
+    ⚠️ Un test que busca (o prohíbe) un string en el código NO puede leer la
+    prosa que explica por qué ese string no está. En este repo los comentarios
+    **nombran el bug que evitan** —es su razón de ser—, así que grepear el
+    archivo entero hace fallar al test justo cuando la explicación está bien
+    escrita: el test castiga documentar. Ya pasó con dos.
+
+    `ast.unparse` devuelve solo código (los comentarios no llegan al árbol) y
+    acá además se sacan los docstrings.
+    """
+    src = fuente if isinstance(fuente, str) else inspect.getsource(fuente)
+    arbol = ast.parse(textwrap.dedent(src))
+    for n in ast.walk(arbol):
+        cuerpo = getattr(n, "body", None)
+        if (isinstance(cuerpo, list) and cuerpo
+                and isinstance(cuerpo[0], ast.Expr)
+                and isinstance(getattr(cuerpo[0], "value", None), ast.Constant)
+                and isinstance(cuerpo[0].value.value, str)):
+            cuerpo.pop(0)
+            if not cuerpo:
+                cuerpo.append(ast.Pass())
+    return ast.unparse(arbol)
 
 RAIZ = Path(__file__).resolve().parents[2]
 
@@ -335,7 +363,7 @@ def test_el_agente_no_reimplementa_quien_cotiza():
     nadie sabe cuál manda (REGLA #9 del repo).
     """
     from agente import fuentes
-    src = inspect.getsource(fuentes.primary)
+    src = _codigo(fuentes.primary)
     assert "instrumentos_validos" in src
     assert "pyrofex_instruments" not in src, (
         "el agente no lee ese catálogo directo: delega en el criterio único")
@@ -781,7 +809,7 @@ def test_el_silencio_es_permanente_por_defecto():
         f"y dice: {linea.strip()}")
 
     from agente import vista
-    assert "hasta" not in inspect.getsource(vista.ignorar).replace(
+    assert "hasta" not in _codigo(vista.ignorar).replace(
         "hasta = NULL", ""), "el código no debe poner vencimientos por su cuenta"
 
 
@@ -1031,3 +1059,72 @@ def test_no_queda_ni_un_hilo_del_auto_control_viejo():
     # encontrar con las 18 tablas del agente viejo.
     sql = (RAIZ / "sql" / "schema.sql").read_text()
     assert "DROP TABLE IF EXISTS manager.controles_datos;" in sql
+
+
+def test_de_que_es_el_problema_nunca_se_escribe_a_mano():
+    """El `nombre` de un hallazgo SALE DEL DATO, nunca de un literal.
+
+    User (2026-08-28), mirando una tarjeta de `cron_desalineado`: *«en problema
+    debería estar EL NOMBRE DEL CRON, no esa explicación que ya está en el
+    NOMBRE y que encima también está en LA HABILIDAD — se repite 3 veces lo
+    mismo»*.
+
+    Y el texto repetido era el síntoma. Los tres campos contestan tres preguntas
+    distintas —`habilidad` quién lo vio, `sujeto`/`nombre` DE QUÉ es, `problema`
+    qué le pasa hoy— así que si las tres dicen lo mismo es porque **el sujeto no
+    tiene el dato**: era la constante `"crontab"`, y el nombre del job había que
+    redactarlo a mano.
+
+    De ahí la regla, que es mecánica y no de estilo: **si tenés que escribir a
+    mano de qué es el problema, el sujeto está mal elegido.** Un `nombre=` con
+    string literal es exactamente esa firma.
+    """
+    import ast
+
+    a_mano = []
+    for f in sorted((RAIZ / "agente" / "detectores").glob("*.py")):
+        for n in ast.walk(ast.parse(f.read_text())):
+            if not (isinstance(n, ast.Call) and getattr(n.func, "id", "") == "Hallazgo"):
+                continue
+            for kw in n.keywords:
+                if kw.arg == "nombre" and isinstance(kw.value, ast.Constant):
+                    a_mano.append(f"{f.name}:{kw.value.lineno} nombre="
+                                  f"{kw.value.value!r}")
+    assert not a_mano, (
+        "`nombre` escrito a mano: el sujeto no dice de qué es el problema — "
+        + " · ".join(a_mano))
+
+
+def test_cada_cron_es_un_hallazgo_con_identidad_propia():
+    """El trío `habilidad+sujeto+regla` ES la identidad de un problema.
+
+    ⚠️ **El nombre del job NO alcanza como sujeto**: medido sobre el
+    `deploy/crontab.txt` real, hay nombres repetidos —cada motor aparece dos
+    veces, `start` y `stop`— así que dos crons distintos compartirían el trío.
+    Y no fallaría: `registro._ver` hace UPDATE sobre el hallazgo abierto, con lo
+    cual el segundo **pisaría al primero en silencio** y el tablero mostraría
+    uno solo.
+
+    Por eso `crontab.sujeto()` mete el horario adentro. Este test lo verifica
+    contra el archivo de verdad, no contra un ejemplo inventado: si mañana
+    alguien agrega una línea que colisiona, se entera acá.
+    """
+    from agente import crontab
+
+    lineas = crontab.del_repo()
+    assert len(lineas) > 50, "no leí el crontab del repo"
+
+    # El nombre pelado SÍ colisiona — es el motivo de que el sujeto lleve más.
+    assert len({crontab.que_job(x) for x in lineas}) < len(lineas)
+    # El sujeto, no: uno por línea.
+    sujetos = {crontab.sujeto(x) for x in lineas}
+    assert len(sujetos) == len(lineas), (
+        f"{len(lineas) - len(sujetos)} cron(s) comparten sujeto: uno taparía "
+        "al otro en el tablero")
+
+    # Y el detector emite UNO POR CRON: sin esto, el sujeto correcto no sirve
+    # de nada porque las N líneas seguirían viajando en un solo hallazgo.
+    src = _codigo(sistema.cron_desalineado)
+    assert "for linea in lineas" in src
+    assert "crontab.sujeto(linea)" in src
+    assert 'sujeto="crontab"' not in src

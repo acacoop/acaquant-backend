@@ -112,51 +112,7 @@ def comparar() -> dict:
             "sin_declarar": sorted(maquina - repo)}
 
 
-def _detectar() -> list[dict]:
-    from agente.reloj import hhmm as _hhmm
-
-    r = comparar()
-    if not r["ok"]:
-        # **El silencio se lee igual que un verde** (§0.s): si la prueba no
-        # corrió, hay que decirlo.
-        return [{
-            "tipo": "cron_desalineado", "ticker": "crontab", "regla": "no_pude_mirar",
-            "severidad": "baja",
-            "motivo": f"no pude leer el crontab de la máquina · {_hhmm()}",
-            "evidencia": {"texto": (
-                "No sé si los crons del repo están instalados — **no es que estén "
-                "mal**. Hasta que se pueda leer, ese control no está cubierto.")}}]
-
-    out: list[dict] = []
-    faltan, sobran = r["sin_instalar"], r["sin_declarar"]
-    if faltan:
-        out.append({
-            "tipo": "cron_desalineado", "ticker": "crontab", "regla": "sin_instalar",
-            "severidad": "alta",
-            "motivo": (f"{len(faltan)} cron(s) del repo NO están en la máquina · "
-                       f"no corren · {_hhmm()}"),
-            "evidencia": {
-                "texto": ("Están en `deploy/crontab.txt` y no en el crontab "
-                          "instalado, así que **no se ejecutan**. No falla nada: "
-                          "el catálogo los muestra igual.\nSe instalan con "
-                          "`crontab /root/TradingAV/deploy/crontab.txt`."),
-                "jobs": [_que_job(x) for x in faltan], "lineas": faltan[:20]}})
-    if sobran:
-        out.append({
-            "tipo": "cron_desalineado", "ticker": "crontab", "regla": "sin_declarar",
-            "severidad": "media",
-            "motivo": (f"{len(sobran)} cron(s) corren y el repo no los declara · "
-                       f"{_hhmm()}"),
-            "evidencia": {
-                "texto": ("Están instalados en la máquina y no en "
-                          "`deploy/crontab.txt`. Corre algo que nadie revisa, y "
-                          "la próxima instalación del archivo se los lleva "
-                          "puestos sin avisar."),
-                "jobs": [_que_job(x) for x in sobran], "lineas": sobran[:20]}})
-    return out
-
-
-def _que_job(linea: str) -> str:
+def que_job(linea: str) -> str:
     """De la línea entera, el nombre del job — que es lo único que se lee."""
     m = re.search(r"run_job\.sh\s+(\S+)", linea)
     if m:
@@ -164,3 +120,28 @@ def _que_job(linea: str) -> str:
     m = re.search(r"-m\s+([\w.]+)", linea) or re.search(r"systemctl\s+\w+\s+(\S+)",
                                                         linea)
     return m.group(1) if m else _normalizar(linea)[:60]
+
+
+def _horario(linea: str) -> str:
+    """Los 5 campos de tiempo. `_ES_CRON` ya garantizó que están."""
+    return " ".join(_normalizar(linea).split()[:5])
+
+
+def sujeto(linea: str) -> str:
+    """LA IDENTIDAD de un cron: **el job Y su horario**.
+
+    ⚠️ El nombre del job SOLO no alcanza y no es una sutileza: medido sobre
+    `deploy/crontab.txt` (95 líneas), **23 nombres están repetidos** — cada motor
+    aparece dos veces (el `start` y el `stop`), `mayor_sync` y `sync_comitentes`
+    tres. Si el sujeto fuera el nombre pelado, dos crons distintos compartirían
+    el trío `habilidad+sujeto+regla`, y como `registro._ver` hace UPDATE sobre el
+    abierto, **el segundo pisaría al primero en silencio**: el tablero mostraría
+    uno y el otro no existiría para nadie.
+
+    Con el horario adentro: 95 líneas → 95 sujetos, verificado por test.
+
+    Y es la identidad correcta además de la única que funciona: cambiarle la hora
+    a un cron ES otro cron —corre en otro momento y hay que instalarlo de nuevo—,
+    así que el hallazgo viejo cierra por ausencia y nace el nuevo.
+    """
+    return f"{que_job(linea)} · {_horario(linea)}"

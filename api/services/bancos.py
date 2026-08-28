@@ -1264,6 +1264,16 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
 
         saldo al cierre(F)  =  saldo del banco(F)  +  movimientos manuales de F
 
+    ⚠️ **EXCEPCIÓN: las cuentas con `bancos.cuentas.origen = 'manual'`.** Esas no
+    las informa Interbanking —su saldo del banco sería siempre 0—, así que ahí el
+    ajuste es **ACUMULADO**: el saldo ES la suma de todo lo cargado a mano hasta
+    esa fecha. Un +1000 hoy deja el saldo en 1000 hoy y todos los días
+    siguientes; si después entra un −900, pasa a 100 y sigue así.
+
+    En las demás cuentas el ajuste es **DEL DÍA**, porque el saldo que informa el
+    banco ya trae adentro los movimientos de días anteriores y sumarlos otra vez
+    los contaría dos veces.
+
     El saldo del banco es el del extracto si lo hay, si no el que informa
     `bancos.saldos`, y si la cuenta no la informa Interbanking es 0 (su saldo son
     sus manuales).
@@ -1281,18 +1291,24 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
     """
     signo = "CASE WHEN tipo = 'C' THEN abs(importe) ELSE -abs(importe) END"
     sql = f"""
-        SELECT c.id AS cuenta_id, e.saldo_cierre,
+        SELECT c.id AS cuenta_id, c.origen, e.saldo_cierre,
                coalesce(s.saldo_operativo, s.saldo_dia) AS informado,
-               coalesce(m.ajuste, 0) AS ajuste
+               coalesce(m.ajuste, 0) AS ajuste,
+               coalesce(m.acumulado, 0) AS acumulado
           FROM bancos.cuentas c
           LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
           LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s
-          LEFT JOIN (SELECT cuenta_id, sum({signo}) AS ajuste
+          -- El del DÍA (cuentas de Interbanking) y el ACUMULADO (cuentas
+          -- `origen='manual'`, que no tienen saldo del banco). Ver el bucle.
+          LEFT JOIN (SELECT cuenta_id,
+                            sum(CASE WHEN fecha = %s THEN {signo} ELSE 0 END)
+                              AS ajuste,
+                            sum({signo}) AS acumulado
                        FROM bancos.movimientos_manuales
-                      WHERE fecha = %s
+                      WHERE fecha <= %s
                       GROUP BY cuenta_id) m ON m.cuenta_id = c.id
          WHERE """
-    args = (fecha, fecha, fecha)
+    args = (fecha, fecha, fecha, fecha)
     if cuenta_id is None:
         filas = _q(sql + "c.activa", args)
     else:
@@ -1300,13 +1316,28 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
 
     out: dict[int, dict] = {}
     for r in filas:
+        if (r["origen"] or "interbanking") == "manual":
+            # ⚠️ **LA CUENTA QUE NO VIENE DE INTERBANKING** (`origen='manual'`).
+            # Acá el ajuste es ACUMULADO y no del día, porque **no hay ningún
+            # saldo del banco que lo absorba**: Interbanking no la informa, su
+            # saldo siempre sería 0. Registro +1000 hoy → el saldo es 1000 hoy,
+            # mañana y siempre; si después entra un −900, pasa a 100 y sigue
+            # así. El saldo ES el acumulado de lo cargado a mano.
+            acumulado = _f(r["acumulado"]) or 0.0
+            if not acumulado and not _f(r["ajuste"]):
+                continue
+            out[r["cuenta_id"]] = {"valor": round(acumulado, 2),
+                                   "fuente": "manual", "ajuste": acumulado}
+            continue
+
+        # El resto: el saldo lo informa Interbanking y ya trae adentro los
+        # movimientos de días anteriores, así que solo se suma el manual DEL DÍA.
         ajuste = _f(r["ajuste"]) or 0.0
         if r["saldo_cierre"] is not None:
             base, fuente = _f(r["saldo_cierre"]), "extracto"
         elif r["informado"] is not None:
             base, fuente = _f(r["informado"]), "saldo"
         elif ajuste:
-            # La cuenta que Interbanking no informa: su saldo son sus manuales.
             base, fuente = 0.0, "manual"
         else:
             # Sin extracto, sin saldo y sin manuales no sabemos nada. «No

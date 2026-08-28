@@ -80,8 +80,8 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
         # `_saldos_banco` joinea cuentas + extracto + saldos + manuales: va
         # primero porque su SQL matchea varios de los `if` de abajo.
         if "AS informado" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": 2.0, "informado": None,
-                     "ajuste": 0}]
+            return [{"cuenta_id": 1, "origen": "interbanking", "saldo_cierre": 2.0,
+                     "informado": None, "ajuste": 0, "acumulado": 0}]
         if "FROM bancos.cuentas" in t:
             return [_CUENTA]
         if "movimientos_manuales" in t:

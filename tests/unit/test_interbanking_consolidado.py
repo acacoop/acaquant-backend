@@ -46,8 +46,10 @@ def sin_base(monkeypatch):
                 # así que la apertura cae al `saldo_apertura` del extracto.
                 if params and params[0] != FECHA:
                     return []
-                return [{"cuenta_id": f["id"], "saldo_cierre": f.get("saldo_cierre"),
-                         "informado": f.get("saldo_banco"), "ajuste": 0}
+                return [{"cuenta_id": f["id"], "origen": f.get("origen"),
+                         "saldo_cierre": f.get("saldo_cierre"),
+                         "informado": f.get("saldo_banco"),
+                         "ajuste": 0, "acumulado": 0}
                         for f in filas]
             if "c.bank_number" in t:
                 return filas
@@ -142,9 +144,11 @@ def _mock_manual(monkeypatch, filas_cuentas, manuales=(), previos=()):
         t = " ".join(str(sql).split())
         # `_saldos_banco` arma el SALDO AL CIERRE: es la misma función que sella.
         if "AS informado" in t:
-            return [{"cuenta_id": f["id"], "saldo_cierre": f.get("saldo_cierre"),
+            man = sum(m["ajuste"] for m in manuales)
+            return [{"cuenta_id": f["id"], "origen": f.get("origen"),
+                     "saldo_cierre": f.get("saldo_cierre"),
                      "informado": f.get("saldo_banco"),
-                     "ajuste": sum(m["ajuste"] for m in manuales)}
+                     "ajuste": man, "acumulado": man}
                     for f in filas_cuentas]
         # La APERTURA se LEE del cierre sellado de ayer.
         if "cierres_diarios" in t:
@@ -329,8 +333,8 @@ def test_la_apertura_se_LEE_del_sellado_y_no_se_recalcula(monkeypatch):
             return [{"cuenta_id": 1, "saldo": 999_999.0, "fuente": "extracto",
                      "ajuste_manual": 0.0}]
         if "AS informado" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": 1.0, "informado": None,
-                     "ajuste": 0}]
+            return [{"cuenta_id": 1, "origen": "interbanking", "saldo_cierre": 1.0,
+                     "informado": None, "ajuste": 0, "acumulado": 0}]
         if "FROM bancos.cuentas" in t:
             return [_cuenta(saldo_apertura=1.0, saldo_cierre=1.0)]
         return []
@@ -354,8 +358,8 @@ def test_si_el_dia_no_esta_sellado_se_sella_al_vuelo(monkeypatch):
         # ⚠️ `_saldos_banco` JOINEA `cierres_diarios`, así que se lo reconoce por
         # su alias propio y va primero.
         if "AS informado" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": 500.0, "informado": None,
-                     "ajuste": 0}]
+            return [{"cuenta_id": 1, "origen": "interbanking", "saldo_cierre": 500.0,
+                     "informado": None, "ajuste": 0, "acumulado": 0}]
         if "cierres_diarios" in t:
             leidas["n"] += 1
             return []          # el día no está sellado → hay que sellarlo

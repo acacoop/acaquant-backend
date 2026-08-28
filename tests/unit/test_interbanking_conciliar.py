@@ -116,8 +116,10 @@ def _svc(monkeypatch, *, cierre=None, movs=(), manuales=()):
         # `_saldos_banco` toca cinco tablas en una query; se reconoce por su
         # alias `AS sellado` y va PRIMERO, o cae en los `if` de abajo.
         if "AS informado" in t:
-            return [{"cuenta_id": 1, "saldo_cierre": cierre, "informado": None,
-                     "ajuste": sum(m["ajuste"] for m in manuales)}]
+            man = sum(m["ajuste"] for m in manuales)
+            return [{"cuenta_id": 1, "origen": "interbanking",
+                     "saldo_cierre": cierre, "informado": None,
+                     "ajuste": man, "acumulado": man}]
         if "cierres_diarios" in t:
             return []          # la apertura no se usa en estos tests
         if "FROM bancos.cuentas" in t:

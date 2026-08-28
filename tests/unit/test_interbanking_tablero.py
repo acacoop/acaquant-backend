@@ -246,8 +246,8 @@ def _saldos(monkeypatch, fila, cuenta_id=None):
 
     def _q(sql, params=None):
         visto["sql"], visto["params"] = sql, params
-        return [{"cuenta_id": CID, "saldo_cierre": None, "informado": None,
-                 "ajuste": 0, **fila}]
+        return [{"cuenta_id": CID, "origen": "interbanking", "saldo_cierre": None,
+                 "informado": None, "ajuste": 0, "acumulado": 0, **fila}]
 
     monkeypatch.setattr(bancos, "_q", _q)
     out = bancos._saldos_banco(FECHA, cuenta_id)
@@ -263,7 +263,7 @@ def test_saldos_banco_pide_los_manuales_del_dia(monkeypatch):
     assert "AS ajuste" in sql
     # El día PREVIO (para leer su cierre sellado) y después cinco veces la
     # fecha: extracto, saldos, movimientos del banco, manual del día y acumulado.
-    assert params == (FECHA, FECHA, FECHA)
+    assert params == (FECHA, FECHA, FECHA, FECHA)
 
 
 def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):
@@ -320,3 +320,44 @@ def test_saldos_banco_por_cuenta_no_filtra_por_activa(monkeypatch):
     _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1.0}, cuenta_id=CID)
     assert "c.activa" not in sql
     assert params[-1] == CID
+
+
+# ── `origen = 'manual'`: el ACUMULADO, porque no hay saldo del banco ─────────
+# Pedido del back office (2026-08-27): esas cuentas NO las informa Interbanking
+# —su saldo del banco sería siempre 0—, así que su saldo ES la suma de todo lo
+# cargado a mano. En las demás el ajuste es del día, porque el saldo que manda el
+# banco ya trae adentro lo viejo.
+
+def test_cuenta_MANUAL_su_saldo_es_el_ACUMULADO(monkeypatch):
+    """Registro +1000 → el saldo es 1000 hoy y todos los días siguientes, aunque
+    hoy no se haya cargado nada (`ajuste` del día en 0)."""
+    s, _, _ = _saldos(monkeypatch,
+                      {"origen": "manual", "ajuste": 0, "acumulado": 1000})
+    assert s["valor"] == 1000.0
+    assert s["fuente"] == "manual"
+
+
+def test_cuenta_MANUAL_el_movimiento_en_contra_baja_el_saldo_y_persiste(monkeypatch):
+    """Después del +1000 entra un −900: el saldo pasa a 100 y sigue así."""
+    s, _, _ = _saldos(monkeypatch,
+                      {"origen": "manual", "ajuste": -900, "acumulado": 100})
+    assert s["valor"] == 100.0
+
+
+def test_cuenta_MANUAL_ignora_lo_que_diga_el_extracto(monkeypatch):
+    """Estas cuentas no vienen de Interbanking. Si por lo que sea hubiera una
+    fila de extracto, manda el acumulado igual: la fuente de verdad es la carga
+    a mano."""
+    s, _, _ = _saldos(monkeypatch, {"origen": "manual", "saldo_cierre": 999_999,
+                                    "ajuste": 0, "acumulado": 1000})
+    assert s["valor"] == 1000.0
+    assert s["fuente"] == "manual"
+
+
+def test_cuenta_de_INTERBANKING_sigue_con_el_del_DIA(monkeypatch):
+    """La otra mitad de la regla: acá el saldo del banco ya trae los manuales
+    viejos adentro, así que sumar el acumulado los contaría dos veces."""
+    s, _, _ = _saldos(monkeypatch, {"origen": "interbanking",
+                                    "saldo_cierre": 1_000_000,
+                                    "ajuste": 0, "acumulado": 500_000})
+    assert s["valor"] == 1_000_000.0, "el acumulado NO entra en una cuenta de IB"

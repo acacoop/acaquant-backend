@@ -886,6 +886,30 @@ SALDO AL CIERRE(F)   =  saldo del banco(F)  +  movimientos manuales de F
 SALDO AL INICIO(F)   =  SALDO AL CIERRE(F−1), leído de la tabla
 ```
 
+⚠️ **EXCEPCIÓN — las cuentas con `bancos.cuentas.origen = 'manual'`.** Esas no
+las informa Interbanking: su saldo del banco sería siempre 0. Ahí el ajuste es
+**ACUMULADO**, o sea que el saldo ES la suma de todo lo cargado a mano hasta esa
+fecha:
+
+```
+SALDO AL CIERRE(F)   =  Σ movimientos manuales hasta F      (solo origen='manual')
+```
+
+Un `+1000` deja el saldo en 1000 ese día y **todos los siguientes**; cuando
+después entra un `−900`, pasa a 100 y sigue así. Verificado corriendo el código:
+
+| Fecha | Manual del día | Saldo al cierre |
+|---|---:|---:|
+| 24/08 | — | — |
+| 25/08 | +1.000 | **1.000** |
+| 26/08 | — | **1.000** |
+| 27/08 | −900 | **100** |
+
+En las demás cuentas el ajuste es **del día**: el saldo que informa el banco ya
+trae adentro los movimientos de días anteriores, y sumarlos otra vez los
+contaría dos veces. Congelado por test (`test_interbanking_tablero.py`), las dos
+mitades.
+
 > «el saldo al cierre es el saldo al inicio del otro día, no pueden tener fuentes
 > distintas de lectura, es el mismo dato»
 >

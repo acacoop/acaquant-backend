@@ -48,28 +48,28 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
+| `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
 | `/api/agente` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 14 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
 | `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
-| `/api/back-office/interbanking` | 26 | 17 | `back-office` · 22 rutas con gate extra | `back-office` |  |
+| `/api/back-office/interbanking` | 26 | 17 | `back-office` | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
-| `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/cotizaciones` | 35 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
 | `/api/ia` | 6 | 2 | `ia` · 5 rutas con gate extra | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 144 | 69 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 143 | 69 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 4 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 9 | 4 | — · 7 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 54 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 17 | 3 | `portfolios` · 15 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 17 | 3 | `portfolios` · 13 rutas con gate extra | `portfolios` |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
@@ -85,7 +85,7 @@
 - `(raíz)` (2 de 2 rutas sin gate de módulo)
 - `/api/aca` (declara `aca`, no lo aplica)
 - `/api/analitica` (14 de 14 rutas sin gate de módulo)
-- `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
+- `/api/cotizaciones` (34 de 35 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
 - `/api/market` (4 de 4 rutas sin gate de módulo)
 - `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)
@@ -563,7 +563,7 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 ### Vista: RENTA FIJA (ruta frontend: `/renta-fija`)
 - **Módulo RBAC (nav)**: `renta-fija`. **⚠ El gate del backend NO es `renta-fija`**: `analitica`, `cotizaciones` y `titulos` se montan `_PUBLIC` (solo `verify_api_key`). El filtro por módulo es **solo del frontend**.
 - **Roles**: admin, trader, sales, asistente_comercial, invitado. NO `back_office`.
-- **Archivos front**: `renta-fija-live.tsx` (shell 2×2 + poll unificado), `renta-fija-table.tsx`, `libro-panel.tsx`, `curvas-chart.tsx`, `fair-value-view.tsx`, `fair-value-modal.tsx`, `forwards-panel.tsx`, `forward-matrix.tsx`, `forward-matrix-zscore.tsx`, `breakevens-block.tsx`.
+- **Archivos front**: `renta-fija-live.tsx` (shell 2×2 + poll unificado), `curvas-tab.tsx` (tab CURVAS: filtro de EMISOR + filtro de TEA + las dos columnas), `bonos-table.tsx`, `bono-modal.tsx` (**la FICHA del bono**), `renta-fija-table.tsx`, `libro-panel.tsx`, `curvas-chart.tsx`, `fair-value-view.tsx`, `fair-value-modal.tsx`, `forwards-panel.tsx`, `forward-matrix.tsx`, `forward-matrix-zscore.tsx`, `breakevens-block.tsx`.
 - **Proxies**: `/api/cotizaciones/[...path]` (**GET-only a propósito**, para no exponer el `PUT /opciones/tasa`), `/api/analitica/[...path]` (GET+POST), `/api/historico-curva`, `/api/trades`. `/api/titulos/flujos` NO tiene proxy: se pide en SSR directo al backend.
 - **Layout**: grilla **2×2 de paneles**, cada uno con sus botones-filtro. **Un único poll de 5s** a `GET /api/cotizaciones/snapshot-live` alimenta los 3 bloques live (reemplazó 3 polls de 5/15/15s).
 
@@ -577,6 +577,9 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 | **RENTA FIJA → TAMAR** | Los 18 bonos con pata TAMAR. Mismas columnas que TASA FIJA **+ MARGEN** (spread sobre la TAMAR del BCRA, que es lo que la mesa mira de estos bonos). Las tasas que no vienen del motor live llevan un `*` al lado de la TEA (tooltip con el porqué) — marca POR FILA, no por tabla | `GET /api/cotizaciones/curvas-vista`. La TEA y el margen NO salen del motor: los trae `jobs/tamar_1816` (cada 30′ 10-17 ART) a `mercado.tamar_1816` y `curvas_vista` los junta en la lectura. Ver `docs/RENTA_FIJA.md` paso 18 | Los mismos pills/emisor de la tab. La columna MARGEN aparece sola donde hay dato | ninguna |
 | **RENTA FIJA → LIBRO** (**ventana flotante**, botón a la derecha del header ARS) | Time & sales intradía de UN bono; solo trades de HOY (sin fallback a sesión vieja). **No es una tab ni una pill**: abre una ventana que se arrastra y se redimensiona, por `createPortal` al body → la tabla y la curva ARS siguen enteras y visibles detrás. No es modal (sin backdrop, el fondo sigue clickeable); cierra con ✕ o **Esc**. Geometría persistida en `localStorage` (`rentaFija.libro.ventana`); abierto/cerrado NO se persiste | `GET /api/trades?instrumento=` → `/api/cotizaciones/historico/trades`, poll 5s con dedupe | Buscador/dropdown de instrumento. Universo = **el lado ARS entero** (no una pill: el tape se busca por ticker), deduplicado por instrumento y limitado a los que tienen `last_price`. Respeta el filtro de EMISOR → con el default (SOBERANO) son los soberanos ARS | ninguna |
 | | ⚠ Se había **perdido** en la migración a la tab CURVAS (el componente quedó vivo y sin montar); se repuso el **2026-08-18** y en el mismo día pasó de pill a ventana flotante — ver `docs/RENTA_FIJA.md` paso 19 | | | |
+| **CURVAS → filtro de TEA** (botón `TEA ≥`, a la DERECHA de la fila de EMISOR) | Piso de tasa: deja solo los bonos que rinden de ahí para arriba. Presets 5/7/10/15/25/35/45/60 % + input libre. Aplica a **las dos columnas, la tabla, el gráfico, los contadores de las pills y el universo del LIBRO** — una sola fuente, así la pantalla no puede contradecir a sus propios controles | ninguno: filtra **client-side** sobre los bonos que ya trae `curvas-vista` (el emisor también) | ⚠ Es **GLOBAL y las dos escalas NO son comparables** (ARS 30-60 %, USD 5-15 %): un mismo piso no filtra nada a la izquierda y sí a la derecha. Decisión tomada a conciencia — por eso el botón MUESTRA el número activo. Los bonos **sin TEA o con `tasa_ruido`** quedan afuera y se cuentan aparte (`−N` en el botón): "no llega al piso" y "no se puede comparar" no se muestran igual. NO se persiste | ninguna |
+| **CURVAS → FICHA DEL BONO** (**modal**, click en cualquier fila de la tabla) | Cronograma de pagos: **gráfico de barras apiladas** (amortización + interés por 100 VN, los pagos vencidos apagados) + **tabla del cronograma** (fecha, amortización, interés, total, residual) + **bloque de tasas y riesgo por PATA** (TEA/TNA/TEM, duration, mod dur, convexity, paridad, margen s/TAMAR, TC BE, con su procedencia LIVE vs 1816) + **ficha** (emisor, industria, tipo, moneda, ajuste, ley, emisión/vto, VN, cupón, CER de emisión). Toggle SOLO FUTUROS (def. ON). Cierra con ✕, Esc o click afuera | `GET /api/cotizaciones/bono/{ticker}` (TTL 30s) → `api/services/bono_detalle.py` | El toggle SOLO FUTUROS. Un **dual** muestra sus DOS patas, cada una con su tasa: mostrar una sola es el bug que la tabla ya resolvió | ninguna |
+| | ⚠ El cronograma lo arma el backend con la **MISMA función que el motor usa para la TEA de la fila** (`rama_calculo` + su `monto_flujo_*`). El master guarda los flujos con **tres shapes distintos** y el nombre del campo no alcanza para distinguirlos: sumar `amortizacion + interes` para todos daría **CERO** en soberanos y CER — un gráfico vacío que parece un dato. Congelado por `tests/unit/test_bono_detalle.py` | | | |
 | **CURVAS → LIVE** | Scatter TEA/TEM/TNA vs Duration + línea de tendencia **log ajustada sobre los puntos live** | `soberanos`: `GET /api/analitica/listar-curva?curva=soberanos` (duration Macaulay real). Resto: `snapshot-live` + `flujos` (duration = años al vto) | Curva (TASA FIJA/CER/HARD DOLAR/DOLAR LINKED); métrica TEA/TEM/TNA **solo en tasa_fija** (CER y soberanos se fuerzan a TEA) | ninguna |
 | **CURVAS → HISTÓRICO** | Misma curva a una fecha pasada | `GET /api/historico-curva?curva=` (lazy, cacheado por curva en el cliente) | **Slider de FECHA** (default = la más reciente); se resetea al cambiar curva o modo | ninguna |
 | **CURVAS → FAIR VALUE** (solo tasa_fija y cer) | Tabla rankeable: TICKER, DUR, TEA, TEA TEÓRICA, RES bps, Z EST, **Z TEMP** (coloreada ±0.5/±1.5), N. Header con β cierre, R², σ, universo. El scatter+cuadrática está **deshabilitado por pedido del user** | `GET /api/cotizaciones/fair-value?curva=` (SSR + poll **90s**); click en fila → modal `fair-value/historico?ticker&dias=60` | Orden por click en header; los Z ordenan por **valor absoluto**. Cambiar a soberanos/DL cae a LIVE sin perder estado | ninguna |

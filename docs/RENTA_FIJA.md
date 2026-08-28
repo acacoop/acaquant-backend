@@ -54,13 +54,131 @@ de tocar la vista más usada de la app.
 | 1 | Medir por qué tarda (`scripts/diag_renta_fija_perf.py`) | no | ✅ **medido** |
 | 2 | Clasificar los 222 con los ejes (`scripts/clasificar_curvas.py`) | no | ✅ **aplicado** (212/222, test VERDE) |
 | 3a | Endpoint `GET /api/cotizaciones/curvas-vista` (nadie lo consume) | no | **hecho** |
-| 3b | Tab **CURVAS** en el front (ARS izq / USD der) + absorber ONs | sí | pendiente |
+| 3b | Tab **CURVAS** en el front (ARS izq / USD der) + absorber ONs | sí | ✅ **hecho** |
 | 4 | Tab **FORWARDS** (+ Fair Value adentro) | sí | pendiente |
 | 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
 | 6 | Renombrar las columnas de `mercado.curvas` | no | ✅ **hecho** |
 | 7 | Migrar el blob `data` (y matarlo) + ficha única en `assets` | no | pendiente |
 | 8 | `mercado.especies` — las PATAS de cada bono | no | ✅ **aplicado** (758 patas) |
 | 9 | Limpiar el VALOR de `curvas.ticker` (sacar el sufijo D/C) | sí | pendiente |
+| 20 | Perf con EMISOR=CORPORATIVO + filtro de TEA + **ficha del bono** (§20) | sí | ✅ **hecho** (2026-08-28) |
+
+### Paso 20 (2026-08-28) — la vista con EMISOR=CORPORATIVO, el filtro de TEA y la FICHA del bono
+
+Tres cosas en una entrega, y la primera explica por qué las otras dos hacían falta.
+
+#### 20.a — Por qué CORPORATIVO ponía la pantalla lenta
+
+**La causa es 100% del navegador.** El filtro de EMISOR es client-side (el
+`emisor_tipo` viaja en cada bono), así que elegir CORPORATIVO **no le pega al
+backend**: el payload de `curvas-vista` es byte por byte el mismo y su cache TTL
+de 10 s tampoco cambia. Lo que cambia es cuánto tiene que dibujar recharts, y
+cambia de una forma que se multiplica sola.
+
+En el gráfico, cada **familia** es una serie propia: una `<Line>` con su fit y un
+`<Scatter>` con sus puntos. Para un soberano la familia es la LEY (Bonares /
+Globales) → **2**. Para un corporativo es la **INDUSTRIA** del emisor → hasta
+**10**. Y cada familia generaba su fit como una rampa de **101 puntos propios**.
+
+recharts recibe **un solo dataset** con una fila por valor de X, así que esas
+rampas no se comparten: cada una aporta 101 filas que ninguna otra serie usa. Y
+después **cada serie recorre el dataset entero**.
+
+| | familias | series | filas del dataset | recorridos |
+|---|---:|---:|---:|---:|
+| EMISOR = SOBERANO (69 bonos) | 2 | 4 | ~270 | ~1.100 |
+| EMISOR = CORPORATIVO (134) | 10 | 20 | ~1.150 | **~23.000** |
+
+**~20× más trabajo, cada 5 segundos** (la tabla es live) y **en las dos
+columnas**. Encima cada `<Scatter>` lleva un `<LabelList>`, y recharts evalúa una
+etiqueta **por fila del dataset y por serie**: ~11.000 etiquetas para dibujar 102
+tickers que, a 10 px, se pisan entre ellos y no se leen.
+
+**Los dos arreglos:**
+
+1. **La grilla del fit es COMPARTIDA** (`GRID_FIT = 48` para todo el gráfico, no
+   101 por familia). Las 10 industrias comparten las mismas filas → el dataset
+   baja de ~1.150 a ~150 **sin que el dibujo cambie**: una curva log sobre 48
+   puntos ya es suave, y los 101 originales caían varios dentro del mismo pixel.
+   Cada familia se evalúa **solo dentro de su propio rango** —un fit no se
+   extrapola fuera de los bonos que lo generaron— y como ese rango es contiguo,
+   los huecos quedan en las puntas: el `connectNulls` de la Line no puede
+   inventar un tramo.
+2. **Las etiquetas de ticker se apagan solas** arriba de 40 puntos, con un botón
+   `TICKERS` que dice en qué estado están y deja forzarlo. Apagar algo en
+   silencio es peor que la lentitud: el botón existe para que no sea un misterio.
+
+⚠️ **Lo que NO se tocó y por qué.** No se movió el poll de 5 s ni se metió el
+filtro de emisor en el backend: el problema no era la red ni la base, y "arreglar"
+lo que no está roto habría cambiado la frescura de la tabla —que es lo que la
+mesa mira— para no ganar nada.
+
+#### 20.b — Filtro de TEA (`TEA ≥`)
+
+Un piso de tasa, a la **derecha de la fila de EMISOR**. Corta sobre lo que el
+emisor ya dejó pasar, y ese orden se lee de izquierda a derecha. Aplica a **la
+tabla, el gráfico, los contadores de las pills y el universo del LIBRO** desde una
+sola fuente (el `useMemo` de `bonos`), así la pantalla no puede contradecir a sus
+propios controles.
+
+⚠️ **Es GLOBAL y las dos escalas NO son comparables.** En ARS las TEA viven entre
+30 % y 60 %; en USD, entre 5 % y 15 %. El mismo `TEA ≥ 5` no filtra **nada** a la
+izquierda y sí a la derecha. Se planteó hacerlo **por columna** y el user eligió
+uno solo, arriba, como el de EMISOR — decisión tomada a conciencia. La mitigación
+es que el botón **muestra el número activo** (`TEA ≥ 10%`) en vez de guardárselo:
+el efecto asimétrico tiene que ser visible, no una sorpresa cuando una columna se
+vacía.
+
+**Un bono sin TEA no puede cumplir "TEA ≥ 5", así que sale — pero eso NO es lo
+mismo que no llegar al piso**, y la pantalla no puede tapar la diferencia: se
+cuentan aparte y el botón los muestra (`−7`). La **tasa ruido** entra en la misma
+bolsa: con duration ~0 el número existe pero es un artefacto de anualizar pocos
+días (una ON a 3 días marcaba 142 %), así que un piso de tasa la dejaría pasar
+**siempre y arriba de todo** — justo al revés de para qué sirve el filtro. Es el
+mismo criterio con el que el gráfico ya la excluye, y lo decide el backend
+(`tasa_ruido`), no el navegador.
+
+No se persiste: un filtro que esconde bonos y sobrevive a la navegación es una
+pantalla que le miente al que vuelve a ella.
+
+#### 20.c — La FICHA del bono (`GET /api/cotizaciones/bono/{ticker}`)
+
+Click en cualquier fila abre un modal con el **flujo de fondos** (barras apiladas
+amortización + interés, los pagos vencidos apagados), el **cronograma en tabla**,
+el **bloque de tasas y riesgo por pata** y la **ficha** del papel. Contesta la
+pregunta que sigue siempre a mirar la tabla —*¿y cuándo paga?*— y que no estaba en
+ninguna pantalla de mercado: vivía dentro de `/api/titulos/flujos`, que devuelve
+los 222 bonos con su cronograma completo (**240 KB para mirar uno**).
+
+⚠️⚠️ **La regla que sostiene todo el service: el cronograma sale de la MISMA
+función que usa el motor para la TEA que muestra la fila.** El master **no guarda
+los flujos con un shape único** — guarda tres, y cuál toca lo decide
+`engines.curvas.rama_calculo` a partir de los EJES:
+
+| rama | fórmula | campos |
+|---|---|---|
+| `soberanos` / `dolar_linked` | `monto_flujo_soberano` | `amortizacion_pct` + `cupon_sobre_residual` (**ya resuelto en moneda**) |
+| `cer` | `monto_flujo_cer` | `amortizacion_pct` + `cupon_sobre_residual` × `residual_previo_pct` (**acá SÍ es una tasa**) |
+| `on` / `tasa_fija` / resto | `monto_flujo` | `amortizacion` + `interes` (absolutos por 100 VN) |
+
+Sumar `amortizacion + interes` para todos —que es lo que uno escribe sin mirar—
+daría **CERO** en soberanos y en CER: sus campos se llaman distinto. No tira, no
+avisa, **dibuja un gráfico vacío que parece un dato**, al lado de una TEA del
+12 %. Por eso el service no elige la fórmula: se la pregunta a `rama_calculo`.
+
+Y `cupon_sobre_residual` **significa dos cosas distintas según la rama** (una tasa
+en CER, un monto ya multiplicado en soberanos) con el mismo nombre y sin ninguna
+validación que las separe. Congelado por `tests/unit/test_bono_detalle.py`.
+
+**El BULLET no tiene array de flujos.** Las Lecaps/Boncaps pagan todo al
+vencimiento y el master lo guarda en `flujo_vencimiento`, no en `flujos`. Sin ese
+caso, **media pill TASA FIJA —la que más se mira— abriría el modal vacío**, y
+"sin cronograma cargado" se vería igual que "paga todo al final".
+
+**Lo que el modal NO hace: no calcula tasas.** TEA, duration, paridad y margen
+salen de `curvas_vista`, o sea de la misma consulta que dibuja la fila que lo
+abrió. Recalcularlas sería abrir la puerta a que el modal y la tabla muestren dos
+números distintos para el mismo bono.
 
 ### Pasos 10-13 (2026-08-16) — duales, ejes editables, industria y el PnL
 

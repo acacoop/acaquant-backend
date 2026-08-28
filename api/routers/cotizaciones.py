@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import require_module
 from api.services import argy as svc_argy
+from api.services import bono_detalle as svc_bono
 from api.services import curvas_vista as svc_curvas_vista
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
@@ -287,6 +288,20 @@ def curvas_vista() -> dict:
     navegador. Todavía NO lo consume nadie: convive con los viejos hasta que el
     front migre, así un deploy desparejo no rompe la vista."""
     return svc_curvas_vista.get_curvas_vista()
+
+
+@router.get("/bono/{ticker}")
+def bono_detalle(ticker: str) -> dict:
+    """La FICHA de un bono: identidad, cronograma de pagos y sus métricas live.
+
+    Abre el modal de la tab CURVAS (click en una fila). El `ticker` es el CORTO
+    (`AL30`), el mismo que muestra la tabla y el que es PK de `mercado.curvas`.
+
+    Devuelve `{"error": ...}` con 200 cuando el ticker no está en el master: el
+    modal tiene que poder decir "no encontré este bono" sin que la pantalla que lo
+    abrió se caiga (mismo criterio que `fair-value`).
+    """
+    return svc_bono.get_bono(ticker)
 
 
 @router.get("/renta-fija")

@@ -1245,6 +1245,14 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (8)** — **«¿Confirmación de qué?»** La columna de estado del
+  HISTORIAL habla del PROBLEMA, no de la escritura —eso ya lo afirma la línea,
+  con su ✔ y su de-qué-valor-a-qué-valor— y decía «esperando confirmación», que
+  se lee como «capaz no se escribió». Pasa a «escrito · el aviso sigue abierto».
+  Y del otro lado se arregló la mitad que era un bug: `completar_ficha` devolvía
+  `inmediato=False` **siempre**, incluso al completar el ÚLTIMO título, cuando
+  ahí no queda nada que esperar. `inmediato` no habla de la escritura: habla de
+  si el AVISO puede cerrarse.
 - **2026-08-28 (7)** — **Un trabajo de ocho minutos no es un request HTTP.**
   Medido corriendo el job a mano: **502 s** (1.885 cuentas, 6.311 filas). El
   proxy de Next que sirve `/api/agente` declara `maxDuration = 30` **segundos**,

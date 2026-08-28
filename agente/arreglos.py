@@ -546,13 +546,20 @@ class CompletarFicha(Arreglo):
                      + (f" · {len(saltados)} ya estaban" if saltados else "")
                      + (f" · {len(errores)} con error: {'; '.join(errores[:3])}"
                         if errores else "")),
-            # ⚠️ **`inmediato=False` aunque la escritura sea inmediata.** El
-            # hallazgo es de TODO el campo, así que completar 5 de 379 no lo
-            # resuelve: el detector lo va a seguir viendo con 374 y tiene que
-            # quedar abierto. Se cierra solo cuando la lista llega a cero, y
-            # entonces el cierre es POR ACCIÓN — que es lo único que habilita
-            # la reincidencia si vuelve a faltar.
-            inmediato=False)
+            # ⚠️ **`inmediato` acá NO habla de la escritura: habla del AVISO.**
+            #
+            # La escritura ya pasó y es segura —hay una línea de libro por
+            # título—, pero el hallazgo es de TODO el campo: completar 5 de 379
+            # no lo resuelve, el detector lo va a seguir viendo con 374 y tiene
+            # que quedar abierto.
+            #
+            # **Salvo que hayas completado el último.** Ahí no queda nada que
+            # esperar y decir «falta confirmar» sería mentir sobre un trabajo
+            # terminado — que es exactamente lo que hacía hasta el 2026-08-28,
+            # cuando el user preguntó *«¿confirmación de qué?? si yo ya lo
+            # apliqué»*. El cierre igual lo hace el detector y sigue siendo POR
+            # ACCIÓN; lo que cambia es lo que se le dice al que apretó.
+            inmediato=(quedan <= 0))
 
 
 ARREGLOS: dict[str, Arreglo] = {

@@ -950,16 +950,27 @@ def test_completar_ficha_no_escribe_lo_que_manda_el_navegador():
 
 
 def test_completar_ficha_no_resuelve_el_hallazgo_de_una():
-    """Completar 5 de 379 **no resuelve el problema**, y el arreglo lo declara.
+    """Completar 5 de 379 **no resuelve el problema** — pero completar el último
+    SÍ, y el arreglo tiene que distinguirlo.
 
     `inmediato=False` deja el hallazgo `en_curso`: el detector lo va a seguir
     viendo con 374 y tiene que quedar abierto. Se cierra solo cuando la lista
     llega a cero, y entonces el cierre es POR ACCIÓN — lo único que habilita la
     reincidencia si el campo vuelve a quedar vacío.
+
+    ⚠️ **Pero `inmediato` no habla de la escritura, habla del AVISO**, y cuando
+    ya no queda nada la pantalla no puede decir «falta confirmar». User
+    (2026-08-28), viendo cuatro títulos que acababa de cargar: *«¿confirmación
+    de qué?? si yo ya lo apliqué»*.
     """
     from agente import arreglos
 
-    assert "inmediato=False" in inspect.getsource(arreglos.CompletarFicha.aplicar)
+    src = _codigo(arreglos.CompletarFicha.aplicar)
+    assert "inmediato=quedan <= 0" in src.replace(" ", "").replace(
+        "inmediato=quedan<=0", "inmediato=quedan <= 0") or "quedan <= 0" in src, (
+        "el arreglo tiene que distinguir «faltan más» de «era el último»")
+    # Y sigue siendo el detector el que cierra: el arreglo NUNCA toca el estado.
+    assert "estado" not in src and "RESUELTO" not in src
 
 
 def test_un_arreglo_que_pide_datos_lo_declara():

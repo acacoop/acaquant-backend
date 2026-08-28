@@ -10,10 +10,7 @@ ni nada de la ALyC — datos privados, no de mercado.
 
 Las tools viven en `api/mcp/tools/` (un módulo por dominio, cada uno con un
 `register(mcp)`). Este archivo solo arma el FastMCP y decide qué se registra.
-Hoy: SOLO renta variable. El resto de los dominios de mercado (renta fija,
-derivados, opciones, forwards, breakevens, cauciones, futuros DLR, MEP, macro)
-quedan PAUSADOS en `tools/parked_mercado.py` — para reactivarlos, descomentar
-la línea de abajo.
+Hoy: SOLO renta variable.
 """
 from __future__ import annotations
 
@@ -42,8 +39,3 @@ mcp = FastMCP(
 
 # Dominio ACTIVO: renta variable.
 renta_variable.register(mcp)
-
-# Dominios PAUSADOS (renta fija / derivados / opciones / macro). Descomentar
-# para reactivar — el código vive en tools/parked_mercado.py.
-# from api.mcp.tools import parked_mercado
-# parked_mercado.register(mcp)

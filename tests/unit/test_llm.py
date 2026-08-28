@@ -24,10 +24,8 @@ def _resp(status=200, payload=None, text=""):
     return SimpleNamespace(status_code=status, text=text, json=lambda: payload)
 
 
-def _payload(content="hola", tool_calls=None, reasoning=None, usage=None):
+def _payload(content="hola", reasoning=None, usage=None):
     msg = {"content": content}
-    if tool_calls is not None:
-        msg["tool_calls"] = tool_calls
     if reasoning is not None:
         msg["reasoning_content"] = reasoning
     return {"choices": [{"message": msg}], "usage": usage or {
@@ -56,18 +54,6 @@ def test_chat_parsea_texto_y_usage(monkeypatch):
     assert r.ok and r.texto == "hola"
     assert (r.tokens_in, r.tokens_out) == (10, 5)
     assert (r.cache_hit, r.cache_miss) == (3, 7)
-    assert r.tool_calls == []
-
-
-def test_chat_devuelve_tool_calls_y_mensaje_crudo(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
-    calls = [{"id": "1", "function": {"name": "f", "arguments": "{}"}}]
-    import requests
-    monkeypatch.setattr(requests, "post",
-                        lambda *a, **kw: _resp(payload=_payload(content="", tool_calls=calls)))
-    r = llm.chat(MENSAJES, modelo="m", max_tokens=10, timeout_s=5, tools=[{"type": "function"}])
-    assert r.ok and r.tool_calls == calls
-    assert r.mensaje["tool_calls"] == calls  # crudo, para re-inyectar en el loop
 
 
 def test_retry_ante_5xx_y_exito_al_segundo(monkeypatch):
@@ -109,7 +95,7 @@ def test_reintentos_agotados_devuelve_ultimo_error(monkeypatch):
     assert r.ok is False and "HTTP 500" in r.error
 
 
-def test_thinking_y_tools_en_el_body(monkeypatch):
+def test_thinking_en_el_body(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
     capturado = {}
 
@@ -119,10 +105,8 @@ def test_thinking_y_tools_en_el_body(monkeypatch):
 
     import requests
     monkeypatch.setattr(requests, "post", post)
-    llm.chat(MENSAJES, modelo="m", max_tokens=10, timeout_s=5,
-             thinking="disabled", tools=[{"type": "function"}])
+    llm.chat(MENSAJES, modelo="m", max_tokens=10, timeout_s=5, thinking="disabled")
     assert capturado["thinking"] == {"type": "disabled"}
-    assert capturado["tools"] == [{"type": "function"}]
     # sin thinking → el campo NO viaja (el default lo decide el proveedor)
     capturado.clear()
     llm.chat(MENSAJES, modelo="m", max_tokens=10, timeout_s=5)
@@ -268,29 +252,6 @@ def test_gateway_delega_en_llm(monkeypatch):
     assert texto == "ok" and traza_id == 42
     assert llamado["mensajes"][0]["content"] == "s"
     assert llamado["reintentos"] == 1  # el camino simple conserva su retry
-
-
-def test_tools_loop_historial_se_inyecta(monkeypatch):
-    """completar_con_tools(historial=...) inserta los turnos entre system y user."""
-    from core import ai
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
-    monkeypatch.setattr(ai, "motivo_presupuesto", lambda u: None)
-    monkeypatch.setattr(ai, "_trazar", lambda *a, **kw: 1)
-    visto = {}
-
-    def chat_fake(mensajes, **kw):
-        visto["mensajes"] = list(mensajes)
-        return llm.RespuestaLLM(ok=True, texto="fin", mensaje={"content": "fin"})
-
-    monkeypatch.setattr(llm, "chat", chat_fake)
-    hist = [{"role": "user", "content": "antes"}, {"role": "assistant", "content": "resp"}]
-    texto, _tid, _ctx = ai.completar_con_tools(
-        "smoke", system="s", user="ahora", tools=[], ejecutar=lambda n, a: "",
-        historial=hist)
-    assert texto == "fin"
-    roles = [m["role"] for m in visto["mensajes"]]
-    assert roles == ["system", "user", "assistant", "user"]
-    assert visto["mensajes"][-1]["content"] == "ahora"
 
 
 @pytest.mark.parametrize("tier,esperado", [("flash", llm.modelo_flash), ("pro", llm.modelo_pro)])

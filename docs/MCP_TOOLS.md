@@ -24,9 +24,11 @@ tools de estrategia (`trade_analysis`, `book_analysis`) trabajan SOLO sobre
 posiciones que el usuario describe como parámetro: **no leen ninguna cuenta ni
 tenencia real.**
 
-También están **PAUSADOS** (código en `tools/parked_mercado.py`, no registrado):
-renta fija, derivados, opciones, forwards, breakevens, cauciones, futuros DLR,
-MEP y macro. No están disponibles como tools hoy.
+Tampoco hay tools de renta fija, derivados, opciones, forwards, breakevens,
+cauciones, futuros DLR, MEP ni macro. Existieron como código PAUSADO (nunca
+registrado, o sea nunca alcanzable) y se **borraron el 2026-08-28**: código
+muerto que hacía creer que esos dominios estaban a un descomentar de distancia.
+Si algún día se quieren, se escriben contra los services de hoy — que cambiaron.
 
 ## Convenciones críticas (leer antes de usar cualquier tool)
 

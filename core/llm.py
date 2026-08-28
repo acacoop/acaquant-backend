@@ -1,4 +1,4 @@
-"""core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).
+"""core/llm.py — transporte LLM único y RUTEO de proveedores.
 
 ESTE es el ÚNICO archivo del sistema que sabe qué proveedores de LLM usamos y
 cómo se le habla a cada uno. Cambiar de proveedor — o rutear una tarea a otro —
@@ -8,7 +8,7 @@ trazas) y cualquier caller futuro hablan con `chat()` y no saben con quién.
 Separación de responsabilidades:
   core/llm.py  → TRANSPORTE + RUTEO: HTTP, auth, retry, dialecto de cada
                  proveedor (nombres de parámetros, switch de razonamiento),
-                 parseo de la respuesta, tool-calling wire format.
+                 parseo de la respuesta.
   core/ai.py   → GATEWAY: tareas registradas (cada una declara su proveedor),
                  presupuestos diarios, trazas a ia.trazas, contrato
                  nunca-levanta de cara a las features.
@@ -43,7 +43,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -224,8 +224,6 @@ class RespuestaLLM:
     ok: bool
     texto: str | None = None
     razonamiento: str | None = None          # reasoning_content, si el proveedor lo expone
-    tool_calls: list[dict] = field(default_factory=list)
-    mensaje: dict | None = None              # el message crudo (para re-inyectar en loops de tools)
     tokens_in: int | None = None
     tokens_out: int | None = None
     cache_hit: int | None = None             # tokens servidos desde caché de prefijo
@@ -235,12 +233,10 @@ class RespuestaLLM:
 
 
 def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict], max_tokens: int,
-                thinking: str | None, tools: list[dict] | None) -> dict:
+                thinking: str | None) -> dict:
     """Traduce los parámetros neutros al dialecto del proveedor."""
     body: dict = {"model": modelo_id, "messages": mensajes,
                   cfg["max_tokens_param"]: max_tokens}
-    if tools:
-        body["tools"] = tools
     if cfg["dialecto"] == "openai":
         # store=false SIEMPRE: que la llamada no quede almacenada del lado del
         # proveedor para evals/distillation, sin depender de que el toggle de
@@ -275,7 +271,6 @@ def chat(
     max_tokens: int,
     timeout_s: int,
     thinking: str | None = None,
-    tools: list[dict] | None = None,
     reintentos: int = 0,
     proveedor: str | None = None,
 ) -> RespuestaLLM:
@@ -284,9 +279,6 @@ def chat(
     - `mensajes`: lista OpenAI-style ({role, content, ...}) — se manda tal cual.
     - `thinking`: "enabled"/"disabled" NEUTRO — cada proveedor lo traduce a su
       dialecto (thinking / reasoning_effort). None = no mandar nada.
-    - `tools`: schemas de function-calling. Si el modelo pide herramientas,
-      vuelven en `tool_calls` y `mensaje` trae el message crudo para
-      re-inyectarlo en el loop del caller.
     - `reintentos`: cuántas veces reintentar ante timeout / conexión / 5xx.
       Ante 4xx JAMÁS se reintenta (pedido mal armado).
 
@@ -307,7 +299,7 @@ def chat(
 
     url = _base_url(cfg) + "/chat/completions"
     body = _armar_body(cfg, modelo_id=modelo, mensajes=mensajes, max_tokens=max_tokens,
-                       thinking=thinking, tools=tools)
+                       thinking=thinking)
 
     t0 = time.perf_counter()
     ultimo_error: str | None = None
@@ -340,8 +332,6 @@ def chat(
             ok=True,
             texto=(msg.get("content") or "").strip() or None,
             razonamiento=(msg.get("reasoning_content") or "").strip() or None,
-            tool_calls=list(msg.get("tool_calls") or []),
-            mensaje=msg,
             tokens_in=usage.get("prompt_tokens"),
             tokens_out=usage.get("completion_tokens"),
             cache_hit=cache_hit,

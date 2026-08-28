@@ -28,10 +28,10 @@ manager, clientes — datos privados, no de mercado. `trade_analysis` y
 `book_analysis` operan SOLO sobre posiciones que el usuario describe como
 parámetro; no leen ninguna cuenta real.
 
-**Pausados** (código en `api/mcp/tools/parked_mercado.py`, no registrado): renta
-fija, derivados, opciones, forwards, breakevens, cauciones, futuros DLR, MEP y
-macro. Para reactivar un dominio, descomentar `parked_mercado.register(mcp)` en
-`api/mcp/server.py`.
+**No hay tools de otros dominios de mercado** (renta fija, derivados, opciones,
+forwards, breakevens, cauciones, futuros DLR, MEP, macro). El código pausado que
+las tenía se borró el 2026-08-28: nunca estuvo registrado, así que nunca fue
+alcanzable.
 
 ## Auth — dos caminos
 

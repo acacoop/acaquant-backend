@@ -1,16 +1,17 @@
-"""core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).
+"""core/ai.py — gateway único de IA.
 
 TODA llamada a un LLM del sistema pasa por acá. El gateway resuelve lo que
 ninguna feature debería resolver por su cuenta:
 
 - **Tareas registradas** (_TAREAS): cada llamada declara una tarea y de ahí
   salen proveedor, modelo (tier flash/pro), max_tokens y timeout. El PROMPT
-  vive en el módulo de la feature (ej. core/ai_resumen.py).
+  vive en el módulo de la feature (ej. jobs/research_mail.py).
 - **Transporte y ruteo**: delegados a `core/llm.py` — el ÚNICO módulo que
   conoce a los proveedores (HTTP, auth, retry, dialecto). Una tarea elige su
   proveedor con la clave `proveedor`; cambiar/agregar uno = tocar SOLO
   core/llm.py. Si el proveedor de una tarea no está configurado, la llamada
-  NO se hace y NO cae a otro (fail-closed — ver el ruteo del asistente).
+  NO se hace y NO cae a otro (fail-closed: caer a otro proveedor mandaría
+  datos del negocio justo al que entrena con ellos).
 - **Presupuesto diario de tokens** (global y por usuario) contra ia.trazas:
   superado → la llamada se niega y la feature degrada. Kill switch de costos.
 - **Reintentos**: 1 retry ante timeout / error de conexión / 5xx. Nunca ante 4xx.
@@ -118,14 +119,6 @@ def _modelo(cfg: dict) -> str:
     return llm.modelo(cfg.get("tier", "flash"), _proveedor(cfg))
 
 
-def disponible(tarea: str) -> bool:
-    """True si el PROVEEDOR de esa tarea tiene credencial. Las features lo
-    consultan para apagarse con un mensaje claro en vez de intentar y fallar
-    (y para NO caer a otro proveedor: el ruteo es una decisión de privacidad,
-    no un balanceo)."""
-    return llm.configurado(_proveedor(_config(tarea)))
-
-
 # ── Config editable (ia.config, editable desde Manager → OBSERVABILIDAD → IA) ──
 # Precedencia: tabla ia.config > env var > default del código. Cache 60s para
 # no pegarle a la DB en cada llamada; best-effort (DB caída → último conocido).
@@ -153,14 +146,6 @@ def _config_db() -> dict:
 def invalidate_config_cache() -> None:
     """La llama el service al editar presupuestos para que el gateway los vea ya."""
     _config_db_cache["ts"] = 0.0
-
-
-def saldo_proveedor() -> dict | None:
-    """Saldo real de la cuenta del proveedor DEFAULT, cacheado 5 min
-    (core/llm.py). None si no hay key ni valor previo. Nunca levanta.
-    Los proveedores secundarios (ej. el del asistente) no exponen saldo —
-    su gasto se sigue por `ia.trazas` y por el panel del proveedor."""
-    return llm.saldo_cuenta()
 
 
 def presupuesto_dia_global() -> int:
@@ -295,109 +280,6 @@ def completar(
         tarea, system=system, user=user, usuario=usuario, detalle=detalle
     )
     return texto
-
-
-_MAX_TOOL_RESULT_CHARS = 4000   # resultados de tools COMPACTOS (canon Anthropic)
-_MAX_RONDAS_TOOLS = 4           # techo de idas y vueltas del loop de tools
-
-
-def completar_con_tools(
-    tarea: str,
-    *,
-    system: str,
-    user: str,
-    tools: list[dict],
-    ejecutar,
-    usuario: str | None = None,
-    detalle: str | None = None,
-    historial: list[dict] | None = None,
-) -> tuple[str | None, int | None, str]:
-    """Function calling (piloto 2026-07-20, ver docs/QUANTAI.md): el modelo puede
-    PEDIR datos vía `tools` (schema OpenAI) y `ejecutar(nombre, args) -> str`
-    los resuelve en código (resultados compactos, capados). Devuelve
-    (texto, traza_id, contexto_tools) — contexto_tools acumula TODO lo que las
-    tools devolvieron, para que el caller verifique los números contra eso.
-    `historial`: turnos previos [{role, content}] que se insertan entre el
-    system y el user (memoria conversacional del caller — ya saneada por él).
-    Mismo contrato que completar(): NUNCA levanta; cualquier fallo → (None, None, "")."""
-    try:
-        return _completar_tools_loop(tarea, system=system, user=user, tools=tools,
-                                     ejecutar=ejecutar, usuario=usuario, detalle=detalle,
-                                     historial=historial)
-    except Exception as e:
-        logger.warning("core.ai: fallo inesperado en %s (tools): %s: %s",
-                       tarea, type(e).__name__, e)
-        return None, None, ""
-
-
-def _completar_tools_loop(
-    tarea: str, *, system: str, user: str, tools: list[dict], ejecutar,
-    usuario: str | None, detalle: str | None, historial: list[dict] | None = None,
-) -> tuple[str | None, int | None, str]:
-    import json as _json
-
-    cfg = _config(tarea)
-    if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
-        return None, None, ""
-    modelo = _modelo(cfg)
-    mensajes = [{"role": "system", "content": system}]
-    mensajes.extend(historial or [])
-    mensajes.append({"role": "user", "content": user})
-    contexto_tools: list[str] = []
-    traza_id = None
-
-    for ronda in range(1, _MAX_RONDAS_TOOLS + 1):
-        motivo = motivo_presupuesto(usuario)
-        if motivo:
-            _trazar(tarea, modelo, usuario, None, None, None, False,
-                    f"presupuesto diario agotado ({motivo})", detalle=detalle)
-            return None, None, "\n".join(contexto_tools)
-        r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
-                     timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),
-                     # 1 retry como el camino simple: desde que TODAS las vistas
-                     # del copiloto pasan por acá (tool común del buzón), un
-                     # timeout transitorio no puede costar la respuesta
-                     tools=tools, reintentos=1, proveedor=_proveedor(cfg))
-        if not r.ok:
-            _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
-                    r.error, detalle=detalle)
-            return None, None, "\n".join(contexto_tools)
-
-        if not r.tool_calls:
-            texto = r.texto or ""
-            traza_id = _trazar(
-                tarea, modelo, usuario, r.tokens_in, r.tokens_out, r.latencia_ms,
-                bool(texto), None if texto else "respuesta vacía", detalle=detalle,
-                respuesta=texto or None, cache_hit=r.cache_hit, cache_miss=r.cache_miss)
-            return (texto or None), traza_id, "\n".join(contexto_tools)
-
-        # el modelo pidió datos: el CÓDIGO los resuelve y se le devuelven
-        _trazar(tarea, modelo, usuario, r.tokens_in, r.tokens_out, r.latencia_ms,
-                True, None, detalle=f"[tools ronda {ronda}] " + (detalle or ""),
-                respuesta="; ".join(
-                    (c.get("function") or {}).get("name", "?") for c in r.tool_calls),
-                cache_hit=r.cache_hit, cache_miss=r.cache_miss)
-        mensajes.append(r.mensaje)
-        for c in r.tool_calls:
-            fn = (c.get("function") or {})
-            nombre = fn.get("name") or ""
-            try:
-                args = _json.loads(fn.get("arguments") or "{}")
-            except ValueError:
-                args = {}
-            try:
-                resultado = str(ejecutar(nombre, args))[:_MAX_TOOL_RESULT_CHARS]
-            except Exception as e:
-                resultado = f"error de la herramienta: {type(e).__name__}: {e}"
-            contexto_tools.append(f"[tool {nombre}({_json.dumps(args, ensure_ascii=False)})] "
-                                  f"{resultado}")
-            mensajes.append({"role": "tool", "tool_call_id": c.get("id"),
-                             "content": resultado})
-
-    # se agotaron las rondas con el modelo todavía pidiendo tools
-    _trazar(tarea, modelo, usuario, None, None, None, False,
-            f"tools: {_MAX_RONDAS_TOOLS} rondas sin respuesta final", detalle=detalle)
-    return None, None, "\n".join(contexto_tools)
 
 
 def completar_con_traza(

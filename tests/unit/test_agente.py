@@ -1810,3 +1810,71 @@ def test_lo_de_derivados_no_tiene_emisor_y_eso_se_declara():
     # Y el motor solo completa vacíos — lo cargado a mano se reporta, no se pisa.
     j = src.index("if _vacio(actual):")
     assert "conflictos.append" in src[j:j + 400]
+
+
+def test_la_tabla_que_falta_se_avisa_siempre_y_no_un_dia():
+    """User (2026-08-28): *«db_peso tiene que servir para detectar cuando se
+    borra una tabla… no tiene que dejar de avisarme cuando se borra una tabla y
+    cuál»*.
+
+    Y dejaba de avisar al día. `de_hace(24)` mira la foto de hace 24 h, y esa
+    referencia **se mueve**: una tabla borrada el martes 19:00 se ve el
+    miércoles al mediodía (la foto del martes al mediodía la tenía) y deja de
+    verse el miércoles a la noche, porque a esa altura «hace 24 h» ya es un
+    mundo sin la tabla. Después, silencio para siempre.
+
+    La otra pregunta —«¿está la que el sistema dice que tiene que estar?»— se
+    contesta SIEMPRE, y la respuesta ya estaba escrita en `sql/schema.sql`.
+    """
+    from agente import peso
+
+    # Lo dropeado a propósito NO es un faltante: sin esta resta el agente
+    # pediría para siempre las tablas que decidimos borrar.
+    d = peso.declaradas()
+    assert len(d) > 200, "no leí el schema"
+    assert "manager.controles_datos" not in d, "la dimos de baja a propósito"
+    assert "agente.hallazgos" in d
+
+    # Las DOS preguntas conviven: la de la foto atrapa lo no declarado, la del
+    # schema no vence nunca.
+    src = _codigo(sistema.db_peso)
+    assert "peso.declaradas()" in src
+    assert "ayer.items()" in src, "sigue mirando la foto para lo no declarado"
+    # Y cada aviso dice de dónde salió: uno dura para siempre y el otro un día.
+    assert "schema" in src and "foto_24h" in src
+
+
+def test_el_peso_total_avisa_en_las_dos_franjas_del_dia():
+    """Pedido del user (2026-08-28): *«que sea fijo dos veces por día, a las 11
+    y a las 16, que avise el peso total de la base»* — hora de la mesa.
+
+    El dato se venía midiendo y guardando cada hora desde siempre; lo que
+    faltaba era **dónde verlo**. El módulo decía que el peso «viaja aparte» y
+    ese aparte nunca se construyó.
+    """
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+
+    from agente import peso
+
+    assert peso.FRANJAS_ART == (11, 16)
+    # ART = UTC−3.
+    def f(h_art):
+        return peso.franja_de_hoy(_dt(2026, 8, 28, h_art + 3, 0, tzinfo=_U))
+    assert f(8) == "", "antes de las 11 no hay nada que informar"
+    assert f(11) == "11:00"
+    assert f(13) == "11:00", "sigue vigente la de las 11 hasta que llegue la de las 16"
+    assert f(16) == "16:00"
+    assert f(19) == "16:00"
+
+    # ⚠️ La franja es el SUJETO: así el de las 16 no pisa al de las 11, y cada
+    # uno nace y muere como un aviso propio. Y se re-emite en cada pasada
+    # mientras está vigente — `registro` cierra por ausencia lo que un detector
+    # deja de ver, así que emitirlo solo a las 11:00 en punto lo borraría a las
+    # 12:00.
+    src = _codigo(sistema._peso_total)
+    # La franja va en la REGLA y el sujeto es lo que se mide: así el aviso de
+    # las 16 NACE en vez de pisar al de las 11, y no hay que escribir a mano de
+    # qué es el problema (que es la firma de un sujeto mal elegido).
+    assert "peso_total_" in src and "la base" in src
+    assert "24 * 7" in src, "el salto se lee contra la semana, no contra ayer"

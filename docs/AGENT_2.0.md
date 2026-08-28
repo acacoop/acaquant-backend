@@ -1245,6 +1245,17 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (12)** — **`db_peso` deja de olvidarse de la tabla que falta, y
+  empieza a decir cuánto pesa la base.** Comparar contra la foto de hace 24 h
+  solo sirve UN día: la referencia se mueve, y una tabla borrada el martes a las
+  19 deja de verse el miércoles a la noche —a esa altura «hace 24 h» ya es un
+  mundo sin la tabla— para siempre. Se agrega la otra pregunta, que se puede
+  contestar siempre: **«¿está la que `sql/schema.sql` dice que tiene que
+  estar?»**, restando las dadas de baja a propósito. Las dos conviven y cada
+  aviso dice de dónde salió. Y el **peso total** de la base sale dos veces por
+  día (11 y 16, hora de la mesa, pedido del user): el dato se medía y guardaba
+  cada hora desde siempre, faltaba dónde verlo. La franja va en la REGLA y no en
+  el sujeto, para que el de las 16 nazca en vez de pisar al de las 11.
 - **2026-08-28 (11)** — **Tres cosas que el agente medía sin entender.**
   (a) **Una tabla de OCASIONES no tiene cadencia.** La heurística de
   `core/escribe.py` (jobs/engines → reloj) falla en una clase: la carpeta no

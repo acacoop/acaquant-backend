@@ -139,7 +139,9 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
 
     Habilidad(
         nombre="db_peso", tipo="detector", dominio="SISTEMA",
-        que_mira="tablas que crecieron fuera de lo suyo, medido en vivo",
+        que_mira=("lo que creció fuera de lo suyo, las tablas que faltan, y el "
+                  "peso total de la base dos veces por día (11 y 16, hora de "
+                  "la mesa)"),
         cada_segundos=_H, ventana="siempre",
         correr=sistema.db_peso),
 

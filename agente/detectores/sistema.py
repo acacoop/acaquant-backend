@@ -727,16 +727,95 @@ def db_peso(u: dict) -> list[Hallazgo]:
                       f"base — no un número fijo que envejece con ella.",
             evidencia={"bytes": b, "delta": delta, "pct": pct,
                        "corte_bytes": corte}))
+    # ⚠️⚠️ **DOS PREGUNTAS DISTINTAS SOBRE LO MISMO, Y LA SEGUNDA NO CADUCA.**
+    #
+    # «Estaba hace 24 h y ahora no» sirve UN DÍA: la referencia se mueve. Una
+    # tabla borrada el martes 19:00 se ve el miércoles al mediodía y deja de
+    # verse el miércoles a la noche, porque a esa altura «hace 24 h» ya es un
+    # mundo sin la tabla. Después, silencio para siempre — y la tabla sigue sin
+    # estar.
+    #
+    # «¿Está la que el sistema dice que tiene que estar?» se contesta SIEMPRE, y
+    # la respuesta la tiene `sql/schema.sql`. Las dos conviven: la primera
+    # atrapa lo que no está declarado, la segunda no vence nunca.
+    faltantes = {t for t in peso.declaradas() if t not in hoy}
+    for tabla in sorted(faltantes):
+        b = ayer.get(tabla)
+        out.append(Hallazgo(
+            sujeto=tabla, regla="desaparecio", severidad="alta",
+            problema=("la tabla NO está y `sql/schema.sql` dice que tiene que "
+                      f"existir · {reloj.hhmm()}"),
+            detalle=(f"hace 24 h pesaba {peso.mb(b)}" if b else
+                     "tampoco estaba hace 24 h: se borró antes de ayer"),
+            que_hacer=("Si fue a propósito, sacarla también de `sql/schema.sql` "
+                       "(un `DROP TABLE IF EXISTS`) y el aviso se va solo. Si "
+                       "no, `apply_schema` la vuelve a crear vacía — y ahí falta "
+                       "ver qué pasó con lo que tenía."),
+            evidencia={"bytes_antes": b, "fuente": "schema"}))
+
+    # Y lo que se borró sin estar declarado: acá el único testigo es la foto.
     for tabla, b in ayer.items():
-        if tabla not in hoy:
+        if tabla not in hoy and tabla not in faltantes:
             out.append(Hallazgo(
                 sujeto=tabla, regla="desaparecio", severidad="alta",
                 problema=f"la tabla ya NO está · hace 24 h pesaba {peso.mb(b)}",
+                detalle=("no está declarada en `sql/schema.sql`, así que este "
+                         "aviso solo dura 24 h: es el único rastro que queda"),
                 que_hacer="Si fue a propósito, ignorala. Si no, alguien dropeó "
                           "algo.",
-                evidencia={"bytes_antes": b}))
+                evidencia={"bytes_antes": b, "fuente": "foto_24h"}))
+
+    out += _peso_total(hoy)
     peso.guardar(hoy)
     return out
+
+
+def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
+    """El tamaño de TODA la base, dos veces por día (11 y 16, hora de la mesa).
+
+    Pedido del user (2026-08-28). El dato se venía midiendo y guardando cada
+    hora desde siempre — lo que faltaba era **dónde verlo**: el módulo decía que
+    el peso «viaja aparte» y ese aparte nunca se construyó.
+
+    Es un AVISO: no hay nada que apretar. Va a AHORA con su fecha y su hora, y
+    al día siguiente se vacía solo como todo lo demás.
+    """
+    from agente import peso
+
+    franja = peso.franja_de_hoy()
+    if not franja:
+        return []                      # todavía no pasó ninguna franja de hoy
+
+    total = sum(hoy.values())
+    # Contra la semana pasada, no contra ayer: un día no dice nada de una
+    # tendencia, y el salto de siete días es el que se puede leer de un vistazo.
+    hace_una_semana = peso.de_hace(24 * 7)
+    antes = sum(hace_una_semana.values()) if hace_una_semana else 0
+    delta = (f" · {'+' if total >= antes else ''}{peso.mb(total - antes)} "
+             f"en 7 días (era {peso.mb(antes)})" if antes else
+             " · sin referencia de hace 7 días todavía")
+
+    top = sorted(hoy.items(), key=lambda x: -x[1])[:5]
+    # ⚠️ **EL SUJETO ES LA BASE; LA FRANJA VA EN LA REGLA.**
+    #
+    # La primera versión ponía `sujeto=franja` y tenía que escribir el `nombre`
+    # a mano («peso de la base») — que es exactamente la firma que el test
+    # `test_de_que_es_el_problema_nunca_se_escribe_a_mano` prohíbe: si hay que
+    # redactar de qué es el problema, el sujeto está mal elegido. Y lo estaba:
+    # «16:00» no es de qué se habla, es cuándo.
+    #
+    # Con la franja en la REGLA, el trío sigue siendo distinto entre las 11 y
+    # las 16 —que es lo que hace que el segundo aviso nazca en vez de pisar al
+    # primero— y el sujeto dice lo que se está midiendo.
+    return [Hallazgo(
+        sujeto="la base", regla=f"peso_total_{franja[:2]}", severidad="baja",
+        problema=f"la base pesa {peso.mb(total)} en {len(hoy)} tablas{delta}",
+        detalle=" · ".join(f"{t} {peso.mb(b)}" for t, b in top),
+        que_hacer=("Nada: es el número del día. Si el salto de la semana no se "
+                   "explica con las cinco de arriba, mirar qué creció."),
+        evidencia={"bytes": total, "tablas": len(hoy), "franja": franja,
+                   "bytes_hace_7d": antes,
+                   "top": [{"tabla": t, "bytes": b} for t, b in top]})]
 
 
 # ═══ actividad ═════════════════════════════════════════════════════════════

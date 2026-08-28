@@ -1187,3 +1187,143 @@ def test_la_tarjeta_de_un_job_contesta_lo_que_decide():
     # Y la frase de los MOTORES no se le dice a un job: es verdad para un motor
     # y mentira para las 35 piezas de tipo job, que es la mayoría.
     assert 'p.get("tipo") or ""' in src and '== "motor"' in src
+
+
+def test_no_se_le_pregunta_al_snapshot_antes_de_que_arranque_el_motor():
+    """El mercado abre ANTES que nuestro feed, y no es lo mismo.
+
+    User (2026-08-28): *«una alerta de BONO SIN PRECIO no puede figurar antes de
+    las 10:31 de los días hábiles, porque acá no es que no funciona el AGENT: el
+    motor se prende antes por las dudas y queda sin precio un largo rato»*.
+
+    Medido ese día: de 256 hallazgos abiertos, **225 eran de `bono_sin_precio`**
+    (195 `precio_viejo` + 30 `sin_punta`) — el 88% del tablero, generado en una
+    franja donde el sistema no puede tener precios.
+    """
+    from agente import reloj
+
+    # La hora de arranque NO se inventa: es la del crontab de verdad.
+    cron = (RAIZ / "deploy" / "crontab.txt").read_text()
+    linea = next(x for x in cron.splitlines()
+                 if "systemctl restart motor_rofex.service" in x
+                 and not x.lstrip().startswith("#"))
+    minuto, hora = linea.split()[0], linea.split()[1]
+    assert (int(hora), int(minuto)) == reloj.FEED_ARRANCA_UTC, (
+        f"el crontab arranca los motores {hora}:{minuto} UTC y `reloj` cree "
+        f"{reloj.FEED_ARRANCA_UTC}: dos relojes para la misma pregunta")
+
+    # 10:31 ART = 13:31 UTC es el número que puso el user.
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+    def _a(h, m):
+        return _dt(2026, 8, 28, h, m, tzinfo=_U)     # un viernes hábil
+    assert not reloj.feed_caliente(_a(13, 0)), "abre la rueda, no el feed"
+    assert not reloj.feed_caliente(_a(13, 25)), "el motor recién arrancó"
+    assert reloj.feed_caliente(_a(13, 31)), "10:31 ART tiene que estar caliente"
+    assert not reloj.feed_caliente(_a(2, 0)), "de madrugada no hay feed"
+
+    # ⚠️ Y los que leen el snapshot levantan `SinDatos`, NO devuelven `[]`:
+    # devolver vacío afirma «no hay nada» y el motor cierra por ausencia, así
+    # que a las 13:00 se cerrarían los hallazgos de ayer y a las 13:31 volverían
+    # a nacer, todos los días (invariante #1).
+    guarda = inspect.getsource(mercado._feed_o_sindatos)
+    assert "raise SinDatos" in guarda and "return []" not in guarda
+    for fn in (mercado.bono_sin_precio, mercado.bono_sin_tasa,
+               mercado.precio_moneda):
+        assert "_feed_o_sindatos()" in inspect.getsource(fn), (
+            f"{fn.__name__} lee el snapshot sin esperar al motor")
+
+
+def test_no_se_exige_dar_de_alta_lo_que_nosotros_estamos_borrando():
+    """Dos mitades nuestras peleándose, y ninguna falla.
+
+    `jobs/cleanup_curvas` borra de `mercado.curvas` todo lo que vence a menos de
+    2 días hábiles. `soberanos_faltantes` lo ve en 1816, no lo ve en el master y
+    exige darlo de alta **con su cronograma** — un bono que amortiza el lunes.
+
+    Es la primera fila que tuvo `reincidencias`: M31G6, alta el 24/08, borrado
+    por el cleanup, de vuelta el 28/08 («aguantó 3.6 días»).
+    """
+    from core import curvas_sql
+
+    habiles = {"2026-08-28", "2026-08-31", "2026-09-01", "2026-09-02"}
+    hoy = "2026-08-28"
+    # Vence el lunes: a 1 día hábil → lo estamos sacando.
+    assert curvas_sql.sale_del_master("2026-08-31", habiles, hoy)
+    # Y da igual si viene como `date` o como texto (1816 publica ISO).
+    from datetime import date as _d
+    assert curvas_sql.sale_del_master(_d(2026, 8, 31), habiles, hoy)
+    # A 3 días hábiles todavía es un bono vivo.
+    assert not curvas_sql.sale_del_master("2026-09-02", habiles, hoy)
+    # Sin fecha o sin calendario NO se afirma que esté saliendo: ante la duda,
+    # el instrumento sigue en el master.
+    assert not curvas_sql.sale_del_master(None, habiles, hoy)
+    assert not curvas_sql.sale_del_master("2026-08-31", set(), hoy)
+
+    # ⚠️ **UNA sola regla, no dos iguales.** El job la consulta, no la
+    # reimplementa: si volviera a tener su propio `< 2`, las dos se separarían
+    # el día que alguien cambie una — y no fallaría nada.
+    job = (RAIZ / "jobs" / "cleanup_curvas.py").read_text()
+    assert "curvas_sql.sale_del_master" in job
+    assert "def dias_habiles_entre" not in job, "el job se quedó con su copia"
+    det = inspect.getsource(mercado.soberanos_faltantes)
+    assert "curvas_sql.sale_del_master" in det
+    assert "< 2" not in det and "DIAS_HABILES" not in det.split("sale_del_master")[0]
+
+
+def test_el_dia_que_falta_no_depende_de_que_el_arbol_lo_note():
+    """El botón no puede colgar de una señal que se apaga.
+
+    El 28/08 el job del AuM falló a las 08:00, la tarjeta apareció, y para el
+    mediodía `motor_caido` tenía **cero abiertos** — mientras el día seguía sin
+    escribirse (medido con `scripts/diag_tenencia_dia`: 0 filas y 0 renglones en
+    `portafolio.backfill_log` para el 27/08).
+
+    El árbol de diagnóstico juzga la pieza por su último `run_status` y su
+    frescura, y ese veredicto parpadea. **La pregunta que decide no parpadea**:
+    el día está en la tabla o no está. Así que se hace igual.
+    """
+    src = inspect.getsource(sistema.motor_caido)
+    i = src.index("for job in rehacer.REHACIBLES")
+    barrido = src[i:i + 1400]
+    assert 'd["estado"] != "falta"' in barrido, (
+        "solo el día que FALTA es trabajo: «ya está» y «no pude mirar» no")
+    assert 'regla="job_sin_dato"' in barrido, "sin esa regla no hay botón"
+    # Y NO duplica lo que el árbol ya cantó.
+    assert "if job in ya_dichos" in barrido
+    assert "ya_dichos.add(canon)" in src
+
+
+def test_rehacer_solo_reescribe_lo_que_falta():
+    """La pregunta del user (2026-08-28): *«si vamos a poner un botón tiene que
+    validar que no haya realmente datos en la base, o que si ejecuta reemplace
+    los datos por las dudas»*.
+
+    Las dos cosas, y ya estaban en el job — lo que faltaba era decirlo:
+
+      · `_write_date` hace DELETE + INSERT por (fecha, id_cuenta) en UNA
+        transacción: **reemplaza**, no duplica ni acumula.
+      · `_ya_hechas` saca de la lista las cuentas que ya figuran `ok`/`vacia`
+        en `portafolio.backfill_log`, así que un re-run **solo reintenta las que
+        fallaron**. Lo bueno no se toca. (`--force` es el que rehace todo.)
+
+    Este test congela las dos: si el job dejara de saltear lo hecho, apretar el
+    botón pasaría a reescribir 1.000 cuentas sanas para arreglar 3.
+    """
+    job = (RAIZ / "jobs" / "portafolio_backfill.py").read_text()
+
+    i = job.index("def _write_date")
+    cuerpo = job[i:i + 1200]
+    assert "DELETE FROM portafolio.tenencia WHERE fecha = %s AND id_cuenta = ANY" in cuerpo
+    assert "INSERT INTO portafolio.tenencia" in cuerpo
+    assert cuerpo.index("DELETE") < cuerpo.index("INSERT INTO portafolio.tenencia")
+
+    j = job.index("def _ya_hechas")
+    assert "status IN ('ok', 'vacia')" in job[j:j + 400], (
+        "sin este filtro, un re-run reescribiría también las cuentas sanas")
+    assert "hechas = set() if force else _ya_hechas(iso)" in job
+
+    # Y la guarda del agente sigue siendo la tabla, no el exit code.
+    r = inspect.getsource(rehacer.rehacer)
+    assert "antes = hay_dato(job, fecha)" in r and "if antes:" in r
+    assert "despues = hay_dato(job, fecha)" in r

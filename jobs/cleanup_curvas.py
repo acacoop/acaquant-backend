@@ -17,22 +17,14 @@ from core import curvas_sql
 from core.postgres import get_pool
 
 
-def dias_habiles_entre(hoy_iso: str, venc_iso: str, habiles: set[str]) -> int:
-    """Cuenta días hábiles entre hoy (excl) y vencimiento (incl).
-
-    Retorna 0 si vencimiento <= hoy.
-    """
-    if venc_iso <= hoy_iso:
-        return 0
-    return sum(1 for d in habiles if hoy_iso < d <= venc_iso)
-
-
 def run(dry: bool = False):
     hoy = date.today().isoformat()
 
-    # Cargar calendario hábil (SQL-only: mercado.dias_habiles)
-    from core.calendario import dias_habiles_ordenados
-    habiles = set(dias_habiles_ordenados())
+    # ⚠️ La regla («a menos de 2 días hábiles sale») vive en
+    # `core.curvas_sql`, NO acá: el AV AGENT mira el mismo master y necesita
+    # poder preguntarla. Cuando estaba adentro de este `run()`, el agente exigía
+    # dar de alta los bonos que este job acababa de borrar (REGLA #9).
+    habiles = curvas_sql.calendario_habil()
     if not habiles:
         print("ERROR: mercado.dias_habiles vacía. Ejecutar jobs.dias_habiles primero.")
         return
@@ -45,8 +37,8 @@ def run(dry: bool = False):
         if not venc or not tc:
             continue
         venc = str(venc)[:10]
-        bdays = dias_habiles_entre(hoy, venc, habiles)
-        if bdays < 2:
+        bdays = curvas_sql.dias_habiles_entre(hoy, venc, habiles)
+        if curvas_sql.sale_del_master(venc, habiles, hoy):
             a_borrar.append(tc)
             print(f"  {'[DRY] ' if dry else ''}BORRAR  {tc}  "
                   f"vence={venc}  dias_habiles={bdays}")

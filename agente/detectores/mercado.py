@@ -5,7 +5,7 @@ Todos devuelven `list[Hallazgo]` o levantan `SinDatos`. **Ninguno escribe.**
 from __future__ import annotations
 
 import logging
-from datetime import UTC, timedelta
+from datetime import UTC, date, timedelta
 
 from agente import fuentes, reloj
 from agente.tipos import Hallazgo, SinDatos
@@ -42,7 +42,7 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
     renombre de columnas de 2026-08-15 ya cerró — `curvas.ticker` ES la PK
     (`AL30`), el símbolo de mercado vive en `instrumento`.
     """
-    from core import curvas_ejes
+    from core import curvas_ejes, curvas_sql
 
     univ = fuentes.universo_1816()
     if univ is None:
@@ -55,6 +55,21 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
     mios = {_tk(d.get("ticker_corto")) for d in docs} - {""}
     cartera = fuentes.en_cartera() or set()
     tickers_primary = fuentes.tickers_en_primary()
+
+    # ⚠️⚠️ **LO QUE ESTAMOS SACANDO NO ES UN FALTANTE.** `jobs/cleanup_curvas`
+    # borra del master todo lo que vence a menos de 2 días hábiles, y sin esto
+    # el detector exigía dar de alta —con su cronograma y sus ejes— bonos que
+    # amortizan el lunes. M31G6 lo probó: alta el 24/08, borrado por el cleanup,
+    # de vuelta acá el 28/08 → la primera fila de `reincidencias`.
+    #
+    # La regla NO se reimplementa: se le pregunta a `core.curvas_sql`, que es
+    # donde vive desde 2026-08-28. El calendario se lee UNA vez, no por bono.
+    habiles = curvas_sql.calendario_habil() or set()
+    # ⚠️ **EL MISMO RELOJ QUE EL JOB.** `cleanup_curvas` usa `date.today()` (el
+    # del Droplet); si acá se usara la fecha argentina, entre las 21 y las 00 la
+    # ventana daría distinto y volveríamos a tener dos criterios.
+    hoy_iso = date.today().isoformat()
+    por_vencer = 0
 
     out, sin_primary = [], []
     for ticker, inst in sorted((univ["instrumentos"] or {}).items()):
@@ -70,6 +85,12 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
                 continue
             if ejes.moneda not in MONEDAS_SEGUIDAS:
                 continue
+        # Se pregunta ANTES que nada: un bono que se va no es trabajo, ni
+        # siquiera si lo tenemos en cartera — justamente porque lo tenemos es
+        # que amortiza y se cobra.
+        if curvas_sql.sale_del_master(inst.get("fechaVencimiento"), habiles, hoy_iso):
+            por_vencer += 1
+            continue
         lo_tenemos = tk in cartera
         # ⚠️ **NO COTIZA EN PRIMARY → NO ES UN FALTANTE.** Si no se le puede
         # poner precio, el bono no vale nada y reportarlo cada corrida es ruido
@@ -101,6 +122,15 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
     if sin_primary:
         logger.info("soberanos_faltantes: %d descartados por no cotizar en "
                     "Primary: %s", len(sin_primary), ", ".join(sorted(sin_primary)[:20]))
+    if por_vencer:
+        # Se dice lo que se decidió NO mostrar: un descarte silencioso es
+        # indistinguible de un detector que dejó de mirar.
+        logger.info("soberanos_faltantes: %d descartados por estar saliendo del "
+                    "master (vencen a menos de %d días hábiles)",
+                    por_vencer, curvas_sql.DIAS_HABILES_ANTES_DE_SALIR)
+    if not habiles:
+        logger.warning("soberanos_faltantes: sin calendario hábil, no pude "
+                       "descartar los que están por vencer")
     return out
 
 
@@ -146,6 +176,21 @@ def bono_sin_flujo(u: dict) -> list[Hallazgo]:
     return out
 
 
+def _feed_o_sindatos() -> None:
+    """La guarda de los tres detectores que leen `mercado.market_snapshot`.
+
+    ⚠️ **`SinDatos`, no `[]`.** Devolver la lista vacía sería AFIRMAR que no hay
+    nada, y el motor cierra por ausencia lo que no vino: a las 13:00 UTC se
+    cerrarían los hallazgos de ayer y a las 13:31 volverían a nacer, todos los
+    días. Levantar `SinDatos` dice «todavía no pude mirar» y no cierra nada
+    (invariante #1).
+    """
+    if not reloj.feed_caliente():
+        raise SinDatos(
+            "los motores arrancan 13:20 UTC y el snapshot todavía no se llenó: "
+            "no puedo afirmar nada sobre los precios")
+
+
 # ═══ bono_sin_tasa ═════════════════════════════════════════════════════════
 #
 # ⚠️ **REEMPLAZA A `tasa_sospechosa`** (user: *«NO FUNCIONA HOY EN DÍA»*). Aquél
@@ -164,6 +209,7 @@ def bono_sin_tasa(u: dict) -> list[Hallazgo]:
 
     from api.services.acreencias import tiene_flujo_def
 
+    _feed_o_sindatos()
     docs, snap = fuentes.master(), fuentes.snapshot()
     if docs is None or snap is None:
         raise SinDatos("no pude leer el master o el snapshot")
@@ -212,6 +258,7 @@ def bono_sin_precio(u: dict) -> list[Hallazgo]:
 
     Cuatro estados, y la diferencia importa porque el arreglo es OTRO en cada uno.
     """
+    _feed_o_sindatos()
     docs, snap = fuentes.master(), fuentes.snapshot()
     if docs is None or snap is None:
         raise SinDatos("no pude leer el master o el snapshot")
@@ -299,6 +346,7 @@ def precio_moneda(u: dict) -> list[Hallazgo]:
     102.700 (pesos) y 74,19 (dólares) sin que nada lo diga. Quedan dos reglas con
     severidades distintas porque son problemas distintos.
     """
+    _feed_o_sindatos()
     docs, snap, m = fuentes.master(), fuentes.snapshot(), fuentes.mep()
     if docs is None or snap is None:
         raise SinDatos("no pude leer el master o el snapshot")

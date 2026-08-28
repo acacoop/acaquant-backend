@@ -193,3 +193,56 @@ def agrupado_por_curva() -> dict[str, list[dict]]:
 def indexado_por_ticker() -> dict[str, dict]:
     """Dict ticker → doc (ignora sin ticker). curvas enriquece TimeSales."""
     return {d["ticker"]: d for d in cargar_todos() if d.get("ticker")}
+
+
+# ═══ CUÁNDO UN INSTRUMENTO SALE DEL MASTER ═════════════════════════════════
+#
+# ⚠️⚠️ **LA REGLA VIVE ACÁ Y NO EN EL JOB QUE BORRA** (REGLA #9, 2026-08-28).
+#
+# `jobs/cleanup_curvas` borra de `mercado.curvas` todo lo que vence a menos de 2
+# días hábiles. La regla estaba adentro de su `run()`, así que **nadie más podía
+# consultarla** — y el AV AGENT, que mira el mismo master, no tenía forma de
+# saber que un bono no estaba porque NOSOTROS lo habíamos sacado.
+#
+# Resultado, medido el 2026-08-28: M31G6 / D31G6 / S31G6 amortizan el lunes
+# 31/08. El viernes están a 1 día hábil → `cleanup` los borra a las 12:30, y a
+# las 13:05 `soberanos_faltantes` los ve en 1816, no los ve en el master y exige
+# **darlos de alta otra vez**. M31G6 ya había pasado por eso: alta el 24/08,
+# «aguantó 3.6 días», volvió el 28/08 — la primera fila de `reincidencias`.
+#
+# Dos mitades nuestras peleándose, y ninguna falla: cada una hace bien su
+# trabajo con un criterio distinto sobre la MISMA pregunta.
+DIAS_HABILES_ANTES_DE_SALIR = 2
+
+
+def dias_habiles_entre(hoy_iso: str, venc_iso: str, habiles: set[str]) -> int:
+    """Días hábiles entre hoy (excl) y el vencimiento (incl). 0 si ya venció."""
+    if venc_iso <= hoy_iso:
+        return 0
+    return sum(1 for d in habiles if hoy_iso < d <= venc_iso)
+
+
+def calendario_habil() -> set[str] | None:
+    """El calendario hábil argentino. **`None` = no pude leerlo**, que no es
+    «no hay días hábiles»: quien lo reciba tiene que abstenerse, no concluir."""
+    try:
+        from core.calendario import dias_habiles_ordenados
+        h = set(dias_habiles_ordenados())
+        return h or None
+    except Exception:
+        return None
+
+
+def sale_del_master(venc, habiles: set[str], hoy_iso: str) -> bool:
+    """¿Este instrumento está en la ventana en la que `cleanup_curvas` lo borra?
+
+    `venc` puede venir como `date` o como texto (1816 lo publica en ISO y la
+    columna es `date`): `str(...)[:10]` cubre los dos sin parsear.
+
+    Sin fecha de vencimiento devuelve `False` — no se puede afirmar que esté
+    saliendo, y ante la duda el instrumento SIGUE en el master.
+    """
+    if not venc or not habiles:
+        return False
+    v = str(venc)[:10]
+    return dias_habiles_entre(hoy_iso, v, habiles) < DIAS_HABILES_ANTES_DE_SALIR

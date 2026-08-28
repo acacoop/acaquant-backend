@@ -1245,6 +1245,22 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (3)** — **Tres veces el mismo patrón: dos partes del sistema
+  contestando la misma pregunta con criterios distintos, y ninguna falla.**
+  (1) El mercado abre 13:00 UTC y los motores arrancan 13:20 (`crontab`): en esa
+  franja no puede haber precios, y de 256 hallazgos abiertos **225 eran de
+  `bono_sin_precio`**. `reloj.feed_caliente()` separa «el mercado está abierto»
+  de «nuestro feed se llenó»; los tres detectores que leen el snapshot levantan
+  `SinDatos` —no `[]`, que cerraría por ausencia— hasta las 13:31 UTC (10:31
+  ART). La hora sale del crontab y un test lo verifica.
+  (2) `jobs/cleanup_curvas` borra del master lo que vence a menos de 2 días
+  hábiles, y `soberanos_faltantes` exigía darlo de alta de vuelta: M31G6 fue la
+  primera fila de `reincidencias` (alta el 24/08, borrado, de vuelta el 28/08).
+  La regla se muda a `core.curvas_sql.sale_del_master()` y los dos preguntan ahí.
+  (3) El botón de rehacer colgaba del árbol de diagnóstico, cuyo veredicto
+  parpadea: el 28/08 `motor_caido` quedó en cero abiertos con el día 27/08 sin
+  escribir (0 filas, 0 en `backfill_log`). Ahora el día se pregunta igual, lo
+  haya notado el árbol o no.
 - **2026-08-28 (2)** — **La tarjeta de un job contesta lo que decide.** Un job
   se llamaba de CUATRO formas (`portafolio_diario` en el cron ·
   `jobs.portafolio_backfill` en `diagnostico_registry` · `aum` en

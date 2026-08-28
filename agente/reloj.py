@@ -27,6 +27,31 @@ from core.tz import AR_TZ
 # snapshot está viejo POR DISEÑO.
 RUEDA_UTC = (13, 20)
 
+# ⚠️⚠️ **EL MERCADO ABRE ANTES QUE NUESTRO FEED, Y NO ES LO MISMO.**
+#
+# User (2026-08-28): *«una alerta de BONO SIN PRECIO no puede figurar antes de
+# las 10:31 de los días hábiles, porque acá no es que no funciona el AGENT: el
+# motor se prende antes por las dudas y queda sin precio un largo rato»*.
+#
+# Los motores arrancan a las **13:20 UTC** (`deploy/crontab.txt`: `20 13 * * 1-5
+# systemctl restart motor_rofex.service`), veinte minutos DESPUÉS de que abre la
+# rueda, y encima recién levantados tardan en recibir la primera punta de cada
+# símbolo. En esa franja `mercado.market_snapshot` está vacío o viejo **por
+# diseño**, y preguntarle ahí es preguntarle al que todavía no estaba escuchando
+# si sonó el teléfono.
+#
+# Medido el 2026-08-28: de 256 hallazgos abiertos, **225 eran de
+# `bono_sin_precio`** (195 `precio_viejo` + 30 `sin_punta`) — el 88% del tablero
+# generado en una ventana en la que el sistema no puede tener precios.
+#
+# `en_rueda()` NO se toca: sigue significando «el mercado está abierto», que es
+# lo correcto para juzgar si un precio viejo es normal. Lo que faltaba era la
+# otra pregunta, y por eso es su propia función.
+FEED_ARRANCA_UTC = (13, 20)
+# Cuánto le damos después de arrancar. 11 minutos = 13:31 UTC = **10:31 ART**,
+# que es el número que puso el user mirando la pantalla.
+FEED_GRACIA_MIN = 11
+
 # EL CIERRE. Media hora después de que la rueda para: lo que se le pide al
 # mercado ya no se pide más, y lo que quedó sin resolver se completa una vez,
 # con el día cerrado. En UTC porque todo el agente razona en UTC y convierte al
@@ -63,6 +88,26 @@ def en_rueda(ahora=None) -> bool:
     """
     a = ahora_utc(ahora)
     return dia_habil(a) and RUEDA_UTC[0] <= a.hour < RUEDA_UTC[1]
+
+
+def feed_caliente(ahora=None) -> bool:
+    """¿Ya se le puede preguntar al snapshot?
+
+    `en_rueda()` dice si el MERCADO está abierto; esto dice si **nuestro feed
+    tuvo tiempo de llenarse**. Son dos cosas distintas y confundirlas es lo que
+    llenaba el tablero todas las mañanas.
+
+    Un detector que lee `market_snapshot` y encuentra esto en `False` no debe
+    devolver `[]` —eso afirmaría que no hay nada y cerraría por ausencia los
+    hallazgos de ayer, para reabrirlos media hora después— sino levantar
+    `SinDatos`: **no pude mirar todavía**.
+    """
+    a = ahora_utc(ahora)
+    if not en_rueda(a):
+        return False
+    desde = a.replace(hour=FEED_ARRANCA_UTC[0], minute=FEED_ARRANCA_UTC[1],
+                      second=0, microsecond=0) + timedelta(minutes=FEED_GRACIA_MIN)
+    return a >= desde
 
 
 def en_cierre(ahora=None) -> bool:

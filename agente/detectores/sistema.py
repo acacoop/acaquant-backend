@@ -170,6 +170,7 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     """
     from datetime import time as _t
 
+    from agente import rehacer
     from agente.rehacer import cual_job
     from api.services import diagnostico
     try:
@@ -186,7 +187,7 @@ def motor_caido(u: dict) -> list[Hallazgo]:
 
     rotos = {"critico", "error", "sin_datos"}
     ignorar = {"fuera_rueda", "ok", "lento", "error_parse"}
-    out = []
+    out, ya_dichos = [], set()
     for vista in arbol.get("vistas") or []:
         for grupo in vista.get("grupos") or []:
             for p in grupo.get("piezas") or []:
@@ -231,6 +232,8 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                 # problema, así que atarla al `unidad` del árbol la hacía
                 # cambiar en silencio el día que alguien renombrara la Pieza.
                 canon = (dia or {}).get("job") or cual_job(unidad)
+                if canon:
+                    ya_dichos.add(canon)
                 out.append(Hallazgo(
                     sujeto=canon or unidad or nombre, regla=regla,
                     severidad=sev, nombre=canon or nombre,
@@ -267,6 +270,39 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                                                 else None),
                                "dia_estado": (dia or {}).get("estado"),
                                "rompe": (dia or {}).get("rompe")}))
+    # ⚠️⚠️ **EL DÍA QUE FALTA NO DEPENDE DE QUE ALGUIEN HAYA NOTADO EL FALLO.**
+    #
+    # Todo lo de arriba sale del árbol de diagnóstico, que juzga la pieza por su
+    # último `run_status` y por la frescura. Ese veredicto PARPADEA: el 28/08 el
+    # job del AuM falló a las 08:00, la tarjeta apareció, y para el mediodía
+    # `motor_caido` tenía CERO abiertos mientras el día seguía sin escribirse
+    # (medido: 0 filas y 0 en `portafolio.backfill_log` para el 27/08).
+    #
+    # O sea: **el botón colgaba de la señal que se apaga.** Y la pregunta que
+    # decide no se apaga nunca — el día está en la tabla o no está—, así que se
+    # hace igual, la haya visto el árbol o no. Es la misma lección que la de
+    # `salud`: mirar el proceso no es mirar el resultado.
+    #
+    # No duplica: solo se agrega lo que el árbol NO cantó (`ya_dichos`).
+    for job in rehacer.REHACIBLES:
+        if job in ya_dichos:
+            continue
+        d = rehacer.estado_del_dia(job)
+        if not d or d["estado"] != "falta":
+            continue
+        out.append(Hallazgo(
+            sujeto=job, regla="job_sin_dato", severidad="alta", nombre=job,
+            problema=(f"el día {d['fecha']} no está en {d['tabla']} y nadie lo "
+                      f"va a escribir solo · {reloj.hhmm()}"),
+            detalle=(f"{d['rompe']} · {d['proximo']}" if d.get("rompe")
+                     else d["proximo"]),
+            que_hacer=("Apretá REHACER: relanza el job por el mismo lanzador "
+                       f"del cron y verifica mirando {d['tabla']}. Solo escribe "
+                       "las cuentas que faltan: las que ya están no se tocan."),
+            evidencia={"job": job, "dia_faltante": d["fecha"],
+                       "dia_estado": d["estado"], "tabla": d["tabla"],
+                       "rompe": d.get("rompe", "")}))
+
     # Lo más grave primero, y los motores antes que los jobs: un motor caído deja
     # a la mesa sin precios AHORA; un job se recupera en la corrida siguiente.
     out.sort(key=lambda h: (0 if h.severidad == "alta" else 1,

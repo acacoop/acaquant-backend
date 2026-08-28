@@ -33,7 +33,7 @@ from api.services import bancos as svc
 
 # Si esto sube, NO es un test roto: es una query nueva por request. Subilo a
 # mano solo si esa query hace falta de verdad.
-TOPES = {"consolidado": 14, "vista": 10}
+TOPES = {"consolidado": 15, "vista": 10}
 
 FECHA = date(2026, 8, 14)
 _CUENTA = {"id": 1, "bank_number": "034", "bank_name": "Pata", "account_number": "20",
@@ -76,12 +76,12 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
-        hechas.append(t)
+        hechas.append((t, params))
         # `_saldos_banco` joinea cuentas + extracto + saldos + manuales: va
         # primero porque su SQL matchea varios de los `if` de abajo.
-        if "AS sellado" in t:
-            return [{"cuenta_id": 1, "sellado": None, "saldo_cierre": 2.0,
-                     "informado": None, "neto": 0, "ajuste": 0, "acumulado": 0}]
+        if "AS informado" in t:
+            return [{"cuenta_id": 1, "saldo_cierre": 2.0, "informado": None,
+                     "ajuste": 0}]
         if "FROM bancos.cuentas" in t:
             return [_CUENTA]
         if "movimientos_manuales" in t:
@@ -103,7 +103,7 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
         return []
 
     def _exec(sql, params=None):
-        hechas.append(" ".join(str(sql).split()))
+        hechas.append((" ".join(str(sql).split()), params))
         return 1
 
     monkeypatch.setattr(svc, "_q", _q)
@@ -118,7 +118,7 @@ def _contar(monkeypatch, fn, *args) -> list[str]:
     ("vista", svc.vista, ("x@y", 1, FECHA)),
 ])
 def test_no_crece_la_cantidad_de_queries(monkeypatch, nombre, fn, args):
-    hechas = _contar(monkeypatch, fn, *args)
+    hechas = [q for q, _ in _contar(monkeypatch, fn, *args)]
     assert len(hechas) <= TOPES[nombre], (
         f"`{nombre}` pasó de {TOPES[nombre]} a {len(hechas)} queries por request.\n"
         f"La vista pollea cada 60s y por usuario, y cada roundtrip son ~8,5ms de "
@@ -135,9 +135,12 @@ def test_ninguna_query_se_repite(monkeypatch, nombre, fn, args):
     el resultado ya estaba en memoria. Es la forma en que esto crece sin que
     nadie lo note — se agrega un campo a la respuesta llamando otra vez a la
     función que ya lo trajo."""
+    # ⚠️ Se compara SQL **+ params**: la MISMA consulta para dos fechas distintas
+    # no es una repetición. `_saldos_banco` se usa para el cierre de hoy y para
+    # sellar el de ayer, y son dos preguntas distintas.
     hechas = _contar(monkeypatch, fn, *args)
     repetidas = {q for q in hechas if hechas.count(q) > 1}
     assert not repetidas, (
         f"`{nombre}` repite {len(repetidas)} query(s) en el mismo request:\n  "
-        + "\n  ".join(q[:90] for q in repetidas)
+        + "\n  ".join(q[0][:90] for q in repetidas)
     )

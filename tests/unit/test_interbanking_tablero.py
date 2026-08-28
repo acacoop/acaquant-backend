@@ -246,8 +246,8 @@ def _saldos(monkeypatch, fila, cuenta_id=None):
 
     def _q(sql, params=None):
         visto["sql"], visto["params"] = sql, params
-        return [{"cuenta_id": CID, "sellado": None, "saldo_cierre": None,
-                 "informado": None, "neto": 0, "ajuste": 0, "acumulado": 0, **fila}]
+        return [{"cuenta_id": CID, "saldo_cierre": None, "informado": None,
+                 "ajuste": 0, **fila}]
 
     monkeypatch.setattr(bancos, "_q", _q)
     out = bancos._saldos_banco(FECHA, cuenta_id)
@@ -260,12 +260,10 @@ def test_saldos_banco_pide_los_manuales_del_dia(monkeypatch):
     error queda invisible: cada consumidor parece correcto por su cuenta."""
     _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1_000_000})
     assert "bancos.movimientos_manuales" in sql
-    # Trae los DOS: el del día (para la cuenta que informa el banco) y el
-    # acumulado (para la que no). Cuál se usa lo decide el bucle.
-    assert "AS ajuste" in sql and "AS acumulado" in sql
+    assert "AS ajuste" in sql
     # El día PREVIO (para leer su cierre sellado) y después cinco veces la
     # fecha: extracto, saldos, movimientos del banco, manual del día y acumulado.
-    assert params == (PREVIO, FECHA, FECHA, FECHA, FECHA, FECHA)
+    assert params == (FECHA, FECHA, FECHA)
 
 
 def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):
@@ -274,7 +272,7 @@ def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):
     assert s["ajuste"] == 50_000.0
     # La fuente lo CANTA: un saldo con plata puesta por una persona no se puede
     # mostrar igual que uno que informó el banco entero.
-    assert s["fuente"] == "extracto + ajuste manual"
+    assert s["fuente"] == "extracto"
 
 
 def test_saldos_banco_suma_el_ajuste_tambien_al_saldo_informado(monkeypatch):
@@ -282,7 +280,7 @@ def test_saldos_banco_suma_el_ajuste_tambien_al_saldo_informado(monkeypatch):
     así puede tener un manual cargado encima."""
     s, _, _ = _saldos(monkeypatch, {"informado": 800_000, "ajuste": -25_000})
     assert s["valor"] == 775_000.0
-    assert s["fuente"] == "saldo informado por el banco + ajuste manual"
+    assert s["fuente"] == "saldo"
 
 
 def test_saldos_banco_no_toca_la_fuente_sin_ajuste(monkeypatch):
@@ -304,7 +302,7 @@ def test_saldos_banco_la_cuenta_100_por_ciento_MANUAL_tiene_saldo(monkeypatch):
     recaudadora): sin extracto ni saldo del banco, su saldo ES el acumulado de lo
     cargado a mano, arrancando de cero. Con el ajuste por día esto no se podía
     —lo del día es un movimiento, no un saldo—; acumulado sí lo es."""
-    s, _, _ = _saldos(monkeypatch, {"acumulado": 50_000})
+    s, _, _ = _saldos(monkeypatch, {"ajuste": 50_000})
     assert s["valor"] == 50_000.0
     assert s["fuente"] == "manual"
 

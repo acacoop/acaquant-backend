@@ -1256,77 +1256,43 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # no esté mapeada.
 
 def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
-    """{cuenta_id: {"valor", "fuente", "ajuste"}} — **nuestro saldo al cierre**.
+    """{cuenta_id: {"valor", "fuente", "ajuste"}} — **EL SALDO AL CIERRE**.
 
-    ⚠️⚠️ **LA REGLA, dicha por el back office (2026-08-27) y aplicada literal:**
+    ⚠️⚠️ **ESTE es el número que muestra la pantalla principal en la columna
+    SALDO AL CIERRE, y es el MISMO que se sella y que al día siguiente se lee
+    como SALDO INICIO.** Un solo dato, una sola fórmula, un solo lugar:
 
-        cierre(F)  =  CIERRE SELLADO de F−1  +  movimientos del banco de F
-                                              +  movimientos manuales de F
+        saldo al cierre(F)  =  saldo del banco(F)  +  movimientos manuales de F
 
-    O sea: *«el saldo al cierre del 26 —el dato que se veía en pantalla y que
-    quedó ok— más los movimientos del 27 automáticos y manual»*. Se parte del
-    número que el back office ya miró y dio por bueno, y se le suma lo que pasó.
-    **No se vuelve a armar el saldo desde cero todos los días.**
+    El saldo del banco es el del extracto si lo hay, si no el que informa
+    `bancos.saldos`, y si la cuenta no la informa Interbanking es 0 (su saldo son
+    sus manuales).
 
-    Por qué NO se usa el saldo absoluto que informa Interbanking para ese día:
-    porque el banco a veces mueve su saldo por cosas que no están en su lista de
-    movimientos (un asiento con fecha vieja que recién impacta hoy — es el
-    «salto de apertura» que analiza `diferencias()`). Cuando eso pasa, el saldo
-    absoluto y «lo que veníamos + lo que pasó» dejan de coincidir, y el que el
-    back office puede auditar es el segundo: cada peso sale de una fila que se
-    ve en pantalla.
+    **`consolidado()` llama a esta misma función para dibujar la columna**, así
+    que lo que se ve en pantalla y lo que se sella no pueden ser distintos. Eso
+    fue un bug real: el consolidado calculaba una fórmula y el sellado otra, y el
+    SALDO INICIO del día siguiente salía de la segunda.
 
-    Historia de por qué se llegó acá, porque cada intento falló distinto:
-      1. El manual se sumaba solo al día de la carga → al día siguiente el saldo
-         volvía al crudo de Interbanking y la plata desaparecía.
-      2. Se sumó el ACUMULADO de todos los manuales → el cierre daba MÁS que
-         Interbanking + los manuales del día, porque el saldo del banco ya traía
-         adentro los viejos. Se contaban dos veces.
-      3. Esto: se sella el cierre y se parte de ahí. Un manual entra UNA vez —el
-         día que se carga— y queda adentro del sellado para siempre.
-
-    **Arranque**: si no hay cierre sellado del día anterior (el primer día, o un
-    hueco), se cae al saldo que informa Interbanking para ESE día más los
-    manuales del día. Es el bootstrap, y la `fuente` lo dice.
-
-    Una cuenta que Interbanking no informa nunca y no tiene sellado arranca del
-    acumulado de sus manuales. Sin extracto, sin saldo, sin sellado y sin un solo
-    manual se omite: «no sabemos» no es «cero».
+    `fuente` usa las etiquetas que espera el frontend: `extracto` | `saldo` |
+    `manual`.
 
     `cuenta_id` acota a UNA cuenta —y entonces NO filtra por `activa`, porque el
     drill-down puede pedir una cuenta dada de baja que el tablero ya no lista.
     """
-    previo = restar_habiles(fecha, 1)
-    signo_man = "CASE WHEN tipo = 'C' THEN abs(importe) ELSE -abs(importe) END"
-    # Todo en UNA query: el sellado de ayer, el saldo del banco de hoy (para el
-    # arranque), los movimientos del banco de hoy y los manuales.
+    signo = "CASE WHEN tipo = 'C' THEN abs(importe) ELSE -abs(importe) END"
     sql = f"""
-        SELECT c.id AS cuenta_id,
-               cs.saldo AS sellado,
-               e.saldo_cierre,
+        SELECT c.id AS cuenta_id, e.saldo_cierre,
                coalesce(s.saldo_operativo, s.saldo_dia) AS informado,
-               coalesce(mv.neto, 0) AS neto,
-               coalesce(m.ajuste, 0) AS ajuste,
-               coalesce(m.acumulado, 0) AS acumulado
+               coalesce(m.ajuste, 0) AS ajuste
           FROM bancos.cuentas c
-          LEFT JOIN bancos.cierres_diarios cs
-                 ON cs.cuenta_id = c.id AND cs.fecha = %s
           LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
           LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s
-          LEFT JOIN (SELECT cuenta_id,
-                            sum({signo_man}) AS neto
-                       FROM bancos.movimientos
-                      WHERE fecha = %s
-                      GROUP BY cuenta_id) mv ON mv.cuenta_id = c.id
-          LEFT JOIN (SELECT cuenta_id,
-                            sum(CASE WHEN fecha = %s THEN {signo_man} ELSE 0 END)
-                              AS ajuste,
-                            sum({signo_man}) AS acumulado
+          LEFT JOIN (SELECT cuenta_id, sum({signo}) AS ajuste
                        FROM bancos.movimientos_manuales
-                      WHERE fecha <= %s
+                      WHERE fecha = %s
                       GROUP BY cuenta_id) m ON m.cuenta_id = c.id
          WHERE """
-    args = (previo, fecha, fecha, fecha, fecha, fecha)
+    args = (fecha, fecha, fecha)
     if cuenta_id is None:
         filas = _q(sql + "c.activa", args)
     else:
@@ -1335,28 +1301,19 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
     out: dict[int, dict] = {}
     for r in filas:
         ajuste = _f(r["ajuste"]) or 0.0
-        neto = _f(r["neto"]) or 0.0
-        sellado = _f(r["sellado"])
-        if sellado is not None:
-            # EL CAMINO NORMAL: partimos del cierre que ya se dio por bueno.
-            base = round(sellado + neto, 2)
-            fuente = f"cierre del {previo.isoformat()} + movimientos del día"
-        elif r["saldo_cierre"] is not None:
+        if r["saldo_cierre"] is not None:
             base, fuente = _f(r["saldo_cierre"]), "extracto"
         elif r["informado"] is not None:
-            base, fuente = _f(r["informado"]), "saldo informado por el banco"
-        elif _f(r["acumulado"]):
-            # La cuenta que Interbanking no informa y que todavía no tiene
-            # sellado: arranca del acumulado de lo cargado a mano.
-            base, fuente, ajuste = 0.0, "manual", _f(r["acumulado"]) or 0.0
+            base, fuente = _f(r["informado"]), "saldo"
+        elif ajuste:
+            # La cuenta que Interbanking no informa: su saldo son sus manuales.
+            base, fuente = 0.0, "manual"
         else:
+            # Sin extracto, sin saldo y sin manuales no sabemos nada. «No
+            # sabemos» no es «cero».
             continue
-        out[r["cuenta_id"]] = {
-            "valor": round((base or 0.0) + ajuste, 2),
-            "fuente": (fuente if fuente == "manual" or not ajuste
-                       else f"{fuente} + ajuste manual"),
-            "ajuste": ajuste,
-        }
+        out[r["cuenta_id"]] = {"valor": round((base or 0.0) + ajuste, 2),
+                               "fuente": fuente, "ajuste": ajuste}
     return out
 
 
@@ -2216,11 +2173,13 @@ def consolidado(email: str, fecha: date) -> dict:
     )
     baldes = _baldes()
     gastos = _gastos_bancarios(fecha, baldes)
-    manuales = _ajuste_manual(fecha)
-    # Nuestro cierre del día hábil anterior = la apertura de hoy. Mismo criterio
-    # y misma función que el tablero de CONCILIAR: si cada pantalla armara su
-    # propia apertura, la de una no sería el cierre de la otra.
+    # El cierre de HOY (lo que muestra la columna) y el sellado de AYER (la
+    # apertura). Las dos, la misma fuente que usa CONCILIAR.
+    cierres = _saldos_banco(fecha)
     previos = _cierre_sellado(restar_habiles(fecha, 1))
+    manuales = {r["cuenta_id"]: r["n"] for r in _q(
+        """SELECT cuenta_id, count(*) AS n FROM bancos.movimientos_manuales
+            WHERE fecha = %s GROUP BY cuenta_id""", (fecha,))}
 
     bancos: list[dict] = []
     por_banco: dict[str, dict] = {}
@@ -2231,50 +2190,23 @@ def consolidado(email: str, fecha: date) -> dict:
         ini, fin = _f(r.get("saldo_apertura")), _f(r.get("saldo_cierre"))
         del_banco = _f(r.get("saldo_banco"))
 
-        # Quién manda: el extracto si lo hay, si no el saldo. Nunca los dos.
-        man = manuales.get(r["id"]) or {}
-        # ⚠️ **El manual DEL DÍA, no el acumulado** — misma regla que
-        # `_saldos_banco()`. El saldo que informa Interbanking ya trae adentro
-        # los movimientos de días anteriores: sumarles además el manual viejo
-        # hacía que el cierre diera MÁS que Interbanking + los manuales del día,
-        # con una diferencia que no se explicaba con nada de lo que se ve en
-        # pantalla. Solo la cuenta que el banco NO informa usa el acumulado,
-        # porque ahí no hay ningún número que lo absorba.
-        ajuste = man.get("ajuste") or 0.0
-
-        if fin is not None:
-            fuente = "extracto"
-        elif del_banco is not None:
-            fuente, fin = "saldo", del_banco
-        elif man.get("acumulado"):
-            # El caso del BANCO MANUAL: no hay extracto ni saldo porque el banco
-            # no está en Interbanking. Ahí el saldo ES la suma de lo que se cargó
-            # a mano, y arranca de cero.
-            fuente, fin, ajuste = "manual", 0.0, man["acumulado"]
-        else:
-            fuente = None
+        # ⚠️ **EL SALDO AL CIERRE SALE DE `_saldos_banco()`, la MISMA función que
+        # sella.** Antes esta pantalla tenía su propia fórmula y el sellado otra,
+        # así que el número que el back office miraba y daba por bueno no era el
+        # que al día siguiente se leía como SALDO INICIO. Ahora es el mismo dato.
+        cierre = cierres.get(r["id"])
+        fin = (cierre or {}).get("valor")
+        fuente = (cierre or {}).get("fuente")
+        ajuste = (cierre or {}).get("ajuste") or 0.0
+        if fin is None:
             sin_datos += 1
 
-        # El ajuste se aplica venga el saldo de donde venga. Es lo que el banco
-        # no informa: en una cuenta real se suma arriba de su extracto, y en una
-        # manual es todo el saldo. Mismo criterio que los REGISTROS MANUALES de
-        # Tesorería.
-        if fin is not None and ajuste:
-            fin = round(fin + ajuste, 2)
-
-        # ⚠️ **LA APERTURA ES NUESTRO CIERRE DE AYER**, literalmente lo que pidió
-        # el back office: «el saldo inicial de hoy sería el saldo final de ayer».
-        # No es el `saldo_apertura` del extracto —eso es lo que declara el
-        # banco—, y por eso el crudo viaja aparte en `saldo_inicio_banco`: la
-        # diferencia entre los dos es la evidencia que mira DIFERENCIAS.
-        # Si no tenemos el día anterior (la base retiene 3 fechas, y un feriado
-        # o una ingesta que falló dejan el hueco), se cae a la apertura que
-        # declara el banco: es su propio cierre de ayer, o sea la mejor
-        # respuesta disponible a la misma pregunta. Mejor eso que un «—», y
-        # `saldo_inicio_banco` deja ver siempre de dónde salió.
+        # ⚠️ **LA APERTURA ES EL CIERRE SELLADO DE AYER**, leído tal cual: es el
+        # mismo dato que ayer se mostró en esta misma columna. Si no hay sellado
+        # (el primer día, o un hueco) se cae a la apertura que declara el banco.
         ini_banco = ini
-        nuestro_ayer = (previos.get(r["id"]) or {}).get("valor")
-        ini = ini_banco if nuestro_ayer is None else nuestro_ayer
+        ayer = (previos.get(r["id"]) or {}).get("valor")
+        ini = ini_banco if ayer is None else ayer
 
         # Si el banco informa las dos cosas y no coinciden, es un hallazgo de
         # conciliación — se publica, no se elige una y se tapa la otra.
@@ -2303,7 +2235,7 @@ def consolidado(email: str, fecha: date) -> dict:
             # vista lo pueda cantar: un saldo con ajuste manual no es lo mismo que
             # uno que informó el banco.
             "ajuste_manual": round(ajuste, 2) if ajuste else None,
-            "movimientos_manuales": man.get("movimientos") or 0,
+            "movimientos_manuales": manuales.get(r["id"], 0),
             "movimientos": r.get("total_movimientos"),
             # La variación solo existe si el cierre sale del EXTRACTO: restar una
             # apertura de extracto contra un saldo de otra fuente mezclaría dos

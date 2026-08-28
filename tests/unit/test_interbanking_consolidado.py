@@ -36,16 +36,29 @@ def _cuenta(**kw):
 def sin_base(monkeypatch):
     """Aísla el service de Postgres: la regla es pura, la base solo la alimenta."""
     def _fake_q(filas):
-        llamadas = {"n": 0}
-
         def _q(sql, params=None):
-            llamadas["n"] += 1
-            return filas if llamadas["n"] == 1 else []  # 2ª llamada = ultima_sync()
+            t = " ".join(str(sql).split())
+            # `_saldos_banco`: arma el SALDO AL CIERRE con las mismas filas. Es
+            # la MISMA función que sella, así que la pantalla y el sellado no
+            # pueden dar distinto.
+            if "AS informado" in t:
+                # Solo el día de la vista tiene datos: el anterior viene vacío,
+                # así que la apertura cae al `saldo_apertura` del extracto.
+                if params and params[0] != FECHA:
+                    return []
+                return [{"cuenta_id": f["id"], "saldo_cierre": f.get("saldo_cierre"),
+                         "informado": f.get("saldo_banco"), "ajuste": 0}
+                        for f in filas]
+            if "c.bank_number" in t:
+                return filas
+            return []
         return _q
 
     def _instalar(filas):
         monkeypatch.setattr(bancos, "_q", _fake_q(filas))
+        monkeypatch.setattr(bancos, "_exec", lambda sql, params=None: 1)
         monkeypatch.setattr(bancos, "_auditar", lambda *a, **k: None)
+        monkeypatch.setattr("core.roles.get_user_role", lambda *a, **k: "sales")
     return _instalar
 
 
@@ -127,16 +140,19 @@ def _mock_manual(monkeypatch, filas_cuentas, manuales=(), previos=()):
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
-        # `_saldos_banco` (5 tablas en una query) se reconoce por `AS sellado`.
-        if "AS sellado" in t:
-            return []
+        # `_saldos_banco` arma el SALDO AL CIERRE: es la misma función que sella.
+        if "AS informado" in t:
+            return [{"cuenta_id": f["id"], "saldo_cierre": f.get("saldo_cierre"),
+                     "informado": f.get("saldo_banco"),
+                     "ajuste": sum(m["ajuste"] for m in manuales)}
+                    for f in filas_cuentas]
         # La APERTURA se LEE del cierre sellado de ayer.
         if "cierres_diarios" in t:
             return list(previos)
         if "FROM bancos.cuentas" in t:
             return filas_cuentas
-        if "movimientos_manuales" in t:
-            return list(manuales)
+        if "movimientos_manuales" in t:      # el CONTEO de manuales del día
+            return [{"cuenta_id": 1, "n": len(manuales)}]
         if "gastos_baldes" in t:
             return []
         return []
@@ -155,7 +171,7 @@ def test_el_manual_se_SUMA_arriba_del_extracto(monkeypatch):
     """No reemplaza al saldo del banco: lo ajusta. Es plata que el banco no
     informa, no una corrección de lo que informó."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "acumulado": 250.0, "n": 2}])
+                       [{"ajuste": 250.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0
     assert c["fuente"] == "extracto"          # el origen del saldo NO cambia
@@ -166,7 +182,7 @@ def test_un_banco_manual_arranca_de_cero(monkeypatch):
     """Sin extracto ni saldo del banco —el caso de un banco que no está en
     Interbanking— el saldo ES la suma de lo cargado a mano."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "acumulado": -400.0, "n": 0}])
+                       [{"ajuste": -400.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == -400.0
@@ -233,7 +249,7 @@ def test_el_cierre_usa_el_manual_DEL_DIA_no_el_acumulado(monkeypatch):
     el cierre tiene que ser 1.000, no 1.250.
     """
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "acumulado": 250.0, "n": 0}])
+                       [{"ajuste": 0.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1000.0, "el manual viejo YA está en el saldo del banco"
 
@@ -241,7 +257,7 @@ def test_el_cierre_usa_el_manual_DEL_DIA_no_el_acumulado(monkeypatch):
 def test_lo_del_dia_SI_se_suma(monkeypatch):
     """La otra mitad: lo que se carga hoy todavía no lo tiene el banco."""
     svc = _mock_manual(monkeypatch, [_cuenta(saldo_cierre=1000.0)],
-                       [{"cuenta_id": 1, "ajuste": 250.0, "acumulado": 900.0, "n": 1}])
+                       [{"ajuste": 250.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["saldo_cierre"] == 1250.0, "banco + lo de HOY, y nada de lo viejo"
 
@@ -251,7 +267,7 @@ def test_la_cuenta_que_el_banco_NO_informa_si_acumula(monkeypatch):
     ningún número del banco que absorba los manuales viejos. Ahí el saldo ES el
     acumulado — si no, la cuenta volvería a cero teniendo la plata."""
     svc = _mock_manual(monkeypatch, [_cuenta()],
-                       [{"cuenta_id": 1, "ajuste": 0.0, "acumulado": 100_000.0, "n": 0}])
+                       [{"ajuste": 100_000.0}])
     c = _fila(svc.consolidado("x@y", FECHA))
     assert c["fuente"] == "manual"
     assert c["saldo_cierre"] == 100_000.0
@@ -306,16 +322,15 @@ def test_la_apertura_se_LEE_del_sellado_y_no_se_recalcula(monkeypatch):
     poder diferir del cierre que el back office ya miró y dio por bueno.
     """
     from api.services import bancos as svc
-    visto = {"recalculo": False}
 
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
         if "cierres_diarios" in t:
             return [{"cuenta_id": 1, "saldo": 999_999.0, "fuente": "extracto",
                      "ajuste_manual": 0.0}]
-        if "AS sellado" in t:
-            visto["recalculo"] = True          # esto NO se puede llamar para ayer
-            return []
+        if "AS informado" in t:
+            return [{"cuenta_id": 1, "saldo_cierre": 1.0, "informado": None,
+                     "ajuste": 0}]
         if "FROM bancos.cuentas" in t:
             return [_cuenta(saldo_apertura=1.0, saldo_cierre=1.0)]
         return []
@@ -338,9 +353,9 @@ def test_si_el_dia_no_esta_sellado_se_sella_al_vuelo(monkeypatch):
         t = " ".join(str(sql).split())
         # ⚠️ `_saldos_banco` JOINEA `cierres_diarios`, así que se lo reconoce por
         # su alias propio y va primero.
-        if "AS sellado" in t:
-            return [{"cuenta_id": 1, "sellado": None, "saldo_cierre": 500.0,
-                     "informado": None, "neto": 0, "ajuste": 0, "acumulado": 0}]
+        if "AS informado" in t:
+            return [{"cuenta_id": 1, "saldo_cierre": 500.0, "informado": None,
+                     "ajuste": 0}]
         if "cierres_diarios" in t:
             leidas["n"] += 1
             return []          # el día no está sellado → hay que sellarlo

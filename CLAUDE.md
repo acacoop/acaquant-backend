@@ -328,7 +328,7 @@ Ver memoria [[feedback_portal_invitado_www]].
 ## Estructura
 
 ```
-core/        # infra (postgres, pg_mirror, curvas_sql, dolar_sql, grupos_sql, roles_sql, series_macro, market_snapshot, websocket, rofex_session, rofex_orders_session, roles, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, argentina_datos, dolar_oficial)
+core/        # infra (postgres, pg_mirror, ai + llm [gateway LLM, SIN tareas hoy], curvas_sql, dolar_sql, grupos_sql, roles_sql, series_macro, market_snapshot, websocket, rofex_session, rofex_orders_session, roles, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, argentina_datos, dolar_oficial)
 engines/     # motores WS → SQL (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
 jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via SQL mercado.precios_acciones)
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)

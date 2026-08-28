@@ -2231,12 +2231,29 @@ sin reconciliar).
 
 ---
 
-## 4.11 IA — NO HAY
+## 4.11 IA — EL MOTOR SIN NINGÚN AUTO
 
-**El sistema no usa inteligencia artificial en ningún lado.** Ni una llamada a un
-modelo, ni una clave de proveedor, ni una tabla que guarde una respuesta. Esta
-sección existe para que nadie la busque, y para que el que quiera volver a meter
-IA sepa qué se probó y por qué no quedó.
+**No hay una sola feature de IA corriendo.** Ni una llamada a un modelo, ni una
+pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gateway**:
+
+| Pieza | Qué es | Estado |
+|---|---|---|
+| `core/llm.py` | transporte y ruteo: HTTP, retry, dialecto de cada proveedor, precios, y el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | vive, sin tráfico |
+| `core/ai.py` | tareas registradas, presupuesto diario como kill-switch, y la traza obligatoria | vive, **1 tarea: `smoke`**, que no produce nada |
+| `ia.trazas` | una fila por llamada al modelo: tarea, modelo, usuario, tokens, latencia, la pregunta y la respuesta | vacía |
+| `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
+
+**Por qué se conservó** (decisión del user, 2026-08-28, al ver que el borrado se
+llevaba puesto el gateway): es lo que costó construir y lo que no conviene
+rehacer desde cero. El criterio que tiene adentro —privacidad fail-closed,
+presupuesto como corte duro, traza obligatoria— es más caro que el código.
+
+**Lo que NO sobrevivió** y hay que reescribir el día que haya una tarea:
+`api/services/ia_obs.py` (leía las trazas), el chequeo `ia:gateway` de SALUD
+(vigilaba el gasto) y `scripts/smoke_ai.py` (probaba el gateway). Están en git.
+
+El resto de esta sección es qué se probó y por qué no quedó — para que nadie lo
+vuelva a proponer sin novedad.
 
 ### Lo que hubo, y por qué se fue
 
@@ -2247,7 +2264,7 @@ IA sepa qué se probó y por qué no quedó.
 | **Triage de incidentes** (cada 10 min) y **control de calidad de conversaciones** (diario) | 2026-08-19 | escribían en tablas que **nadie abrió nunca** |
 | **MCP server** (13 tools de renta variable + OAuth 2.1) | 2026-08-28 | no lo consumía nadie, y su provider OAuth quedaba alcanzable sin autenticar |
 | **Destilado del research 1816** — la última tarea | 2026-08-28 | *«ese destilado no tiene sentido, no se usa en absoluto; el research se guarda y se muestra así nomás»* |
-| **El gateway** (`core/ai.py`, `core/llm.py`), `ia.trazas`, `ia.config` | 2026-08-28 | se fueron con la última tarea: 858 líneas de infraestructura sin nada que servir |
+| **Los lectores del gateway**: `api/services/ia_obs.py`, el chequeo `ia:gateway` de SALUD, `scripts/smoke_ai.py` | 2026-08-28 | sin llamadas al modelo no hay nada que leer ni que vigilar. El gateway en sí **se conservó** (arriba) |
 
 ### La lección, que es lo único que vale la pena guardar
 
@@ -2263,7 +2280,7 @@ nadie a propósito:
    `/research1816/mails` y ningún componente lo dibujaba (`ResearchDestilado`
    estaba declarado en `research-view.tsx` sin un solo uso en JSX).
 
-O sea: una feature apagada, sin lector, sosteniendo 858 líneas de gateway. **Y no
+O sea: una feature apagada, sin lector, justificando ella sola el gateway. **Y no
 fallaba nada** — ese es el punto. No había error, no había alerta; simplemente
 nadie lo miraba.
 
@@ -2279,8 +2296,8 @@ nadie lo miraba.
   dólar oficial (MAE live + A3500) y cierres MEP/CCL con variaciones. **100%
   determinista, cero tokens, nunca gastó uno.** Es lo único que queda bajo el
   prefijo `/api/ia`, que hoy es un nombre histórico.
-- **El AV AGENT** (`agente/`, 18 habilidades) — `usa_ia=False` en las 18, y hay
-  un test que lo congela verificando que `core/ai.py` no vuelva a existir.
+- **El AV AGENT** (`agente/`, 18 habilidades) — `usa_ia=False` en las 18, y un
+  test lo congela. Que el gateway exista no lo cambia: ninguna habilidad lo llama.
 - **La vista RESEARCH** — el mail de 1816 se guarda crudo y se muestra tal cual.
   BCRA, FRED y las series de 1816 son ingestas de API, sin modelo en el medio.
 

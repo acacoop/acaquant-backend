@@ -770,8 +770,13 @@ O sea: una feature apagada, sin lector, sosteniendo el gateway de IA entero. Y
 `ia.research.{destilado, destilado_modelo}`; y —porque era su única tarea
 productiva— **el gateway completo**: `core/ai.py`, `core/llm.py`,
 `api/services/ia_obs.py`, las tablas `ia.trazas` e `ia.config`, el chequeo
-`ia:gateway` de SALUD y tres suites de test. **858 líneas de infraestructura de
-IA que no servían a nadie.**
+`ia:gateway` de SALUD y tres suites de test.
+
+**El NÚCLEO del gateway se conservó**: `core/ai.py`, `core/llm.py`, `ia.trazas` e
+`ia.config` siguen ahí, sin ninguna tarea que los use. Fue una decisión explícita
+del user al ver que el borrado se los llevaba puestos — es lo que costó construir
+(ruteo fail-closed, presupuesto, traza) y lo que no conviene rehacer desde cero.
+Lo que se fue son sus LECTORES, que se reescriben el día que haya una tarea.
 
 **Qué NO cambió**: el mail crudo se sigue ingestando igual (IMAP, dedup por
 Message-ID, FTS español) y la vista lo muestra igual. Para el usuario de
@@ -781,7 +786,7 @@ Message-ID, FTS español) y la vista lo muestra igual. Para el usuario de
 de julio**. O sea los cuatro días que el destilado estuvo corriendo antes de que
 el user lo apagara el 17/07 (entrada 2026-07-17 de este mismo changelog). Nunca
 fue una feature en uso: fue un experimento de cuatro días que quedó cableado
-seis semanas (17/07 → 28/08), sosteniendo 858 líneas de gateway.
+seis semanas (17/07 → 28/08) siendo la única razón de existir del gateway.
 
 ⚠️ **Sacar las columnas del schema NO las borra** — `apply_schema` no tiene un
 solo DROP. Se corrieron a mano el 2026-08-28 con `scripts/drop_tablas_ia.py`,

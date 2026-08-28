@@ -288,7 +288,7 @@ def main() -> int:
 
     pedidas = [a for a in sys.argv[1:] if "." in a and not a.startswith("-")]
     if pedidas:
-        return _dropear(pedidas, filas, "--igual" in sys.argv)
+        return _dropear(pedidas, filas, "--igual" in sys.argv, nuestros)
 
     if "--aplicar" in sys.argv:
         return _aplicar(muertas)
@@ -367,7 +367,8 @@ def _aplicar(muertas: list[dict]) -> int:
     return 0
 
 
-def _dropear(pedidas: list[str], filas: list[dict], igual: bool) -> int:
+def _dropear(pedidas: list[str], filas: list[dict], igual: bool,
+             nuestros: frozenset[str]) -> int:
     """DROPEA tablas NOMBRADAS a mano, aunque tengan datos.
 
     ⚠️ **Hay que nombrarlas.** No existe un flag que se lleve el bloque ② entero:
@@ -390,7 +391,15 @@ def _dropear(pedidas: list[str], filas: list[dict], igual: bool) -> int:
     for t in pedidas:
         f = por_nombre.get(t)
         if not f:
-            problemas.append(f"{t}: no existe en la base (o no es de un schema nuestro)")
+            # Dos causas MUY distintas y decir «o» las mezcla: el 2026-08-28
+            # `partner.cartera` salió como «no existe (o no es de un schema
+            # nuestro)» y hubo que ir a mirar el schema.sql para saber cuál de
+            # las dos era. Un mensaje que obliga a investigar no informa.
+            sch = t.split(".", 1)[0]
+            problemas.append(
+                f"{t}: ya no está en la base" if sch in nuestros else
+                f"{t}: el schema '{sch}' no está declarado en sql/schema.sql, "
+                "así que este diag ni lo mira")
         elif f["declarada"]:
             problemas.append(f"{t}: DECLARADA en sql/schema.sql — sacá su bloque "
                              "primero o el próximo deploy la recrea")

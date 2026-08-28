@@ -102,7 +102,6 @@ BEGIN
     ('public','motor_heartbeat','operaciones'),
     ('public','operativas_mep','operaciones'),
     ('public','brackets_live','operaciones'),
-    ('public','triggers_mep','operaciones'),
     ('public','ordenes_idempotency','operaciones'),
     ('public','series_macro','macro'),
     ('public','rem','macro'),
@@ -570,12 +569,6 @@ CREATE TABLE IF NOT EXISTS operaciones.brackets_live (
     account   text,
     estado    text,
     data      jsonb
-);
-
-CREATE TABLE IF NOT EXISTS operaciones.triggers_mep (
-    id      text PRIMARY KEY,
-    account text,
-    data    jsonb
 );
 
 CREATE TABLE IF NOT EXISTS operaciones.ordenes_idempotency (
@@ -4114,31 +4107,6 @@ CREATE TABLE IF NOT EXISTS manager.tabla_perfil (
     PRIMARY KEY (schema, tabla)
 );
 
--- manager.db_tamano — LA FOTO DIARIA DE LA BASE (2026-08-19).
---
--- Pedido del user: *«que entienda qué tablas hay, cuánto pesa cada una (al menos
--- una vez por día) y sepa distinguir al día siguiente si se agregó algo nuevo, y
--- cuáles aumentaron su tamaño y por cuánto… esto tendrá que persistir para tener
--- contexto, pero a su vez no crecer todo el tiempo: con que tenga registro de hoy
--- y ayer constantemente alcanza»*.
---
--- **DOS FECHAS Y NADA MÁS.** La purga va en el MISMO INSERT del job (mismo patrón
--- que `tesoreria_snapshots`), así no depende de que alguien se acuerde de correr
--- una limpieza: son ~200 filas × 2 días. Una tabla que vigila el tamaño de la
--- base y crece sin techo es un chiste que se cuenta solo.
---
--- Por qué se persiste en vez de calcularlo en vivo: `pg_total_relation_size` dice
--- cuánto pesa HOY. **El delta es la información** —qué apareció, qué creció y por
--- cuánto— y para eso hace falta el de ayer. Sin foto no hay comparación.
-CREATE TABLE IF NOT EXISTS manager.db_tamano (
-    fecha  date   NOT NULL,
-    schema text   NOT NULL,
-    tabla  text   NOT NULL,
-    bytes  bigint NOT NULL,
-    filas  bigint,
-    PRIMARY KEY (fecha, schema, tabla)
-);
-
 -- El total de la BASE, que NO es la suma de las tablas: incluye índices del
 -- catálogo, TOAST y espacio libre. Se guarda aparte para que las dos cifras no
 -- se puedan confundir — que una suma de tablas no cierre contra el total del
@@ -4171,12 +4139,6 @@ CREATE TABLE IF NOT EXISTS manager.proveedor_estado (
     fallos_seguidos integer NOT NULL DEFAULT 0,
     donde           text,
     actualizado_at  timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS manager.db_tamano_dia (
-    fecha        date   PRIMARY KEY,
-    bytes_total  bigint NOT NULL,
-    n_tablas     integer NOT NULL DEFAULT 0
 );
 
 -- manager.superficie_dia — LA MEMORIA DE LA SUPERFICIE HTTP (2026-08-19).

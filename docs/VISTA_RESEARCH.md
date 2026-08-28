@@ -777,10 +777,16 @@ IA que no servían a nadie.**
 Message-ID, FTS español) y la vista lo muestra igual. Para el usuario de
 `/research` no cambió una sola pantalla.
 
+**Y las 4 filas resultaron ser LA PRUEBA**: los research del **14, 15, 16 y 17
+de julio**. O sea los cuatro días que el destilado estuvo corriendo antes de que
+el user lo apagara el 17/07 (entrada 2026-07-17 de este mismo changelog). Nunca
+fue una feature en uso: fue un experimento de cuatro días que quedó cableado
+seis semanas (17/07 → 28/08), sosteniendo 858 líneas de gateway.
+
 ⚠️ **Sacar las columnas del schema NO las borra** — `apply_schema` no tiene un
-solo DROP. Lo hace `python -m scripts.drop_tablas_ia` (dry-run por default), que
-además **se niega a dropear las columnas si alguna tiene datos**: la premisa es
-que están 100% en NULL, y si no lo están hay que mirarlo antes de borrar.
+solo DROP. Se corrieron a mano el 2026-08-28 con `scripts/drop_tablas_ia.py`,
+volcando las 4 filas a CSV antes; el script se borró después de cumplir
+(REGLA #5).
 
 ### 2026-08-15 (19) — El objetivo real: automatizar mercado.curvas (diag de mapeo)
 El user explicó para qué es todo esto: **no es Research, es subirle el nivel al

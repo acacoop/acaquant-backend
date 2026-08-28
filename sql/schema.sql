@@ -2935,16 +2935,18 @@ ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0
 -- en el código**, ni writer, ni lector, ni FK. Existían solo en este archivo.
 --
 -- ⚠️ Sacarlas de acá NO las borra de una base que ya las tiene: `apply_schema`
--- es NO destructivo (no tiene un solo DROP). El DROP lo hace, con backup a CSV
--- y dry-run por default, `python -m scripts.drop_tablas_ia`.
+-- es NO destructivo (no tiene un solo DROP). El DROP se corrió a mano el
+-- 2026-08-28 con `scripts/drop_tablas_ia.py` (backup a CSV + dry-run por
+-- default), y ese script se borró después de cumplir (REGLA #5).
 
 -- Research diario de mercado. jobs/research_mail.py lee la casilla por IMAP y
 -- persiste el mail CRUDO, que es lo que se MUESTRA tal cual en la vista Research.
 -- Tenía dos columnas más —`destilado` (jsonb con {resumen, temas, hechos} que
 -- generaba un LLM) y `destilado_modelo`— borradas el 2026-08-28: el flag que las
 -- llenaba nunca estuvo en el cron y ninguna pantalla las dibujaba. Al dropearlas
--- había 4 filas con dato (alguien corrió el job a mano): se volcaron a CSV antes,
--- vía `scripts/drop_tablas_ia.py --forzar-columnas`.
+-- había 4 filas con dato —los research del 14 al 17 de julio, o sea la PRUEBA de
+-- cuatro días que terminó con la decisión de apagarlo el 17/07—: se volcaron a
+-- CSV antes de borrar.
 CREATE TABLE IF NOT EXISTS ia.research (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     fecha        date NOT NULL,          -- día del research (header Date del mail, ART)

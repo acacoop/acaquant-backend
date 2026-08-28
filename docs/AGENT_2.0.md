@@ -1245,6 +1245,18 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (2)** — **La tarjeta de un job contesta lo que decide.** Un job
+  se llamaba de CUATRO formas (`portafolio_diario` en el cron ·
+  `jobs.portafolio_backfill` en `diagnostico_registry` · `aum` en
+  `manager.job_runs` · `job:portafolio_diario` en salud) y el detector
+  normalizaba por su cuenta: `_rehacible` daba False y **la tarjeta salía sin
+  botón**, con el arreglo escrito y andando del otro lado. Ahora `conocido_como`
+  declara los alias y `rehacer.cual_job()` es el único traductor — detector y
+  arreglo preguntan ahí. Además: `estado_del_dia()` contesta con TRES estados
+  (`falta` · `esta` · `no_pude`) donde antes había un `None` para todo, el botón
+  cuelga solo de `falta`, `proximo_intento()` dice que `run_job.sh` **no
+  reintenta**, el `rompe` de REHACIBLES llega a la pantalla, y se dejó de
+  afirmar «última escritura» sobre un timestamp que es «última corrida».
 - **2026-08-28** — **El `sujeto` no puede ser una constante** (§1.1).
   `cron_desalineado` emitía UN hallazgo por regla con `sujeto="crontab"` y el
   conteo en el texto; pasa a **uno por cron**, con el nombre del job de `nombre`

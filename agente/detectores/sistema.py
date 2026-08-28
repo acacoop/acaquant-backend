@@ -32,6 +32,78 @@ def _humano(s: float) -> str:
 logger = logging.getLogger(__name__)
 
 
+# ⚠️ **EL ESTADO, EN CASTELLANO Y EN UNA FRASE.** `critico`/`error`/`sin_datos`
+# son etiquetas del árbol de diagnóstico, no una explicación: la tarjeta decía
+# «tenencia (snapshot SQL): error» —el nombre repetido más una palabra— y ahí
+# terminaba. Ninguna de las tres dice si hay que hacer algo.
+_QUE_PASA = {
+    "error": "su última corrida falló",
+    "critico": "hace demasiado que no da señales",
+    "sin_datos": "nunca dejó un rastro: puede no haber corrido jamás",
+}
+
+
+def _que_hacer_pieza(p: dict, dia: dict | None, nombre: str, unidad: str) -> str:
+    """Qué hacer con una pieza rota — **distinto según qué es y qué se sabe.**
+
+    La versión anterior era una sola frase para las 55 piezas: «relanzar X y
+    mirar su log», y después, para todo lo que no tuviera botón, *«relanzar un
+    motor en rueda le corta el feed de precios a la mesa»*. Esa segunda mitad es
+    verdad para un motor y **mentira para un job**, que es la mayoría de las
+    piezas: le explicaba al lector una regla de motores sobre un job.
+
+    Lo que decide es otra cosa, y ahora se dice: **si el dato está o no**, y
+    **si algo lo va a reintentar solo**. `run_job.sh` no reintenta ningún job:
+    lo único que hay es su próxima corrida programada, y saberla es lo que
+    separa «esperá» de «hacelo vos».
+    """
+    es_motor = (p.get("tipo") or "") == "motor"
+    cad = p.get("cadencia") or "—"
+
+    if es_motor:
+        return (f"Mirar el log de `{unidad or nombre}`. Cadencia: {cad}. "
+                "No hay botón a propósito: reiniciar un motor EN RUEDA le corta "
+                "el feed de precios a la mesa, y eso lo decide la mesa.")
+
+    if dia and dia["estado"] == "esta":
+        return (f"Nada que rehacer: el día {dia['fecha']} ya está en "
+                f"{dia['tabla']}. El job falló DESPUÉS de escribir, así que lo "
+                "que hay que mirar es su log, no el dato.")
+
+    if dia and dia["estado"] == "falta":
+        return ("Apretá REHACER: relanza el job por el mismo lanzador del cron "
+                f"y verifica mirando {dia['tabla']}. {dia['proximo']}.")
+
+    if dia and dia["estado"] == "no_pude":
+        return (f"No pude consultar {dia['tabla']}, así que no sé si hace falta "
+                f"rehacer. Mirar la base a mano. {dia['proximo']}.")
+
+    # No es relanzable: no hay botón porque no está declarado dónde se ve su
+    # resultado — no porque sea peligroso. Decirlo así es lo honesto.
+    return (f"Mirar el log de `{unidad or nombre}` y relanzarlo a mano. "
+            f"Cadencia: {cad}. Todavía no tiene botón: para tenerlo hay que "
+            "declarar en `agente/rehacer.py` en qué tabla se ve su resultado.")
+
+
+def _renglon_del_dia(dia: dict | None) -> str:
+    """Lo que se agrega al detalle según el veredicto sobre el DÍA.
+
+    Los tres estados se atienden distinto y por eso se escriben distinto — que
+    es el punto entero: **«el día está» y «no pude mirar» no se pueden dibujar
+    igual**, ni entre ellos ni con «falta».
+    """
+    if not dia:
+        return ""
+    if dia["estado"] == "esta":
+        return (f" · PERO EL DÍA {dia['fecha']} SÍ ESTÁ en {dia['tabla']}: "
+                f"reventó después de escribir, no hay nada que rehacer")
+    if dia["estado"] == "no_pude":
+        return (f" · no pude consultar {dia['tabla']}, así que NO SÉ si el día "
+                f"{dia['fecha']} está")
+    return (f" · EL DÍA {dia['fecha']} NO ESTÁ en {dia['tabla']}"
+            + (f" · {dia['rompe']}" if dia.get("rompe") else ""))
+
+
 # ═══ salud ═════════════════════════════════════════════════════════════════
 def salud(u: dict) -> list[Hallazgo]:
     """Jobs que no corrieron, corrieron con error, o dejaron el dato viejo.
@@ -98,6 +170,7 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     """
     from datetime import time as _t
 
+    from agente.rehacer import cual_job
     from api.services import diagnostico
     try:
         arbol = diagnostico.arbol()
@@ -131,52 +204,52 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                 sev = "alta" if estado in ("critico", "error") else "media"
                 nombre = str(p.get("label") or p.get("unidad") or "?")
                 unidad = str(p.get("unidad") or "")
-                # ⚠️ **LA REGLA DICE SI HAY BOTÓN, Y NO SE INVENTA.** Solo los
-                # jobs declarados en `agente.rehacer.REHACIBLES` se pueden
-                # relanzar; un motor NO —relanzarlo en rueda le corta el feed de
-                # precios a la mesa, y eso no se decide desde un botón—.
+                # ⚠️ **LA REGLA DICE SI HAY BOTÓN, Y EL BOTÓN SOLO APARECE
+                # DONDE PUEDE HACER ALGO.** Primero se pregunta lo único que
+                # decide —¿está el día en la tabla?— y de ahí sale la regla:
                 #
-                # Si las dos cosas compartieran regla, la mitad de las filas
-                # tendría un botón que siempre falla: **un aviso con forma de
-                # trabajo**, que es exactamente lo que hacía `salud` en el
-                # agente viejo y por lo que la lista tenía 96 filas de las que
-                # casi ninguna se podía apretar.
-                regla = ("job_sin_dato" if _rehacible(unidad)
+                #   falta                → `job_sin_dato`, que TIENE botón.
+                #   está / no pude mirar → `pieza_<estado>`, que es un aviso.
+                #   no es relanzable     → `pieza_<estado>` (un motor, o un job
+                #                          que todavía no declaró su tabla).
+                #
+                # Un botón sobre «el día ya está» solo podría contestar «no
+                # hacía falta», y uno sobre «no pude consultar» solo «no ejecuto
+                # a ciegas»: **un aviso con forma de trabajo**, que es lo que
+                # hacía `salud` en el agente viejo y por lo que su lista de 96
+                # filas no se podía apretar casi nunca.
+                #
+                # Y es una query por fila YA cantada, solo para los relanzables:
+                # nunca un barrido de los 35 jobs cada 2 minutos.
+                dia = _el_dia(unidad)
+                regla = ("job_sin_dato" if dia and dia["estado"] == "falta"
                          else f"pieza_{estado}")
-                # ⚠️ **EL RESULTADO, NO EL PROCESO.** Todo lo de arriba mira la
-                # FRESCURA: hace cuánto que la pieza no escribe. Eso no alcanza
-                # por los dos lados —un job puede reventar al final habiendo
-                # escrito todo (nada que rehacer) y puede salir en verde sin
-                # dejar una fila (todo por rehacer)—, así que para los jobs
-                # relanzables se pregunta lo único que decide: **¿está el día en
-                # la tabla?**
-                #
-                # Era la razón de ser del control `dia_sin_dato`, que se dio de
-                # baja el 2026-08-27 por duplicar al detector. Duplicaba casi
-                # todo menos esto, así que la pregunta se muda acá — al hallazgo
-                # que además trae el botón, en vez de vivir en un aviso aparte.
-                #
-                # Solo se pregunta por las piezas YA marcadas y solo si son
-                # relanzables: es una query por fila cantada, no un barrido.
-                dia = _falta_el_dia(unidad) if _rehacible(unidad) else None
+                # ⚠️ **EL NOMBRE CANÓNICO CUANDO SE SABE CUÁL ES.** El árbol
+                # llama a este job «tenencia (snapshot SQL)» y `salud` le dice
+                # `portafolio_diario`: dos tarjetas del MISMO incidente que el
+                # lector no podía juntar. Y el sujeto ES la identidad del
+                # problema, así que atarla al `unidad` del árbol la hacía
+                # cambiar en silencio el día que alguien renombrara la Pieza.
+                canon = (dia or {}).get("job") or cual_job(unidad)
                 out.append(Hallazgo(
-                    sujeto=unidad or nombre, regla=regla,
-                    severidad=sev, nombre=nombre,
-                    problema=(f"{nombre}: {estado} · última señal "
-                              f"{p.get('hace') or '—'} · ventana "
-                              f"{p.get('ventana') or 'rueda'} · {reloj.hhmm()}"),
-                    # De dónde sale el veredicto: qué tabla se miró y qué había.
-                    detalle=(f"{p.get('tabla') or 'sin tabla declarada'} · "
-                             f"última escritura {p.get('ultima') or 'NUNCA'} · "
-                             f"tolera {p.get('umbral_s') or '?'}s"
-                             + ("" if dia is None else
-                                f" · EL DÍA {dia['fecha']} NO ESTÁ en "
-                                f"{dia['tabla']}")),
-                    que_hacer=(f"Relanzar `{unidad or nombre}` y mirar su log. "
-                               f"Cadencia declarada: {p.get('cadencia') or '—'}."
-                               + ("" if _rehacible(unidad) else
-                                  " No hay botón: relanzar un motor en rueda le "
-                                  "corta el feed de precios a la mesa.")),
+                    sujeto=canon or unidad or nombre, regla=regla,
+                    severidad=sev, nombre=canon or nombre,
+                    # ⚠️ **SIN EL NOMBRE ADELANTE.** La tarjeta ya lo muestra
+                    # grande arriba: repetirlo acá gastaba el renglón que tiene
+                    # que decir QUÉ PASA.
+                    problema=(f"{_QUE_PASA.get(estado, estado)} · última señal "
+                              f"{p.get('hace') or '—'} · {reloj.hhmm()}"),
+                    # ⚠️ **«ESCRITURA» NO: CORRIDA.** Cuando la frescura sale de
+                    # `manager.job_runs` (las piezas con `run_tipo`, que son casi
+                    # todos los jobs), ese timestamp es **cuándo corrió** — y un
+                    # job que falló al arrancar «corrió» sin escribir una fila.
+                    # La tarjeta decía «última escritura 08:00:04» de un job que
+                    # no escribió nada.
+                    detalle=(f"{'última escritura en ' + p['tabla'] if p.get('tabla') else 'última corrida'} "
+                             f"{p.get('ultima') or 'NUNCA'} · tolera "
+                             f"{_humano(p.get('umbral_s') or 0)}"
+                             + _renglon_del_dia(dia)),
+                    que_hacer=_que_hacer_pieza(p, dia, nombre, unidad),
                     evidencia={"vista": vista.get("vista"), "tipo": p.get("tipo"),
                                "estado": estado, "unidad": p.get("unidad"),
                                "tabla": p.get("tabla"),
@@ -189,7 +262,10 @@ def motor_caido(u: dict) -> list[Hallazgo]:
                                # `None` = no es relanzable, o no se pudo mirar.
                                # **No es `False`**: «no pude comprobar si el día
                                # está» jamás se publica como «el día falta».
-                               "dia_faltante": (dia or {}).get("fecha"),
+                               "dia_faltante": (dia["fecha"] if dia
+                                                and dia["estado"] == "falta"
+                                                else None),
+                               "dia_estado": (dia or {}).get("estado"),
                                "rompe": (dia or {}).get("rompe")}))
     # Lo más grave primero, y los motores antes que los jobs: un motor caído deja
     # a la mesa sin precios AHORA; un job se recupera en la corrida siguiente.
@@ -198,37 +274,31 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     return out
 
 
-def _falta_el_dia(unidad: str) -> dict | None:
-    """¿El día que este job tenía que escribir está en su tabla?
+def _el_dia(unidad: str) -> dict | None:
+    """El veredicto sobre el DÍA de este job, o `None` si no es relanzable.
 
-    Devuelve la ficha del hueco, o `None` — y `None` cubre TRES casos que no se
-    atienden distinto acá: no es relanzable, el día sí está, o **no se pudo
-    mirar**. Ese último es el que importa: `rehacer.hay_dato` devuelve `None`
-    cuando la consulta falla, y publicar eso como «falta el día» sería relanzar
-    un job a ciegas, que es justo lo que ese módulo existe para no hacer.
+    Delega en `rehacer.estado_del_dia`, que contesta con TRES estados distintos
+    (`falta` · `esta` · `no_pude`). Antes esto vivía acá y devolvía `None` para
+    los tres más «no es relanzable»: la tarjeta no podía distinguir «el dato
+    está» de «no pude mirar», que es exactamente la diferencia entre quedarse
+    tranquilo y tener que actuar.
     """
-    from agente.rehacer import REHACIBLES, fecha_objetivo, hay_dato
-    corto = (unidad or "").split(".")[-1]
-    job = corto if corto in REHACIBLES else (
-        unidad if unidad in REHACIBLES else "")
-    if not job:
-        return None
-    fecha = fecha_objetivo(job)
-    if not fecha or hay_dato(job, fecha) is not False:
-        return None
-    cfg = REHACIBLES[job]
-    return {"fecha": fecha, "tabla": cfg["tabla"], "rompe": cfg.get("rompe", "")}
+    from agente import rehacer
+    return rehacer.estado_del_dia(unidad)
 
 
 def _rehacible(unidad: str) -> bool:
-    """¿Este job está declarado como relanzable? `agente.rehacer.REHACIBLES` es
-    una lista corta de jobs idempotentes con su tabla y su columna de fecha — no
-    un ejecutor de comandos."""
-    if not unidad:
-        return False
-    from agente.rehacer import REHACIBLES
-    corto = unidad.split(":")[-1].removeprefix("jobs.")
-    return corto in REHACIBLES or unidad in REHACIBLES
+    """¿Este job está declarado como relanzable?
+
+    ⚠️ **La traducción del nombre NO se hace acá.** Un job se llama distinto en
+    el cron, en el registro de diagnóstico, en `manager.job_runs` y en salud;
+    `rehacer.cual_job` es el único que sabe cuál es cuál. Cuando esta función
+    tenía su propia regla de sufijos, `jobs.portafolio_backfill` no resolvía a
+    `portafolio_diario` y **el botón no aparecía nunca** — con el arreglo
+    escrito, probado y andando del otro lado.
+    """
+    from agente.rehacer import cual_job
+    return bool(cual_job(unidad))
 
 
 def _hora_del_arbol(arbol: dict):

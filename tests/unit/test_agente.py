@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from agente import arreglos, catalogo, registro, tipos
+from agente import arreglos, catalogo, registro, rehacer, tipos
 from agente.detectores import datos, mercado, sistema
 
 
@@ -283,11 +283,23 @@ def test_el_boton_de_rehacer_solo_aparece_donde_puede_funcionar():
     from agente import arreglos as arr
     from agente.detectores.sistema import _rehacible
 
-    det = inspect.getsource(_rehacible)
-    apl = inspect.getsource(arr.RehacerJob._job_fecha)
-    for frag in ('split(":")[-1]', 'removeprefix("jobs.")'):
-        assert frag in det and frag in apl, (
-            f"«{frag}» tiene que estar en los dos lados o van a discrepar")
+    # ⚠️ UNA sola puerta, no dos reglas iguales. Que fueran idénticas no
+    # alcanzaba: las dos hacían `split(":")` + `removeprefix("jobs.")` y las dos
+    # daban mal, porque el nombre real del job no sale de transformar el string
+    # —sale de `conocido_como`—. Coincidían entre ellas y no con la realidad.
+    for f in (_rehacible, arr.RehacerJob._job_fecha):
+        assert "cual_job" in inspect.getsource(f), (
+            f"{f.__qualname__} tiene que preguntar por `rehacer.cual_job`")
+    for f in (_rehacible, arr.RehacerJob._job_fecha):
+        assert 'removeprefix("jobs.")' not in _codigo(f), (
+            f"{f.__qualname__} volvió a normalizar por su cuenta")
+
+    # Y el árbitro resuelve los cuatro nombres del MISMO job al mismo lugar.
+    for alias in ("portafolio_diario", "jobs.portafolio_backfill", "aum",
+                  "job:portafolio_diario"):
+        assert rehacer.cual_job(alias) == "portafolio_diario", (
+            f"«{alias}» no resuelve: la tarjeta que lo use se queda sin botón")
+    assert rehacer.cual_job("motor_rofex.service") == ""
 
 
 def test_salud_no_declara_un_arreglo_que_no_tiene():
@@ -843,15 +855,21 @@ def test_motor_caido_pregunta_si_el_dia_esta_en_la_tabla():
     acá en vez de irse con él.
     """
     src = (RAIZ / "agente" / "detectores" / "sistema.py").read_text()
-    assert "_falta_el_dia" in src, "motor_caido no pregunta por el día faltante"
-    # Solo para los relanzables y solo sobre lo YA cantado: una query por fila
-    # con hallazgo, nunca un barrido de todos los jobs cada 2 minutos.
-    assert "_falta_el_dia(unidad) if _rehacible(unidad) else None" in src
-    # ⚠️ `None` de `hay_dato` es «no pude mirar», y NO puede publicarse como
-    # «falta el día»: relanzar un job por una consulta que falló es ejecutar a
-    # ciegas, que es lo que `agente/rehacer` existe para no hacer.
-    i = src.index("def _falta_el_dia")
-    assert "hay_dato(job, fecha) is not False" in src[i:i + 900]
+    assert "_el_dia(unidad)" in src, "motor_caido no pregunta por el día"
+
+    # ⚠️ **TRES estados, no dos.** Antes esto devolvía `None` para «el día
+    # está», «no pude mirar» y «no es relanzable» por igual, así que la tarjeta
+    # no podía distinguir quedarse tranquilo de tener que actuar.
+    src_r = inspect.getsource(rehacer.estado_del_dia)
+    for e in ("falta", "esta", "no_pude"):
+        assert f'"{e}"' in src_r, f"falta el estado «{e}»"
+    # `None` de `hay_dato` es «no pude mirar» y NUNCA se publica como «falta».
+    assert 'estado = "no_pude" if hay is None' in src_r
+
+    # Y el botón cuelga SOLO de que el día falte: sobre «ya está» únicamente
+    # podría contestar «no hacía falta», que es un aviso con forma de trabajo.
+    assert 'regla = ("job_sin_dato" if dia and dia["estado"] == "falta"' in src
+    assert 'dia["fecha"] if dia\n' in src or '"dia_faltante": (dia["fecha"] if dia' in src
 
 
 # ── FICHA INCOMPLETA ───────────────────────────────────────────────────────
@@ -1128,3 +1146,44 @@ def test_cada_cron_es_un_hallazgo_con_identidad_propia():
     assert "for linea in lineas" in src
     assert "crontab.sujeto(linea)" in src
     assert 'sujeto="crontab"' not in src
+
+
+def test_la_tarjeta_de_un_job_contesta_lo_que_decide():
+    """Las cuatro cosas que hay que saber para actuar, y ninguna estaba.
+
+    User (2026-08-28), sobre la tarjeta de `tenencia (snapshot SQL)`: *«sigue
+    siendo inentendible, no está claro qué es el error, a qué afecta… ¿qué
+    política de reintentos tiene? ¿cómo sabe que no se volvió a ejecutar?»*.
+
+    La tarjeta contaba el PROCESO (falló, hace 1h49m, tolera 36h). Lo que
+    decide es otra cosa: **si el dato está**, **si algo lo va a reintentar
+    solo**, **qué se rompe mientras tanto** y **si se puede arreglar desde ahí**.
+    """
+    src = inspect.getsource(sistema._que_hacer_pieza)
+
+    # 1. El dato: los tres estados dan tres respuestas DISTINTAS.
+    for e in ("esta", "falta", "no_pude"):
+        assert f'dia["estado"] == "{e}"' in src, f"no distingue «{e}»"
+    # 2. El reintento: sale de `proximo_intento`, no de la memoria del lector.
+    assert "dia['proximo']" in src
+    assert "no reintenta solo" in inspect.getsource(rehacer.proximo_intento), (
+        "`run_job.sh` no reintenta ningún job — decirlo es lo que separa "
+        "«esperá» de «hacelo vos»")
+    # 3. Qué rompe: el campo existía en REHACIBLES y no llegaba a ninguna
+    #    pantalla.
+    assert "rompe" in inspect.getsource(sistema._renglon_del_dia)
+    assert rehacer.REHACIBLES["portafolio_diario"]["rompe"]
+
+    # 4. ⚠️ **NO se afirma «escritura» cuando el dato es una CORRIDA.** Para las
+    #    piezas con `run_tipo` —casi todos los jobs— el timestamp sale de
+    #    `manager.job_runs`: es cuándo corrió. La tarjeta decía «última
+    #    escritura 08:00:04» de un job que había fallado al hacer login y no
+    #    escribió una sola fila.
+    card = inspect.getsource(sistema.motor_caido)
+    i = card.index("detalle=")
+    assert "p.get('tabla')" in card[i:i + 400], (
+        "«escritura» solo se puede afirmar si la frescura sale de una tabla")
+
+    # Y la frase de los MOTORES no se le dice a un job: es verdad para un motor
+    # y mentira para las 35 piezas de tipo job, que es la mayoría.
+    assert 'p.get("tipo") or ""' in src and '== "motor"' in src

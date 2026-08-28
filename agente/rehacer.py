@@ -81,10 +81,114 @@ REHACIBLES: dict[str, dict] = {
         # calcular la ÚLTIMA CORRIDA ESPERADA — sin esto, el control le exigía
         # el viernes a un sábado en que el job ni corre (§0.cq).
         "corre_utc": 11,
+        "corre_dias": "L-V",
+        # ⚠️⚠️ **LOS OTROS NOMBRES DEL MISMO JOB.** Ver `cual_job()`.
+        "conocido_como": (
+            "jobs.portafolio_backfill",   # diagnostico_registry.Pieza.unidad
+            "aum",                        # manager.job_runs.tipo (legado)
+            "job:portafolio_diario",      # el id del chequeo de api/services/salud
+        ),
         "rompe": ("sin esto el AuM, la Tenencia Valorizada y Títulos en Alquiler "
                   "se quedan con el día anterior"),
     },
 }
+
+
+# ⚠️⚠️ **EL ÁRBITRO DE NOMBRES — REGLA #9(B) adentro del agente.**
+#
+# `portafolio_diario` se llama de CUATRO formas distintas según quién lo mire:
+# el label del cron, el `unidad` de la Pieza de diagnóstico, el `tipo` con el
+# que se anota en `manager.job_runs` y el id del chequeo de salud. Cada mitad
+# del sistema era coherente consigo misma, así que no fallaba nada: el detector
+# normalizaba `jobs.portafolio_backfill` → `portafolio_backfill`, buscaba esa
+# clave acá, no la encontraba, y **la tarjeta salía sin botón** diciendo que era
+# un motor. El arreglo existía, andaba, y no había forma de llegar a él.
+#
+# Por eso la traducción vive UNA sola vez y todos preguntan acá. Un nombre nuevo
+# es una entrada en `conocido_como`, no una regla de string más en otro archivo.
+_INDICE: dict[str, str] = {}
+
+
+def cual_job(nombre: str) -> str:
+    """De cualquiera de sus nombres al job. Vacío si no es relanzable.
+
+    Es la ÚNICA normalización del repo: el detector la usa para decidir si hay
+    botón y el arreglo para decidir qué corre. Cuando cada uno tenía la suya
+    —los dos hacían `split(":")` y `removeprefix("jobs.")`, iguales y en dos
+    archivos— igual discrepaban con la realidad, porque el alias verdadero no
+    era ninguna de esas dos transformaciones.
+    """
+    if not _INDICE:
+        for k, cfg in REHACIBLES.items():
+            _INDICE[k] = k
+            for alias in cfg.get("conocido_como") or ():
+                _INDICE[alias] = k
+    n = (nombre or "").strip()
+    if not n:
+        return ""
+    # Directo o por alias. El fallback de sufijos se conserva por si aparece un
+    # nombre nuevo del mismo job, pero NO es el mecanismo: el mecanismo es la
+    # declaración.
+    return (_INDICE.get(n)
+            or _INDICE.get(n.split(":")[-1].removeprefix("jobs."), ""))
+
+
+def proximo_intento(job: str, ahora: datetime | None = None) -> str:
+    """Cuándo vuelve a correr **solo**. En castellano, listo para mostrar.
+
+    ⚠️ **`deploy/run_job.sh` NO reintenta**: toma el lock, corre con timeout,
+    loguea `OK/SKIP/TIMEOUT/ERROR` y sale. O sea que para TODOS los jobs del
+    crontab la respuesta a «¿lo intenta de nuevo?» es la misma: no — lo único
+    que hay es su próxima corrida programada.
+
+    Decirlo importa porque es lo que separa «esperá» de «hacelo vos», y hoy la
+    tarjeta no lo decía en ningún lado: había que saberse el crontab de memoria.
+    """
+    from core.calendario import es_habil
+
+    cfg = REHACIBLES.get(job)
+    if not cfg or "corre_utc" not in cfg:
+        return ""
+    ahora = ahora or datetime.now()
+    h = int(cfg["corre_utc"])
+    d = ahora.date()
+    # Si la de hoy ya pasó (o hoy no es hábil), la próxima es el hábil siguiente.
+    if not es_habil(d) or ahora.hour >= h:
+        d += timedelta(days=1)
+        while not es_habil(d):
+            d += timedelta(days=1)
+    cuando = "hoy" if d == ahora.date() else d.isoformat()
+    return f"no reintenta solo · próxima corrida programada: {cuando} {h:02d}:00 UTC"
+
+
+def estado_del_dia(nombre: str) -> dict | None:
+    """¿El día que este job tenía que escribir ESTÁ en su tabla?
+
+    `None` solo si el job no es relanzable. Si lo es, contesta SIEMPRE con uno
+    de tres estados — y los tres son distintos:
+
+        falta    → el día no está. Hay trabajo, y hay botón.
+        esta     → el día está. El job reventó DESPUÉS de escribir: no hay que
+                   relanzar nada, por más que la corrida figure en rojo.
+        no_pude  → la consulta falló. **No es «falta»**: relanzar por una
+                   lectura que no se pudo hacer es ejecutar a ciegas.
+
+    Antes esto devolvía `None` para los tres casos y para «no es relanzable»,
+    así que la tarjeta no podía distinguir «el dato está» de «no sé» — que es la
+    diferencia entre no hacer nada y tener que actuar.
+    """
+    job = cual_job(nombre)
+    if not job:
+        return None
+    cfg = REHACIBLES[job]
+    fecha = fecha_objetivo(job)
+    if not fecha:
+        return None
+    hay = hay_dato(job, fecha)
+    estado = "no_pude" if hay is None else ("esta" if hay else "falta")
+    return {"job": job, "fecha": fecha, "estado": estado,
+            "tabla": cfg["tabla"], "rompe": cfg.get("rompe", ""),
+            "proximo": proximo_intento(job)}
 
 
 def fecha_objetivo(job: str, ahora: datetime | None = None) -> str:

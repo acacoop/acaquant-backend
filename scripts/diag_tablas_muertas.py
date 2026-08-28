@@ -39,6 +39,8 @@ Uso:
 """
 from __future__ import annotations
 
+import pathlib
+import subprocess
 import sys
 from datetime import UTC, datetime
 
@@ -46,9 +48,49 @@ from agente import peso, tablas
 from core import escribe
 from core.postgres import get_pool
 
+RAIZ = pathlib.Path(__file__).resolve().parents[1]
+
 # Cuánto silencio hace falta para llamarla «congelada». Un trimestre: más que
 # cualquier job mensual, así un cierre de trimestre no la marca por dormida.
 DIAS_CONGELADA = 120
+
+
+# Carpetas donde vive el sistema. `scripts/` NO cuenta: un script puede
+# nombrar una tabla justamente para diagnosticarla o para borrarla.
+CODIGO = ("api", "agente", "jobs", "core", "engines", "quant")
+
+
+def _nombrada(nombre: str) -> int:
+    """¿Cuántos archivos del sistema nombran a `schema.tabla`, CALIFICADA?
+
+    ⚠️⚠️ **ESTE EJE EXISTE PORQUE `quien_escribe` NO ALCANZA.** Es un regex
+    sobre `INSERT INTO <literal>`, así que **no ve la tabla cuyo nombre vive en
+    una variable** — que es como se escribe medio repo:
+
+        _T_EVENTOS   = "manager.salud_eventos"        (api/services/salud.py)
+        _TABLE_MANUAL = "mercado.breakevens_manuales" (breakevens_admin.py)
+
+    Medido el 2026-08-28 sobre la primera corrida real: de las **23** tablas que
+    el diag propuso dropear, **CUATRO estaban vivas** — `manager.salud_eventos`,
+    `mercado.breakevens_manuales`, `ap5.activo_integrado` (¡tema abierto de esta
+    semana!) y `agente.avisos_dirigidos`, que **la escribe el agente mismo**
+    (`agente/mensajes.py`). Las cuatro, vacías nada más que porque todavía
+    nadie las llenó.
+
+    Y se busca el nombre **CALIFICADO** (`agente.avisos_dirigidos`), no el
+    pelado, porque el pelado sobra-detecta al revés: las 19 `agente.av_agent_*`
+    del agente viejo aparecen por todos lados en PROSA de comentarios que
+    cuentan su historia, y con el nombre pelado quedarían vivas para siempre.
+    Medido: calificado → 4/4 vivas rescatadas y 19/19 muertas dejadas pasar.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "grep", "-l", "-F", nombre, "--",
+             *[f"{c}/" for c in CODIGO]],
+            cwd=RAIZ, capture_output=True, text=True, timeout=30)
+        return len([ln for ln in r.stdout.splitlines() if ln.strip()])
+    except Exception:
+        return 0
 
 
 def _peso_y_ultima(schema: str, tabla: str, col: str | None) -> tuple[int, datetime | None]:
@@ -100,17 +142,28 @@ def main() -> int:
             "nombre": nombre, "filas": t["filas"], "bytes": bytes_,
             "col": t["col_fecha"], "ultima": ult, "edad": _edad_dias(ult),
             "escritores": escritores, "declarada": nombre in declaradas,
+            "nombrada": _nombrada(nombre),
         })
 
-    # ── Los tres montones. El orden es de MÁS a MENOS seguro. ────────────────
-    # 1. VACÍA Y SIN DUEÑO: 0 filas + nadie la escribe. Borrarla no puede
-    #    perder un dato, porque no hay dato.
-    muertas = [f for f in filas if not f["escritores"] and f["filas"] == 0]
-    # 2. CON DATOS PERO SIN DUEÑO: alguien la llenó alguna vez y ya nadie la
-    #    toca. Acá SÍ se puede perder algo → decide una persona, mirando qué es.
-    congeladas = [f for f in filas
-                  if not f["escritores"] and f["filas"] > 0
-                  and (f["edad"] is None or f["edad"] >= DIAS_CONGELADA)]
+    # ── Los montones. El orden es de MÁS a MENOS seguro. ─────────────────────
+    # Que el código la NOMBRE saca a una tabla de todo montón de borrado, aunque
+    # esté vacía y sin escritor detectado: alguien escribió su nombre a mano.
+    huerfana = [f for f in filas if not f["escritores"] and not f["nombrada"]]
+    # 1. VACÍA Y HUÉRFANA: 0 filas. Borrarla no puede perder un dato.
+    muertas = [f for f in huerfana if f["filas"] == 0]
+    # 2. CON DATOS Y HUÉRFANA, y encima MEDIDA: sabemos cuándo escribió por
+    #    última vez y hace mucho. Acá SÍ se puede perder algo → decide una
+    #    persona.
+    congeladas = [f for f in huerfana
+                  if f["filas"] > 0 and f["edad"] is not None
+                  and f["edad"] >= DIAS_CONGELADA]
+    # 2bis. CON DATOS, HUÉRFANA y SIN COLUMNA DE FECHA. ⚠️ Este montón existe
+    #    aparte porque la primera versión lo mezclaba con el anterior y les
+    #    ponía el cartel «hace ≥120 d que no escriben» — que era MENTIRA: sin
+    #    columna de fecha no se sabe cuándo escribieron. Es el mismo invariante
+    #    que rige adentro del agente: una corrida que no pudo mirar no cierra
+    #    nada. No puedo medirlo ≠ está muerta.
+    sin_medir = [f for f in huerfana if f["filas"] > 0 and f["edad"] is None]
     # 3. SIN DECLARAR: existe en la base y no está en el archivo. No es basura
     #    necesariamente — es deuda: `apply_schema` no la puede recrear.
     sin_declarar = [f for f in filas if not f["declarada"]]
@@ -137,13 +190,18 @@ def main() -> int:
                   f"  {cuando}{marca}")
         print(f"\n      → juntas pesan {_mb(sum(f['bytes'] for f in items))}\n")
 
-    bloque("① VACÍAS Y SIN DUEÑO — candidatas a DROP",
-           "0 filas y ningún módulo del repo las escribe. Borrarlas no pierde datos.",
+    bloque("① VACÍAS Y HUÉRFANAS — candidatas a DROP",
+           "0 filas, nadie las escribe y NINGÚN archivo del sistema las nombra.\n"
+           "      Borrarlas no pierde datos.",
            muertas)
-    bloque(f"② CON DATOS Y SIN DUEÑO — hace ≥{DIAS_CONGELADA} d que no escriben",
+    bloque(f"② CON DATOS Y HUÉRFANAS — medidas: hace ≥{DIAS_CONGELADA} d que no escriben",
            "Alguien las llenó y ya nadie las toca. ⚠ Acá SÍ se puede perder algo:\n"
            "      mirá QUÉ son antes de decidir. No hay DROP automático para éstas.",
            congeladas)
+    bloque("②bis CON DATOS Y HUÉRFANAS — pero SIN COLUMNA DE FECHA",
+           "No sé cuándo escribieron por última vez, así que NO digo que estén\n"
+           "      congeladas. Suelen ser catálogos que se cargan a mano.",
+           sin_medir)
     bloque("③ SIN DECLARAR en sql/schema.sql — deuda, no basura",
            "Existen en la base y no están en el archivo: `apply_schema` no las\n"
            "      puede recrear si se pierden. O se declaran, o se borran.",

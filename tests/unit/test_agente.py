@@ -27,6 +27,10 @@ def _codigo(fuente) -> str:
 
     `ast.unparse` devuelve solo código (los comentarios no llegan al árbol) y
     acá además se sacan los docstrings.
+
+    ⚠️ Ojo al escribir el assert: `ast.unparse` **normaliza las comillas** (un
+    `r.get("x")` vuelve como `r.get('x')`) y reescribe los f-strings. Buscá el
+    identificador, no el fragmento literal tal como está en el archivo.
     """
     src = fuente if isinstance(fuente, str) else inspect.getsource(fuente)
     arbol = ast.parse(textwrap.dedent(src))
@@ -1351,8 +1355,36 @@ def test_lo_que_dijo_el_job_llega_a_la_pantalla():
 
     # Últimas LÍNEAS, no últimos bytes: cortar por bytes parte un renglón al
     # medio y lo que se lee arranca en la mitad de una palabra.
-    d = inspect.getsource(rehacer._lo_que_dijo)
+    # `_codigo()` y no `getsource`: el comentario de esa función NOMBRA el
+    # `p.stdout` que dejó de usarse, y un grep sobre el archivo entero haría
+    # fallar el test por haberlo explicado bien.
+    d = _codigo(rehacer._lo_que_dijo)
     assert "splitlines()" in d and "[-3:]" in d
+
+    # ⚠️⚠️ **Y SE LEE DEL LOG, NO DE `p.stdout`.** El primer intento de arreglar
+    # esto leyó la salida del subprocess y llegaba VACÍA: `run_job.sh` redirige
+    # todo con `>> "$LOG"`, así que capturar el stdout del wrapper no captura
+    # nada. La explicación estaba en el archivo desde siempre.
+    wrapper = (RAIZ / "deploy" / "run_job.sh").read_text()
+    assert '>> "$LOG" 2>&1' in wrapper, (
+        "si el wrapper dejara de redirigir, esto habría que revisarlo")
+    assert "p.stdout" not in d and "seek(desde)" in d
+    c = _codigo(rehacer._correr)
+    # Desde el tamaño previo: leer «las últimas líneas» a secas traería las de
+    # ayer el día que el job no llegue a escribir una sola.
+    assert "log.stat().st_size" in c
+
+    # SALTEAR NO ES CORRER, y las dos cosas salen 0 (`run_job.sh` escribe SKIP y
+    # `exit 0` para no apilar instancias — el incidente de CPU del 2026-06-03).
+    # Se ancla en la LÍNEA de código, no en la primera aparición de «SKIP»: el
+    # encabezado del wrapper también la nombra al explicar qué loguea.
+    i = wrapper.index('echo "[$(ts)] SKIP')
+    assert "exit 0" in wrapper[i:i + 200]
+    # (el texto exacto del f-string lo reescribe `ast.unparse`, así que se
+    # verifica lo que no cambia: que mire el SKIP y que lo marque distinto)
+    assert "SKIP" in c and "salteado" in c
+    assert "salteado" in _codigo(rehacer.rehacer), (
+        "`rehacer()` no distingue «no corrió» de «corrió y no escribió»")
 
 
 def test_preguntar_y_no_traer_nada_no_es_un_exito():

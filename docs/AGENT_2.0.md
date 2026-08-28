@@ -1245,6 +1245,15 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (5)** — **La salida del job estaba en el ARCHIVO, no en stdout.**
+  El arreglo anterior hizo viajar `p.stdout` hasta la pantalla y lo que llegaba
+  era la cadena vacía: `run_job.sh` redirige todo con `>> "$LOG"`, así que
+  capturar el stdout del wrapper no captura nada. Ahora se anota el tamaño de
+  `logs/<label>.log` antes de largar y se leen las líneas nuevas — la parte de
+  ESTA corrida, no las de ayer. Y de paso aparece el tercer camino silencioso:
+  si la corrida anterior sigue viva, el lanzador escribe `SKIP` y **sale 0**;
+  sin mirarlo, el agente informaría «corrió y no escribió» de algo que ni
+  arrancó. `salteado` es su propia respuesta.
 - **2026-08-28 (4)** — **Lo que dijo el job llega a la pantalla, y el job deja
   de mentir cuando pregunta y no trae nada.** Al apretar REHACER, el resultado
   fue «corrió sin error y la tabla SIGUE sin el 27/08»: correcto (se verifica

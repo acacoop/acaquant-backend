@@ -51,6 +51,18 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 RUN_JOB = "/root/TradingAV/deploy/run_job.sh"
+# ⚠️⚠️ **EL JOB NO ESCRIBE EN STDOUT: ESCRIBE EN ESTE ARCHIVO.**
+#
+# `run_job.sh` redirige TODO —lo del job y lo suyo— con `>> "$LOG"`, así que un
+# `subprocess.run(capture_output=True)` sobre el wrapper captura **la cadena
+# vacía**. Es lo que pasó el 2026-08-28: se hizo viajar `salida` hasta la
+# pantalla y lo que llegaba era nada, porque nunca hubo nada que capturar.
+#
+# La explicación vive en `logs/<label>.log`, y para saber qué parte es de ESTA
+# corrida se anota el tamaño del archivo antes de largar y se lee de ahí en
+# adelante. Leer «las últimas N líneas» a secas traería las de ayer cuando el
+# job no llegue a escribir una sola.
+LOGS = "/root/TradingAV/logs"
 
 # Cuánto se espera al `run_job.sh`. El wrapper ya tiene su propio timeout (el
 # segundo argumento); este es el del lado nuestro, un poco más largo para no
@@ -278,7 +290,9 @@ def rehacer(job: str, fecha: str, *, por: str = "") -> dict:
 
     r = _correr(cfg)
     if not r["ok"]:
-        return {**r, "corrio": True, "ya_estaba": False}
+        # `salteado` NO corrió: decir `corrio: True` mandaría a buscar el
+        # problema adentro de un job que ni arrancó.
+        return {**r, "corrio": not r.get("salteado"), "ya_estaba": False}
 
 
     # ⚠️ **LA PRUEBA ES LA TABLA, NO EL EXIT CODE.** Un job puede salir 0 y no
@@ -306,35 +320,56 @@ def _correr(cfg: dict) -> dict:
         # Pasa en local y en cualquier máquina que no sea el Droplet. Decirlo es
         # mejor que un `FileNotFoundError` críptico en la pantalla.
         return {"ok": False, "error": f"no existe {RUN_JOB} (¿no es el Droplet?)"}
+    log = pathlib.Path(LOGS) / f'{cfg["label"]}.log'
+    # El punto de partida: lo que ya estaba escrito NO es de esta corrida.
+    desde = log.stat().st_size if log.exists() else 0
     try:
         p = subprocess.run(
             [RUN_JOB, cfg["label"], cfg["timeout"], cfg["comando"]],
             capture_output=True, text=True, timeout=ESPERA_S)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"pasó de {ESPERA_S // 60} min y lo corté"}
+        return {"ok": False, "error": f"pasó de {ESPERA_S // 60} min y lo corté",
+                "salida": _lo_que_dijo(log, desde)}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
-    return {"ok": p.returncode == 0, "salida": _lo_que_dijo(p),
+
+    salida = _lo_que_dijo(log, desde)
+    # ⚠️ **SALTEAR NO ES CORRER, Y LAS DOS COSAS SALEN 0.** Si la corrida
+    # anterior sigue viva, `run_job.sh` escribe SKIP y sale 0 (es su diseño:
+    # apilar dos instancias del mismo job fue el incidente de CPU del
+    # 2026-06-03). Sin mirarlo, el agente informaría «corrió y no escribió» de
+    # algo que ni arrancó — y mandaría a buscar el bug al lugar equivocado.
+    if f'SKIP {cfg["label"]}' in salida:
+        return {"ok": False, "salteado": True, "salida": salida,
+                "error": ("NO corrió: la corrida anterior del mismo job sigue "
+                          "viva y el lanzador la saltea para no apilarlas. "
+                          "Esperá a que termine y volvé a intentar.")}
+    return {"ok": p.returncode == 0, "salida": salida,
             **({} if p.returncode == 0
                else {"error": f"salió con código {p.returncode}"})}
 
 
-def _lo_que_dijo(p) -> str:
-    """Las últimas líneas que imprimió el job. **Es la única explicación que hay.**
+def _lo_que_dijo(log, desde: int) -> str:
+    """Lo que el job escribió en SU log durante ESTA corrida.
 
     User (2026-08-28), después de apretar REHACER y ver «corrió sin error y la
     tabla SIGUE sin el día»: *«cuando lo relanzamos tampoco dice el motivo ni
-    nada»*. Y no era que no existiera: `subprocess.run` la capturaba y las tres
-    salidas de `rehacer()` la descartaban.
+    nada»*.
 
-    Ese job termina con una línea que contesta sola —`✓ 2026-08-27: OK=0
-    vacía=1040 TIMEOUT=0 ERROR=0 · filas insertadas=0`— y el que apretó el botón
-    no la veía por ningún lado.
+    El primer intento de arreglarlo leyó `p.stdout` — y no traía nada, porque
+    `run_job.sh` redirige todo al archivo. La explicación estaba ahí desde
+    siempre; lo que faltaba era ir a buscarla donde está.
 
-    Las ÚLTIMAS líneas y no los últimos 600 caracteres: un corte por bytes parte
-    un renglón al medio y lo que llega a la pantalla empieza en la mitad de una
+    Las últimas LÍNEAS y no los últimos N bytes: un corte por bytes parte un
+    renglón al medio y lo que llega a la pantalla empieza en la mitad de una
     palabra.
     """
-    txt = ((p.stdout or "") + "\n" + (p.stderr or ""))
-    lineas = [x.strip() for x in txt.splitlines() if x.strip()]
+    try:
+        with open(log, encoding="utf-8", errors="replace") as f:
+            f.seek(desde)
+            nuevo = f.read()
+    except Exception as e:
+        logger.warning("agente/rehacer: no pude leer %s (%s)", log, e)
+        return ""
+    lineas = [x.strip() for x in nuevo.splitlines() if x.strip()]
     return " · ".join(lineas[-3:])[:400]

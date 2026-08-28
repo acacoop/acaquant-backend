@@ -788,12 +788,17 @@ def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
 
     total = sum(hoy.values())
     # Contra la semana pasada, no contra ayer: un día no dice nada de una
-    # tendencia, y el salto de siete días es el que se puede leer de un vistazo.
-    hace_una_semana = peso.de_hace(24 * 7)
-    antes = sum(hace_una_semana.values()) if hace_una_semana else 0
-    delta = (f" · {'+' if total >= antes else ''}{peso.mb(total - antes)} "
-             f"en 7 días (era {peso.mb(antes)})" if antes else
-             " · sin referencia de hace 7 días todavía")
+    # tendencia. Y si la serie todavía no llegó a los 7 días, se compara contra
+    # la foto más vieja que haya DICIENDO de cuándo es — un «todavía no» el
+    # lector no lo puede distinguir de un error, y encima no sirve para nada.
+    vieja, horas = peso.referencia()
+    antes = sum(vieja.values()) if vieja else 0
+    if antes:
+        cuando = (f"{horas // 24} días" if horas >= 24 else f"{horas} h")
+        delta = (f" · {'+' if total >= antes else ''}{peso.mb(total - antes)} "
+                 f"en {cuando} (era {peso.mb(antes)})")
+    else:
+        delta = " · es la primera medición: el próximo aviso ya compara"
 
     top = sorted(hoy.items(), key=lambda x: -x[1])[:5]
     # ⚠️ **EL SUJETO ES LA BASE; LA FRANJA VA EN LA REGLA.**

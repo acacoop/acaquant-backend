@@ -28,7 +28,15 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-DIAS = 3
+# ⚠️ Cuántos días de fotos se guardan. **8 y no 3**: el aviso diario del peso
+# compara contra la semana pasada, y con 3 días esa referencia no existía nunca
+# — el aviso decía «sin referencia de hace 7 días todavía» para siempre
+# (2026-08-28). Una foto son ~280 números: ocho días por hora es del orden de
+# unos pocos MB, nada al lado de la base que está midiendo.
+DIAS = 8
+# Contra cuánto se compara el peso total. Una semana y no un día: un día no
+# dice nada de una tendencia.
+COMPARAR_CONTRA_H = 24 * 7
 
 
 def medir() -> dict[str, int]:
@@ -151,3 +159,28 @@ def franja_de_hoy(ahora=None) -> str:
     h = ahora_utc(ahora).astimezone(AR_TZ).hour
     pasadas = [f for f in FRANJAS_ART if h >= f]
     return f"{max(pasadas):02d}:00" if pasadas else ""
+
+
+def referencia(horas: int = COMPARAR_CONTRA_H) -> tuple[dict[str, int], int]:
+    """La foto contra la que comparar, y **de cuántas horas atrás es de verdad**.
+
+    Devuelve la de hace `horas` si existe; si la serie todavía no llegó a esa
+    antigüedad, la MÁS VIEJA que haya, diciendo su edad real. Así el aviso sirve
+    desde el primer día y va mejorando solo, en vez de quedarse en un «todavía
+    no» que el lector no puede distinguir de un error.
+
+    `({}, 0)` solo cuando no hay ninguna foto previa.
+    """
+    exacta = de_hace(horas)
+    if exacta:
+        return exacta, horas
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT tablas, EXTRACT(EPOCH FROM (now() - at)) / 3600 "
+                        "  FROM agente.db_peso ORDER BY at ASC LIMIT 1")
+            f = cur.fetchone()
+        if f and f[0]:
+            return dict(f[0]), int(f[1] or 0)
+    except Exception as e:
+        logger.warning("agente/peso: sin referencia previa (%s)", e)
+    return {}, 0

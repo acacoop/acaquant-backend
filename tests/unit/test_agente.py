@@ -1877,4 +1877,19 @@ def test_el_peso_total_avisa_en_las_dos_franjas_del_dia():
     # las 16 NACE en vez de pisar al de las 11, y no hay que escribir a mano de
     # qué es el problema (que es la firma de un sujeto mal elegido).
     assert "peso_total_" in src and "la base" in src
-    assert "24 * 7" in src, "el salto se lee contra la semana, no contra ayer"
+
+    # ⚠️ **LA SERIE TIENE QUE LLEGAR A LO QUE SE COMPARA.** La primera versión
+    # pedía 7 días sobre una serie que se purga a los 3 (`DIAS = 3`): la
+    # referencia no existía NUNCA y el aviso decía «sin referencia de hace 7
+    # días todavía» para siempre. Un mensaje que no cambia nunca no informa: se
+    # lee como un error del sistema.
+    assert peso.DIAS * 24 > peso.COMPARAR_CONTRA_H, (
+        f"se guardan {peso.DIAS} días y se compara contra "
+        f"{peso.COMPARAR_CONTRA_H / 24:.0f}: la referencia no va a existir nunca")
+
+    # Y mientras la serie no llegue, se compara contra la foto MÁS VIEJA que
+    # haya diciendo de cuándo es — un «todavía no» no se distingue de un error,
+    # y encima no sirve para nada.
+    assert "referencia" in src
+    ref = _codigo(peso.referencia)
+    assert "ORDER BY at ASC" in ref and "LIMIT 1" in ref

@@ -56,7 +56,7 @@ del molde BCRA:
   secreto **de bajo riesgo** (solo lectura de data pública, sin cargo) — pero
   secreto igual: va como **env var `FRED_API_KEY`** en el `.env` del Droplet,
   **nunca hardcodeada, nunca al front, nunca al repo**. Sin la env, el feed queda
-  deshabilitado (mismo patrón que `MCP_BEARER_TOKEN`).
+  deshabilitado (mismo patrón que el resto de las integraciones por API key).
 
 ### 2.2 Rate limit (verificado)
 

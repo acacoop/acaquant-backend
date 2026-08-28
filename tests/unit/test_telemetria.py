@@ -36,9 +36,12 @@ def test_registrar_cuenta_lentas_y_errores():
 def test_registrar_ignora_lo_que_debe():
     _reset()
     assert not telemetria.registrar_request("/api/health", 5.0, 200)      # health
-    assert not telemetria.registrar_request("/mcp", 5.0, 200)             # MCP
-    assert not telemetria.registrar_request("/oauth/token", 5.0, 200)     # OAuth
-    assert not telemetria.registrar_request("/favicon.ico", 5.0, 200)     # no /api
+    # Estos tres los descarta la MISMA regla: no cuelgan de /api/. (Los dos
+    # primeros eran del MCP, borrado el 2026-08-28; el test los conserva porque
+    # lo que congela es la regla, no la ruta.)
+    assert not telemetria.registrar_request("/mcp", 5.0, 200)
+    assert not telemetria.registrar_request("/oauth/token", 5.0, 200)
+    assert not telemetria.registrar_request("/favicon.ico", 5.0, 200)
     assert telemetria._snapshot_para_tests() == {}
 
 

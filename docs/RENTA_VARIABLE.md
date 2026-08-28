@@ -45,7 +45,7 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 | **Pulso por sector** | — (cálculo client-side sobre la tabla) | — | — |
 | **Chart histórico** | TradingView (widget externo) | — | — |
 | **Day-trading** (costumbre/vueltas) | `GET /api/scanner/day-trading`, `/companeros/{t}` | — | `day_trading.py` |
-| **Mesa de Estrategia** (correlación/trade/book) | — (sin HTTP desde 2026-07-13; solo tools del MCP) | — | `rv_motor.py` |
+| **Mesa de Estrategia** — solo queda la CORRELACIÓN | — (sin HTTP desde 2026-07-13). `get_trade_analysis`/`get_book_analysis` se borraron con el MCP el 2026-08-28; `get_correlation_matrix` sobrevive porque la usa `day_trading` para `/companeros` | — | `rv_motor.py` |
 
 ---
 
@@ -91,7 +91,7 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
   `mercado.precios_acciones`, `mercado.adr_snapshot`, `mercado.day_trading_stats`
   → todas en SQL ✅
 - `scanner.py` y `day_trading.py` leen SQL vía services `*_sql.py` (`scanner_sql`)
-  sobre `core.postgres.get_pool()`. El MCP usa `scanner_sql`.
+  sobre `core.postgres.get_pool()`.
 
 **Conclusión:** la vista RENTA VARIABLE es **100% SQL** (escritura SQL-native vía
 `core.pg_mirror`, lectura vía `scanner_sql`). El CCL sale de `valuaciones.dolar` /

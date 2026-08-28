@@ -6,7 +6,7 @@
 > *qué*, el *porqué* y la *secuencia*. Se actualiza a medida que avanzamos.
 >
 > **Docs de referencia operativa (separados, vivos):** `API.md` (endpoints),
-> `RUNBOOK.md` (operación/incidentes), `MCP.md`/`MCP_TOOLS.md` (MCP server),
+> `RUNBOOK.md` (operación/incidentes),
 > `MOTOR_VALUACIONES.md` (PnL), `SECRETS.md` +
 > `SECURITY.md` (seguridad),
 > `GRUPOS.md`, `SEGMENTACION_PATRIMONIAL.md`, `HERRAMIENTAS.md` (auto-gen).
@@ -32,7 +32,7 @@ jobs/crons batch, caches precalculados donde pesa. ~30 usuarios hoy, objetivo 20
 - **Operativo (la mesa):** curvas, forwards, breakevens, opciones, órdenes (OPERAR),
   operaciones/negocio, portfolios/AuM, scanner.
 - **Comercial/back-office:** clientes, segmentación, operadores, aranceles, FCI.
-- **Plataforma:** Manager (RBAC, diagnóstico, ingesta). El **MCP server** se apagó el 2026-08-28 (`docs/MCP.md`): código intacto, no montado.
+- **Plataforma:** Manager (RBAC, diagnóstico, ingesta). El **MCP server** se apagó y se borró el 2026-08-28 — el producto no tiene asistente conversacional.
 
 ---
 
@@ -55,7 +55,7 @@ Tres principios:
 ## 3. Estado de los datos (post-decomiso Mongo, 2026-06-29)
 
 **Base única: Postgres/Supabase**, 10 schemas de dominio (`mercado`, `macro`,
-`valuaciones`, `portafolio`, `operaciones`, `clientes`, `manager`, `home`, `mcp`).
+`valuaciones`, `portafolio`, `operaciones`, `clientes`, `manager`, `home`).
 Modelo completo + inventario de tablas: `docs/SQL.md`. Schema fuente:
 `sql/schema.sql`.
 

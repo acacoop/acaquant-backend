@@ -17,7 +17,7 @@
               Postgres / Supabase ◄── crons (portafolio, bcra, negocio, …)
                  ▲  ▲                            │
             lee  │  └────────────────────────────┘
-   api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
+   api.service (:8000) ──────────────────────────┘
         ▲  nginx → Cloudflare Access (gate de identidad)
         │ HTTPS
    acaquant-web (Vercel) ── trading.acaquant.com
@@ -103,7 +103,6 @@
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
 | 12:30 · L-V | `jobs.consolidado_cuentas'` |
-| cada hora · 12-21h · L-V | `jobs.controles_datos'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
@@ -172,7 +171,7 @@
 - **`portafolio`** — `jobs.portafolio_backfill` (tenencia=AuM, assets).
 - **`operaciones`** — `jobs.negocio_movimientos`/`jobs.operaciones_informes` + `motor_ordenes` (operaciones, negocio_movimientos, acreencias, ordenes_*).
 - **`clientes`** — comitentes, cuentas, contrapartes, accionistas, actividad_mensual.
-- **`manager`** — manager_users, role_matrix, grupos, job_runs · **`home`** — quotes/calendar/news · **`mcp`** — OAuth (TTL).
+- **`manager`** — manager_users, role_matrix, grupos, job_runs · **`home`** — quotes/calendar/news.
 
 ## Cómo se opera
 - Servicios: `systemctl {start|stop|restart|status} <servicio>`; logs `journalctl -u <servicio>`.

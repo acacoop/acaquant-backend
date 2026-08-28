@@ -172,7 +172,6 @@ páginas.
 | Superficie | Dónde vive | Módulo | Qué hace |
 |---|---|---|---|
 | **Briefing de apertura ☀** | Botón en el footer de TODAS las páginas + modal automático 10:00 ART L-V | `ia` | Foto de apertura determinista (0 tokens): futuros, oficial, MEP/CCL, cauciones, DLR, bonos off, bonos que pagan hoy, research del día. |
-| **MCP server** | ⛔ **APAGADO 2026-08-28** — no está montado (`/mcp` → 404). Era `https://api.acaquant.com/mcp` para Claude Desktop / claude.ai | Auth propia OAuth 2.1 | Asistente externo de RENTA VARIABLE, 13 tools read-only. **No** usa el módulo `ia`. Código intacto; se prende descomentando `MCP_BEARER_TOKEN`/`MCP_JWT_SECRET` en el `.env`. Ver `docs/MCP.md`. |
 | **API externa (accionistas)** | `https://api.acaquant.com/ext` (sub-app montada, `api/ext/`) | Auth propia: API key → token 30 min, con CF Access **Service Auth** delante. **Ningún** módulo del RBAC de la mesa | Le entrega a un accionista SUS operaciones, boleto por boleto (read-only). El permiso es un DATO (`ext.cuentas_autorizadas`), no código: alta de un cliente nuevo = INSERT, sin deploy. Scope **fail-closed** (al revés que `cuentas_visibles`). Doc: `docs/API_EXTERNA.md`; contrato para el consumidor en `/ext/docs`. |
 
 ---
@@ -302,7 +301,7 @@ Cloudflare y compara el `aud` contra `CF_ACCESS_AUD_GUEST`; si matchea, `src/pro
 
 ### 2.5 Capas de auth (orden real, de afuera hacia adentro)
 
-1. **Cloudflare Access** (hostname) — quién entra al sitio. Excepción: 5 paths del MCP con BYPASS. ⚠️ El MCP se apagó el 2026-08-28 (esos paths dan 404) pero **la app `acaquant-mcp-bypass` sigue en el panel de CF**, ocupando 5/5 destinations. Sacarla es un pendiente de consola, no de repo.
+1. **Cloudflare Access** (hostname) — quién entra al sitio. ⚠️ Había 5 paths con BYPASS para el MCP; el MCP se borró el 2026-08-28 pero **la app `acaquant-mcp-bypass` sigue en el panel de CF**, ocupando 5/5 destinations contra rutas que ya dan 404. Sacarla es un pendiente de consola, no de repo.
 2. **`verify_api_key`** (`Authorization: Bearer <API_KEY>`). Fail-open si `API_KEY` está vacía (solo
    dev: `_validar_postura_auth` aborta el boot con `ENV=prod` sin API_KEY o sin `CF_ACCESS_TEAM/AUD`).
 3. **JWT de CF Access** (`api/auth.py::get_user_email`) — identidad criptográfica. User JWT → `email`;
@@ -739,7 +738,7 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 - `vs_1d_usd_pct = ((1+vs_1d/100)/(1+ccl_1d/100)−1)×100` — descuenta la devaluación implícita del CCL.
 - Timestamps del tape en **hora argentina naive a propósito** (bug 2026-07-14: se emitían naive-UTC y el tape mostraba +3h).
 - `es_ia` no es columna: es el filtro "A.I" del PULSO.
-- La Mesa de Estrategia HTTP (`/correlaciones`, `/trade-analysis`, `/book-analysis`) se **eliminó del router** el 2026-07-13 y sus services quedaron vivos solo porque los usaba el MCP — que se apagó el 2026-08-28. Medido: de `rv_motor`, **`get_correlation_matrix()` SÍ tiene consumidor vivo** (`day_trading.py` → `GET /api/scanner/companeros/{ticker}`), pero **`get_trade_analysis()` y `get_book_analysis()` ya no tienen ninguno**. Se borran cuando se borre el MCP.
+- La Mesa de Estrategia HTTP (`/correlaciones`, `/trade-analysis`, `/book-analysis`) se **eliminó del router** el 2026-07-13 y sus services quedaron vivos solo porque los usaba el MCP. Con el MCP borrado (2026-08-28) se fueron también `rv_motor.get_trade_analysis()` y `get_book_analysis()`. Sobrevive **`get_correlation_matrix()`**, que NO era MCP-only: la usa `day_trading.py` para `GET /api/scanner/companeros/{ticker}`.
 
 ### Vista: TRADING (ruta frontend: `/trading`)
 - **Módulo RBAC**: `trading` — **solo `admin`** en el default. Es módulo normal (no `require_admin`) → un admin PODRÍA delegarlo desde el panel. **SIN VERIFICAR** si en prod está asignado a otro rol.
@@ -2252,7 +2251,6 @@ sin reconciliar).
 | **Smoke del gateway** | `scripts/smoke_ai.py` (`smoke`) | manual |
 | **Briefing de apertura** | `GET /api/ia/briefing` → `briefing.py` | **NO** — 100% determinista |
 | **AV AGENT** (18 habilidades) | `agente/` | **NO** — `usa_ia=False` en las 18 |
-| **MCP server** (⛔ apagado 2026-08-28) | `api/mcp/` | fuera del programa: no usa `core/ai.py` ni el módulo `ia` |
 
 ⚠️ **Y la única tarea productiva está APAGADA**: el destilado es opt-in por
 `--destilar` y la línea del crontab no lo lleva, así que `ia.research.destilado`

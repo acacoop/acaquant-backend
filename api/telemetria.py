@@ -39,7 +39,6 @@ _acum: dict[tuple[str, str], list[int]] = {}
 _ultimo_flush = {"t": 0.0}
 
 _PATHS_IGNORADOS = {"/api/health"}
-_PREFIJOS_IGNORADOS = ("/mcp", "/oauth", "/.well-known")
 
 _RE_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                       r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -65,8 +64,11 @@ def registrar_request(path: str, dur_ms: float, status: int) -> bool:
     """Acumula la latencia de un request. Solo memoria; nunca levanta.
     Devuelve True si registró (para tests)."""
     try:
-        if path in _PATHS_IGNORADOS or path.startswith(_PREFIJOS_IGNORADOS):
+        if path in _PATHS_IGNORADOS:
             return False
+        # Todo lo que no cuelga de /api/ queda afuera solo. Acá había además una
+        # lista de prefijos (/mcp, /oauth, /.well-known) que era REDUNDANTE con
+        # esta línea, y se fue con el MCP (2026-08-28).
         if not path.startswith("/api/"):
             return False
         clave = (_normalizar(path), _hora_actual_iso())

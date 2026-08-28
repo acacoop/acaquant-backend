@@ -1,14 +1,15 @@
 # api/ — contexto del subdirectorio
 
 Se carga al trabajar en `api/`. El `CLAUDE.md` raíz tiene lo project-wide
-(overview, REGLA #0, estructura, deploy, MCP).
+(overview, REGLA #0, estructura, deploy).
 
-`api/services/` es lógica pura (sin FastAPI), invocada por routers (y por el
-MCP server). `api/routers/` es solo HTTP plumbing — `manager/` es un paquete de
-sub-routers. `api/mcp/` es el MCP server (asistente IA del producto). **El
-asistente legacy `api/agent/` + `POST /api/chat` fueron ELIMINADOS** (2026-06-03);
-si queda algún dir vacío (`api/agent/structured/`) es residual — no documentar
-ni reusar.
+`api/services/` es lógica pura (sin FastAPI), invocada por los routers.
+`api/routers/` es solo HTTP plumbing — `manager/` es un paquete de sub-routers.
+
+**Acá NO hay asistente conversacional.** El legacy `api/agent/` + `POST /api/chat`
+se eliminaron el 2026-06-03; el MCP server que lo reemplazó (`api/mcp/`, con su
+provider OAuth) se borró el 2026-08-28. No documentar ni referenciar ninguno de
+los dos: si ves un dir vacío o una mención suelta, es residual.
 
 > **Postura de seguridad de la API consolidada: `docs/SECURITY.md`** —
 > capas (CF Access → API_KEY → JWT → RBAC → rate limit), secretos, y el

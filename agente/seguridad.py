@@ -109,22 +109,14 @@ LOGIN_HOSTS = ("cloudflareaccess.com", "/cdn-cgi/access/login")
 ABIERTOS_OK: dict[str, str] = {
     "/api/health": "liveness probe — no devuelve ningún dato",
     "/api/me": "la identidad del que pregunta; sin credencial no dice nada de nadie",
-    # El handshake de OAuth 2.1 del MCP. Son públicos POR PROTOCOLO: el cliente
-    # los lee ANTES de tener credencial — pedirle credencial para averiguar cómo
-    # sacar una credencial no cierra nunca. Están en la app de CF Access
-    # `acaquant-mcp-bypass` (BYPASS + Everyone) justamente para eso.
-    "/.well-known/oauth-authorization-server":
-        "discovery del server OAuth (RFC 8414) — metadata pública por diseño",
-    "/.well-known/oauth-protected-resource":
-        "discovery del recurso protegido (RFC 9728) — metadata pública por diseño",
-    "/.well-known/oauth-protected-resource/mcp":
-        "la misma metadata, scopeada a /mcp (RFC 9728)",
-    "/oauth/register":
-        "Dynamic Client Registration (RFC 7591) — el cliente se da de alta antes "
-        "de tener nada; devuelve credenciales NUEVAS, no ajenas",
-    "/oauth/token":
-        "canje de code por token — su INPUT es la credencial (code + PKCE "
-        "verifier); un GET sin nada no puede sacar un token",
+    # Acá vivían los 5 paths del handshake OAuth 2.1 del MCP (los dos
+    # `.well-known`, `/oauth/register`, `/oauth/token`): públicos POR PROTOCOLO,
+    # porque el cliente los lee ANTES de tener credencial. El MCP se borró el
+    # 2026-08-28 y esas rutas ya no existen, así que declararlas «abiertas OK»
+    # sería mantener una excepción de seguridad para una superficie que no está.
+    # ⚠️ Lo que SÍ sigue existiendo es la app de Cloudflare Access
+    # `acaquant-mcp-bypass` (BYPASS + Everyone) que las dejaba pasar sin login:
+    # sacarla del panel de CF es un pendiente que este repo no puede resolver.
 }
 
 # (2) PROTEGIDOS EN EL BORDE, NO EN EL CÓDIGO. Acá el backend no tiene gate y

@@ -215,7 +215,7 @@ def _template(blocks: dict[str, str]) -> str:
               Postgres / Supabase ◄── crons (portafolio, bcra, negocio, …)
                  ▲  ▲                            │
             lee  │  └────────────────────────────┘
-   api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
+   api.service (:8000) ──────────────────────────┘
         ▲  nginx → Cloudflare Access (gate de identidad)
         │ HTTPS
    acaquant-web (Vercel) ── trading.acaquant.com
@@ -268,7 +268,6 @@ def _template(blocks: dict[str, str]) -> str:
 - **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
 - **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
 - **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).
-- **`MCP`** — tokens OAuth (TTL).
 
 ## Cómo se opera
 - Servicios: `systemctl {{start|stop|restart|status}} <servicio>`; logs `journalctl -u <servicio>`.

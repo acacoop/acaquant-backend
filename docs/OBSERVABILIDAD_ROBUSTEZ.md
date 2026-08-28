@@ -45,7 +45,7 @@ OBSERVABILIDAD → **USO** (heatmap con rango 7/30 días).
 - **Módulo del path:** REUSA `api.auth.get_module_for_path` /
   `ENDPOINT_MODULE_PREFIXES` (mapa único, cero duplicación).
 - **Se ignora:** emails vacíos, `service:*`, portal INVITADO (REGLA #8 — ni se
-  mide), `/api/health`, `/api/me`, MCP/OAuth, paths sin módulo mapeado, y
+  mide), `/api/health`, `/api/me`, paths sin módulo mapeado, y
   responses ≥400.
 - **Identidad:** los headers saneados del proxy (los mismos de la rama 2a de
   `get_user_email`). Es un contador de producto, no una superficie de seguridad

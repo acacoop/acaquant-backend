@@ -536,7 +536,7 @@ snapshot no puede representar.
    donde el motor cae en la rama `otros` y no calcula tasa: **es imposible pisarle
    un número, porque para esos bonos no produce ninguno.** Sin este segundo
    destino, los TAMAR seguirían vacíos en la tabla RENTA FIJA, forwards, fair
-   value, sensibilidad y MCP — todos leen `market_snapshot`, no la tabla nueva.
+   value y sensibilidad — todos leen `market_snapshot`, no la tabla nueva.
 
 Un dual CER+TAMAR (`ajuste='cer'`) **no** entra al snapshot: ahí el motor sí
 calcula, y en vivo, y esa es la tasa correcta para la tabla vieja. Su pata TAMAR
@@ -644,7 +644,7 @@ volvió **solo ZPC1O**. Los otros 8 y el provincial CO2D7 quedan sin tasa y sin
 margen — celda vacía, que es honesto. El job lo cuenta (`sin_dato` en
 `manager.job_runs`) para que la caída se vea en vez de descubrirse mirando.
 
-**Pendiente**: los TAMAR siguen sin TEA en `get_renta_fija` (la tabla vieja), MCP
+**Pendiente**: los TAMAR siguen sin TEA en `get_renta_fija` (la tabla vieja)
 y forwards — esos leen `market_snapshot`, que no se toca. Solo la tab CURVAS los
 valúa hoy.
 

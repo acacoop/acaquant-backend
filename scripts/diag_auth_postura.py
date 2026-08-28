@@ -25,7 +25,6 @@ from config import (  # config.py hace load_dotenv() al importarse
     CF_TRUSTED_SERVICE_TOKENS,
     DOLAR_INGEST_TOKEN,
     ENV,
-    MCP_JWT_SECRET,
 )
 
 # POSTGRES_URI no vive en config.py (lo lee core.postgres); lo tomamos del entorno
@@ -171,7 +170,6 @@ def main() -> None:
     ok_team = _estado("CF_ACCESS_TEAM", CF_ACCESS_TEAM, requerida_en_prod=True)
     ok_aud = _estado("CF_ACCESS_AUD", CF_ACCESS_AUD, requerida_en_prod=True)
     print()
-    _estado("MCP_JWT_SECRET", MCP_JWT_SECRET)
     _estado("DOLAR_INGEST_TOKEN", DOLAR_INGEST_TOKEN)
     _estado("POSTGRES_URI", POSTGRES_URI)
 

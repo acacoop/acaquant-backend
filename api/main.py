@@ -69,8 +69,6 @@ from config import (
     CF_ACCESS_TEAM,
     ENV,
     EXT_JWT_SECRET,
-    MCP_BEARER_TOKEN,
-    MCP_JWT_SECRET,
 )
 
 logger = logging.getLogger("api")
@@ -125,20 +123,14 @@ def _validar_postura_auth() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Arranque/parada de la API: valida la postura de auth y, si MCP está
-    configurado (token estático o JWT secret), levanta su session manager.
+    """Arranque/parada de la API: valida la postura de auth y nada más.
 
     Ya no hay tasks de fondo acá: el sampler de recursos del Droplet se eliminó
-    junto con la tab RECURSOS (la salud del sistema vive en OBSERVABILIDAD → SALUD).
+    junto con la tab RECURSOS (la salud del sistema vive en OBSERVABILIDAD → SALUD),
+    y el session manager del MCP se fue con el MCP (2026-08-28).
     """
     _validar_postura_auth()
-
-    if MCP_BEARER_TOKEN or MCP_JWT_SECRET:
-        from api.mcp.server import mcp as mcp_server
-        async with mcp_server.session_manager.run():
-            yield
-    else:
-        yield
+    yield
 
 
 # Swagger/ReDoc/openapi.json: ABIERTOS en dev, CERRADOS en prod. No llevan
@@ -356,32 +348,12 @@ def health():
     return {"status": "ok"}
 
 
-# ── MCP server (sub-app en /mcp + OAuth + discovery) ──
-# Se monta si hay MCP_BEARER_TOKEN (static) o MCP_JWT_SECRET (OAuth).
-# - /mcp/*                                  → MCP Streamable HTTP, gated por middleware bearer.
-# - /oauth/{authorize,token,register}       → OAuth provider (solo si MCP_JWT_SECRET).
-# - /.well-known/oauth-{authorization-server,protected-resource}
-#                                           → discovery público (solo si MCP_JWT_SECRET).
-if MCP_BEARER_TOKEN or MCP_JWT_SECRET:
-    from api.mcp.auth import MCPBearerMiddleware
-    from api.mcp.server import mcp as _mcp
-
-    _mcp_app = _mcp.streamable_http_app()
-    _mcp_app.add_middleware(MCPBearerMiddleware)
-    app.mount("/mcp", _mcp_app)
-
-    if MCP_JWT_SECRET:
-        from api.mcp import discovery as _mcp_discovery
-        from api.mcp import oauth as _mcp_oauth
-        # Sin gate del API_KEY: estos endpoints definen su propia auth (CF
-        # Access + DCR + PKCE). El _PUBLIC bearer del API_KEY no aplica.
-        app.include_router(_mcp_discovery.router)
-        app.include_router(_mcp_oauth.router)
-        logger.info("MCP montado en /mcp + OAuth + discovery (JWT)")
-    else:
-        logger.info("MCP montado en /mcp (solo static bearer; sin OAuth)")
-else:
-    logger.info("MCP no configurado — /mcp deshabilitado")
+# El MCP server (sub-app /mcp + provider OAuth 2.1 + discovery) se BORRÓ el
+# 2026-08-28. Se había apagado unos días antes sacándole las env vars y nada lo
+# extrañó: ninguna vista, job ni motor lo consumía. Lo que costaba tenerlo era
+# real — `/oauth/register` y `/oauth/token` estaban en la allowlist de BYPASS de
+# Cloudflare Access, o sea alcanzables SIN autenticar, y ya habían amplificado
+# carga sobre el pool web que sirve a la mesa. Historia: `docs/AV_AGENT.md`.
 
 
 # ── API EXTERNA para accionistas (sub-app en /ext) ──

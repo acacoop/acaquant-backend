@@ -268,7 +268,8 @@ Access esté bien configurado se comprueba desde afuera:
 
 - **sin** service token → tiene que dar **401/403**, nunca el HTML del login
   (si devuelve HTML, el path scoping está mal y la integración del cliente
-  muere en silencio — es la trampa que ya pagamos dos veces con el MCP);
+  muere en silencio — es la trampa que ya pagamos dos veces con el MCP, que se
+  borró el 2026-08-28 pero cuya lección sigue valiendo acá);
 - **con** service token → tiene que llegar a la API y responder JSON.
 
 ### Qué se le entrega al consumidor

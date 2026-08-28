@@ -31,7 +31,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `audit-obsoleto` | Auditar scripts/tests/docs obsoletos → listas BORRAR/REVISAR/MANTENER. On-demand. |
 | `safe-backfill` | Backfill/migración/`--full` que NO tira el CPU: medir → scopear → batchear+throttle → run_job → fuera de rueda (REGLA #4, post-incidente 2026-06-04). |
 | `index-health` | Auditar que los índices REALMENTE se usen (explain, no index_information). Caza el trap partial→COLLSCAN. |
-| `security-review` | Checklist de seguridad antes de exponer endpoint/auth/MCP: RBAC, secretos, CF Access. |
+| `security-review` | Checklist de seguridad antes de exponer endpoint/auth: RBAC, secretos, CF Access. |
 
 ## Agents (subagentes — corren en contexto limpio)
 

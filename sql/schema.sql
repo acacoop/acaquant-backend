@@ -49,7 +49,6 @@ CREATE SCHEMA IF NOT EXISTS valuaciones;
 CREATE SCHEMA IF NOT EXISTS manager;
 CREATE SCHEMA IF NOT EXISTS home;
 CREATE SCHEMA IF NOT EXISTS partner;
-CREATE SCHEMA IF NOT EXISTS mcp;
 CREATE SCHEMA IF NOT EXISTS research;
 CREATE SCHEMA IF NOT EXISTS ia;
 -- El AV AGENT tiene schema PROPIO (2026-08-22). Sus 15+ tablas nacieron en
@@ -2736,49 +2735,16 @@ CREATE TABLE IF NOT EXISTS mercado.ons_ignoradas (
     at           timestamptz                 -- Mongo: at (UTC aware)
 );
 
--- ── MCP — OAuth 2.1 provider del MCP server (api/mcp/oauth.py) ────────────────
--- Decomiso 2026-06-29: MCP.{OAuthClients,OAuthCodes,OAuthTokens} (Mongo) → schema `mcp`.
--- Era el ÚNICO dominio con 0% de camino a SQL → el último bloqueante para apagar Atlas.
--- Postgres NO tiene TTL index: el vencimiento se filtra por `expires_at` en la lectura
--- y un prune oportunista (en api/mcp/oauth.py::_ensure_sql, sobre register/authorize)
--- borra lo vencido (codes 10min, tokens 1h). Las tablas se referencian SIEMPRE
--- calificadas (`mcp.*`) en el código → `mcp` NO entra al search_path de core/postgres.
--- Lectura/escritura por flag MCP_SQL=1 (default Mongo → rollback = sacar el flag).
-
--- MCP.OAuthClients → registros DCR (RFC 7591). Persistente (no expira).
-CREATE TABLE IF NOT EXISTS mcp.oauth_clients (
-    client_id     text PRIMARY KEY,
-    redirect_uris text[] NOT NULL DEFAULT '{}',
-    client_name   text,
-    created_at    timestamptz DEFAULT now()
-);
-
--- MCP.OAuthCodes → authorization codes (single-use, TTL 10min). El consume es
--- DELETE ... RETURNING (atómico, equivale al find_one_and_delete de Mongo).
-CREATE TABLE IF NOT EXISTS mcp.oauth_codes (
-    code                  text PRIMARY KEY,
-    client_id             text,
-    redirect_uri          text,
-    scope                 text,
-    subject               text,
-    code_challenge        text,
-    code_challenge_method text,
-    created_at            timestamptz DEFAULT now(),
-    expires_at            timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_mcp_codes_expires ON mcp.oauth_codes (expires_at);
-
--- MCP.OAuthTokens → access tokens vivos (TTL 1h). is_token_revoked = NO existe fila
--- viva (borrar la fila = revocar el JWT). Misma semántica que el TTL de Mongo.
-CREATE TABLE IF NOT EXISTS mcp.oauth_tokens (
-    jti        text PRIMARY KEY,
-    subject    text,
-    client_id  text,
-    scope      text,
-    created_at timestamptz DEFAULT now(),
-    expires_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_mcp_tokens_expires ON mcp.oauth_tokens (expires_at);
+-- ── EL SCHEMA `mcp` SE BORRÓ (2026-08-28) ────────────────────────────────────
+-- Tenía `mcp.oauth_clients`, `mcp.oauth_codes` y `mcp.oauth_tokens`: el estado
+-- del provider OAuth 2.1 del MCP server. El MCP se apagó unos días antes y se
+-- borró entero — no lo consumía ninguna vista, job ni motor, y su superficie
+-- pública (`/oauth/register` y `/oauth/token`, con BYPASS de Cloudflare Access,
+-- o sea alcanzables sin autenticar) ya había amplificado carga sobre el pool
+-- web que sirve a la mesa.
+--
+-- ⚠️ Sacarlas de acá NO las borra: `apply_schema` no tiene un solo DROP. El DROP
+-- lo hace `python -m scripts.drop_schema_mcp` (dry-run por default, backup a CSV).
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- RESEARCH — schema de la vista Research (1816 / BCRA). Las tablas Refinitiv

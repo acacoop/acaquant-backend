@@ -45,7 +45,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las 40 rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base — verificado 2026-08-13; decían 20, el número había quedado viejo), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
 
 > **MONGO DECOMISADO (2026-06-29).** El sistema es 100% Postgres/Supabase: motores,
-> jobs, API y MCP leen y escriben SQL. NO queda una sola referencia a
+> jobs y API leen y escriben SQL. NO queda una sola referencia a
 > Mongo en el código (`grep -rE "from core.mongo|import pymongo|MongoClient"` → 0).
 > El cliente Mongo (`core/mongo.py`), `api/db.py` y el tooling Mongo fueron borrados.
 > Si ves "Mongo"/"colección"/"Atlas" en algún doc viejo, es residual — la fuente de
@@ -202,7 +202,7 @@ incidente 2026-06-03. Si dudás del volumen, NO lo corras: medí primero.
   scratch y todo lo superseded **se borran o se consolidan**. La arquitectura/
   datos/estrategia/roadmap viven en **UN doc madre: `docs/ARQUITECTURA.md`** — no
   esparcidos en N archivos. El resto de `docs/` es referencia operativa viva (API,
-  RUNBOOK, MCP, seguridad, etc.) + el `vault/` auto-generado.
+  RUNBOOK, seguridad, etc.) + el `vault/` auto-generado.
 - Ante la duda, preguntar "¿lo borro?" — no acumular por las dudas.
 
 ## ⚠️ REGLA #6 — Credencial/acceso faltante: se pide UNA vez, no se insiste
@@ -320,7 +320,7 @@ Ver memoria [[feedback_portal_invitado_www]].
 - **Conexión SQL**: pool singleton `core.postgres.get_pool()` (no cerrarlo).
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
-- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `POSTGRES_URI`).
+- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `POSTGRES_URI`).
 
 > Validar imports antes de pushear router/service (REGLA #1) y la regla de
 > services `@cached` → ver `api/CLAUDE.md`.
@@ -335,7 +335,6 @@ quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rol
 agente/      # EL AV AGENT (docs/AGENT_2.0.md) — catalogo · registro · motor · detectores/ · arreglos · vista
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
-api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 scripts/     # one-shot / migraciones / smoke
 tests/       # pytest — unit/ + integration/ (marker `integration`, excluido por defecto via addopts)
 sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
@@ -368,7 +367,6 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Vista `/aca` (resumen ejecutivo de la cartera propia) | `ACA.md` **[VIVO]** |
 | Derivados · sintéticos · agro | `DERIVADOS.md` · `SINTETICOS.md` · `AGRO.md` |
 | Valuaciones / PnL | `MOTOR_VALUACIONES.md` |
-| MCP server / tools | `MCP.md` · `MCP_TOOLS.md` |
 | Operación, incidentes, monitoreo | `RUNBOOK.md` · `OBSERVABILIDAD_ROBUSTEZ.md` |
 | Seguridad / credenciales | `SECURITY.md` · `SECRETS.md` |
 | Clientes / grupos / segmentación | `GRUPOS.md` · `SEGMENTACION_PATRIMONIAL.md` |
@@ -529,43 +527,41 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 ## Asistente legacy — ELIMINADO
 
 `api/agent/` + `POST /api/chat` fueron **borrados del repo** (no existen más;
-no documentar ni referenciar). El asistente con IA del producto es el MCP
-server (sección siguiente).
+no documentar ni referenciar). El MCP server, que lo reemplazó, también se
+borró el 2026-08-28 (sección siguiente): **hoy el producto no tiene asistente
+conversacional de ningún tipo.**
 
-## MCP server (Custom Connector) — ⛔ APAGADO (2026-08-28)
+## MCP server — ELIMINADO (2026-08-28)
 
-> **No está montado en producción.** `MCP_BEARER_TOKEN` y `MCP_JWT_SECRET` quedaron
-> comentadas en el `.env` del Droplet y `api/main.py` solo monta el servidor si
-> existe alguna de las dos. Verificado contra el uvicorn: `/mcp` → **404**,
-> discovery → **404**, `/api/health` → **200**. (Un `/mcp` montado devuelve **401**,
-> no 404: si algún día ves 401, está prendido.)
->
-> **Por qué**: no lo usaba nadie y no era gratis. Con `MCP_JWT_SECRET` seteada
-> quedaba expuesto el provider OAuth, y `/oauth/register` y `/oauth/token` están en
-> la allowlist de **BYPASS de Cloudflare Access** — alcanzables sin autenticar.
->
-> **Prender de nuevo**: descomentar las dos vars (`.env.bak` está al lado) +
-> `systemctl restart api.service`. El código está intacto.
->
-> **PENDIENTE**: sacar la app `acaquant-mcp-bypass` de Cloudflare Access — sigue
-> ocupando 5/5 destinations por una feature apagada.
->
-> Lo de abajo describe cómo FUNCIONA cuando está prendido, y sigue siendo exacto.
+`api/mcp/` (server FastMCP + provider OAuth 2.1 + discovery), sus 13 tools de
+renta variable, el schema `mcp` y `docs/MCP.md` / `docs/MCP_TOOLS.md` **se
+borraron**. No documentar ni referenciar: no existen.
 
+**La secuencia fue apagar y después borrar**, y vale como método: primero se le
+sacaron las env vars al `.env` del Droplet y se reinició la API (reversible en
+una línea), se verificó contra el uvicorn que `/mcp` diera **404** y
+`/api/health` **200**, y recién con eso borrado el código.
 
-`api/mcp/` se monta en `https://api.acaquant.com/mcp` (cuando está prendido) — asistente **100% de RENTA VARIABLE**: 13 tools de SOLO LECTURA sobre equities ARG (universo CEDEARs/ADRs, tablero live ARS+USD, time sales intradía, retornos/quant del subyacente USD, pivot points, day-trading lab, Mesa de Estrategia: correlación/trade_analysis/book_analysis). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados). Las tools de estrategia operan solo sobre posiciones que el usuario pasa por parámetro — no leen cuentas reales. Las tools registradas viven en `api/mcp/tools/renta_variable.py`; `server.py` es solo wiring. **No hay tools de los otros dominios de mercado** (renta fija, derivados, opciones, forwards, breakevens, cauciones, futuros DLR, MEP, macro): vivían como código PAUSADO en `api/mcp/tools/parked_mercado.py`, nunca registrado —o sea nunca alcanzable— y se **borró el 2026-08-28**. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
+**Por qué se fue**: no lo consumía nadie —ninguna vista, job ni motor— y no era
+gratis tenerlo. Con `MCP_JWT_SECRET` seteada quedaba expuesto el provider OAuth
+entero, y `/oauth/register` y `/oauth/token` estaban en la allowlist de **BYPASS
+de Cloudflare Access**, o sea alcanzables **sin autenticar**. Eso ya había
+causado un problema real: cada request disparaba `CREATE SCHEMA/TABLE` + 2
+`DELETE` sobre el pool web que sirve a la mesa.
 
-**Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow completo en `docs/MCP.md`. Env vars: `MCP_BEARER_TOKEN` (static fallback dev/curl), `MCP_JWT_SECRET` (firma OAuth JWTs), `MCP_OAUTH_ISSUER` (default `https://api.acaquant.com`). Sin ninguno, `/mcp` queda deshabilitado.
+**Lo que sobrevive**: `api/services/rv_motor.py::get_correlation_matrix()`, que
+NO era MCP-only — lo usa `day_trading` para `GET /api/scanner/companeros/{ticker}`.
+Sus dos hermanas (`get_trade_analysis`, `get_book_analysis`) se fueron con el MCP.
 
-**Dos cosas críticas que rompen el connector** (se aprendieron a los golpes; doc completo en memoria `project_mcp_cf_access.md`):
-
-1. **CF Access path scoping**. App `acaquant-mcp-bypass` (BYPASS + Everyone) cubre 5 paths: `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`. Si CF Access tapa `/mcp`, el cliente recibe HTML de login en vez de 401 → muere silencioso. `/oauth/authorize` SÍ debe estar protegido (ahí logea el user). 5/5 destinations al tope.
-2. **`TransportSecuritySettings` en `api/mcp/server.py`** con `allowed_hosts` (`api.acaquant.com`) y `allowed_origins` (`https://claude.ai`, `https://claude.com`). El default del SDK MCP solo acepta localhost → 421 Misdirected Request. El smoke local NO replica esta condición.
+⚠️ **PENDIENTE que este repo no puede resolver**: sacar la app
+`acaquant-mcp-bypass` del panel de **Cloudflare Access**. Sigue dejando esos 5
+paths sin login (hoy contra 404s) y ocupa **5/5 destinations**, la cuota entera,
+por una superficie que ya no existe.
 
 ## Capa SQL — Postgres/Supabase (ÚNICA base; Mongo decomisado 2026-06-29)
 
-**Postgres/Supabase ES el sistema.** Todo lee y escribe SQL: motores, jobs, API,
-MCP. Mongo fue decomisado por completo — no hay dual-run, ni flags de
+**Postgres/Supabase ES el sistema.** Todo lee y escribe SQL: motores, jobs y
+API. Mongo fue decomisado por completo — no hay dual-run, ni flags de
 engine, ni espejo. Doc de referencia del modelo: **`docs/SQL.md`** + `sql/schema.sql`.
 
 Esquema: `sql/schema.sql` (OJO: NO siempre 100% aplicado en la DB real — algún

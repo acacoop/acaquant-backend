@@ -46,7 +46,6 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, news_headlines |
-| `mcp` | oauth_clients, oauth_codes, oauth_tokens |
 
 **Diseño:**
 - **Dimensiones** (PK natural): `clientes.{comitentes, cuentas, operadores, contrapartes}`.
@@ -174,12 +173,11 @@ el panel Manager (`/jobs/history`, `/roles/audit`) y la frescura del Diagnóstic
 `manager_infra_sql.py`. PKs `run_id` / `audit_id`; timestamps `timestamptz` (los
 writers usan `datetime.now(UTC)` aware → el cast no corre la hora).
 
-### HOME / MCP
+### HOME
 - `home.{market_quotes, news_headlines}` — watchlist HOME y headlines (retención 2 días
   vía `prune_native`). Services `market_sql.py` / `news_sql.py`.
   (`market_calendar` se eliminó el 2026-08-03 junto con el calendario económico: FMP
   dejó de servir el endpoint en el plan contratado y la tabla nunca tuvo datos.)
-- `mcp.{oauth_clients, oauth_codes, oauth_tokens}` — OAuth 2.1 del MCP server.
 
 ---
 

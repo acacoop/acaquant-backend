@@ -141,5 +141,7 @@ def companeros(ticker: str, n: int = 6):
 # Los endpoints HTTP de la Mesa de Estrategia (/correlaciones,
 # /trade-analysis, /book-analysis) se ELIMINARON (2026-07-13): sus tabs de UI
 # ya no existen (COBERTURAS fue la última) y ningún frontend los consumía.
-# Los services de rv_motor SIGUEN VIVOS — los usan las tools del MCP
-# (correlacion / trade_analysis / book_analysis, ver docs/MCP_TOOLS.md).
+# Sus services quedaron vivos porque los usaban las tools del MCP, y con el MCP
+# borrado (2026-08-28) se fueron `rv_motor.get_trade_analysis` y
+# `get_book_analysis`. Lo que SÍ sobrevive es `rv_motor.get_correlation_matrix`:
+# lo usa `day_trading` para `GET /companeros/{ticker}`, acá arriba.

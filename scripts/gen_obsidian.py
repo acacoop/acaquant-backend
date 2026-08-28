@@ -1,7 +1,7 @@
 """Genera el vault de Obsidian (docs/vault/) — el cerebro vivo de TODO el sistema.
 
 Mapea, en un único vault navegable, ambos repos + base + deploy:
-    - Backend (TradingAV): core / engines / jobs / quant / api(services·routers·mcp)
+    - Backend (TradingAV): core / engines / jobs / quant / api(services·routers)
   - Frontend (acaquant-web): vistas (app), componentes, lib, rutas API (proxy)
   - Base: colecciones Mongo (quién escribe / quién lee)
   - Deploy: servicios systemd + crons (qué módulo corre cada uno)
@@ -52,7 +52,6 @@ KNOWN_COLLECTIONS: dict[str, list[str]] = {
     "Manager": ["Users", "RoleMatrix", "RoleAudit"],
     "Clientes": ["Comitentes", "ComercialCache"],
     "CuentasAPI": ["AccionistasAPI", "ContrapartesAPI"],
-    "MCP": ["OAuthCodes", "OAuthTokens"],
 }
 DB_NAMES = list(KNOWN_COLLECTIONS.keys())
 
@@ -399,7 +398,7 @@ LAYER_ORDER = [
     ("quant", "📐 quant — cálculo puro"),
     ("engines", "⚙️ engines — motores WS→Mongo"),
     ("jobs", "⏱️ jobs — batch / cron"),
-    ("api", "🌐 api — services · routers · mcp"),
+    ("api", "🌐 api — services · routers"),
     ("config", "⚙️ config"),
     ("db", "🗄️ base — colecciones Mongo"),
     ("deploy", "🚀 deploy — servicios + crons"),

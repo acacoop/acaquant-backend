@@ -25,7 +25,8 @@ Devuelve el texto o None; el caller SIEMPRE tiene su camino determinista
 
 Env vars (las del proveedor viven en core/llm.py):
   AI_BUDGET_TOKENS_DIA          — tope global de tokens/día (default 2.000.000).
-  AI_BUDGET_TOKENS_DIA_USUARIO  — tope por usuario/día (default 200.000).
+  AI_BUDGET_TOKENS_DIA_USUARIO  — tope por usuario/día (default 1.000.000).
+  AI_BUDGET_TOKENS_DIA_INVITADO — tope del portal invitado (default 100.000).
 """
 from __future__ import annotations
 
@@ -141,11 +142,6 @@ def _config_db() -> dict:
         logger.warning("core.ai: no pude leer ia.config (%s) — uso env/default", e)
     _config_db_cache.update(ts=ahora, valores=valores)
     return valores
-
-
-def invalidate_config_cache() -> None:
-    """La llama el service al editar presupuestos para que el gateway los vea ya."""
-    _config_db_cache["ts"] = 0.0
 
 
 def presupuesto_dia_global() -> int:

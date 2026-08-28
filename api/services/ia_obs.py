@@ -1,10 +1,17 @@
 """api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).
 
-Payload único para la tab OBSERVABILIDAD → IA (un solo roundtrip del front):
-resumen de HOY con % del presupuesto global, serie por día, agregado por tarea
-y últimas llamadas. SOLO LECTURA — el writer de ia.trazas es core/ai.py.
-Excepción: los PRESUPUESTOS (ia.config) se editan acá vía set_presupuestos
-(solo admin, ver router), con precedencia tabla > env > default en core/ai.
+SOLO LECTURA — el writer de ia.trazas es core/ai.py.
+
+⚠️ **Su único lector es el AV AGENT**, no una pantalla: el chequeo `ia:gateway`
+de `api/services/salud.py` llama a `observabilidad(dias=1, limit=1)` y mira el
+gasto y los errores del día. La tab OBSERVABILIDAD → IA que lo estrenó se dio de
+baja el 2026-08-19 (*«el historial de 874 llamadas no se abrió nunca»*) y sus
+endpoints el 2026-08-28.
+
+Por eso este módulo quedó SOBREDIMENSIONADO para lo que hace: los filtros
+(`tarea`/`usuario`/`solo_error`/`q`), la paginación y el historial existían para
+esa tab y hoy nadie los pasa. Achicarlo a lo que el chequeo necesita es un
+cambio de comportamiento, no un borrado, y va aparte.
 """
 from __future__ import annotations
 
@@ -12,130 +19,6 @@ from psycopg.rows import dict_row
 
 from core.ai import presupuesto_dia_global
 from core.postgres import get_pool
-
-
-def saldo() -> dict:
-    """Estado de TODOS los proveedores configurados (ruteo multi-proveedor,
-    2026-07-21): cuál está activo, qué modelos usa, si se compromete a no
-    entrenar con lo que le mandamos, y su saldo si lo expone. Se mantiene
-    `saldos` plano para compat del panel viejo."""
-    from core import llm
-
-    proveedores = llm.estado_proveedores()
-    principal = next((p for p in proveedores if p["saldo"]), None)
-    return {
-        "proveedores": proveedores,
-        # compat: el saldo del que expone uno (hoy solo el default)
-        "disponible": (principal or {}).get("saldo", {}).get("disponible")
-        if principal else None,
-        "saldos": (principal or {}).get("saldo", {}).get("saldos", []) if principal else [],
-    }
-
-
-def get_presupuestos() -> dict:
-    """Límites vigentes del gateway (resueltos con su precedencia) + auditoría
-    de la última edición si los setearon desde el panel."""
-    from core import ai
-
-    out = {
-        "global_dia": ai.presupuesto_dia_global(),
-        "usuario_dia": ai.presupuesto_dia_usuario(),
-        "excepciones": [],  # límites personales que pisan el tope general
-        "editado": None,
-    }
-    try:
-        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                "SELECT clave, valor, updated_at, updated_by FROM ia.config "
-                "WHERE clave IN ('budget_dia_global', 'budget_dia_usuario') "
-                "   OR clave LIKE 'budget_dia_usuario:%' "
-                "ORDER BY updated_at DESC"
-            )
-            filas = cur.fetchall()
-        if filas:
-            out["editado"] = {
-                "por": filas[0]["updated_by"],
-                "cuando": filas[0]["updated_at"].isoformat(),
-            }
-        out["excepciones"] = sorted(
-            [
-                {"usuario": f["clave"].split(":", 1)[1], "valor": int(f["valor"])}
-                for f in filas
-                if f["clave"].startswith("budget_dia_usuario:")
-            ],
-            key=lambda e: e["usuario"],
-        )
-    except Exception:
-        pass  # tabla aún no aplicada → rigen env/default igual
-    return out
-
-
-def set_presupuesto_usuario(email: str, valor: int | None, actor: str) -> dict:
-    """Excepción PERSONAL de tope diario para un usuario (ej. el admin se da
-    más margen que el general). valor None = borrar la excepción (vuelve al
-    tope general). Mismas reglas: positivo y ≤ global."""
-    from core import ai
-
-    email = (email or "").strip().lower()
-    if not email or "@" not in email:
-        raise ValueError("email inválido")
-    if valor is not None:
-        valor = int(valor)
-        if valor <= 0:
-            raise ValueError("el límite debe ser un entero positivo")
-        if valor > ai.presupuesto_dia_global():
-            raise ValueError(
-                f"el límite personal ({valor:,}) no puede superar el global "
-                f"({ai.presupuesto_dia_global():,})"
-            )
-    clave = f"budget_dia_usuario:{email}"
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        if valor is None:
-            cur.execute("DELETE FROM ia.config WHERE clave = %s", (clave,))
-        else:
-            cur.execute(
-                "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s) "
-                "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
-                "updated_at = now(), updated_by = EXCLUDED.updated_by",
-                (clave, valor, actor),
-            )
-    ai.invalidate_config_cache()
-    return get_presupuestos()
-
-
-def set_presupuestos(
-    global_dia: int | None, usuario_dia: int | None, actor: str
-) -> dict:
-    """Edita los topes diarios (tokens). Reglas: enteros positivos; el tope por
-    usuario no puede superar el global (el global es techo duro — la suma de
-    usuarios puede excederlo en papel, pero ningún usuario individual puede
-    tener permitido más que el sistema entero). Audita quién y cuándo."""
-    from core import ai
-
-    nuevo_global = int(global_dia) if global_dia is not None else ai.presupuesto_dia_global()
-    nuevo_usuario = int(usuario_dia) if usuario_dia is not None else ai.presupuesto_dia_usuario()
-    if nuevo_global <= 0 or nuevo_usuario <= 0:
-        raise ValueError("los presupuestos deben ser enteros positivos")
-    if nuevo_usuario > nuevo_global:
-        raise ValueError(
-            f"el tope por usuario ({nuevo_usuario:,}) no puede superar el global ({nuevo_global:,})"
-        )
-
-    cambios = []
-    if global_dia is not None:
-        cambios.append(("budget_dia_global", nuevo_global))
-    if usuario_dia is not None:
-        cambios.append(("budget_dia_usuario", nuevo_usuario))
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        for clave, valor in cambios:
-            cur.execute(
-                "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s) "
-                "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
-                "updated_at = now(), updated_by = EXCLUDED.updated_by",
-                (clave, valor, actor),
-            )
-    ai.invalidate_config_cache()  # el gateway los ve en la próxima llamada
-    return get_presupuestos()
 
 
 def observabilidad(dias: int = 14, limit: int = 60, offset: int = 0,

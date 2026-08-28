@@ -118,23 +118,6 @@ def test_ingest_usa_su_token_dedicado():
 # Como `ia` ∈ INVITADO_MODULES (core/roles.py), el portal www podía leer
 # `detalle`/`respuesta` de ia.trazas = las conversaciones de toda la mesa.
 
-@pytest.mark.parametrize("path", [
-    "/api/ia/observabilidad",
-    "/api/ia/presupuesto",
-    "/api/ia/saldo",
-])
-def test_panel_ia_es_admin_only(path):
-    encontrada = False
-    for p, _m, deps in _rutas():
-        if p != path:
-            continue
-        encontrada = True
-        assert "require_admin" in deps, (
-            f"{path} sin require_admin: expone trazas/config del gateway de IA "
-            "a cualquier rol con el módulo `ia` y al portal INVITADO (REGLA #8)"
-        )
-    assert encontrada, f"{path} no existe — si se renombró, actualizá el test"
-
 
 # ── 3. REGLA #8 — el invitado nunca escribe ──────────────────────────────────
 

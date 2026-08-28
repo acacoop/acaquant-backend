@@ -6,8 +6,6 @@ de presupuestos (ia.config > env > default) + sus validaciones.
 """
 from __future__ import annotations
 
-import pytest
-
 from core import ai
 
 
@@ -57,33 +55,6 @@ def test_presupuestos_precedencia_db_env_default(monkeypatch):
     monkeypatch.delenv("AI_BUDGET_TOKENS_DIA_USUARIO", raising=False)
     assert ai.presupuesto_dia_global() == 2_000_000
     assert ai.presupuesto_dia_usuario() == 1_000_000
-
-
-def test_set_presupuestos_valida_antes_de_tocar_db(monkeypatch):
-    from api.services import ia_obs
-
-    monkeypatch.setattr("core.ai.presupuesto_dia_global", lambda: 2_000_000)
-    monkeypatch.setattr("core.ai.presupuesto_dia_usuario", lambda: 1_000_000)
-    with pytest.raises(ValueError):
-        ia_obs.set_presupuestos(-5, None, actor="a@b.com")  # negativo
-    with pytest.raises(ValueError):
-        ia_obs.set_presupuestos(None, 0, actor="a@b.com")  # cero
-    with pytest.raises(ValueError):
-        # usuario (3M) > global vigente (2M) — el global es techo duro
-        ia_obs.set_presupuestos(None, 3_000_000, actor="a@b.com")
-
-
-def test_set_presupuesto_usuario_valida(monkeypatch):
-    from api.services import ia_obs
-
-    monkeypatch.setattr("core.ai.presupuesto_dia_global", lambda: 2_000_000)
-    with pytest.raises(ValueError):
-        ia_obs.set_presupuesto_usuario("no-es-mail", 100, actor="a@b.com")
-    with pytest.raises(ValueError):
-        ia_obs.set_presupuesto_usuario("x@y.com", 0, actor="a@b.com")
-    with pytest.raises(ValueError):
-        # excepción personal tampoco puede superar el global
-        ia_obs.set_presupuesto_usuario("x@y.com", 3_000_000, actor="a@b.com")
 
 
 # ── Invariante de privacidad del ruteo (fix del /ia-review) ──────────────────

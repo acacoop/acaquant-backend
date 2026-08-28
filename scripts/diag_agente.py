@@ -107,6 +107,10 @@ def main() -> int:
         for n, v in nunca:
             print(f"      {n} (ventana «{v}»: espera su horario)")
 
+    # Hasta cuántos sujetos se listan por regla. Más que esto y el renglón se
+    # vuelve ilegible; ahí el número solo ya alcanza.
+    SUJETOS_MAX = 12
+
     # ── 3. ¿QUÉ ENCONTRÓ? ──────────────────────────────────────────────────
     _titulo("LOS HALLAZGOS ABIERTOS")
     tot = _filas("SELECT count(*) FROM agente.hallazgos "
@@ -121,6 +125,17 @@ def main() -> int:
             " ORDER BY count(*) DESC", (a.habilidad, a.habilidad)):
         print(f"  {nombre:22} {regla:28} {sev:6} {n:>4}  "
               f"{arr or '— (aviso: vive solo en AHORA)'}")
+        # ⚠️ **CUÁL, no solo cuántos.** Agrupar por regla contesta «hay 11» y
+        # deja afuera la única pregunta que sirve para decidir: cuáles. Se
+        # muestran los sujetos mientras entren en un renglón — con 200 filas la
+        # lista sería ilegible y ahí el conteo alcanza.
+        if n <= SUJETOS_MAX:
+            quienes = [x[0] for x in _filas(
+                "SELECT sujeto FROM agente.hallazgos "
+                " WHERE estado IN ('nuevo','en_curso') AND habilidad = %s "
+                "   AND regla = %s AND severidad = %s ORDER BY sujeto",
+                (nombre, regla, sev))]
+            print(f"  {'':22} └─ {', '.join(quienes)[:150]}")
 
     # AHORA y ENCONTRÓ, de la MISMA query que dibuja cada pantalla.
     ahora = _filas("SELECT count(*) FROM agente.v_ahora")[0][0]

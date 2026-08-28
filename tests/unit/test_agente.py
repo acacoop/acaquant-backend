@@ -950,16 +950,27 @@ def test_completar_ficha_no_escribe_lo_que_manda_el_navegador():
 
 
 def test_completar_ficha_no_resuelve_el_hallazgo_de_una():
-    """Completar 5 de 379 **no resuelve el problema**, y el arreglo lo declara.
+    """Completar 5 de 379 **no resuelve el problema** — pero completar el último
+    SÍ, y el arreglo tiene que distinguirlo.
 
     `inmediato=False` deja el hallazgo `en_curso`: el detector lo va a seguir
     viendo con 374 y tiene que quedar abierto. Se cierra solo cuando la lista
     llega a cero, y entonces el cierre es POR ACCIÓN — lo único que habilita la
     reincidencia si el campo vuelve a quedar vacío.
+
+    ⚠️ **Pero `inmediato` no habla de la escritura, habla del AVISO**, y cuando
+    ya no queda nada la pantalla no puede decir «falta confirmar». User
+    (2026-08-28), viendo cuatro títulos que acababa de cargar: *«¿confirmación
+    de qué?? si yo ya lo apliqué»*.
     """
     from agente import arreglos
 
-    assert "inmediato=False" in inspect.getsource(arreglos.CompletarFicha.aplicar)
+    src = _codigo(arreglos.CompletarFicha.aplicar)
+    assert "inmediato=quedan <= 0" in src.replace(" ", "").replace(
+        "inmediato=quedan<=0", "inmediato=quedan <= 0") or "quedan <= 0" in src, (
+        "el arreglo tiene que distinguir «faltan más» de «era el último»")
+    # Y sigue siendo el detector el que cierra: el arreglo NUNCA toca el estado.
+    assert "estado" not in src and "RESUELTO" not in src
 
 
 def test_un_arreglo_que_pide_datos_lo_declara():
@@ -1466,3 +1477,49 @@ def test_ver_que_haria_muestra_lo_que_se_va_a_ejecutar():
     for f in a:
         assert "posicionValuada" not in f.read_text(), (
             f"{f.name} reconstruye el endpoint del job en vez de leer su log")
+
+
+def test_un_trabajo_de_ocho_minutos_no_es_un_request_http():
+    """Por qué el botón moría de una forma distinta cada vez.
+
+    Medido el 2026-08-28 corriendo el job a mano: **502 segundos** (1.885
+    cuentas, 6.311 filas). Y el proxy de Next que sirve `/api/agente` declara
+    `maxDuration = 30` **segundos**. O sea que este arreglo NUNCA podía
+    contestar a tiempo: el `ESPERA_S = 30 * 60` del backend era una fantasía
+    porque del otro lado nadie esperaba más de medio minuto.
+
+    Los tres intentos murieron distinto —sin explicación, con SIGTERM, «corrió y
+    no escribió»— y las tres veces se buscó el bug adentro del job, que
+    funcionaba perfecto.
+
+    Un trabajo así se LARGA y se confirma después. Es para lo que existe
+    `Resultado(inmediato=False)`: deja el hallazgo en `en_curso` y, cuando el
+    detector no lo ve más, `registro` lo cierra **POR ACCIÓN** — que es
+    justamente lo que hay que anotar.
+    """
+    c = _codigo(rehacer._correr)
+    assert "Popen" in c and "subprocess.run" not in c, (
+        "esperar a que termine es lo que no puede funcionar acá")
+    assert "start_new_session=True" in c, (
+        "el job tiene que quedar en su propia sesión, no colgando del que lo largó")
+    assert rehacer.ESPERA_CORTA_S <= 30, (
+        "más que el maxDuration del proxy y el request se corta igual")
+    assert not hasattr(rehacer, "ESPERA_S"), "volvió la espera de 30 minutos"
+
+    # Cuando quedó lanzado NO se verifica: medir antes de que termine es
+    # afirmar que no escribió algo que todavía está escribiendo.
+    r = _codigo(rehacer.rehacer)
+    i = r.index("lanzado")
+    assert "hay_dato" not in r[i:i + 400]
+
+    # Y el arreglo lo declara `inmediato=False`, que es lo que dispara el
+    # `en_curso` → cierre POR ACCIÓN.
+    a = _codigo(arreglos.RehacerJob.aplicar)
+    j = a.index("lanzado")
+    assert "inmediato=False" in a[j:j + 400]
+    assert "Resultado(True" in a[j:j + 400], (
+        "«se largó y todavía no terminó» NO es un fracaso")
+
+    # Cuánto tarda es un DATO declarado, no una impresión: es lo que se le
+    # muestra al que aprieta para que sepa cuánto esperar.
+    assert rehacer.REHACIBLES["portafolio_diario"]["dura_aprox_s"] > 0

@@ -64,10 +64,23 @@ RUN_JOB = "/root/TradingAV/deploy/run_job.sh"
 # job no llegue a escribir una sola.
 LOGS = "/root/TradingAV/logs"
 
-# Cuánto se espera al `run_job.sh`. El wrapper ya tiene su propio timeout (el
-# segundo argumento); este es el del lado nuestro, un poco más largo para no
-# cortar antes que él y quedarnos sin su mensaje.
-ESPERA_S = 30 * 60
+# ⚠️⚠️ **CUÁNTO SE ESPERA, Y POR QUÉ ES TAN POCO.**
+#
+# Acá había `30 * 60`, y era una fantasía: **del otro lado nadie espera 30
+# minutos.** El proxy de Next que sirve `/api/agente` declara `maxDuration = 30`
+# (segundos), así que el request se corta muchísimo antes y el que apretó el
+# botón no se entera de nada.
+#
+# Medido el 2026-08-28 corriéndolo a mano: `portafolio_diario` tarda **502
+# segundos**. O sea que este arreglo NUNCA podía contestar a tiempo, y cada
+# intento moría de una forma distinta —una vez sin explicación, otra con un
+# SIGTERM— buscando el bug en el job, que funcionaba perfecto.
+#
+# Un trabajo de ocho minutos no es un request HTTP. Se LARGA y se confirma
+# después: es para lo que existe `Resultado(inmediato=False)`, que deja el
+# hallazgo en `en_curso` hasta que el detector no lo vea más — y ahí se cierra
+# POR ACCIÓN, que es justo lo que queremos anotar.
+ESPERA_CORTA_S = 20
 
 
 # Los jobs que el agente puede rehacer. **Cortos, idempotentes y con su prueba**:
@@ -94,6 +107,11 @@ REHACIBLES: dict[str, dict] = {
         # el viernes a un sábado en que el job ni corre (§0.cq).
         "corre_utc": 11,
         "corre_dias": "L-V",
+        # Cuánto tarda de verdad. Medido a mano el 2026-08-28: 1.885 cuentas,
+        # 502 s. **No es cosmético**: es lo que dice si el botón puede contestar
+        # dentro de un request HTTP (no puede) y lo que se le muestra al que lo
+        # aprieta para que sepa cuánto esperar.
+        "dura_aprox_s": 502,
         # ⚠️⚠️ **LOS OTROS NOMBRES DEL MISMO JOB.** Ver `cual_job()`.
         "conocido_como": (
             "jobs.portafolio_backfill",   # diagnostico_registry.Pieza.unidad
@@ -289,6 +307,16 @@ def rehacer(job: str, fecha: str, *, por: str = "") -> dict:
                             f"rehacer nada")}
 
     r = _correr(cfg)
+    if r.get("lanzado"):
+        # **No se verifica todavía**: el job sigue corriendo. Afirmar acá que
+        # «sigue sin el día» sería medir antes de que termine y mandar a buscar
+        # un problema que no existe.
+        mins = round((r.get("dura_aprox_s") or 0) / 60) or None
+        return {"ok": True, "corrio": True, "lanzado": True, "por": por,
+                "detalle": ("lo largué (por `run_job.sh`, con lock y timeout)"
+                            + (f" — la última vez tardó ~{mins} min" if mins else "")
+                            + f". Cuando termine, {cfg['tabla']} tiene que tener "
+                            f"{fecha}: eso lo confirma el agente solo.")}
     if not r["ok"]:
         # `salteado` NO corrió: decir `corrio: True` mandaría a buscar el
         # problema adentro de un job que ni arrancó.
@@ -324,14 +352,24 @@ def _correr(cfg: dict) -> dict:
     # El punto de partida: lo que ya estaba escrito NO es de esta corrida.
     desde = log.stat().st_size if log.exists() else 0
     try:
-        p = subprocess.run(
+        # ⚠️ `start_new_session=True`: el job queda en su PROPIA sesión, así no
+        # se lo lleva puesto una señal dirigida al grupo del proceso que lo
+        # largó. (Un `systemctl restart api.service` mata el cgroup entero y de
+        # eso no lo salva nadie — pero el job es reanudable: se vuelve a
+        # apretar y retoma desde donde iba.)
+        p = subprocess.Popen(
             [RUN_JOB, cfg["label"], cfg["timeout"], cfg["comando"]],
-            capture_output=True, text=True, timeout=ESPERA_S)
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"pasó de {ESPERA_S // 60} min y lo corté",
-                "salida": _lo_que_dijo(log, desde)}
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+    try:
+        p.wait(timeout=ESPERA_CORTA_S)
+    except subprocess.TimeoutExpired:
+        # Sigue corriendo, y está bien: se avisa y el detector confirma.
+        return {"ok": True, "lanzado": True, "salida": _lo_que_dijo(log, desde),
+                "dura_aprox_s": cfg.get("dura_aprox_s", 0)}
 
     salida = _lo_que_dijo(log, desde)
     # ⚠️ **SALTEAR NO ES CORRER, Y LAS DOS COSAS SALEN 0.** Si la corrida

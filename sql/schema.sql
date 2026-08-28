@@ -2958,7 +2958,9 @@ ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0
 -- persiste el mail CRUDO, que es lo que se MUESTRA tal cual en la vista Research.
 -- Tenía dos columnas más —`destilado` (jsonb con {resumen, temas, hechos} que
 -- generaba un LLM) y `destilado_modelo`— borradas el 2026-08-28: el flag que las
--- llenaba nunca estuvo en el cron y ninguna pantalla las dibujaba.
+-- llenaba nunca estuvo en el cron y ninguna pantalla las dibujaba. Al dropearlas
+-- había 4 filas con dato (alguien corrió el job a mano): se volcaron a CSV antes,
+-- vía `scripts/drop_tablas_ia.py --forzar-columnas`.
 CREATE TABLE IF NOT EXISTS ia.research (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     fecha        date NOT NULL,          -- día del research (header Date del mail, ART)

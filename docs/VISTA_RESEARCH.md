@@ -500,7 +500,7 @@ solo la tercera necesita IA.
   readonly**, filtra por remitente, persiste el mail **CRUDO** en `ia.research`
   (fuente de verdad, citable; dedup por `Message-ID` → idempotente). **No usa
   IA**: tenía un DESTILADO opcional del LLM `{resumen, temas[], hechos[]}` que se
-  borró el 2026-08-28 (nunca corrió y nadie lo mostraba).
+  borró el 2026-08-28 (solo 4 mails llegaron a tenerlo, y nadie lo mostraba).
 - Tabla `ia.research (fecha, fuente, asunto, message_id, cuerpo, created_at)`
   + **full-text español** (`to_tsvector('spanish',
   cuerpo)`) → "¿qué decía el research sobre el BCRA?" se responde con FTS (ADOPTAR
@@ -745,8 +745,18 @@ research se guarda y se muestra así nomás»*.
 **Y era exacto por partida doble**, que es lo que hace este caso didáctico. El
 destilado tenía DOS candados independientes y ninguno lo puso nadie a propósito:
 
-1. **Nunca corrió.** Era opt-in por `--destilar` y esa línea del crontab no lo
-   lleva. Así que `ia.research.destilado` quedó siempre en NULL.
+1. **Casi nunca corrió.** Era opt-in por `--destilar` y esa línea del crontab no
+   lo lleva.
+
+   ⚠️ **Y acá me equivoqué, con la corrección incorporada**: escribí que
+   `ia.research.destilado` estaba «siempre en NULL». Al ir a dropear la columna,
+   la guarda de `scripts/drop_tablas_ia.py` encontró **4 filas con dato** —
+   alguien corrió el job a mano alguna vez. El «nunca» era una DEDUCCIÓN desde el
+   crontab presentada como medición (REGLA #2), y lo único que evitó un DROP a
+   ciegas fue que el script preguntara a la base en vez de confiar en la premisa
+   con la que fue escrito. Las columnas se borraron igual —el destilado se dio de
+   baja como producto— pero con `--forzar-columnas`, que vuelca las 4 filas a CSV
+   antes. Un `DROP COLUMN` no tiene backup propio.
 2. **No tenía dónde mostrarse.** El campo viajaba en el payload de
    `/research1816/mails`, pero `grep -rni destilado src/` en el frontend devolvía
    **dos líneas, las dos declaraciones de tipo**: `ResearchDestilado` estaba

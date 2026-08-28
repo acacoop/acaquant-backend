@@ -2254,8 +2254,11 @@ IA sepa qué se probó y por qué no quedó.
 El destilado tenía **dos candados independientes**, y ninguno de los dos lo puso
 nadie a propósito:
 
-1. **Nunca corrió**: era opt-in por el flag `--destilar` y la línea del cron no
-   lo llevaba.
+1. **Casi nunca corrió**: era opt-in por el flag `--destilar` y la línea del cron
+   no lo llevaba. ⚠️ Al ir a dropear las columnas, la guarda del script encontró
+   **4 mails CON destilado**: alguien lo corrió a mano alguna vez. La afirmación
+   «nunca corrió» era una DEDUCCIÓN desde el crontab, no un dato medido — REGLA
+   #2 en su forma más común: una inferencia razonable escrita como hecho.
 2. **No tenía dónde mostrarse**: el campo viajaba en el payload de
    `/research1816/mails` y ningún componente lo dibujaba (`ResearchDestilado`
    estaba declarado en `research-view.tsx` sin un solo uso en JSX).

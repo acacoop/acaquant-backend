@@ -43,8 +43,9 @@ LA RED DE SEGURIDAD (REGLA #4)
 - **La lista es fija y vive acá.** No se pasa nada por parámetro.
 
 Uso (Droplet, raíz):
-    python -m scripts.drop_tablas_ia             # DRY-RUN: solo informa
-    python -m scripts.drop_tablas_ia --aplicar   # backup + DROP
+    python -m scripts.drop_tablas_ia                            # DRY-RUN: solo informa
+    python -m scripts.drop_tablas_ia --aplicar                  # backup + DROP
+    python -m scripts.drop_tablas_ia --aplicar --forzar-columnas  # + las columnas con datos
 """
 from __future__ import annotations
 
@@ -111,6 +112,10 @@ def main() -> None:
     ap.add_argument("--aplicar", action="store_true",
                     help="hace el backup y el DROP. Sin esto es un dry-run.")
     ap.add_argument("--sin-backup", action="store_true", help="NO vuelca a CSV antes de dropear.")
+    ap.add_argument("--forzar-columnas", action="store_true",
+                    help="dropea las columnas del destilado AUNQUE tengan datos (los vuelca "
+                         "a CSV primero). Sin esto el script se planta, que es el default "
+                         "correcto para una premisa que resultó falsa.")
     args = ap.parse_args()
 
     carpeta = BACKUP_DIR / f"tablas_ia_{dt.datetime.now():%Y%m%d_%H%M}"
@@ -163,12 +168,44 @@ def main() -> None:
                     f'SELECT count(*) FROM "{schema}"."{tabla}" WHERE "{columna}" IS NOT NULL')
                 con_dato = int(cur.fetchone()[0])
             if con_dato:
-                # No es un error del script: es que la premisa era falsa. Se para.
-                print(f"  · {nombre:<32} ⚠️ {con_dato} filas CON DATO — NO se dropea")
-                print("      Alguien la llenó (¿corrieron el job con --destilar?). Miralo antes.")
-                fallidas += 1
-                continue
-            print(f"  · {nombre:<32} 0 filas con dato (como se esperaba)")
+                # No es un error del script: es que la premisa era falsa.
+                print(f"  · {nombre:<32} ⚠️ {con_dato} filas CON DATO")
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f'SELECT id, fecha FROM "{schema}"."{tabla}" '
+                        f'WHERE "{columna}" IS NOT NULL ORDER BY fecha LIMIT 10')
+                    for rid, fecha in cur.fetchall():
+                        print(f"      id={rid} · research del {fecha}")
+                if not args.forzar_columnas:
+                    print("      NO se dropea. Alguien corrió el job con --destilar alguna vez.")
+                    print("      Si el destilado ya no se usa, borralas con:")
+                    print("      python -m scripts.drop_tablas_ia --aplicar --forzar-columnas")
+                    fallidas += 1
+                    continue
+                if args.aplicar and not args.sin_backup:
+                    # Un DROP COLUMN no tiene backup propio: se vuelca ANTES o no vuelve.
+                    destino = carpeta / f"{nombre}.csv"
+                    try:
+                        destino.parent.mkdir(parents=True, exist_ok=True)
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                f'SELECT id, fecha, "{columna}" FROM "{schema}"."{tabla}" '
+                                f'WHERE "{columna}" IS NOT NULL ORDER BY fecha')
+                            n = 0
+                            with destino.open("w", newline="", encoding="utf-8") as fh:
+                                w = csv.writer(fh)
+                                w.writerow(["id", "fecha", columna])
+                                for fila in cur:
+                                    w.writerow(fila)
+                                    n += 1
+                        print(f"      backup → {destino} ({n} filas)")
+                    except Exception as e:
+                        print(f"      ✗ backup FALLÓ ({type(e).__name__}: {e}) — NO se dropea")
+                        fallidas += 1
+                        continue
+                print("      --forzar-columnas: se dropea igual")
+            else:
+                print(f"  · {nombre:<32} 0 filas con dato")
             if not args.aplicar:
                 continue
             try:

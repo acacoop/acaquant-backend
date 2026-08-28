@@ -8,9 +8,9 @@ la vista Research (docs/VISTA_RESEARCH.md).
 generado por un LLM) detrás del flag `--destilar`, y se borró el 2026-08-28 por
 decisión del user: *«ese destilado no tiene sentido, no se usa en absoluto; el
 research se guarda y se muestra así nomás»*. Y era exacto — el flag nunca estuvo
-en el cron (así que nunca corrió) y **ninguna pantalla lo dibujaba**: el campo
-viajaba en el payload y el front lo tiraba. Con él se fue el gateway de IA
-entero, que existía para servirlo.
+en el cron (solo 4 mails llegaron a tenerlo, corridos a mano) y **ninguna
+pantalla lo dibujaba**: el campo viajaba en el payload y el front lo tiraba. Con
+él se fue el gateway de IA entero, que existía para servirlo.
 
 Idempotente: dedup por Message-ID (UNIQUE en la tabla) → re-correr no duplica.
 

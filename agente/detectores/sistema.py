@@ -481,10 +481,30 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
         logger.warning("tabla_quieta: sin ritmo declarado (%s)", e)
         declarado = {}
 
+    # ⚠️⚠️ **SOLO NUESTRO TERRITORIO.** El inventario sale del catálogo de
+    # Postgres, así que trae también los schemas que crea **Supabase** para sus
+    # propios servicios: `auth`, `storage`, `realtime`, `vault`. Medido el
+    # 2026-08-28: **33 tablas** que el agente venía juzgando sin saber de ellas
+    # nada —ni quién las escribe ni cada cuánto deberían—. La primera que dio la
+    # cara fue `realtime.schema_migrations`, marcada como «dejó de escribir»
+    # estando perfecta: no está rota, no es nuestra.
+    #
+    # El filtro es por SCHEMA y no por tabla, a propósito: una tabla nueva en
+    # `mercado` que todavía no esté en el archivo **se sigue mirando**. Lo que
+    # queda afuera es el territorio ajeno, no lo que no llegamos a declarar.
+    #
+    # Y si no se puede leer el schema, `nuestros` viene vacío y **no se filtra
+    # nada**: quedarse sin archivo no puede convertirse en dejar de mirar la
+    # base entera.
+    from agente import peso as _peso
+    nuestros = _peso.schemas_nuestros()
+
     out = []
     for i, p in enumerate(con_ritmo):
         if i in vivo:
             p = {**p, "ultimo_dato": vivo[i]}
+        if nuestros and p["schema"] not in nuestros:
+            continue
         nombre = f"{p['schema']}.{p['tabla']}"
         if nombre in con_contrato:
             continue

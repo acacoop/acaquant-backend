@@ -103,10 +103,31 @@ def mb(b) -> str:
 #
 # La otra pregunta —«¿está la tabla que el sistema dice que tiene que estar?»—
 # se puede contestar SIEMPRE, y la respuesta ya está escrita en `sql/schema.sql`.
+# ⚠️ **`[a-z_][a-z_0-9]*` Y NO `[a-z_]+` PARA EL SCHEMA.** Un nombre de schema
+# puede llevar dígitos y **`ap5` los lleva** — el de la posición de futuros de
+# la cámara (A3/ACyRSA), con su job, su router y sus cinco tablas declaradas
+# acá abajo. Con la clase sin dígitos, esas cinco quedaban INVISIBLES: el
+# agente nunca habría avisado si `ap5.portfolio` desaparecía.
+#
+# No falló nada: la función devolvía 234 tablas con cara de estar completa.
+# Lo cazó una medición (`scripts/diag_schemas_ajenos`), no el código.
 _RE_CREA = re.compile(
-    r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_]+)\.([a-z_0-9]+)", re.I)
+    r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
 _RE_DROP = re.compile(
-    r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-z_]+)\.([a-z_0-9]+)", re.I)
+    r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
+_RE_SCHEMA = re.compile(
+    r"CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)", re.I)
+
+
+@lru_cache(maxsize=1)
+def _schema_sql() -> str:
+    """El texto de `sql/schema.sql`, leído UNA vez. `""` si no se puede."""
+    try:
+        return (pathlib.Path(__file__).resolve().parents[1]
+                / "sql" / "schema.sql").read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("agente/peso: no pude leer sql/schema.sql (%s)", e)
+        return ""
 
 
 @lru_cache(maxsize=1)
@@ -120,11 +141,8 @@ def declaradas() -> frozenset[str]:
     `frozenset()` si no se puede leer el archivo — y ahí **no se afirma nada**:
     quedarse sin schema no puede convertirse en «faltan 234 tablas».
     """
-    try:
-        txt = (pathlib.Path(__file__).resolve().parents[1]
-               / "sql" / "schema.sql").read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning("agente/peso: no pude leer sql/schema.sql (%s)", e)
+    txt = _schema_sql()
+    if not txt:
         return frozenset()
     crea = {f"{a}.{b}".lower() for a, b in _RE_CREA.findall(txt)}
     drop = {f"{a}.{b}".lower() for a, b in _RE_DROP.findall(txt)}
@@ -184,3 +202,24 @@ def referencia(horas: int = COMPARAR_CONTRA_H) -> tuple[dict[str, int], int]:
     except Exception as e:
         logger.warning("agente/peso: sin referencia previa (%s)", e)
     return {}, 0
+
+
+@lru_cache(maxsize=1)
+def schemas_nuestros() -> frozenset[str]:
+    """Los schemas que `sql/schema.sql` DECLARA. Nuestro territorio.
+
+    Se leen del `CREATE SCHEMA` y **no se deducen de las tablas**: `partner`
+    está declarado y sus dos tablas no figuran en el archivo, así que sacarlo de
+    los nombres de tabla lo dejaría afuera — y es nuestro.
+
+    Todo lo demás que aparece en el catálogo de Postgres es de otro: `auth`,
+    `storage`, `realtime` y `vault` los crea **Supabase** para sus propios
+    servicios. Medido el 2026-08-28: 33 tablas que el agente venía juzgando sin
+    saber de ellas nada — ni quién las escribe ni cada cuánto deberían. La
+    primera que dio la cara fue `realtime.schema_migrations`.
+
+    `frozenset()` si no se puede leer el archivo, y ahí **no se filtra nada**:
+    quedarse sin schema no puede convertirse en dejar de mirar la base entera.
+    """
+    txt = _schema_sql()
+    return frozenset(m.lower() for m in _RE_SCHEMA.findall(txt)) if txt else frozenset()

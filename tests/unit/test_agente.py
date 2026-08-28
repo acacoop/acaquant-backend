@@ -1893,3 +1893,49 @@ def test_el_peso_total_avisa_en_las_dos_franjas_del_dia():
     assert "referencia" in src
     ref = _codigo(peso.referencia)
     assert "ORDER BY at ASC" in ref and "LIMIT 1" in ref
+
+
+def test_el_agente_solo_mira_nuestro_territorio():
+    """El inventario sale del catálogo de Postgres, así que trae también los
+    schemas que crea **Supabase** para sus propios servicios.
+
+    Medido el 2026-08-28 con `scripts/diag_schemas_ajenos`: **33 tablas** de
+    `auth`, `storage`, `realtime` y `vault` que el agente venía juzgando sin
+    saber de ellas nada — ni quién las escribe ni cada cuánto deberían. La
+    primera que dio la cara fue `realtime.schema_migrations`, marcada como «dejó
+    de escribir» estando perfecta.
+
+    ⚠️⚠️ **Y esa misma medición encontró un bug que no fallaba.** El schema
+    `ap5` —la posición de futuros de la cámara A3/ACyRSA, con su job, su router
+    y sus CINCO tablas declaradas— quedaba afuera de `declaradas()` porque el
+    regex pedía `[a-z_]+` para el nombre del schema y **`ap5` tiene un dígito**.
+    La función devolvía 234 tablas con cara de estar completa. Sin esto, el
+    filtro habría dejado ciego al agente sobre cinco tablas nuestras.
+    """
+    from agente import peso
+
+    n = peso.schemas_nuestros()
+    assert {"ap5", "partner", "mercado", "agente"} <= n
+    assert not ({"auth", "storage", "realtime", "vault"} & n), "eso es de Supabase"
+
+    # Los schemas salen del `CREATE SCHEMA`, NO de los nombres de tabla:
+    # `partner` está declarado y sus dos tablas no figuran en el archivo, así
+    # que deducirlo de las tablas lo dejaría afuera — y es nuestro.
+    assert "partner" not in {t.split(".")[0] for t in peso.declaradas()}
+    assert "partner" in n
+
+    # Y el schema con dígitos entra en las dos.
+    assert "ap5.portfolio" in peso.declaradas()
+
+    src = _codigo(sistema.tabla_quieta)
+    # El filtro es por SCHEMA y no por tabla: una tabla nueva en `mercado` que
+    # todavía no esté en el archivo se sigue mirando. Lo que queda afuera es el
+    # territorio ajeno, no lo que no llegamos a declarar.
+    assert "[" + repr("schema") + "] not in nuestros" in src
+    # Sin archivo NO se filtra nada: quedarse sin schema no puede convertirse en
+    # dejar de mirar la base entera.
+    assert "if nuestros and" in src
+
+    # Y la tabla del botón «pedir pata» es de ocasión, como las de órdenes.
+    from core import escribe
+    assert escribe.la_dispara("mercado.adhoc_subscriptions") == escribe.EVENTO

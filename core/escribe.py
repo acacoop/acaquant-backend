@@ -87,6 +87,11 @@ POR_OCASION: dict[str, str] = {
     "mercado.camara_cereales_audit":
         "auditoría: escribe cuando alguien EDITA un precio de cámara, y eso "
         "pasa cuando pasa",
+    "mercado.adhoc_subscriptions":
+        "los símbolos que alguien pidió a mano desde OPERAR (o desde el botón "
+        "«pedir pata» del agente): si nadie pide ninguno, no hay nada que "
+        "escribir — y encima vencen solas por TTL, así que vacía es un estado "
+        "normal",
 }
 
 # De qué carpeta sale el escritor → quién lo dispara. `scripts/` NO cuenta: un

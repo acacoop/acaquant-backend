@@ -50,8 +50,10 @@ from core.postgres import get_pool
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
 
-# Cuánto silencio hace falta para llamarla «congelada». Un trimestre: más que
+# Cuánto silencio hace falta para ETIQUETARLA «congelada». Un trimestre: más que
 # cualquier job mensual, así un cierre de trimestre no la marca por dormida.
+# Es una etiqueta y NADA MÁS: no filtra qué se imprime. Ver el agujero que abrió
+# cuando sí filtraba, documentado en el bloque ② de `main`.
 DIAS_CONGELADA = 120
 
 
@@ -176,12 +178,22 @@ def main() -> int:
                and _de_verdad_vacia(*f["nombre"].split(".", 1))]
     # Y si la estadística decía 0 pero tenía filas, no se pierde: cae acá.
     mintio = [f for f in huerfana if f["filas"] == 0 and f not in muertas]
-    # 2. CON DATOS Y HUÉRFANA, y encima MEDIDA: sabemos cuándo escribió por
-    #    última vez y hace mucho. Acá SÍ se puede perder algo → decide una
-    #    persona.
+    # 2. CON DATOS Y HUÉRFANA, y MEDIDA: sabemos cuándo escribió por última vez.
+    #    Acá SÍ se puede perder algo → decide una persona.
+    #
+    #    ⚠️⚠️ **SIN FILTRO POR EDAD, Y ESE FUE UN AGUJERO REAL.** Este bloque
+    #    pedía además `edad >= DIAS_CONGELADA`, así que una huérfana con datos y
+    #    MENOS de 120 días **no caía en ningún bloque y no se imprimía**.
+    #    Es lo que pasó el 2026-08-28 con `agente.av_agent_control` y
+    #    `agente.av_agent_latido`: tenían UNA fila cada una, el informe no las
+    #    mostró, y de ese silencio se concluyó —en voz alta— que «ya no existen
+    #    en la base». Existían.
+    #
+    #    Un umbral está bien para ORDENAR y para poner una etiqueta; no para
+    #    decidir si algo se imprime. Un informe que decide borrados tiene que
+    #    poder demostrar que no se le cayó nada — de ahí el `assert` de abajo.
     congeladas = [f for f in huerfana
-                  if f["filas"] > 0 and f["edad"] is not None
-                  and f["edad"] >= DIAS_CONGELADA]
+                  if f["filas"] > 0 and f["edad"] is not None]
     # 2bis. CON DATOS, HUÉRFANA y SIN COLUMNA DE FECHA. ⚠️ Este montón existe
     #    aparte porque la primera versión lo mezclaba con el anterior y les
     #    ponía el cartel «hace ≥120 d que no escriben» — que era MENTIRA: sin
@@ -189,6 +201,12 @@ def main() -> int:
     #    que rige adentro del agente: una corrida que no pudo mirar no cierra
     #    nada. No puedo medirlo ≠ está muerta.
     sin_medir = [f for f in huerfana if f["filas"] > 0 and f["edad"] is None] + mintio
+
+    # EL CANDADO: los tres montones tienen que cubrir a TODAS las huérfanas.
+    # Sin esto, un filtro nuevo vuelve a abrir el agujero de arriba en silencio.
+    cubiertas = {f["nombre"] for f in muertas + congeladas + sin_medir}
+    perdidas = sorted({f["nombre"] for f in huerfana} - cubiertas)
+    assert not perdidas, f"huérfanas que no caen en ningún bloque: {perdidas}"
     # 3. SIN DECLARAR: existe en la base y no está en el archivo. No es basura
     #    necesariamente — es deuda: `apply_schema` no la puede recrear.
     sin_declarar = [f for f in filas if not f["declarada"]]
@@ -211,6 +229,8 @@ def main() -> int:
             else:
                 cuando = "sin columna de fecha"
             marca = "" if f["declarada"] else "  ⚠ sin declarar"
+            if f["edad"] is not None and f["edad"] >= DIAS_CONGELADA:
+                marca = "  · congelada" + marca
             print(f"      {f['nombre']:46} {f['filas']:>9,} {_mb(f['bytes']):>10}"
                   f"  {cuando}{marca}")
         print(f"\n      → juntas pesan {_mb(sum(f['bytes'] for f in items))}\n")
@@ -219,7 +239,7 @@ def main() -> int:
            "Vacías CONFIRMADO contra la tabla (no contra la estadística), nadie\n"
            "      las escribe y NINGÚN archivo del sistema las nombra.",
            muertas)
-    bloque(f"② CON DATOS Y HUÉRFANAS — medidas: hace ≥{DIAS_CONGELADA} d que no escriben",
+    bloque("② CON DATOS Y HUÉRFANAS — con fecha de última escritura",
            "Alguien las llenó y ya nadie las toca. ⚠ Acá SÍ se puede perder algo:\n"
            "      mirá QUÉ son antes de decidir. No hay DROP automático para éstas.",
            congeladas)

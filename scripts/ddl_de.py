@@ -17,6 +17,10 @@ reconstruye desde el catálogo de Postgres para poder pegarlo en el schema.
 versión del `pg_dump` del Droplet no tiene por qué coincidir con la del server
 (un `pg_dump` más viejo se niega a correr). El catálogo se lee igual siempre.
 
+⚠️ **Las columnas GENERADAS (`GENERATED ... STORED`) NO se reconstruyen**: se
+marcan en la salida para que se resuelvan a mano. Su expresión puede depender de
+otras columnas y copiarla mal es peor que no copiarla.
+
 ⚠️ **Lo que SÍ o SÍ hay que revisar antes de pegar**: el DDL sale con la forma
 que la tabla tiene HOY, que puede no ser la que se quiso. Si una columna quedó
 `text` porque se creó a mano y debería ser `numeric`, esto lo va a copiar tal
@@ -44,7 +48,9 @@ def ddl(schema: str, tabla: str) -> str:
         SELECT a.attname,
                format_type(a.atttypid, a.atttypmod),
                a.attnotnull,
-               pg_get_expr(d.adbin, d.adrelid)
+               pg_get_expr(d.adbin, d.adrelid),
+               a.attidentity,          -- '' | 'a' ALWAYS | 'd' BY DEFAULT
+               a.attgenerated          -- '' | 's' STORED
           FROM pg_attribute a
           JOIN pg_class c      ON c.oid = a.attrelid
           JOIN pg_namespace n  ON n.oid = c.relnamespace
@@ -59,9 +65,25 @@ def ddl(schema: str, tabla: str) -> str:
     ancho = max(len(c[0]) for c in cols)
     tipo_ancho = max(len(c[1]) for c in cols)
     lineas = []
-    for nombre, tipo, notnull, default in cols:
+    for nombre, tipo, notnull, default, ident, generada in cols:
         pieza = f"    {nombre:<{ancho}} {tipo:<{tipo_ancho}}"
-        if notnull:
+        # ⚠️⚠️ **IDENTITY NO ES UN DEFAULT y no vive en `pg_attrdef`.** La primera
+        # versión leía solo los defaults, así que
+        # `mercado.camara_cereales_audit` salió con `id bigint NOT NULL` a secas
+        # —se comió el `GENERATED ALWAYS AS IDENTITY`— y pegar eso en el schema
+        # habría creado, en una base nueva, una tabla donde **todo INSERT falla**
+        # por `null value in column "id"`. Y el `INSERT` que la usa no nombra la
+        # columna, así que el error aparecería recién al auditar un precio.
+        #
+        # Se salvó porque el código que la crea estaba a mano
+        # (`api/services/camara_cereales.py`) y decía la verdad. La próxima tabla
+        # puede no tener quién la desmienta.
+        if ident:
+            pieza += (" GENERATED " + ("ALWAYS" if ident == "a" else "BY DEFAULT")
+                      + " AS IDENTITY")
+        elif generada:
+            pieza += " (columna GENERADA — revisar a mano, no se reconstruye acá)"
+        if notnull and not ident:
             pieza += " NOT NULL"
         if default:
             pieza += f" DEFAULT {default}"

@@ -2000,6 +2000,84 @@ CREATE TABLE IF NOT EXISTS mercado.camara_cereales_bahia (
     updated_at timestamptz
 );
 
+-- ── LAS DOS AUDITORÍAS DE CÁMARA (declaradas 2026-08-28) ───────────────────
+--
+-- Quién edita un precio de cámara y de qué valor a qué valor. Las escribe
+-- `api/services/camara_cereales.py::_audit_camara_sql`, la MISMA función para
+-- las dos: Rosario y Bahía tienen idéntica forma de fila y el nombre de la
+-- tabla es un parámetro.
+--
+-- ⚠️ **NO se escriben por reloj sino cuando alguien EDITA**, por eso están
+-- declaradas en `core/escribe.POR_OCASION`: vacías o quietas es un estado
+-- normal y el agente no les exige frescura.
+--
+-- ⚠️⚠️ **`GENERATED ALWAYS AS IDENTITY`, no un `bigint` pelado.** El `INSERT`
+-- del service no nombra la columna `id`, así que sin esto —en una base nueva—
+-- fallaría con `null value in column "id"` **recién la primera vez que alguien
+-- edite un precio**, no al deployar. Cuando se volcó el DDL desde el catálogo,
+-- la primera versión de `scripts/ddl_de` se comió justo esta cláusula (leía los
+-- defaults, y un IDENTITY no es un default): lo que salvó la declaración fue
+-- que el `CREATE TABLE` del service estaba a la vista y decía la verdad.
+--
+-- ⚠️ **Y OJO: ESTA DEFINICIÓN ESTÁ DUPLICADA.** El service las auto-crea con su
+-- propio `CREATE TABLE IF NOT EXISTS` para tolerar drift. Es el patrón de la
+-- REGLA #9(B) —el mismo dato en dos lugares—, así que las dos copias tienen que
+-- decir lo mismo: si se toca una columna acá, se toca también en
+-- `_audit_camara_sql`. Mientras coincidan no pasa nada, y por eso es fácil que
+-- pase.
+CREATE TABLE IF NOT EXISTS mercado.camara_cereales_audit (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    cereal     text,
+    prev       jsonb,
+    new        jsonb,
+    updated_by text,
+    updated_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS mercado.camara_cereales_bahia_audit (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    cereal     text,
+    prev       jsonb,
+    new        jsonb,
+    updated_by text,
+    updated_at timestamptz
+);
+
+-- ── OHLC DIARIO DE BONOS (declarada 2026-08-28) ────────────────────────────
+-- Serie diaria por bono para el histórico de la vista de renta fija. PK
+-- (ticker, fecha) → re-correr un día no duplica.
+--
+-- ⚠️ La columna se llama `ticker_corto`, que es el nombre VIEJO de lo que hoy
+-- en `mercado.curvas` se llama `ticker` (el renombre de 2026-08-15 dio vuelta
+-- los dos nombres). Se declara con el nombre que la tabla tiene HOY: cambiarlo
+-- acá sin migrar la tabla la partiría en dos. Queda anotado como deuda.
+CREATE TABLE IF NOT EXISTS mercado.bonos_ohlc_daily (
+    ticker_corto text NOT NULL,
+    fecha        date NOT NULL,
+    open         numeric,
+    high         numeric,
+    low          numeric,
+    close        numeric,
+    PRIMARY KEY (ticker_corto, fecha)
+);
+CREATE INDEX IF NOT EXISTS ix_bonos_ohlc_tk_fecha
+    ON mercado.bonos_ohlc_daily (ticker_corto, fecha DESC);
+
+-- ── MÁXIMO Y MÍNIMO HISTÓRICO POR PAPEL (declarada 2026-08-28) ─────────────
+-- Una fila por ticker con su máximo y su mínimo en la ventana `desde`..`hasta`.
+-- La llena `scripts/backfill_extremos_hist.py` (borra e inserta por ticker), así
+-- que **no la escribe ningún job de reloj**: quieta es normal.
+CREATE TABLE IF NOT EXISTS mercado.precios_extremos_hist (
+    ticker     text PRIMARY KEY,
+    max_high   numeric,
+    max_fecha  date,
+    min_low    numeric,
+    min_fecha  date,
+    desde      date NOT NULL,
+    hasta      date NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Breakevens overrides → curaduría manual de pares Lecap↔CER (Manager). Una fila
 -- por par EXCLUIDO. El reader api/services/mercado_hist_sql.get_breakevens filtra
 -- estos pares (el motor los sigue calculando; se ocultan en la vista). Lo escribe

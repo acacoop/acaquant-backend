@@ -1689,3 +1689,81 @@ def test_las_dos_formas_de_la_misma_fecha_no_se_mezclan():
     codigo = _codigo(src)
     assert "_dias_entre(desde, hasta)" in codigo
     assert "d2 - d1" not in codigo
+
+
+def test_una_tabla_de_ocasiones_no_tiene_cadencia():
+    """User (2026-08-28), sobre `ordenes_audit` y `ordenes_live`: *«que sean en
+    tiempo real no significa que todo el tiempo tenga que haber datos nuevos. Si
+    no hay órdenes en todo el día va a estar sin escribir y eso no implica que
+    se rompió algo»*.
+
+    La heurística de `core/escribe.py` (jobs/engines → reloj) acierta en casi
+    todo y falla en una clase concreta: **la carpeta no dice si el dato es
+    periódico**. Un motor de precios escribe siempre porque siempre hay precios;
+    un motor de ÓRDENES escribe cuando alguien opera. Los dos viven en
+    `engines/`, y eso no se puede derivar del código: la diferencia está en si el
+    sistema CAUSA el dato o solo lo registra.
+    """
+    from core import escribe
+
+    for t in ("operaciones.ordenes_live", "operaciones.ordenes_audit",
+              "mercado.camara_cereales_audit"):
+        assert escribe.la_dispara(t) == escribe.EVENTO, f"{t} se sigue exigiendo"
+        assert escribe.por_ocasion(t), "cada entrada declara POR QUÉ"
+
+    # Y `tabla_quieta` ya saltea los eventos — el mecanismo existía, lo que
+    # faltaba era poder decir que estas lo son.
+    det = _codigo(sistema.tabla_quieta)
+    assert "escribe.EVENTO" in det and "continue" in det
+
+    # ⚠️ Lo que NO es de ocasión se sigue exigiendo igual: esto no es una
+    # tolerancia más alta, es una pregunta distinta.
+    assert escribe.la_dispara("portafolio.tenencia") == escribe.RELOJ
+    assert not escribe.por_ocasion("portafolio.tenencia")
+
+
+def test_el_huso_de_la_pieza_se_aplica_en_el_sql_y_no_despues():
+    """Un atraso CLAVADO en exactamente 3 h no es un motor caído.
+
+    `mercado.timesales.ts` es naive en hora argentina (`valores.py` lo guarda
+    restando 3 h a propósito) y su Pieza declara `assume="AR"`. Pero ese
+    `assume` **nunca llegaba a aplicarse**: `(ts)::timestamptz` con la sesión en
+    UTC etiqueta el naive como UTC, y `_parse_ts` recibe un valor YA AWARE —
+    `asegurar_aware` no toca lo que tiene tzinfo.
+
+    Medido el 2026-08-28: `motor_rofex (trades)` con `3h 0m` a las 14:11, a las
+    14:21 y a las 14:23. Un motor caído acumula atraso; éste no acumulaba nada
+    porque estaba escribiendo **en ese momento**. 3 h es exactamente UTC−ART.
+    """
+    src = (RAIZ / "api" / "services" / "diagnostico.py").read_text()
+    i = src.index("if p.tabla:")
+    bloque = src[i:i + 2200]
+    assert "AT TIME ZONE" in bloque, (
+        "el cast tiene que hacerse EN la zona que la Pieza declara")
+    assert 'p.assume == "AR"' in bloque
+
+    # Y la Pieza sigue declarando el huso: si alguien lo saca, el cast vuelve a
+    # ser UTC y el atraso fantasma vuelve sin que nada falle.
+    reg = (RAIZ / "api" / "services" / "diagnostico_registry.py").read_text()
+    j = reg.index('tabla="timesales"')
+    assert 'assume="AR"' in reg[j:j + 120]
+
+
+def test_el_estado_del_hallazgo_solo_se_muestra_si_habla_de_esa_linea():
+    """User (2026-08-28), viendo nueve títulos recién completados —cada uno con
+    su ✔ y su `emisor: — → OTROS`— y al lado «el aviso sigue abierto»: *«¿por
+    qué no pone CONFIRMADO? ¿qué tienen que ver los demás?»*.
+
+    Y no tienen nada que ver. Cuando la acción es sobre UN título y el hallazgo
+    es de TODO el campo, el estado del hallazgo habla de **los otros**, y en ese
+    renglón se lee como una duda sobre la escritura que la línea ya afirma.
+
+    Se distingue con el dato y no con una lista: si el sujeto de la acción
+    difiere del sujeto del hallazgo, la acción es de un item y el hallazgo de un
+    grupo. Y lo decide el BACKEND — ninguna pantalla deriva nada (invariante 11).
+    """
+    from agente import vista
+
+    src = _codigo(vista.historial)
+    assert "h.sujeto IS DISTINCT FROM a.sujeto" in src
+    assert "THEN NULL" in src

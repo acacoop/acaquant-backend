@@ -186,8 +186,24 @@ def historial(*, limite: int = LIMITE, desde_id: int | None = None,
                      " OR a.campo ILIKE %s OR a.donde ILIKE %s OR a.por ILIKE %s)")
         params += [f"%{t}%"] * 6
 
+    # ⚠️⚠️ **EL ESTADO DEL HALLAZGO NO SIEMPRE HABLA DE ESTA LÍNEA.**
+    #
+    # User (2026-08-28), viendo nueve títulos que acababa de completar, cada uno
+    # con su ✔ y su `emisor: — → OTROS`, y al lado «el aviso sigue abierto»:
+    # *«¿por qué no pone CONFIRMADO? ¿qué tienen que ver los demás?»*.
+    #
+    # Y no tienen nada que ver. Cuando la acción es sobre UN título y el
+    # hallazgo es de TODO el campo, el estado del hallazgo habla de los OTROS
+    # —los que faltan— y en ese renglón se lee como una duda sobre la escritura
+    # que la propia línea ya está afirmando.
+    #
+    # Se distingue con el dato, no con una lista: **si el sujeto de la acción es
+    # distinto del sujeto del hallazgo, la acción es de un item y el hallazgo de
+    # un grupo.** Ahí la línea contesta por sí sola y `estado_hoy` viaja vacío.
     filas = _filas(
-        "SELECT a.*, h.estado AS estado_hoy, h.severidad "
+        "SELECT a.*, h.severidad, "
+        "       CASE WHEN h.id IS NULL OR h.sujeto IS DISTINCT FROM a.sujeto "
+        "            THEN NULL ELSE h.estado END AS estado_hoy "
         "  FROM agente.acciones a "
         "  LEFT JOIN agente.hallazgos h ON h.id = a.hallazgo_id "
         f" WHERE {' AND '.join(where)} "

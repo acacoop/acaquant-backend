@@ -55,6 +55,40 @@ logger = logging.getLogger(__name__)
 
 RELOJ, EVENTO, NO_SE = "reloj", "evento", "no_se"
 
+# ⚠️⚠️ **LA CARPETA NO DICE SI EL DATO ES PERIÓDICO.**
+#
+# La heurística de abajo (jobs/engines → reloj) acierta en casi todo y falla en
+# una clase concreta: las tablas que registran **OCASIONES**. Un motor de precios
+# escribe siempre porque siempre hay precios; un motor de ÓRDENES escribe cuando
+# alguien opera. Los dos viven en `engines/`.
+#
+# User (2026-08-28), sobre `ordenes_audit` y `ordenes_live`: *«que sean en tiempo
+# real no significa que todo el tiempo tenga que haber datos nuevos. Si no hay
+# órdenes en todo el día va a estar sin escribir y eso no implica que se rompió
+# algo»*. Y: *«que haya habido 1 sola señal puede ser suficiente — es justamente
+# el significado de que está bien y no se rompió»*.
+#
+# Esto **no se puede derivar del código**: la diferencia no está en quién
+# escribe, está en si el sistema CAUSA el dato o solo lo registra. Así que se
+# declara — corto, y cada entrada dice POR QUÉ, que es lo que hace que la lista
+# se pueda revisar en vez de crecer sola.
+#
+# (`camara_cereales_audit` cae acá por otro motivo y llega al mismo lugar: la
+# escribe `api/services/camara_cereales.py` —o sea un evento— pero con
+# `INSERT INTO {table}`, con el nombre en una VARIABLE, así que el regex de
+# `_mapa()` no la encuentra y quedaba en `no_se`, que se sigue exigiendo.)
+POR_OCASION: dict[str, str] = {
+    "operaciones.ordenes_live":
+        "una orden existe cuando alguien opera: un día sin órdenes es un día "
+        "sin órdenes, no un motor caído",
+    "operaciones.ordenes_audit":
+        "el rastro de cada cambio de estado de una orden — sin órdenes, no hay "
+        "cambios que registrar",
+    "mercado.camara_cereales_audit":
+        "auditoría: escribe cuando alguien EDITA un precio de cámara, y eso "
+        "pasa cuando pasa",
+}
+
 # De qué carpeta sale el escritor → quién lo dispara. `scripts/` NO cuenta: un
 # one-shot que alguien corre a mano no es el escritor habitual de nada, y
 # tomarlo como tal haría que una siembra vieja defina la cadencia de la tabla.
@@ -133,14 +167,29 @@ def quien_escribe(tabla: str) -> list[str]:
     return list(dict.fromkeys(m.get(t, []) + m.get(corto, [])))
 
 
+def por_ocasion(tabla: str) -> str:
+    """Por qué esta tabla puede estar quieta sin que nada esté roto. `""` si no
+    es una de ellas — y entonces se le sigue exigiendo frescura."""
+    return POR_OCASION.get((tabla or "").strip(), "")
+
+
 def la_dispara(tabla: str) -> str:
-    """`reloj` · `evento` · `no_se`. **`no_se` NO es `evento`**: ante la duda se
+    """`reloj` · `evento` · `no_se`.
+
+    ⚠️ **La declaración explícita gana sobre la heurística de carpeta.** Ver
+    `POR_OCASION`: hay tablas de `engines/` cuyo dato lo causa una persona, no
+    un loop, y ahí la carpeta contesta mal. **`no_se` NO es `evento`**: ante la duda se
     sigue exigiendo frescura, porque dejar de mirar algo que no entendimos es
     cómo se pierde una señal de verdad.
 
     Si la escriben los DOS (un job y una request), gana el RELOJ: hay algo que
     debería estar corriendo y su ausencia sí es un problema.
     """
+    # Primero la declaración: `camara_cereales_audit` ni siquiera tiene
+    # escritor detectado (su INSERT usa el nombre en una variable), así que sin
+    # esto caería en `no_se` y se le seguiría exigiendo.
+    if por_ocasion(tabla):
+        return EVENTO
     quienes = quien_escribe(tabla)
     if not quienes:
         return NO_SE

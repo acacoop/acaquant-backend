@@ -72,12 +72,32 @@ def _leer_frescura(p: Pieza) -> tuple[datetime | None, str | None]:
         except Exception:
             return None, None
     if p.tabla:
-        # Frescura SQL: max(ts_expr::timestamptz) de la tabla.
+        # ⚠️⚠️ **EL `::timestamptz` RESOLVÍA LA AMBIGÜEDAD ANTES QUE PYTHON, Y
+        # LA RESOLVÍA MAL.**
+        #
+        # `mercado.timesales.ts` es NAIVE en hora argentina (`valores.py` lo
+        # guarda restando 3 h a propósito, y el schema lo dice). La Pieza declara
+        # `assume="AR"` justamente para eso — pero **nunca llegaba a aplicarse**:
+        # `(ts)::timestamptz` con la sesión en UTC etiqueta ese naive como UTC,
+        # y `_parse_ts` recibe un valor YA AWARE, así que `asegurar_aware` no lo
+        # toca. El `assume` quedaba de adorno.
+        #
+        # Efecto medido el 2026-08-28: `motor_rofex (trades)` con un atraso
+        # CLAVADO en **exactamente 3 h 0 m** —14:11→11:11, 14:21→11:21,
+        # 14:23→11:23— mientras el reloj avanzaba. Un motor caído acumula
+        # atraso; éste no acumulaba nada porque estaba escribiendo **ahora
+        # mismo**. 3 h es exactamente UTC−ART.
+        #
+        # El cast tiene que hacerse EN la zona que la Pieza declara:
+        # `timestamp AT TIME ZONE 'zona'` interpreta el naive en esa zona y
+        # devuelve el instante correcto.
         try:
             from core.postgres import get_pool
             where = f" WHERE {p.sql_where}" if p.sql_where else ""
+            cast = (f"({p.ts_expr})::timestamp AT TIME ZONE '{AR_TZ}'"
+                    if p.assume == "AR" else f"({p.ts_expr})::timestamptz")
             with get_pool().connection() as conn, conn.cursor() as cur:
-                cur.execute(f"SELECT max(({p.ts_expr})::timestamptz) FROM {p.tabla}{where}")
+                cur.execute(f"SELECT max({cast}) FROM {p.tabla}{where}")
                 row = cur.fetchone()
             ts = row[0] if row else None
             return _parse_ts(ts, p.ts_kind, p.assume), None

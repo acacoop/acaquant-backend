@@ -1245,6 +1245,21 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (11)** — **Tres cosas que el agente medía sin entender.**
+  (a) **Una tabla de OCASIONES no tiene cadencia.** La heurística de
+  `core/escribe.py` (jobs/engines → reloj) falla en una clase: la carpeta no
+  dice si el dato es periódico. Un motor de precios escribe siempre; uno de
+  ÓRDENES escribe cuando alguien opera, y los dos viven en `engines/`. Se
+  declara en `escribe.POR_OCASION`, con el motivo escrito en cada entrada.
+  (b) **El huso de una Pieza se aplicaba DESPUÉS del SQL, o sea nunca.**
+  `(ts)::timestamptz` etiqueta el naive como UTC y `_parse_ts` recibe un valor
+  ya aware, así que `assume="AR"` era de adorno: `motor_rofex (trades)` figuraba
+  con un atraso **clavado en 3 h 0 m** —14:11, 14:21, 14:23— estando sano. Ahora
+  el cast usa `AT TIME ZONE` en la zona declarada.
+  (c) **El estado del hallazgo no siempre habla de esa línea del libro.** Si la
+  acción es sobre un título y el hallazgo es de todo el campo, «el aviso sigue
+  abierto» habla de los OTROS y se lee como una duda sobre la escritura que la
+  línea ya afirma. Ahora viaja vacío cuando los sujetos difieren.
 - **2026-08-28 (10)** — **Una fecha de negocio no es un timestamp de escritura.**
   `COLS_FECHA` mezcla dos cosas: `updated_at` dice cuándo se escribió la fila,
   `fecha`/`ts_cierre` dicen **de qué día son los datos**. Medir el atraso contra

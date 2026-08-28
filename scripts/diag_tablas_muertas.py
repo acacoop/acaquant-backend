@@ -84,15 +84,38 @@ def _nombrada(nombre: str) -> int:
     del agente viejo aparecen por todos lados en PROSA de comentarios que
     cuentan su historia, y con el nombre pelado quedarían vivas para siempre.
     Medido: calificado → 4/4 vivas rescatadas y 19/19 muertas dejadas pasar.
+
+    ⚠️ **Y NO ALCANZA CON EL CALIFICADO.** Segunda corrida real: la tabla viva
+    `manager.aranceles_job_runs` lo guarda así —
+
+        _JOBS_TABLE = "aranceles_job_runs"    (api/services/aranceles_jobs.py)
+
+    — en una variable **y sin el schema adelante**. Cero coincidencias con el
+    calificado. Así que también se busca el nombre PELADO **entre comillas**,
+    que es como se escribe un nombre de tabla en Python y no como se escribe en
+    un comentario.
+
+    Ese segundo eje sobre-detecta y se acepta a propósito: medido, `"cartera"`
+    da 21 archivos, `"config"` 4, `"snapshots"` y `"pedidos"` 1 — son claves de
+    diccionario, no tablas. **Rescatar de más cuesta una tabla de 16 kB que se
+    queda; rescatar de menos borra algo que el sistema usa.** El desempate no
+    es simétrico, así que se elige el lado barato.
+
+    Lo que igual NO rescata es la prosa: los comentarios citan con acentos
+    graves (`av_agent_trazas`), no con comillas — por eso las 18 del agente
+    viejo salieron las 18.
     """
-    try:
-        r = subprocess.run(
-            ["git", "grep", "-l", "-F", nombre, "--",
-             *[f"{c}/" for c in CODIGO]],
-            cwd=RAIZ, capture_output=True, text=True, timeout=30)
-        return len([ln for ln in r.stdout.splitlines() if ln.strip()])
-    except Exception:
-        return 0
+    def _n(args: list[str]) -> int:
+        try:
+            r = subprocess.run(["git", "grep", "-l", *args, "--",
+                                *[f"{c}/" for c in CODIGO]],
+                               cwd=RAIZ, capture_output=True, text=True, timeout=30)
+            return len([ln for ln in r.stdout.splitlines() if ln.strip()])
+        except Exception:
+            return 0
+
+    pelado = nombre.split(".", 1)[-1]
+    return _n(["-F", nombre]) + _n(["-E", f"[\"']{pelado}[\"']"])
 
 
 def _de_verdad_vacia(schema: str, tabla: str) -> bool:

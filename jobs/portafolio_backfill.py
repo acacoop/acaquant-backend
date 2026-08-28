@@ -353,10 +353,23 @@ def _run_backfill(logger=None) -> int:
         ids = {c.strip() for c in subset.split(",")}
         universo = [u for u in universo if u[0] in ids]
     print(f"  cuentas: {len(universo)}  ·  assets en mapa: {len(amap)}\n")
+    # ⚠️ **SIN CUENTAS NO HAY NO-OP: HAY CEGUERA.** Si Aunesa contesta el login
+    # y después devuelve la lista vacía, `pend` queda en cero, cada día se
+    # saltea con «ya completo», no se cuenta un solo error y el job sale 0. Es
+    # la forma más silenciosa de fallar que tiene este job, y la guarda del
+    # final no la ve porque nunca llega a intentar nada.
+    if not universo:
+        raise RuntimeError(
+            "Aunesa no devolvió ninguna cuenta: no hay a quién pedirle la "
+            "posición. NO es «no había nada que hacer».")
 
     t_run = time.monotonic()
     tot = {"cuentas_ok": 0, "cuentas_vacia": 0, "timeouts": 0, "errores": 0,
-           "filas": 0, "dias_pedidos": len(dias), "dias_con_filas": 0}
+           "filas": 0, "dias_pedidos": len(dias), "dias_con_filas": 0,
+           # ⚠️ Cuántas cuentas se INTENTARON de verdad. Es lo que separa «no
+           # había nada pendiente» (no-op legítimo) de «pregunté y no traje
+           # nada» (que no es un éxito). Ver la guarda del final.
+           "cuentas_pedidas": 0}
     for D in dias:
         iso = D.isoformat()
         desde = _prox_habil(D).strftime("%d/%m/%Y")   # ← regla: desde = D + 1 hábil
@@ -367,6 +380,7 @@ def _run_backfill(logger=None) -> int:
             continue
 
         print(f"[{iso}] desde={desde} · pendientes={len(pend)} (ya hechas={len(hechas)})")
+        tot["cuentas_pedidas"] += len(pend)
         t0 = time.monotonic()
         registros: list[dict] = []
         status_by: dict[str, tuple] = {}
@@ -413,14 +427,30 @@ def _run_backfill(logger=None) -> int:
         for k, v in tot.items():
             logger.set_stat(k, v)
         logger.set_stat("elapsed_run_s", round(time.monotonic() - t_run, 1))
-    # Un run que pidió días y no escribió NI UNA fila no es un éxito: se levanta para
-    # que quede `error` en job_runs y el cron devuelva exit != 0. Un run donde no había
-    # nada pendiente (todo ya hecho) NO entra acá — ese sí es un no-op legítimo.
-    if tot["dias_pedidos"] and not tot["filas"] and (tot["errores"] or tot["timeouts"]):
+    # ⚠️⚠️ **PREGUNTÉ Y NO TRAJE NADA TAMPOCO ES UN ÉXITO** (2026-08-28).
+    #
+    # Esta guarda existía pero pedía `errores or timeouts`, y **`vacia` no es
+    # ninguno de los dos**: `er = len(status_by) - ok - vac - to`. O sea que un
+    # día en el que las ~1.040 cuentas contestan «sin posiciones» salía con
+    # exit 0, dejaba `job_runs` en verde y no escribía una fila. Lo mismo si el
+    # universo de cuentas vuelve vacío: `pend` queda en cero, el día se saltea y
+    # no se cuenta ni un error.
+    #
+    # Se descubrió apretando el botón REHACER del agente: corrió, salió 0, y la
+    # tabla siguió sin el 2026-08-27. El agente no se lo creyó porque verifica
+    # contra la tabla — pero el job seguía diciendo que había ido todo bien.
+    #
+    # La condición correcta no mira el TIPO de fallo: mira si **se intentó y no
+    # se escribió**. `cuentas_pedidas == 0` sigue siendo el no-op legítimo (todo
+    # ya estaba hecho) y no entra acá.
+    if tot["dias_pedidos"] and tot["cuentas_pedidas"] and not tot["filas"]:
         raise RuntimeError(
-            f"el backfill no escribió ninguna fila: {tot['errores']} errores y "
-            f"{tot['timeouts']} timeouts sobre {tot['dias_pedidos']} día(s). "
-            "Casi siempre es Aunesa devolviendo error (revisar portafolio.backfill_log).")
+            f"el backfill NO escribió ninguna fila habiendo pedido "
+            f"{tot['cuentas_pedidas']} cuenta(s) en {tot['dias_pedidos']} día(s): "
+            f"OK={tot['cuentas_ok']} vacía={tot['cuentas_vacia']} "
+            f"TIMEOUT={tot['timeouts']} ERROR={tot['errores']}. "
+            "Si vacía es casi todo, Aunesa contestó sin posiciones (no es un "
+            "error de red): revisar portafolio.backfill_log.")
     return 0
 
 

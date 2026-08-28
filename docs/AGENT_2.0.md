@@ -1245,6 +1245,18 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
 
 ## Changelog
 
+- **2026-08-28 (4)** — **Lo que dijo el job llega a la pantalla, y el job deja
+  de mentir cuando pregunta y no trae nada.** Al apretar REHACER, el resultado
+  fue «corrió sin error y la tabla SIGUE sin el 27/08»: correcto (se verifica
+  contra la tabla, no contra el exit code) pero **incompleto** — dice qué NO
+  fue el problema. `_correr` capturaba el stdout del job y las salidas de
+  `rehacer()` lo descartaban, y el arreglo lo descartaba otra vez; ahora viaja
+  con el error (últimas líneas, no últimos bytes). Y del otro lado:
+  `portafolio_backfill` tenía una guarda que sólo levantaba con `errores or
+  timeouts`, y **`vacia` no es ninguno de los dos** — un día en el que todas las
+  cuentas contestan «sin posiciones» salía exit 0 y en verde. La condición pasa
+  a ser «se intentó y no se escribió», más una guarda propia para el universo de
+  cuentas vacío (la forma más silenciosa que tenía de fallar).
 - **2026-08-28 (3)** — **Tres veces el mismo patrón: dos partes del sistema
   contestando la misma pregunta con criterios distintos, y ninguna falla.**
   (1) El mercado abre 13:00 UTC y los motores arrancan 13:20 (`crontab`): en esa

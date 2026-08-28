@@ -1327,3 +1327,55 @@ def test_rehacer_solo_reescribe_lo_que_falta():
     r = inspect.getsource(rehacer.rehacer)
     assert "antes = hay_dato(job, fecha)" in r and "if antes:" in r
     assert "despues = hay_dato(job, fecha)" in r
+
+
+def test_lo_que_dijo_el_job_llega_a_la_pantalla():
+    """User (2026-08-28), después de apretar REHACER: *«cuando lo relanzamos
+    tampoco dice el motivo ni nada»*.
+
+    Y no era que no existiera. `_correr` captura el stdout del job —que termina
+    con una línea que contesta sola: `✓ 2026-08-27: OK=0 vacía=1040 TIMEOUT=0
+    ERROR=0 · filas insertadas=0`— y las salidas de `rehacer()` la
+    **descartaban**, y el arreglo la descartaba otra vez.
+
+    El resultado en pantalla decía qué NO había sido el problema («no era que no
+    se hubiera ejecutado») y nada de qué SÍ. Un diagnóstico por descarte deja al
+    lector donde empezó.
+    """
+    r = inspect.getsource(rehacer.rehacer)
+    # Las tres salidas que pueden pasar DESPUÉS de correr llevan la salida.
+    assert r.count('"salida": r.get("salida"') >= 2, (
+        "algún final de `rehacer()` sigue tirando lo que dijo el job")
+    a = inspect.getsource(arreglos.RehacerJob.aplicar)
+    assert 'r.get("salida")' in a, "el arreglo no la lleva a la pantalla"
+
+    # Últimas LÍNEAS, no últimos bytes: cortar por bytes parte un renglón al
+    # medio y lo que se lee arranca en la mitad de una palabra.
+    d = inspect.getsource(rehacer._lo_que_dijo)
+    assert "splitlines()" in d and "[-3:]" in d
+
+
+def test_preguntar_y_no_traer_nada_no_es_un_exito():
+    """La guarda del job existía y tenía un agujero del tamaño de `vacia`.
+
+    Pedía `errores or timeouts`, pero `er = len(status_by) - ok - vac - to`: una
+    cuenta que contesta «sin posiciones» no es ninguno de los dos. Un día en el
+    que las ~1.040 cuentas vuelven vacías salía con **exit 0**, dejaba
+    `manager.job_runs` en verde y no escribía una fila.
+
+    Se descubrió apretando el botón del agente: corrió, salió 0, y
+    `portafolio.tenencia` siguió sin el 2026-08-27. El agente no se lo creyó
+    —verifica contra la tabla— pero el job seguía afirmando que había ido bien.
+    """
+    job = (RAIZ / "jobs" / "portafolio_backfill.py").read_text()
+
+    # La condición no mira el TIPO de fallo, mira si se intentó y no se escribió.
+    assert 'if tot["dias_pedidos"] and tot["cuentas_pedidas"] and not tot["filas"]:' in job
+    assert 'tot["errores"] or tot["timeouts"]' not in job, (
+        "volvió la guarda que no ve el caso «todo vacía»")
+    assert 'tot["cuentas_pedidas"] += len(pend)' in job
+
+    # Y el no-op legítimo (todo ya hecho) NO entra: ahí `cuentas_pedidas` es 0.
+    # Lo que sí entra es no tener a quién preguntarle, que es otra cosa.
+    i = job.index("if not universo:")
+    assert "raise RuntimeError" in job[i:i + 300]

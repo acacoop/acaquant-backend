@@ -280,14 +280,19 @@ def rehacer(job: str, fecha: str, *, por: str = "") -> dict:
     if not r["ok"]:
         return {**r, "corrio": True, "ya_estaba": False}
 
+
     # ⚠️ **LA PRUEBA ES LA TABLA, NO EL EXIT CODE.** Un job puede salir 0 y no
     # haber escrito una fila (la API devolvió vacío, el filtro dejó todo afuera).
     despues = hay_dato(job, fecha)
     if despues is None:
-        return {"ok": False, "corrio": True,
+        return {"ok": False, "corrio": True, "salida": r.get("salida", ""),
                 "error": "corrió pero no pude verificar si escribió"}
     if not despues:
+        # ⚠️ **ACÁ VA LO QUE DIJO EL JOB.** Sin eso, la pantalla dice «no era
+        # que no se hubiera ejecutado» y deja al lector exactamente donde
+        # empezó: sabe que no es lo que pensaba, y no sabe qué es.
         return {"ok": False, "corrio": True, "escribio": False,
+                "salida": r.get("salida", ""),
                 "error": (f"corrió sin error y {cfg['tabla']} SIGUE sin {fecha} — "
                           f"el problema no era que no se hubiera ejecutado")}
     return {"ok": True, "corrio": True, "escribio": True, "por": por,
@@ -309,8 +314,27 @@ def _correr(cfg: dict) -> dict:
         return {"ok": False, "error": f"pasó de {ESPERA_S // 60} min y lo corté"}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
-    salida = ((p.stdout or "") + (p.stderr or "")).strip()[-600:]
-    if p.returncode != 0:
-        return {"ok": False, "error": f"salió con código {p.returncode}",
-                "salida": salida}
-    return {"ok": True, "salida": salida}
+    return {"ok": p.returncode == 0, "salida": _lo_que_dijo(p),
+            **({} if p.returncode == 0
+               else {"error": f"salió con código {p.returncode}"})}
+
+
+def _lo_que_dijo(p) -> str:
+    """Las últimas líneas que imprimió el job. **Es la única explicación que hay.**
+
+    User (2026-08-28), después de apretar REHACER y ver «corrió sin error y la
+    tabla SIGUE sin el día»: *«cuando lo relanzamos tampoco dice el motivo ni
+    nada»*. Y no era que no existiera: `subprocess.run` la capturaba y las tres
+    salidas de `rehacer()` la descartaban.
+
+    Ese job termina con una línea que contesta sola —`✓ 2026-08-27: OK=0
+    vacía=1040 TIMEOUT=0 ERROR=0 · filas insertadas=0`— y el que apretó el botón
+    no la veía por ningún lado.
+
+    Las ÚLTIMAS líneas y no los últimos 600 caracteres: un corte por bytes parte
+    un renglón al medio y lo que llega a la pantalla empieza en la mitad de una
+    palabra.
+    """
+    txt = ((p.stdout or "") + "\n" + (p.stderr or ""))
+    lineas = [x.strip() for x in txt.splitlines() if x.strip()]
+    return " · ".join(lineas[-3:])[:400]

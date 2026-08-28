@@ -378,7 +378,14 @@ class RehacerJob(Arreglo):
         job, fecha = self._job_fecha(sujeto, ev)
         r = rehacer.rehacer(job, fecha, por=por)
         if not r.get("ok"):
-            return Resultado(False, str(r.get("error") or "no se pudo rehacer"))
+            # ⚠️ **LO QUE DIJO EL JOB VIAJA CON EL ERROR.** «Corrió sin error y
+            # la tabla sigue sin el día» es un diagnóstico incompleto: dice qué
+            # NO fue el problema. La última línea del job («OK=0 vacía=1040 ·
+            # filas insertadas=0») dice qué SÍ pasó, y hasta hoy se descartaba
+            # a dos niveles.
+            return Resultado(False, " → ".join(
+                x for x in (str(r.get("error") or "no se pudo rehacer"),
+                            str(r.get("salida") or "")) if x))
         hay = rehacer.hay_dato(job, fecha)
         if hay is None:
             return Resultado(True, "corrió, pero no pude releer la tabla",

@@ -36,7 +36,8 @@ NUNCA entra en la lista de borrado automático, por más huérfana que se vea.
 Uso:
     python -m scripts.diag_tablas_muertas            # el informe, read-only
     python -m scripts.diag_tablas_muertas --sql      # + genera sql/drop_muertas.sql
-    python -m scripts.diag_tablas_muertas --aplicar  # DROPEA el bloque ①
+    python -m scripts.diag_tablas_muertas --aplicar  # DROPEA el bloque ① (vacías)
+    python -m scripts.diag_tablas_muertas --dropear mercado.x manager.y   # con datos
 """
 from __future__ import annotations
 
@@ -285,6 +286,10 @@ def main() -> int:
           "     del código es un regex; un INSERT con el nombre en una variable no se\n"
           "     ve. Por eso el bloque ② no se borra solo y el ① exige además 0 filas.\n")
 
+    pedidas = [a for a in sys.argv[1:] if "." in a and not a.startswith("-")]
+    if pedidas:
+        return _dropear(pedidas, filas, "--igual" in sys.argv)
+
     if "--aplicar" in sys.argv:
         return _aplicar(muertas)
 
@@ -359,6 +364,63 @@ def _aplicar(muertas: list[dict]) -> int:
         conn.commit()
     libera = sum(f["bytes"] for f in muertas)
     print(f"\n✔ {len(muertas)} tabla(s) borradas · {_mb(libera)} liberados\n")
+    return 0
+
+
+def _dropear(pedidas: list[str], filas: list[dict], igual: bool) -> int:
+    """DROPEA tablas NOMBRADAS a mano, aunque tengan datos.
+
+    ⚠️ **Hay que nombrarlas.** No existe un flag que se lleve el bloque ② entero:
+    ese bloque son tablas CON DATOS, y ahí la decisión es de una persona mirando
+    qué es cada una. Nombrarlas ES la decisión — el flag no puede tomarla.
+
+    Dos llaves, y son distintas a propósito:
+
+    · **Declarada en `sql/schema.sql` → se NIEGA, sin override.** Eso no es una
+      opinión: el próximo `apply_schema` la recrea y el borrado dura un deploy.
+      Primero se saca el `CREATE`. (Ya pasó: 18 tablas volvieron enteras.)
+
+    · **La nombra algún archivo del código → se niega salvo `--igual`.** Acá sí
+      hay opinión, porque el eje sobre-detecta: `"pedidos"` y `"snapshots"`
+      aparecen como CLAVES DE DICCIONARIO y no como tablas. Se muestran los
+      archivos para que se pueda mirar, y el override es explícito.
+    """
+    por_nombre = {f["nombre"]: f for f in filas}
+    elegidas, problemas = [], []
+    for t in pedidas:
+        f = por_nombre.get(t)
+        if not f:
+            problemas.append(f"{t}: no existe en la base (o no es de un schema nuestro)")
+        elif f["declarada"]:
+            problemas.append(f"{t}: DECLARADA en sql/schema.sql — sacá su bloque "
+                             "primero o el próximo deploy la recrea")
+        elif f["escritores"]:
+            problemas.append(f"{t}: la escribe {', '.join(f['escritores'])}")
+        elif f["nombrada"] and not igual:
+            problemas.append(f"{t}: {f['nombrada']} archivo(s) del código la "
+                             "nombran — mirá si es la tabla o una clave de dict, "
+                             "y si es basura pasá --igual")
+        else:
+            elegidas.append(f)
+
+    if problemas:
+        print("\n  ✖ ABORTO — no se borró nada:\n")
+        for p in problemas:
+            print(f"      {p}")
+        print()
+        return 1
+
+    print(f"\n═══ BORRANDO {len(elegidas)} TABLA(S) NOMBRADA(S) A MANO ═══\n")
+    print(f"  {'TABLA':40} {'FILAS':>9} {'PESO':>10}")
+    for f in elegidas:
+        print(f"  {f['nombre']:40} {f['filas']:>9,} {_mb(f['bytes']):>10}")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for f in elegidas:
+            sch, tab = f["nombre"].split(".", 1)
+            cur.execute(f'DROP TABLE IF EXISTS "{sch}"."{tab}"')
+        conn.commit()
+    print(f"\n✔ {len(elegidas)} tabla(s) borradas · "
+          f"{_mb(sum(f['bytes'] for f in elegidas))} liberados\n")
     return 0
 
 

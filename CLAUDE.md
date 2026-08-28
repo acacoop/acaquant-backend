@@ -532,9 +532,28 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 no documentar ni referenciar). El asistente con IA del producto es el MCP
 server (sección siguiente).
 
-## MCP server (Custom Connector)
+## MCP server (Custom Connector) — ⛔ APAGADO (2026-08-28)
 
-`api/mcp/` montado en `https://api.acaquant.com/mcp` — asistente **100% de RENTA VARIABLE**: 13 tools de SOLO LECTURA sobre equities ARG (universo CEDEARs/ADRs, tablero live ARS+USD, time sales intradía, retornos/quant del subyacente USD, pivot points, day-trading lab, Mesa de Estrategia: correlación/trade_analysis/book_analysis). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados). Las tools de estrategia operan solo sobre posiciones que el usuario pasa por parámetro — no leen cuentas reales. Las tools registradas viven en `api/mcp/tools/renta_variable.py`; `server.py` es solo wiring. **Los dominios de mercado no-RV (renta fija, derivados, opciones, forwards, breakevens, cauciones, futuros DLR, MEP, macro) están PAUSADOS** en `api/mcp/tools/parked_mercado.py` (código intacto, no registrado — descomentar `register(mcp)` en `server.py` para reactivar). Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
+> **No está montado en producción.** `MCP_BEARER_TOKEN` y `MCP_JWT_SECRET` quedaron
+> comentadas en el `.env` del Droplet y `api/main.py` solo monta el servidor si
+> existe alguna de las dos. Verificado contra el uvicorn: `/mcp` → **404**,
+> discovery → **404**, `/api/health` → **200**. (Un `/mcp` montado devuelve **401**,
+> no 404: si algún día ves 401, está prendido.)
+>
+> **Por qué**: no lo usaba nadie y no era gratis. Con `MCP_JWT_SECRET` seteada
+> quedaba expuesto el provider OAuth, y `/oauth/register` y `/oauth/token` están en
+> la allowlist de **BYPASS de Cloudflare Access** — alcanzables sin autenticar.
+>
+> **Prender de nuevo**: descomentar las dos vars (`.env.bak` está al lado) +
+> `systemctl restart api.service`. El código está intacto.
+>
+> **PENDIENTE**: sacar la app `acaquant-mcp-bypass` de Cloudflare Access — sigue
+> ocupando 5/5 destinations por una feature apagada.
+>
+> Lo de abajo describe cómo FUNCIONA cuando está prendido, y sigue siendo exacto.
+
+
+`api/mcp/` se monta en `https://api.acaquant.com/mcp` (cuando está prendido) — asistente **100% de RENTA VARIABLE**: 13 tools de SOLO LECTURA sobre equities ARG (universo CEDEARs/ADRs, tablero live ARS+USD, time sales intradía, retornos/quant del subyacente USD, pivot points, day-trading lab, Mesa de Estrategia: correlación/trade_analysis/book_analysis). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados). Las tools de estrategia operan solo sobre posiciones que el usuario pasa por parámetro — no leen cuentas reales. Las tools registradas viven en `api/mcp/tools/renta_variable.py`; `server.py` es solo wiring. **No hay tools de los otros dominios de mercado** (renta fija, derivados, opciones, forwards, breakevens, cauciones, futuros DLR, MEP, macro): vivían como código PAUSADO en `api/mcp/tools/parked_mercado.py`, nunca registrado —o sea nunca alcanzable— y se **borró el 2026-08-28**. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
 
 **Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow completo en `docs/MCP.md`. Env vars: `MCP_BEARER_TOKEN` (static fallback dev/curl), `MCP_JWT_SECRET` (firma OAuth JWTs), `MCP_OAUTH_ISSUER` (default `https://api.acaquant.com`). Sin ninguno, `/mcp` queda deshabilitado.
 

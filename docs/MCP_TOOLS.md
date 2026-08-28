@@ -1,5 +1,36 @@
 # MCP Tools Reference — TradingAV (Renta Variable)
 
+> # ⛔ APAGADO EN PRODUCCIÓN (2026-08-28)
+>
+> **El MCP no está montado.** Las env vars `MCP_BEARER_TOKEN` y `MCP_JWT_SECRET`
+> quedaron comentadas en el `.env` del Droplet, y `api/main.py` monta el servidor
+> solo si existe alguna de las dos. Verificado contra el uvicorn real:
+> `/mcp` → **404** · `/.well-known/oauth-authorization-server` → **404** ·
+> `/api/health` → **200**.
+>
+> **Cómo se distingue apagado de vivo, sin leer un log:** un `/mcp` montado
+> devuelve **401** (te pide el bearer). **404 es que la ruta no existe.**
+>
+> **Por qué se apagó:** no lo usaba nadie, y no era gratis tenerlo. Con
+> `MCP_JWT_SECRET` seteada quedaba expuesto el provider OAuth entero, y
+> `/oauth/register` y `/oauth/token` están en la allowlist de **BYPASS de
+> Cloudflare Access** — o sea alcanzables **sin autenticar**. Eso ya había
+> causado un problema real (cada request disparaba DDL + 2 DELETE sobre el pool
+> web que sirve a la mesa; ver el comentario de `api/mcp/oauth.py::_ensure_sql`).
+> Riesgo pagado por una feature sin usuarios.
+>
+> **Para volver a prenderlo**: descomentar las dos vars en el `.env`
+> (`.env.bak` quedó al lado) y `systemctl restart api.service`. El código está
+> intacto.
+>
+> **PENDIENTE**: sacar la app `acaquant-mcp-bypass` del panel de Cloudflare
+> Access. Sigue dejando esos 5 paths sin login (hoy contra 404s) y ocupa **5/5
+> destinations**, o sea la cuota entera, para algo apagado.
+>
+> El borrado del código está medido y no se hizo a propósito: apagar es gratis
+> de revertir, borrar 820 líneas de OAuth no.
+
+
 El MCP server de TradingAV es un **asistente 100% de renta variable** (equities
 ARG): CEDEARs, ADRs, acciones, time sales intradía, pivots, day-trading y la
 Mesa de Estrategia. **13 tools de SOLO LECTURA, todas datos de MERCADO.**

@@ -32,7 +32,7 @@ jobs/crons batch, caches precalculados donde pesa. ~30 usuarios hoy, objetivo 20
 - **Operativo (la mesa):** curvas, forwards, breakevens, opciones, órdenes (OPERAR),
   operaciones/negocio, portfolios/AuM, scanner.
 - **Comercial/back-office:** clientes, segmentación, operadores, aranceles, FCI.
-- **Plataforma:** Manager (RBAC, diagnóstico, ingesta), MCP server.
+- **Plataforma:** Manager (RBAC, diagnóstico, ingesta). El **MCP server** se apagó el 2026-08-28 (`docs/MCP.md`): código intacto, no montado.
 
 ---
 

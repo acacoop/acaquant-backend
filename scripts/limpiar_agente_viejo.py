@@ -91,18 +91,28 @@ def main() -> int:
     total_bytes = total_filas = existen = 0
     for t in VIEJAS:
         r = _filas(
-            "SELECT c.reltuples::bigint, pg_total_relation_size(c.oid) "
+            "SELECT pg_total_relation_size(c.oid) "
             "  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
             " WHERE n.nspname = 'agente' AND c.relname = %s", (t,))
         if not r:
             print(f"  {t:28} {'—':>10} {'(ya no está)':>10}")
             continue
         existen += 1
-        filas, b = int(r[0][0] or 0), int(r[0][1] or 0)
-        total_filas += max(filas, 0)
+        b = int(r[0][0] or 0)
+        # ⚠️⚠️ **COUNT(*) DE VERDAD, NO `reltuples`.** Acá se leía
+        # `c.reltuples`, y desde Postgres 10 **`reltuples = -1` es el centinela
+        # de «esta tabla nunca fue analizada»** — no un conteo. La columna
+        # FILAS mostraba literalmente `-1` para las 18, y el total decía
+        # «~0 filas» sumando con `max(filas, 0)`: o sea, **el número que el
+        # operador lee justo antes de un DROP irreversible era una estadística
+        # ausente disfrazada de cero**. Son 18 tablas chicas: contarlas de
+        # verdad es gratis, y es el único número que puede sostener la frase
+        # «sabés qué te llevás».
+        filas = int(_filas(f'SELECT count(*) FROM agente."{t}"')[0][0])
+        total_filas += filas
         total_bytes += b
         print(f"  {t:28} {filas:>10,} {b / (1 << 20):>9,.1f} MB")
-    print(f"\n  {existen} tabla(s) · ~{total_filas:,} filas · "
+    print(f"\n  {existen} tabla(s) · {total_filas:,} filas (contadas) · "
           f"{total_bytes / (1 << 20):,.1f} MB")
 
     if not existen:

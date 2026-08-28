@@ -93,6 +93,27 @@ def _nombrada(nombre: str) -> int:
         return 0
 
 
+def _de_verdad_vacia(schema: str, tabla: str) -> bool:
+    """¿Está REALMENTE vacía? Se pregunta a las filas, no a las estadísticas.
+
+    ⚠️⚠️ **`n_live_tup` Y `reltuples` NO SON UN CONTEO.** Son estadísticas del
+    autovacuum, y desde Postgres 10 `reltuples = -1` es el centinela de «esta
+    tabla NUNCA fue analizada» — que es exactamente lo que muestra
+    `limpiar_agente_viejo` en su columna FILAS para las 18 del agente viejo.
+    `n_live_tup = 0`, que es de donde salía nuestro «0 filas», tiene la MISMA
+    ambigüedad: puede querer decir «vacía» o «nunca se juntó estadística».
+
+    Y sobre esa ambigüedad se apoyaba la única garantía del bloque ①: *borrarlas
+    no pierde datos*. Antes de un DROP irreversible eso no alcanza.
+
+    `EXISTS` y no `COUNT(*)`: corta en la primera fila, así que si la estadística
+    mintió y la tabla tiene millones, la pregunta igual es barata.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f'SELECT EXISTS (SELECT 1 FROM "{schema}"."{tabla}")')
+        return not (cur.fetchone() or [False])[0]
+
+
 def _peso_y_ultima(schema: str, tabla: str, col: str | None) -> tuple[int, datetime | None]:
     """Bytes en disco y última escritura. La fecha es `None` si no hay columna."""
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -150,7 +171,11 @@ def main() -> int:
     # esté vacía y sin escritor detectado: alguien escribió su nombre a mano.
     huerfana = [f for f in filas if not f["escritores"] and not f["nombrada"]]
     # 1. VACÍA Y HUÉRFANA: 0 filas. Borrarla no puede perder un dato.
-    muertas = [f for f in huerfana if f["filas"] == 0]
+    # La estadística sólo elige a QUIÉN preguntarle; el veredicto lo da la tabla.
+    muertas = [f for f in huerfana if f["filas"] == 0
+               and _de_verdad_vacia(*f["nombre"].split(".", 1))]
+    # Y si la estadística decía 0 pero tenía filas, no se pierde: cae acá.
+    mintio = [f for f in huerfana if f["filas"] == 0 and f not in muertas]
     # 2. CON DATOS Y HUÉRFANA, y encima MEDIDA: sabemos cuándo escribió por
     #    última vez y hace mucho. Acá SÍ se puede perder algo → decide una
     #    persona.
@@ -163,7 +188,7 @@ def main() -> int:
     #    columna de fecha no se sabe cuándo escribieron. Es el mismo invariante
     #    que rige adentro del agente: una corrida que no pudo mirar no cierra
     #    nada. No puedo medirlo ≠ está muerta.
-    sin_medir = [f for f in huerfana if f["filas"] > 0 and f["edad"] is None]
+    sin_medir = [f for f in huerfana if f["filas"] > 0 and f["edad"] is None] + mintio
     # 3. SIN DECLARAR: existe en la base y no está en el archivo. No es basura
     #    necesariamente — es deuda: `apply_schema` no la puede recrear.
     sin_declarar = [f for f in filas if not f["declarada"]]
@@ -191,8 +216,8 @@ def main() -> int:
         print(f"\n      → juntas pesan {_mb(sum(f['bytes'] for f in items))}\n")
 
     bloque("① VACÍAS Y HUÉRFANAS — candidatas a DROP",
-           "0 filas, nadie las escribe y NINGÚN archivo del sistema las nombra.\n"
-           "      Borrarlas no pierde datos.",
+           "Vacías CONFIRMADO contra la tabla (no contra la estadística), nadie\n"
+           "      las escribe y NINGÚN archivo del sistema las nombra.",
            muertas)
     bloque(f"② CON DATOS Y HUÉRFANAS — medidas: hace ≥{DIAS_CONGELADA} d que no escriben",
            "Alguien las llenó y ya nadie las toca. ⚠ Acá SÍ se puede perder algo:\n"

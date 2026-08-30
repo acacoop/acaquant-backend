@@ -7,13 +7,13 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed)
 > read-only", ni migración en curso: la migración Mongo→Postgres **terminó**.
 > Todos los motores, jobs y services leen y escriben SQL nativo.
 > El cliente Mongo, `api/db.py`, `core/mongo*.py` y el tooling Mongo fueron
-> borrados del repo. Registro del decomiso: `docs/HANDOFF_DECOMISO_MONGO.md`.
+> borrados del repo.
 
 ---
 
 ## 1. El modelo en una página
 
-- **Una sola base** (Supabase Postgres), organizada en **10 schemas de dominio**.
+- **Una sola base** (Supabase Postgres), organizada en **17 schemas de dominio**.
   Nada vive en `public`; el `search_path` (definido en `core/postgres.py`) resuelve
   los nombres sin calificar — los nombres de tabla son únicos entre schemas, no hay
   colisión.
@@ -30,7 +30,7 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed)
 
 ---
 
-## 2. El esquema — `sql/schema.sql` (10 schemas por dominio)
+## 2. El esquema — `sql/schema.sql` (17 schemas por dominio)
 
 `sql/schema.sql` es la fuente de verdad del modelo. (Nota: `schema.sql` no siempre
 está 100% aplicado en la DB real — es el espejo del diseño; al agregar/cambiar una
@@ -46,6 +46,14 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, news_headlines |
+| `agente` | **EL AV AGENT** (`docs/AGENT_2.0.md`): habilidades (el catálogo + cuándo corrió cada una), hallazgos, reincidencias (la que DEBE estar vacía), acciones (el libro). Más avisos_dirigidos, db_peso, latido, silenciados, tasa_1816 |
+| `research` | bcra_series, bcra_variables, bcra_watch, fred_series, fred_observations, fred_watch, mkt_1816_instrumentos, mkt_1816_series, mkt_1816_watch, documentos |
+| `bancos` | Interbanking (`docs/INTERBANKING.md`): cuentas, saldos, movimientos, movimientos_manuales, movimientos_ignorados, extracto_dia, cierres_diarios, conciliacion_pendientes, mayor_movimientos, mayor_sync_log, presencia, sync_log, audit_lecturas + los 5 de gastos_* |
+| `ap5` | Postrade A3/ACyRSA (`docs/POSTRADE.md`): cuentas, contratos, portfolio, margenes, activo_integrado |
+| `aca` | Vista `/aca` (`docs/ACA.md`): activos, series, historico, periodos, clase_destacada, emisor_destacado, moneda_regla, audit |
+| `estrategia` | Estrategia Quant (`docs/ESTRATEGIA_QUANT.md`): senales, resultados, modelo_pesos, eval_live |
+| `ext` | **API EXTERNA para accionistas** (`docs/API_EXTERNA.md`) — superficie hacia AFUERA: api_keys, clientes, cuentas_autorizadas, requests_log |
+| `ia` | Gateway LLM: config, trazas, research (el mail diario de 1816) |
 
 **Diseño:**
 - **Dimensiones** (PK natural): `clientes.{comitentes, cuentas, operadores, contrapartes}`.

@@ -18,7 +18,7 @@ un MODELO y no una superstición— **cada señal queda registrada y cada
 resultado medido**: hit-rate, expectativa y edge por factor son visibles en la
 misma vista.
 
-**Principio rector (de docs/QUANTAI.md): el número lo calcula el código
+**Principio rector: el número lo calcula el código
 determinista; la IA (cuando se enchufe) solo narra, nunca calcula.**
 
 ## 2. Restricción de datos que definió la arquitectura
@@ -122,7 +122,7 @@ completa (accionable o no) va SIEMPRE a `eval_live` para la zona LIVE.
 | 2 | Resolver intradía + resultados | ✅ 2026-07-29 |
 | 3 | Vista (LIVE + TRACK-RECORD) | ✅ 2026-07-29 |
 | 4 | Calibración: regresión logística `P(gano \| factores)` sobre resultados reales → pesos v2 | ⏳ requiere ~N≥200 señales resueltas |
-| 5 | Capa IA: narración a demanda de los factores ya calculados (gateway `core/ai`, ver QUANTAI.md) | ⏳ diferida hasta validar el número |
+| 5 | Capa IA: narración a demanda de los factores ya calculados (gateway `core/ai`) | ⏳ diferida hasta validar el número |
 
 ## 7. Operación
 

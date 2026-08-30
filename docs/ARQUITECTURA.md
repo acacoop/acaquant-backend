@@ -13,7 +13,12 @@
 > El plano vivo de servicios/crons: `deploy/SISTEMA.md`. El grafo navegable:
 > `docs/vault/`.
 
-Última actualización: 2026-06-29 (decomiso de Mongo — base única Postgres/Supabase).
+Última actualización: 2026-08-30.
+
+> ⚠️ Este doc se quedó en el decomiso de Mongo (2026-06-29) y no registraba nada
+> de lo que pasó después: el **AV AGENT** (`docs/AGENT_2.0.md`), **research** (1816,
+> BCRA, FRED), **interbanking**, **postrade** ni la **API externa** para accionistas.
+> Están todos en el «Mapa de docs» del `CLAUDE.md` raíz — que es hoy el índice real.
 
 ---
 
@@ -24,10 +29,9 @@ pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → Next.j
 jobs/crons batch, caches precalculados donde pesa. ~30 usuarios hoy, objetivo 200+.
 
 > **Mongo decomisado (2026-06-29).** Postgres/Supabase es la **única** base de
-> datos: todos los motores, jobs y services leen/escriben SQL
-> nativo. El cluster Atlas M10 y el cliente Mongo del repo fueron eliminados.
-> Modelo y schemas: `docs/SQL.md`. Registro del decomiso:
-> `docs/HANDOFF_DECOMISO_MONGO.md`.
+> datos: todos los motores, jobs y services leen/escriben SQL nativo. El cluster
+> Atlas M10 y el cliente Mongo del repo fueron eliminados. Modelo y schemas:
+> `docs/SQL.md` + `sql/schema.sql`.
 
 - **Operativo (la mesa):** curvas, forwards, breakevens, opciones, órdenes (OPERAR),
   operaciones/negocio, portfolios/AuM, scanner.
@@ -54,19 +58,19 @@ Tres principios:
 
 ## 3. Estado de los datos (post-decomiso Mongo, 2026-06-29)
 
-**Base única: Postgres/Supabase**, 10 schemas de dominio (`mercado`, `macro`,
-`valuaciones`, `portafolio`, `operaciones`, `clientes`, `manager`, `home`).
+**Base única: Postgres/Supabase**, **17** schemas de dominio: `aca`, `agente`,
+`ap5`, `bancos`, `clientes`, `estrategia`, `ext`, `home`, `ia`, `macro`,
+`manager`, `mercado`, `operaciones`, `partner`, `portafolio`, `research`,
+`valuaciones`. (Decía «10» y listaba 8.)
 Modelo completo + inventario de tablas: `docs/SQL.md`. Schema fuente:
 `sql/schema.sql`.
 
 **Lo resuelto (recorrido completo):**
 - ✅ **Decomiso de Mongo COMPLETO** (2026-06-29): toda la lectura y escritura es
   SQL-native; el cliente Mongo, `api/db.py`, `core/mongo*.py` y el tooling Mongo
-  fueron borrados del repo. El cluster Atlas M10 se terminó. Registro:
-  `docs/HANDOFF_DECOMISO_MONGO.md`.
-- ✅ **Migración Mongo→Postgres terminada** — ya no hay dual-run, flags de engine ni
-  "espejo read-only". Cada dominio lee/escribe su schema SQL (`api/services/<x>_sql.py`,
-  writers vía `core/pg_mirror` native).
+  fueron borrados del repo, y el cluster Atlas M10 se terminó. No hay dual-run,
+  flags de engine ni "espejo read-only": cada dominio lee/escribe su schema SQL
+  (`api/services/<x>_sql.py`, writers vía `core/pg_mirror` native).
 - ✅ **Renta variable, operaciones, negocio, tenencias/AuM, clientes, valuaciones,
   órdenes, mercado, opciones, agro, macro, manager, home** — todos SQL-native.
 - ✅ **`perf_scan` en CI** (anti-patrones de queries). Suite unit verde.
@@ -85,7 +89,6 @@ Modelo completo + inventario de tablas: `docs/SQL.md`. Schema fuente:
 |---|---|---|
 | **Sync vs Async** | Sync alcanza (1 proceso, 30 users). Thread-pool donde duela. | Requests encolando bajo carga real (CPU baja, latencia alta) |
 | **Cache in-proc vs Redis** | In-process es correcto con 1 worker. | >1 worker/servidor + inconsistencia notada, o rate-limit serio |
-| **Rollups a mano vs primitivo** | Ya hay 5 copias del patrón → **unificar** en `core/materialized` (refactor que RESTA complejidad). | Ya disparó |
 | **Monolito vs microservicios** | **Monolito sí o sí.** Modularizar por dentro (partir megafiles). | Equipo de varias personas |
 | **Capa de confianza de datos** | **Donde más rinde invertir** (dolor #1). Contratos de ingesta + reconciliación + SLAs de completitud. | Ya disparó |
 | **SQL para lo relacional** | ✅ **Hecho.** Postgres/Supabase es la base única (decomiso Mongo 2026-06-29). Ver §5. | — (completado) |
@@ -111,13 +114,12 @@ dual-run ni cliente Mongo en el repo.
 
 | Fase | Qué | Estado |
 |---|---|---|
-| **A. Setup + esquema** | Supabase Postgres + `sql/schema.sql` (10 schemas de dominio). | ✅ |
+| **A. Setup + esquema** | Supabase Postgres + `sql/schema.sql` (hoy 17 schemas de dominio). | ✅ |
 | **B. Lectura SQL por dominio** | `api/services/<x>_sql.py` + comparador SQL↔Mongo como gate. | ✅ |
 | **C. Escritura SQL-native** | Motores/jobs escriben SQL (`core/pg_mirror`); se cortó Mongo. | ✅ |
 | **D. Decomiso Mongo** | Cliente Mongo y tooling borrados; cluster Atlas terminado. | ✅ (2026-06-29) |
 
-Detalle del modelo, schemas, tablas y convenciones: **`docs/SQL.md`**. Registro del
-decomiso: `docs/HANDOFF_DECOMISO_MONGO.md`.
+Detalle del modelo, schemas, tablas y convenciones: **`docs/SQL.md`**.
 
 ---
 

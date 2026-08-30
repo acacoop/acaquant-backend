@@ -12,8 +12,12 @@ RestartSec=10
 # Recicla el proceso cada 8h para acotar leaks (caches in-process,
 # fragmentación, cursores abandonados). systemd hace shutdown graceful:
 # uvicorn termina los requests in-flight (~1-3s de ventana) y arranca
-# uno nuevo. Si el restart cae dentro de la pause de Atlas (04:00-11:20
-# UTC) no es problema: la base estaría caída de todos modos.
+# uno nuevo, así que la ventana de indisponibilidad es de segundos a
+# cualquier hora. (Acá decía que entre 04:00 y 11:20 UTC «la base estaría
+# caída de todos modos» por la pause de Atlas: Mongo se decomisó el
+# 2026-06-29 y Supabase no se pausa. Un archivo de config VIVO afirmando
+# que hay 7 h diarias de base caída a propósito hace descartar como normal
+# una caída real de madrugada.)
 RuntimeMaxSec=8h
 
 # ── Hardening (auditoría de seguridad 2026-08-03) ──

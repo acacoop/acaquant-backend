@@ -320,7 +320,7 @@ Ver memoria [[feedback_portal_invitado_www]].
 - **Conexión SQL**: pool singleton `core.postgres.get_pool()` (no cerrarlo).
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
-- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `POSTGRES_URI`).
+- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `GUARDRAILS_UMBRALES`, `AP5_CONCEPTOS_ACTIVO_INTEGRADO`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `POSTGRES_URI`).
 
 > Validar imports antes de pushear router/service (REGLA #1) y la regla de
 > services `@cached` → ver `api/CLAUDE.md`.

@@ -5,7 +5,7 @@
 > se termina se mueve a "Hecho", cada credencial/pendiente queda marcado. Si se
 > trabaja en algo de acá y no se actualiza este archivo en el mismo commit, el
 > trabajo está incompleto. Cross-refs: la ingesta de mails vive en QuantAI P6
-> (`docs/QUANTAI.md`), los fundamentals Refinitiv (otra cosa, en Renta Variable)
+> los fundamentals Refinitiv (otra cosa, en Renta Variable)
 
 > **ESTADO (2026-07-17):** DISEÑO CONGELADO, construcción EN ESPERA de credenciales
 > (API key de 1816 + creds IMAP — ver §10). Decisiones del user ya tomadas: (a) NO
@@ -492,7 +492,7 @@ solo la tercera necesita IA.
 
 ## 5. PILAR B — Research escrito (mails + reportes)
 
-**Reusa P6 — YA construido, no se rehace.** Detalle vivo en `docs/QUANTAI.md` (P6).
+**Reusa P6 — YA construido, no se rehace.**
 
 ### 5.1 Lo que ya existe
 
@@ -652,7 +652,7 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
   ni re-paga (idempotente por PK).
 - **Full-text antes que vectores** (mails); **la API es fuente del número**, la app
   no recalcula; **degradar con gracia** en cada capa; **data provenance** (IA marcada
-  como IA). Ver `docs/QUANTAI.md` (principios de ingeniería).
+  como IA).
 
 ---
 
@@ -914,7 +914,7 @@ siempre. Backend: `briefing.py::_research_hoy` (query por fecha=hoy, failing
 gracefully) suma la key `research_hoy` al payload; el copiloto NO la consume
 (lee campos específicos — cero tokens, consistente con "la IA no interviene
 sola"). Frontend: aside en `briefing-modal.tsx` (oculto en pantallas chicas).
-Excepción P1 asentada en QUANTAI.
+Excepción P1.
 
 ### 2026-07-18 (12) — sondeo con fecha hábil OK → plan por NIVELES + Nivel 1 implementado
 El sondeo re-corrido con `fechaOperacion=2026-07-17` (auto): **323/869 con dato

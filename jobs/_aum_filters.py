@@ -1,21 +1,29 @@
-"""Reglas de exclusión aplicadas a `Valuaciones.AuM`.
+"""Reglas de exclusión del AuM — qué tenencia NO cuenta.
 
-Single source of truth: usado por `jobs/aum.py` para no persistir registros
-nuevos que matcheen.
+**Single source of truth.** Lo consumen TRES lugares, y dos de ellos NO son
+jobs: `jobs/portafolio_backfill.py` (el writer diario de `portafolio.tenencia`,
+que marca `aum='si'/'no'` fila por fila), `api/services/import_tenencia_sql.py`
+y `api/services/sin_operador.py`. Congelado por `tests/unit/test_golden_pipeline.py`,
+que corre en CI.
+
+⚠️ Este docstring decía «usado por `jobs/aum.py`» sobre `Valuaciones.AuM`. Las
+dos cosas se fueron: la colección se eliminó el 2026-06-15 con el decomiso de
+Mongo y `jobs/aum.py::run` con ella. El destino hoy es la columna `aum` de
+`portafolio.tenencia`.
 
 Reglas:
   1. `unidad == "USDL"` (cash USD link, no contabiliza).
   2. `cuenta` o `unidad` contiene "OTC" o "CDC" (case-insensitive).
-  3. `id_cuenta` aparece en `CashFlow.Contrapartes.cuenta` (el id) — son
+  3. `id_cuenta` aparece en las contrapartes (el id) — son
      cuentas de fondos / sociedades gerentes (SCHRODER, TORONTO, LOMBARD,
      etc.) que operamos pero cuyas tenencias no son AuM real, son
      cuotapartes. Match por id (no por la denominación) porque el formato
-     difiere entre colecciones — Valuaciones.AuM tiene prefijo "[NN] ".
+     difiere entre fuentes — la tenencia trae prefijo "[NN] ".
   4. `cuenta` contiene como palabra completa un nombre de contraparte —
-     `\bNOMBRE\b` case-insensitive sobre los valores únicos de
-     `CashFlow.Contrapartes.contraparte` (ADCAP, ALLARIA, BALANZ, ...).
+     `\bNOMBRE\b` case-insensitive sobre los valores únicos de las
+     contrapartes (ADCAP, ALLARIA, BALANZ, ...).
      Cubre cuentas que se nos escapan de la regla 3 porque su id_cuenta
-     no quedó alineado con el de ContrapartesAPI.
+     no quedó alineado con el de la tabla de contrapartes.
   5. `unidad == "ARS"` para `[100]` y `[101]` (decisión puntual de negocio:
      no contabilizar el cash ARS de esas dos cuentas en el AuM).
 

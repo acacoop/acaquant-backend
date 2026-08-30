@@ -7,13 +7,13 @@
 #      SALTEA en vez de apilarse. (fci_bilateral se relanzaba cada hora encima
 #      de sí mismo → carga multiplicada.)
 #   2) TIMEOUT: si el job excede su presupuesto, lo mata (SIGTERM, luego SIGKILL
-#      a los 30s). (descubrir_cuentas corrió 5h; fci_bilateral colgado.)
+#      a los 30s). (Un job de descubrimiento corrió 5h; fci_bilateral colgado.)
 # Además loguea START/OK/SKIP/TIMEOUT/ERROR con timestamp UTC a logs/<nombre>.log.
 #
 # Uso (en crontab):
 #   <cron> /root/TradingAV/deploy/run_job.sh <nombre> <timeout> '<comando shell>'
 # Ej:
-#   ... run_job.sh descubrir_cuentas 90m 'cd /root/TradingAV && venv/bin/python -m jobs.descubrir_cuentas'
+#   ... run_job.sh bcra 10m 'cd /root/TradingAV && venv/bin/python -m jobs.bcra --today'
 #   ... run_job.sh negocio_chain 25m 'cd /root/TradingAV && venv/bin/python -m jobs.negocio_movimientos && venv/bin/python -m jobs.aranceles'
 #
 # El comando se pasa entre comillas SIMPLES (un solo argumento); el redirect al

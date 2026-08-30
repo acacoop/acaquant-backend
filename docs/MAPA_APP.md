@@ -253,7 +253,7 @@ Notas verificadas:
   entra a Manager solo por los sub-módulos.
 - `invitado` **no se asigna por email**: se fuerza por venir del portal www (§2.4).
 - El propio `core/roles.py` avisa que en prod la `role_matrix` ya está poblada → el default de `ia`
-  (solo admin) y `operar` (solo admin) puede NO ser lo vigente. `docs/QUANTAI.md` dice que el user
+  (solo admin) y `operar` (solo admin) puede NO ser lo vigente. una nota vieja decía que el user
   sumó `ia` a **trader y sales** el 2026-07-13 (**SIN VERIFICAR** contra la DB).
 
 ### 2.3 La tabla SQL pisa el default
@@ -434,8 +434,8 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
 
-- **OBSERVABILIDAD** (`manager.obs.sub.v2`, def `salud`): **SALUD** · DIAGNÓSTICO · BASE · LATENCIA · **IA** (solo con módulo `ia`). CONTROLES y JOBS ya no tienen pill propia: su contenido vive DENTRO del chequeo en SALUD.
-  - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · LOGS. RECURSOS (CPU/RAM/disk del Droplet) se ELIMINÓ 2026-08-10 junto con su router y el sampler de fondo: eran métricas crudas que no respondían si el sistema estaba sano — esa pregunta la contesta SALUD.
+- **OBSERVABILIDAD** (`manager.obs.sub.v2`): **DIAGNÓSTICO** · BASE. **Son DOS**, verificado contra `manager-view.tsx` (2026-08-30). El doc listaba cinco: SALUD, LATENCIA e IA ya no se dibujan.
+  - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · LOGS. RECURSOS (CPU/RAM/disk del Droplet) se ELIMINÓ 2026-08-10 junto con su router y el sampler de fondo: eran métricas crudas que no respondían si el sistema estaba sano.
 - **VALIDACIONES** (`manager.valid.sub`): **VALIDACIONES** · OPCIONES VTO · DEBUG XIRR · DEBUG TEA.
 - **TÍTULOS**: INSTRUMENTOS (con `manager_instrumentos`) · ASSETS · BONOS · BREAKEVENS · RENTA VARIABLE (estas 4 requieren el maestro). Dentro del ALTA de bonos, toggle `Soberano/Provincial` / `Corporativo (ON)` — el LISTADO ya no se parte: BONOS muestra y edita **todos**, corporativos incluidos.
 - **CLIENTES** (`manager.cli.subtab`, def `segmentacion`): **SEGMENTACIÓN** · CONTROL AUTO · SIN OPERADOR · FONDEOS (solo con `canBulk`).
@@ -2870,7 +2870,7 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
     y **no tienen consumidor**: la vista `/trade-lab` que los alimentaba **no existe en el repo**.
 27. **Triage de incidentes con IA**: `jobs/triage.py` corre cada 10 min, diagnostica jobs fallidos con
     LLM y persiste `{causa, hecho, hipotesis, recomendacion, confianza}` en `ia.triage_incidentes`.
-    **No hay endpoint ni tab**: la lectura hoy es SQL directo. Está declarado como pendiente en QUANTAI.
+    **No hay endpoint ni tab**: la lectura hoy es SQL directo. Está declarado como pendiente.
 28. **Control de calidad de conversaciones de IA**: `ia.calidad_flags` se llena todas las noches y
     **tampoco tiene vista**.
 29. **Tablero de brackets**: `GET /api/operar/brackets/dia` existe pero no hay pantalla; los brackets se
@@ -2970,9 +2970,10 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
   acto seguido detalla "20 + 21 + 2 + 6" (= 49); el conteo real de sus tablas es **44 en
   `operaciones.py` + 2 en `cuentas.py` + 6 en el ABM de contrapartes de Manager**. La cifra "37" es
   errónea.
-- **Roles con `ia`**: `DEFAULT_MATRIX` lo da solo a `admin` e `invitado`; `docs/QUANTAI.md` afirma que el
-  user lo sumó a **trader y sales** el 2026-07-13. **Sin acceso a `manager.role_matrix` no se puede
-  resolver.**
+- **Roles con `ia`**: verificado contra `core/roles.py::DEFAULT_MATRIX` (2026-08-30) — lo tienen
+  **`admin` e `invitado`**; `trader` y `sales` NO. La duda se apoyaba en `docs/QUANTAI.md`, que ya no
+  existe, así que se resolvió contra el código. Lo que sigue sin poder verificarse desde el repo es si
+  `manager.role_matrix` (la matriz editable en la base) pisa ese default.
 - **Gate del portal invitado sobre `research`**: docstrings de los routers vs. `DEFAULT_MATRIX` (§7.5.62).
 - **Gate declarado de `risk.py`/`operativa.py`**: sus docstrings dicen módulo `operaciones`; el montaje
   real es `_OPERAR`.

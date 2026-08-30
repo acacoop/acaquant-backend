@@ -301,9 +301,7 @@
 # dio de baja). Regla del user: una tarea de IA existe solo si alguien lee su
 # salida, y todo lo de IA pasa por el AV AGENT.
 
-# ─── EL AGENTE VIEJO YA NO TIENE CRONS. Acá vivían tres bloques —la foto diaria
-# de la base (`db_tamano`, 23:30), `av_agent_sistema` (cada 10 min) y `av_agent`
-# (4×/día)— y los tres se fueron con AGENT 2.0: hoy es UN daemon
+# ─── EL AGENTE VIEJO YA NO TIENE CRONS (AGENT 2.0): es UN daemon
 # (`agente.service`) y cada habilidad declara su ritmo en `agente/catalogo.py`.
 #
 # ⚠️ De ese borrado quedaron DOS escrituras huérfanas hasta el 2026-08-27: el
@@ -314,7 +312,7 @@
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
 # → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.
-# Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/QUANTAI.md.
+# Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/VISTA_RESEARCH.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
 # ─── Guardrails de datos (invariantes post-cierre) — docs/OBSERVABILIDAD_ROBUSTEZ.md
@@ -438,33 +436,10 @@
 0,30 16-17 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
 0 18-21 * * 1-5 /root/TradingAV/deploy/run_job.sh mayor_sync 9m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mayor_sync'
 
-# ─── AV AGENT EN RUEDA — YA NO ES UN CRON, es el DAEMON (2026-08-24, Fase 2)
-# `jobs.av_agent_live` corría cada 5 min y llamaba a `relevar_live()`: el barrido
-# completo (master, snapshot, especies, latencia, motores, logs, proveedores).
-# El daemon `av_agent_centinela.service` llamaba a LA MISMA función cada 30 s.
-# Dos procesos haciendo el mismo trabajo sobre el mismo dato, escribiendo en
-# tablas distintas: el cron la FOTO que lee LA LISTA, el daemon los OBJETOS que
-# leen AHORA y VIGILANCIA. Nunca se decidió — se acumuló.
-#
-# Ahora el daemon escribe las dos, y la foto va throttleada a los mismos 5 min
-# que tenía el cron (`av_agent_centinela.SEGUNDOS_ENTRE_FOTOS`): reescribirla
-# entera ocho veces por minuto sería diez veces el churn de hoy.
-#
-# `jobs/av_agent_live.py` queda en el repo para correrlo A MANO (`--ver` imprime
-# lo que ve sin escribir), que es como se debuggea un detector.
-#
-# ⚠️ Si este crontab no se reinstala en la máquina, el cron viejo sigue vivo y
-# duplica la foto — molesto pero inofensivo, y `cron_desalineado` lo canta.
-
-# ─── AV AGENT — LA RELEVADA contra 1816, cada 2 horas en rueda
-# Hallazgo del user 2026-08-18: este job NO ESTABA EN EL CRONTAB. La relevada se
-# venía corriendo a mano, y por eso la pantalla decía «última revisión hace 22 h».
-# No era una decisión de frecuencia: no había frecuencia.
-# Censa 1816 (~29 créditos por corrida): 4 corridas al día son ~116 de 100.000
-# diarios. El límite real nunca fueron los créditos sino el throttle de 1 pedido
-# por segundo, que hace que cada corrida tarde ~1 minuto — irrelevante para un
-# cron. `av_agent_live` (cada 5', cero créditos) sigue aparte: mira otras cosas.
-# 13/15/17/19 UTC = 10/12/14/16 ART.
+# ─── EL AV AGENT NO TIENE CRON: es el daemon `agente.service` (AGENT 2.0).
+# Cada habilidad declara su ritmo y su ventana en `agente/catalogo.py` y el motor
+# pregunta a quién le toca. El ÚNICO cron que queda del agente es `agente_tasa`,
+# y está abajo — existe aparte porque cuesta créditos de 1816.
 
 # ── SALDOS A LOS OPERADORES (2026-08-19) ────────────────────────────────────
 # 19:45 UTC = 16:45 ART, días hábiles. Pedido del user: cada operador recibe, en
@@ -473,11 +448,7 @@
 # aviso ignorado. Cero IA y cero red: sale todo de la base.
 45 19 * * 1-5 /root/TradingAV/deploy/run_job.sh saldos_a_operadores 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.saldos_a_operadores'
 
-# ── SEGUIMIENTO: ¿lo que se arregló, siguió arreglado? (2026-08-19) ─────────
-# 23:50 UTC = 20:50 ART. Corre DESPUÉS de todos los detectores del día: mira qué
-# arreglos aguantaron y cuáles volvieron, y lo convierte en votos `verificado`
-# del eval set. Es la única evidencia que no es la opinión de nadie.
-# AP5 — posicion de FUTUROS de la camara (A3/ACyRSA). 10:00 ART = 13:00 UTC.
+# ── AP5 — posicion de FUTUROS de la camara (A3/ACyRSA). 10:00 ART = 13:00 UTC.
 # Todos los dias: siempre consulta el ULTIMO DIA HABIL (hoy menos 1 habil), que
 # el job resuelve solo salteando findes y feriados. Corre tambien sabado y
 # domingo a proposito: si el viernes fallo, el sabado lo recupera solo.

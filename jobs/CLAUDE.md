@@ -7,8 +7,10 @@ service — ver `pnl_totales_precompute` / `consolidado_cuentas`).
 
 ## Filtros de exclusión del AuM
 
-`jobs/_aum_filters.py::is_excluded()` define qué NO cuenta como AuM. Hoy lo
-consume **`jobs/portafolio_backfill.py`** (el writer diario SQL, `--diario`,
+`jobs/_aum_filters.py::is_excluded()` define qué NO cuenta como AuM. Lo consumen
+**TRES** lugares, y dos NO son jobs: `api/services/import_tenencia_sql.py` y
+`api/services/sin_operador.py` además de **`jobs/portafolio_backfill.py`** (el
+writer diario SQL, `--diario`,
 11:00 UTC L-V): por cada fila setea la columna `aum` ('si'/'no') en
 `portafolio.tenencia`. (El viejo cron `jobs/aum.py::run` ya no existe;
 `aum.py` sobrevive solo como helpers Aunesa.) Reglas:

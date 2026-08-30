@@ -2,9 +2,10 @@
 --
 -- Propósito: espejo RELACIONAL del núcleo de negocio (clientes, operaciones,
 -- portafolio, valuaciones) Y de la capa de mercado (Trading.*). Para el núcleo de
--- negocio (clientes/operaciones/portafolio) Postgres YA es la FUENTE DE VERDAD
--- (escritura+lectura). Para mercado es espejo en vivo (dual-write de motores/jobs,
--- ver core/pg_mirror.py): si Postgres se cae, la mesa (Mongo) sigue intacta.
+-- Postgres es la ÚNICA base y la FUENTE DE VERDAD de TODO (decomiso de Mongo,
+-- 2026-06-29): no hay dual-write, ni espejo, ni fallback. Si Postgres se cae, se
+-- cae el sistema — motores, jobs y API escriben y leen SQL nativo
+-- (ver core/pg_mirror.py).
 -- Ver docs/SQL.md y docs/ARQUITECTURA.md §5.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -514,19 +515,17 @@ CREATE INDEX IF NOT EXISTS ix_acr_id_cuenta  ON operaciones.acreencias(id_cuenta
 
 -- CashFlow.TiposOperacion → catálogo chico (mapeo tipo_operacion → mercado/operacion)
 -- que enriquece la ingesta de operaciones. Passthrough jsonb; PK = `tipo_operacion`
--- (la clave del join en operaciones_informes.cargar_maps_enrich). Espejo BASELINE por
--- sync (el enrich de los writers SIGUE leyendo Mongo — corre en el proceso del job, no
--- en una vista con flag; ver docs/SQL.md). Sin lector SQL todavía: se espeja para tenerlo.
+-- (la clave del join en operaciones_informes.cargar_maps_enrich). El enrich de los
+-- writers lee de ACÁ: es el catálogo, no un espejo.
 CREATE TABLE IF NOT EXISTS operaciones.tipos_operacion (
     tipo_operacion text PRIMARY KEY,
     data           jsonb
 );
 
--- ── MOTOR DE ÓRDENES (OPERAR) — base Mongo `Operaciones.*` (TRANSACCIONAL, real-time).
--- Migrado 2026-06-23. Dual-write BEST-EFFORT del motor/services bajo flag ORDENES_SQL_WRITE
--- (try/except, DESPUÉS del write a Mongo → un fallo de SQL NUNCA bloquea ni afecta la orden
--- real al broker). Lectura dual-run bajo ORDENES_SQL. Passthrough jsonb + columnas clave
--- para filtrar (account/estado/ts). Timestamps aware UTC (datetime.now(UTC)) → timestamptz.
+-- ── MOTOR DE ÓRDENES (OPERAR) — TRANSACCIONAL, real-time. Migrado 2026-06-23 y
+-- SQL-only desde el decomiso: no hay dual-write ni flags (`ORDENES_SQL_WRITE` /
+-- `ORDENES_SQL` ya no existen). Passthrough jsonb + columnas clave para filtrar
+-- (account/estado/ts). Timestamps aware UTC (datetime.now(UTC)) → timestamptz.
 CREATE TABLE IF NOT EXISTS operaciones.ordenes_live (
     cl_ord_id  text PRIMARY KEY,
     account    text,

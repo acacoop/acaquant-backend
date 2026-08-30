@@ -64,6 +64,16 @@ interbanking_muestras/
 docs/*.json
 discovery_*.txt
 
+# Volcados de corridas de pytest en la raíz. `pytest_out.txt` y `test_output.txt`
+# entraron versionados por el mismo incidente y sobrevivieron: 87 KB de UTF-16
+# con rutas `C:\Users\...` y 25 errores que eran todos «No module named fastapi»
+# —un venv sin activar, no tests rotos—. Una foto de una corrida local no es
+# estado del repo.
+/pytest_out.txt
+/test_output.txt
+/*_out.txt
+/test_output*.txt
+
 # Si alguna vez hace falta versionar uno puntual: `git add -f <archivo>`.
 
 # Backups de scripts de borrado (CSV de tablas antes de un DROP) — nunca al repo

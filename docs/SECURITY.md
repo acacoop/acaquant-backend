@@ -3,7 +3,7 @@
 Doc consolidado de cómo se protege `api.acaquant.com`. La seguridad está en
 **capas**: cada request pasa por todas las que apliquen. Código fuente de
 verdad: `api/auth.py`, `api/deps.py`, `api/main.py`, `api/ratelimit.py`,
-`api/mcp/`, `core/roles.py`.
+`core/roles.py`.
 
 ## Las capas (en orden, de afuera hacia adentro)
 
@@ -26,10 +26,15 @@ Request
 ## 1. Cloudflare Access — quién entra
 
 CF Access protege los hostnames (`trading.acaquant.com`, `api.acaquant.com`).
-Es el IdP: login por OTP/email. **Excepción**: la app `acaquant-mcp-bypass`
-(BYPASS + Everyone) exime 5 paths para que el MCP funcione — `/mcp`,
-`/oauth/token`, `/oauth/register`, `/.well-known/oauth-*` (ver `docs/MCP.md`).
-`/oauth/authorize` SÍ queda protegido. Esos 5 paths definen su propia auth.
+Es el IdP: login por OTP/email.
+
+⚠️ **PENDIENTE — la app `acaquant-mcp-bypass` sigue en el panel de Access.**
+(BYPASS + Everyone) exime 5 paths sin login — `/mcp`, `/oauth/token`,
+`/oauth/register`, `/.well-known/oauth-*` — para un MCP server que **se borró
+del repo el 2026-08-28**. Hoy apuntan a 404s, así que no exponen nada, pero
+ocupan **5/5 destinations**, la cuota entera, y volverían a estar vivos el día
+que algo se monte en esos paths. Sacarla es una acción en Cloudflare, no en
+este repo: por eso queda escrito acá y no se borra hasta hacerlo.
 
 ## 2. API_KEY — el frontend autorizado
 
@@ -39,7 +44,6 @@ como dependency `_PUBLIC` a casi todos los routers en `api/main.py`.
 
 - **`/api/health`** y **`/api/me`** NO llevan el gate (health es trivial;
   `/api/me` devuelve la identidad propia del que llama).
-- Los paths del MCP/OAuth tampoco — definen su auth aparte.
 
 ⚠️ **Fail-open dev**: si `API_KEY` no está en `.env`, `verify_api_key` deja
 pasar todo. En prod (Droplet) `API_KEY` **debe** estar seteada.
@@ -87,14 +91,6 @@ spoofable); los anónimos comparten **un solo bucket** (`anon`) para que un
 atacante no-autenticado no pueda quemar cuota por volumen. Límites por
 endpoint vía `@limiter.limit(...)` (ej. `/api/chat`, `/manager/jobs/run`).
 
-## MCP — auth propia
-
-`api/mcp/` se monta en `/mcp` solo si hay `MCP_BEARER_TOKEN` (static, dev/
-curl) o `MCP_JWT_SECRET` (OAuth 2.1 + PKCE + DCR, prod). `MCPBearerMiddleware`
-gatea `/mcp/*`. Expone **32 tools de SOLO LECTURA** de mercado — NO portfolio,
-cuentas, AuM, operaciones ni manager (datos privados de la mesa, excluidos a
-propósito). Flow completo: `docs/MCP.md`.
-
 ## Secretos / env vars
 
 Viven en `.env` (local) y systemd unit files (Droplet). Nunca en el repo.
@@ -104,8 +100,6 @@ Viven en `.env` (local) y systemd unit files (Droplet). Nunca en el repo.
 | `API_KEY` | gate Bearer del frontend ↔ API |
 | `CF_ACCESS_TEAM` / `CF_ACCESS_AUD` | validación del JWT de CF Access |
 | `CF_TRUSTED_SERVICE_TOKENS` | service tokens aceptados (acaquant-web SSR) |
-| `MCP_BEARER_TOKEN` | fallback static del MCP |
-| `MCP_JWT_SECRET` | firma de los JWT OAuth del MCP |
 | `POSTGRES_URI` | credenciales de Postgres/Supabase |
 
 Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
@@ -115,7 +109,7 @@ Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
 
 - Endpoint nuevo → ¿qué grupo de dependency (`_PUBLIC` / `_PORTFOLIOS` / …)?
   Default: el más restrictivo que tenga sentido.
-- ¿Expone datos de cuentas/posiciones? → nunca `_PUBLIC`, nunca al MCP.
+- ¿Expone datos de cuentas/posiciones? → nunca `_PUBLIC`.
 - ¿Acción mutante o cara? → `@limiter.limit(...)`.
 - ¿Lectura ADMIN? → `require_admin`, no `require_module`. Si el par de
   escritura es admin-only, la lectura casi siempre también (fue el bug de
@@ -209,9 +203,6 @@ Pendiente — requiere acción en el Droplet o una decisión con datos de prod:
    paths de logs — hay que hacerlo a mano y verificar el arranque. Lo mismo
    para `ProtectSystem=strict` / `ProtectHome` (hoy romperían: el
    `WorkingDirectory` está en `/root`).
-4. **Tokens del MCP**: no miran el RBAC y no se revocan al deshabilitar un
-   usuario en Manager. Requiere decidir el modelo (¿el token hereda el rol al
-   emitirse o se resuelve por request?).
 
 Lo que se auditó y salió **limpio**: no hay secretos commiteados ni `.env`
 trackeado; no hay SQL injection (los identificadores dinámicos pasan por

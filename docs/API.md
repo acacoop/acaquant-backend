@@ -12,12 +12,12 @@
 
 The TradingAV API is a FastAPI service that exposes the quantitative data and trading layer of TradingAV — microstructure for fixed income and options on Argentine markets (MERVAL/ROFEX), portfolio analytics, MEP execution, account risk, news / macro context and assistant tooling.
 
-It is the only consumption boundary of the platform: the production frontend (**acaquant-web**, Next.js on Vercel) proxies every read and write through it, the trading-desk assistant (`/api/chat`) dispatches its tool calls against the same service layer, and a read-only **MCP server** (`/mcp`) re-exposes a subset of the analytical surface to Claude Desktop / claude.ai via Custom Connectors. See `docs/MCP.md`.
+It is the only consumption boundary of the platform: the production frontend (**acaquant-web**, Next.js on Vercel) proxies every read and write through it. There is no conversational assistant and no MCP server — both were removed (see the changelog).
 
 **Design principles**
 
 - **Read-only by default, mutations are explicit.** Every `GET` reads through the SQL read pool (`core.postgres.get_pool()`). The handful of mutating endpoints (`POST/PUT/PATCH/DELETE`) is enumerated and gated.
-- **Thin routers, fat services.** Router modules under `api/routers/` parse params and delegate to pure-Python services under `api/services/`. The same services are invoked by the assistant tool registry without HTTP loopback and by the MCP server tools.
+- **Thin routers, fat services.** Router modules under `api/routers/` parse params and delegate to pure-Python services under `api/services/`. The same services are invoked directly by the AV AGENT, without HTTP loopback.
 - **Defense in depth.** Cloudflare Tunnel + Access (SSO + service tokens), signed JWT validation, bearer key, rate limiting by identity, **role-based access control (RBAC) per module** with audit log, and explicit SSRF protection on user-supplied URLs.
 - **SQL-native reads.** Heavy analytical endpoints read directly from the Postgres/Supabase tables (e.g. `portafolio.tenencia`, `portafolio.assets`, `operaciones.operaciones`); the pre-aggregated `*API` mirror collections were eliminated and the API now joins sources at read time (`api/services/titulos_flujos.py`).
 
@@ -137,8 +137,6 @@ Enforcement:
   /api/ordenes, /api/operativa, /api/risk   → operar       (sales puede)
   /api/operaciones, /api/cuentas,
   /api/mesa-dinero                          → operaciones  (admin + trader)
-  /api/chat                                 → asistente
-  /api/mm                                   → mm           (admin only por default)
   /api/manager                              → manager
   ```
 - `home / renta-fija / derivados / estrategia` paths use `_PUBLIC` (auth + bearer, no module gate).
@@ -173,7 +171,6 @@ Applied globally via SlowAPI keyed by caller identity (`cf-access-jwt-assertion`
 
 | Endpoint | Limit |
 |---|---|
-| `POST /api/chat` | **30 / minute**, **500 / day** |
 | `POST /api/manager/jobs/run` | **5 / hour**, **20 / day** |
 
 Exceeding a limit returns `429` with a typed error body (§5).
@@ -188,7 +185,7 @@ Handler-level errors use one of two shapes:
 
 **Simple:** `{"detail": "<message>"}` — for `400/401/403/404/500/502` from standard handlers.
 
-**Typed:** used by `/api/chat` and the global rate-limit handler:
+**Typed:** used by the global rate-limit handler:
 
 ```json
 {
@@ -213,7 +210,7 @@ Handler-level errors use one of two shapes:
 
 ## 6. Conventions
 
-- **Path prefix.** Every route is under `/api`. Health is `/api/health`. MCP is mounted at `/mcp` (separate auth, see `docs/MCP.md`).
+- **Path prefix.** Every route is under `/api`. Health is `/api/health`.
 - **Date format.** `YYYY-MM-DD` for calendar days, ISO-8601 with `+00:00` for timestamps. Some live endpoints serialize `mercado.timesales` timestamps as ART-shifted UTC (`+03:00` from naive ART) — see `MOTOR_TS_OFFSET` in `api/services/operativa_mep.py` and `api/services/triggers_mep.py`.
 - **Currency.** `ARS` or `USD` in the `moneda`/`unidad` field.
 - **Account.** ROFEX accounts are passed as plain strings (`"805"`). The default account comes from `ROFEX_ACCOUNT` (env). The environment used (`live` vs `remarket`) is controlled by `ROFEX_ORDERS_ENV`.
@@ -393,7 +390,7 @@ Shared schema: `cuenta`, `id_cuenta`, `nombre`, `grupo`.
 
 ### 7.5 Operaciones (`/api/operaciones/*`) · op
 
-Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por policy** (datos privados de la mesa).
+Mesa flow + cash movements (read-only).
 
 | Method | Path | Summary |
 |---|---|---|
@@ -750,83 +747,6 @@ Route ordering: `/jobs/history` and `/jobs/history/stats` are declared before th
 | GET | `/options/expiries` | `{disponibles, activos, auto_pick, actualizado, mapa_size}` from `mercado.options_metadata` |
 | PUT | `/options/expiries` | Body `{expiries: string[8]}`. Empty array → auto-pick mode. Engine reloads on next 5 min tick. |
 
-#### 7.14.6 Asistente observability — *legacy, no en uso*
-
-Endpoints leen `manager.asistente_logs`. El asistente (`/api/chat`) ya no se usa — se conserva el código (`api/agent/`) como referencia. Estos endpoints siguen vivos pero la tabla no recibe escrituras nuevas.
-
-| Path | Description |
-|---|---|
-| `GET /asistente/stats?horas=` | Counts (`ok|error|truncated`), token usage, avg/p95 latency, estimated cost |
-| `GET /asistente/logs?horas=&estado=&limit=` | Newest-first entries from `manager.asistente_logs` |
-| `GET /asistente/timeseries?horas=` | Hourly buckets with `count`, `tokens`, `errors` |
-| `GET /asistente/tools-ranking?horas=` | Tools ordered by invocation count with `ok`/`fail` |
-
-#### 7.14.7 Logs
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/logs?servicio=&lines=` | `journalctl` of an installed service. `servicio ∈ {api, motor_rofex, motor_curvas, motor_breakevens, motor_options, motor_dolar_mep, motor_caucion, motor_futuros_dlr, motor_ordenes, cloudflared}`. `lines ≤ 1000`. Light cache. |
-
-#### 7.14.9 Intel ingest
-
-PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → the last confirmed `IntelDoc` is injected into the assistant context.
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/intel/extract` | `multipart/form-data` — `fuente` (required), optional `fecha`, `titulo`, `texto`, `pdf` (≤10 MB). Returns preview, **does not persist** |
-| POST | `/intel/save` | JSON `{fuente, fecha, titulo, raw_text, extracted}`; writes `manager.intel_docs` with `confirmed=true` |
-| GET | `/intel` | List newest-first (`limit≤200`, `fuente`) |
-| GET | `/intel/latest` | Last confirmed report (used by `api/agent/context.py`) |
-| GET | `/intel/{id}` | Fetch by row `id` |
-| PATCH | `/intel/{id}` | Partial update |
-| DELETE | `/intel/{id}` | Remove |
-
----
-
-### 7.15 Chat (`/api/chat`) · chat — *legacy, no en uso*
-
-| Method | Path | Limit | Description |
-|---|---|---|---|
-| POST | `/api/chat` | 30/min, 500/day | Trading-desk assistant turn |
-
-**Request**
-
-```json
-{
-  "message": "¿Cuál es la TEA de TZX26?",
-  "history": [ { "role": "...", "content": [...] } ]
-}
-```
-
-`message`: 1–4000 chars. `history`: optional Claude-style content blocks.
-
-**Response**
-
-```json
-{
-  "reply":     "…",
-  "tool_calls": [ { "name": "obtener_serie_macro", "args": {...}, "ok": true } ],
-  "history":    [ ... ],
-  "usage":      { "promptTokenCount": 1234, "candidatesTokenCount": 567, "totalTokenCount": 1801 },
-  "steps":      2,
-  "elapsed_s":  4.27,
-  "truncated":  false,
-  "model_used": "claude-haiku-4-5-20251001"
-}
-```
-
-`model_used` reports the model chosen by `decide_model()` (Haiku vs Sonnet). Errors follow the typed shape (§5). Every turn — success, truncation or error — is persisted to `manager.asistente_logs` (`/api/manager/asistente/*`).
-
-`BLOCKED_PATH_PREFIXES` (portfolio / operaciones / cuentas / manager) are blocked from being invoked through the assistant tools — read-only market data only. Same policy applies to the MCP server.
-
-> **Estado**: el asistente está desactivado a nivel producto. El código (`api/agent/`) y el endpoint se mantienen como referencia.
-
----
-
-### 7.16 MM Workstation (`/api/mm/*`) · mm
-
-**En reconstrucción 2026-05-04.** El backend MM (replay + backtest + paper trading vivo) se eliminó completo el 2026-05-04 — la nueva vista MM se construye desde cero sobre `mercado.order_book_l2` (motor `engines/order_book_l2.py`, hoy capturando `MERV - XMEV - AL30 - CI`) y `mercado.timesales`. Endpoints pendientes; el módulo `mm` (RBAC) y el prefix `/api/mm` (proxy Vercel) se mantienen para reusar.
-
 ---
 
 ### 7.17 Derivados Agro (`/api/derivados/agro*`) · admin-only inline
@@ -847,12 +767,6 @@ Tabla **PASE AGRO** (Trigo / Maíz / Soja Rosario). El backend lee snapshots liv
 Validado contra la planilla de la mesa: `(202.79/229.60)^(365/236) − 1 = -17.41%` (planilla -17.47%); `(190.00/191.90)^(365/149) − 1 = -2.41%` (planilla -2.41%).
 
 El motor (`engines/motor_agro.py`) **no escribe `mercado.timesales`** (decisión consciente de la mesa — esta tabla sólo necesita el último precio). Filtra variantes paralelas (`*M`) y placeholders (`DISPO`) del universo descubierto. No persiste histórico diario por ahora.
-
----
-
-### 7.18 MCP server (`/mcp`)
-
-Read-only re-exposure of 30 analytical tools (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, fair value). Independent OAuth 2.1 + PKCE + DCR layer on top of CF Access — does NOT use the bearer API key. Full doc: **`docs/MCP.md`**, tool reference: **`docs/MCP_TOOLS.md`**.
 
 ---
 
@@ -882,7 +796,6 @@ escriben motores (real-time) y jobs SQL-native (vía `core.pg_mirror`).
 | `manager.users` / `role_matrix` / `role_audit` | — | `/api/manager/users`, `/api/manager/roles`, auto-register on first visit |
 | `operaciones.ordenes_live` / `ordenes_audit` | — | `motor_ordenes` (WS order_report) |
 | `operaciones.operativas_mep` / `triggers_mep` | — | `/api/operativa/*` + scanner asyncio in `api.main` lifespan |
-| `mcp.oauth_clients` / `oauth_codes` / `oauth_tokens` | — | OAuth 2.1 provider in `api/mcp/oauth.py` (TTL automático) |
 
 ---
 
@@ -916,11 +829,9 @@ api/
 │   ├── debug_curva.py       # Recompute paso-a-paso de TEA/duration (manager/checks)
 │   └── …
 ├── agent/                   # LLM assistant — legacy, no en uso
-├── mcp/                     # MCP server (docs/MCP.md is authoritative)
 └── routers/
     ├── analitica.py             # /api/analitica/*       (pub)
     ├── carteras.py              # /api/portfolio/*       (port)
-    ├── chat.py                  # /api/chat              (chat)
     ├── cotizaciones.py          # /api/cotizaciones/*    (pub)
     ├── cuentas.py               # /api/cuentas/*         (op)
     ├── derivados_agro.py        # /api/derivados/agro    (pub + admin-only inline)
@@ -1034,3 +945,10 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-08-11 | **feat(financiamiento):** HD/DL, perf y modo claro de la tab FINANCIAMIENTO. (1) **CLASE_ACTIVO HD/DL** — regla nueva `financiamiento_clase` en `jobs/assets_autofill.py`: infiere por NOMINAL de la última tenencia (≤ 5.000 → HD, > → DL). Única regla heurística del job; existe porque HD y DL son escalas distintas (5.000 vs 27.000.000) y graficarlas juntas deja al HD invisible. **No pisa lo cargado a mano** (invariante del job) → la máquina bootstrapea, el humano corrige en Manager → ASSETS. Backfill y cron son el mismo comando. La vista pasó a filtrar por `clase` (una por vez, nunca sumadas) en vez de por `tenencia.moneda`, que queda informativa. (2) **PERF** — índice `ix_tenencia_fecha_unidad`: la vista arranca por instrumento (filtra `fecha`, joinea `unidad`) y `ix_tenencia_cuenta_fecha` no le servía (columna líder `id_cuenta`) → era un seq scan de la tenencia histórica entera. Además la query de tasas se acotó a las cuentas con financiamiento vivo (antes agregaba TODOS los boletos MAV de la historia para descartar la mayoría en Python). (3) **Modo claro** — los paneles llevan `bg-[var(--t-panel)]` + separadores de header/filas: sin fondo blanco sobre el gris de página los cuatro paneles se fundían en una sola mancha (en oscuro no se notaba, #000 vs #080808). (4) Se quitó el toggle **SOLO AUM** (no aportaba claridad). |
 | 2026-08-11 | **fix(financiamiento):** el umbral HD/DL era **5.000** y mandó a DL cientos de pagarés que son HD (200k-613k nominales). Corregido a **5.000.000**. La evidencia son los nominales reales y sus tasas (`core/mav_tasa.py`): 30.000 @ 7%, 100.000 @ 6% y 500.000 @ -0,5% son tasas de DÓLAR; 27.000.000 @ 39,5% es tasa de PESOS → la frontera está entre 500.000 y 27.000.000. Señal de diagnóstico que lo delató: **260 assets en DL contra un puñado en HD** — cuando un lado se lleva todo, el umbral está mal puesto. Como el job NUNCA pisa un valor ya escrito (su invariante), re-correrlo NO corrige lo mal clasificado: va `scripts/fix_financiamiento_clase.py` (dry-run por default, `--aplicar` para escribir), que solo toca lo que lleva la huella del umbral viejo Y cuyo último escritor fue el job — lo editado por un humano se reporta y no se pisa. Tests: el valor del umbral queda PINEADO (`test_el_umbral_es_5_millones`) y los nominales reales se congelan del lado que dice su tasa. |
 | 2026-08-12 | **feat(assets):** regla **`herencia`** en `jobs/assets_autofill.py` — el **rebautizo de Aunesa**. Un cambio normativo reemitió los instrumentos con otro id de especie (`[6461] CAFCI1910-6461 - DXA Multicobertura - Clase B` → `[28902] CAFCI1910-6461 - …`); como `unidad` es la PK de `portafolio.assets`, la renombrada entra como asset **nuevo**: CARTERA y TICKER se derivan solos de la unidad, pero **EMISOR** (y CALIFICACIÓN / INSTRUMENTO / CLASE_ACTIVO / CÓDIGO CNV / FEE ADMIN) nace vacío, y la carga manual queda pegada a la unidad vieja —que **no se puede borrar**, la tenencia histórica la referencia—. La regla copia esos campos entre unidades que son el MISMO instrumento, **en las dos direcciones**. La identidad no se adivina: para un fondo es el **código CAFCI** (lo que el rebautizo no toca) y, de respaldo, el **nombre del fondo**. Seguridad: los donantes tienen que **estar de acuerdo** (dos valores distintos → no escribe y reporta la divergencia; eso es lo que sostiene la clave por nombre, porque dos fondos homónimos de emisores distintos se frenan solos), **nunca pisa** lo cargado (invariante del job) y corre **solo para FCI** — fuera de FCI la identidad sería el TICKER, sin medir todavía: el job **cuenta** cuántos assets completaría (stat `herencia_no_fci_receptoras`) sin escribir hasta poner `HEREDAR_NO_FCI=True`. Corre en el cron que ya existía (11:40 UTC L-V, 40' después del writer que da de alta las unidades nuevas) — sin cron nuevo. `--regla herencia --dry` muestra donante → receptor campo por campo. De paso: `_ESCRIBIBLES` suma EMISOR/CALIFICACION/FEE_ADMIN y el motor pasó a comparar **normalizado** (`_norm`) — `fee_admin` es `numeric` y volvía como Decimal contra el str de las otras reglas, lo que habría marcado conflicto sobre un valor idéntico al guardado. |
+| 2026-08-15 | **refactor(curvas):** renombre de columnas en `mercado.curvas` — la PK pasa a llamarse **`ticker`** (`AL30`, el que joinea con `portafolio.assets.ticker`) e **`instrumento`** pasa a ser el SÍMBOLO DE MERCADO (`MERV - XMEV - AL30 - 24hs`). Estaban invertidos. El eje bono/letra se eliminó. ⚠️ El blob `data` NO se renombró: sus claves siguen con el significado VIEJO, y son las que leen ~500 lugares vía `core/curvas_sql.py` — por eso los `SELECT` directos llevan alias. |
+| 2026-08-19 | **wipe(IA):** baja del copiloto. Se borran sus endpoints de `/api/ia`, el código del copiloto y sus 7 tablas huérfanas. Del gateway LLM sobreviven `core/ai.py` y `core/llm.py` (sin tareas). Congelado por test: cualquier endpoint nuevo de `/api/ia` sin `require_admin` hace fallar `test_rbac`. |
+| 2026-08-24 | **refactor(agente):** **AGENT 2.0.** El AV AGENT se rehízo entero — de 37 services / 24.319 líneas / 18 tablas / cuatro relojes a `agente/` con **4 tablas** (`habilidades`, `hallazgos`, `reincidencias`, `acciones`), **un** reloj (`jobs/agente.py`) y sumar una habilidad = una fila en `agente/catalogo.py`. Tres pantallas (AHORA · ENCONTRÓ · HISTORIAL), admin-only. Spec: `docs/AGENT_2.0.md`. |
+| 2026-08-27 | **wipe(controles):** el auto-control de calidad de datos se dio de baja. Sus 16 controles eran de dos clases: 7 duplicaban un detector del AV AGENT (que además trae el botón) y los otros 9 se dieron de baja o se mudaron a la habilidad `ficha_incompleta`. Se va también `manager.controles_datos`. |
+| 2026-08-28 | **wipe(MCP):** borrado del MCP server — `api/mcp/` (FastMCP + provider OAuth 2.1 + discovery), sus 13 tools, el schema `mcp` y `docs/MCP.md` / `docs/MCP_TOOLS.md`. No lo consumía nadie y no era gratis: con `MCP_JWT_SECRET` seteada quedaba expuesto el provider OAuth entero, y `/oauth/register` y `/oauth/token` estaban en la allowlist de BYPASS de Cloudflare Access, o sea alcanzables **sin autenticar** — cada request disparaba `CREATE SCHEMA/TABLE` + 2 `DELETE` sobre el pool web que sirve a la mesa. La secuencia fue **apagar y después borrar**: primero se sacaron las env vars y se verificó `/mcp` → 404 con `/api/health` → 200. Sobrevive `rv_motor.get_correlation_matrix()`, que no era MCP-only. |
+| 2026-08-30 | **wipe(código muerto):** barrido de los dos repos. Se borran 13 endpoints sin consumidor (`/market/candle`, `/market/profile`, 2 checks del manager, 2 gemelos de scanner, `/portfolio/aum`, 2 alias de assets, `/trading/trades`, `/trading/renta-fija`, `/mails/buscar`, `/rem/debug`) + `require_manager` (cero `Depends()`) y sus espejos en `superficie.py`; 4 modules y 26 símbolos de `api/services`, `core/`, `quant/` y `engines/`; la cascada de 4 services que quedaron sin caller; 15 scripts one-shot cumplidos; y del lado del front 5 componentes, 3 proxies de `/api/valuaciones` y 6 símbolos. `mercado.precios_extremos_hist` estaba declarada dos veces en el schema. **530 → 517 endpoints.** |
+

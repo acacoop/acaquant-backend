@@ -157,17 +157,6 @@ del `.env`. Reiniciar la API tras corregir: `systemctl restart api.service`.
 
 ---
 
-## 🟠 El MCP connector (Claude Desktop) dejó de andar
-
-**Síntoma:** el Custom Connector no conecta / pide login en loop.
-
-**Causas conocidas** (detalle en memoria `project_mcp_cf_access`):
-1. CF Access tapando `/mcp` (debe estar en BYPASS; solo `/oauth/authorize`
-   protegido).
-2. `TransportSecuritySettings` en `api/mcp/server.py` (allowed_hosts/origins).
-
----
-
 ## Rutina (no es incidente, es prevención)
 
 - **Revisión de accesos (trimestral):** `/manager → USUARIOS`. La tabla muestra

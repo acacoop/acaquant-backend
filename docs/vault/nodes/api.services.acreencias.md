@@ -28,11 +28,6 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.manager.bonos]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_hacer]]  ·  _module_
-- [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[jobs.acreencias]]  ·  _module_
-- [[jobs.controles_datos]]  ·  _module_

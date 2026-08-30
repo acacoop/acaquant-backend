@@ -1,16 +1,16 @@
 # 🚀 deploy — servicios + crons
 
-74 notas.
+71 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
 - [[cron.jobs.actividad_mensual]] — Tarea programada (cron).
 - [[cron.jobs.adr_live]] — Tarea programada (cron).
+- [[cron.jobs.agente_tasa]] — Tarea programada (cron).
+- [[cron.jobs.ap5_portfolio]] — Tarea programada (cron).
 - [[cron.jobs.archive_options_data]] — Tarea programada (cron).
 - [[cron.jobs.argentina_datos]] — Tarea programada (cron).
 - [[cron.jobs.assets_autofill]] — Tarea programada (cron).
-- [[cron.jobs.av_agent]] — Tarea programada (cron).
-- [[cron.jobs.av_agent_live]] — Tarea programada (cron).
 - [[cron.jobs.bcra]] — Tarea programada (cron).
 - [[cron.jobs.bcra_research]] — Tarea programada (cron).
 - [[cron.jobs.bonos_ohlc_daily]] — Tarea programada (cron).
@@ -24,9 +24,7 @@
 - [[cron.jobs.cleanup_retencion]] — Tarea programada (cron).
 - [[cron.jobs.comercial_warm]] — Tarea programada (cron).
 - [[cron.jobs.consolidado_cuentas]] — Tarea programada (cron).
-- [[cron.jobs.controles_datos]] — Tarea programada (cron).
 - [[cron.jobs.day_trading_stats]] — Tarea programada (cron).
-- [[cron.jobs.db_tamano]] — Tarea programada (cron).
 - [[cron.jobs.eikon_cierres]] — Tarea programada (cron).
 - [[cron.jobs.estrategia_resolver]] — Tarea programada (cron).
 - [[cron.jobs.ficha_1816]] — Tarea programada (cron).
@@ -49,7 +47,6 @@
 - [[cron.jobs.precios_acciones_daily]] — Tarea programada (cron).
 - [[cron.jobs.research_mail]] — Tarea programada (cron).
 - [[cron.jobs.saldos_a_operadores]] — Tarea programada (cron).
-- [[cron.jobs.seguimiento]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_sinteticos]] — Tarea programada (cron).
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
@@ -58,8 +55,8 @@
 - [[cron.jobs.tesoreria_snapshot]] — Tarea programada (cron).
 - [[cron.jobs.validar_instrumentos]] — Tarea programada (cron).
 - [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
+- [[svc.agente]] — Servicio systemd.
 - [[svc.api]] — Servicio systemd.
-- [[svc.av_agent_centinela]] — Servicio systemd.
 - [[svc.control_saldos]] — Servicio systemd.
 - [[svc.motor_agro]] — Servicio systemd.
 - [[svc.motor_agro_opciones]] — Servicio systemd.

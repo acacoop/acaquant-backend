@@ -18,4 +18,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.jobs_catalogo]]  ·  _module_
-- [[core.dependencias]]  ·  _module_

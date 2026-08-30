@@ -1,6 +1,6 @@
 # 📐 quant — cálculo puro
 
-10 notas.
+11 notas.
 
 - [[quant]]
 - [[quant.black_scholes]]
@@ -11,4 +11,5 @@
 - [[quant.rango]] — rango.py — carácter del rango de un papel: ATR diario y Efficiency Ratio.
 - [[quant.rolling_stats]] — rolling_stats.py — beta / alpha / correlación / vol realizada
 - [[quant.stats]] — Helpers estadísticos sobre series numéricas.
+- [[quant.tasas]] — Conversiones entre convenciones de tasa. Funciones PURAS (sin base, sin FastAPI).
 - [[quant.xirr]] — xirr.py — TIR.NO.PER de Excel (XIRR / IRR para flujos en fechas

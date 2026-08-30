@@ -326,11 +326,10 @@ HTTP projection of the assistant tools. Same functions invoked by the agent's to
 | GET | `/snapshot-curva-historico` | Curve at a past date |
 | GET | `/pendiente-curva` | Slope (long − short) in bps; optional vs past date |
 | GET | `/liquidez-secundario` | Today's volume vs N-day average + classification |
-| GET | `/sensibilidad-retorno` | Bond return sensitivity to YTM/duration shifts |
+| GET | `/sensibilidad-retorno` | Bond return sensitivity to YTM/duration shifts (RESEARCH → ANÁLISIS SENSIBILIDAD) |
 | GET | `/canje` | AL30/AL30D canje analysis (long ARS / short USD) |
 | GET | `/carry-trade` | Local carry vs forward-implied devaluation |
-| GET | `/descomposicion-retorno` | Ex-post return decomposition (carry / Δprecio / FX) |
-| GET | `/rolldown-esperado` | Expected roll-down on the curve |
+| GET | `/simular-inversion` | SIMULAR INVERSIÓN modal (/renta-fija): engine metrics at a user price + cash-flow schedule scaled to an amount |
 | POST | `/estrategia-historico` | Simulate a strategy over history (`POST` for body-shape inputs) |
 
 #### `GET /listar-curva`
@@ -365,9 +364,9 @@ Cross-MEP arb monitor. Joins live AL30 (CI/24hs) with AL30D, computes implied ME
 
 Implied local carry vs forward-implied devaluation (ROFEX DLR). Daily prices source: `mercado.snapshots_cierre` (cron 20:25 UTC L-V). If the requested range includes today and the close cron has not run yet, a live point is appended from `mercado.market_snapshot.metrics.last_price` so the series always reaches "today" during market hours. MEP comes from `valuaciones.dolar` (written by `engines/dolar_mep` every 15 min L-V 13–20 UTC).
 
-#### `GET /descomposicion-retorno`
+#### `GET /simular-inversion`
 
-Ex-post return decomposition between two dates. Modes: `realizado` (ex-post, requires both dates) and `proyectado` (live carry). CER curve supported. Both endpoints read `mercado.snapshots_cierre` via `snapshot_curva_historico`; if either bound is today and no close is persisted, the same live fallback to `mercado.market_snapshot.metrics` applies. See `api/services/descomposicion_retorno.py` for the full formula breakdown.
+Runs the SAME engine that prices the curvas table (`engines.curvas.calcular_campos`) with a user-supplied price injected, so the simulated TEA can never diverge from the live one at the same price. Params: `ticker` (short, PK of `mercado.curvas`), `importe` (>0, in the currency the leg trades in), `precio` (optional; defaults to the live `last_price`, returned as `precio_referencia`). Returns metrics (TEA/TEM/TNA via `quant.tasas`, duration, mod_duration, convexity, paridad), the bond's ficha, and the future cash-flow schedule scaled to `vn = importe × 100 / precio` (CER flows adjusted by settlement CER, constant-last-CER projection flagged as `cer_proyectado`). `{"error": …}` with HTTP 200 on bad input, same contract as `bono/{ticker}`.
 
 #### `POST /estrategia-historico`
 
@@ -813,9 +812,9 @@ api/
 │   ├── cotizaciones.py      # listar_curva, snapshots, forwards, breakevens, caucion, futuros-dlr, …
 │   ├── macro.py             # obtener_serie_macro, clasificar_nivel
 │   ├── argy.py              # ARGY panel
-│   ├── analitica.py         # canje, carry-trade, descomposicion-retorno, rolldown
-│   ├── descomposicion_retorno.py
+│   ├── analitica.py         # canje, carry-trade, snapshot-curva-historico, pendiente
 │   ├── sensibilidad.py
+│   ├── simular_inversion.py
 │   ├── fair_value.py
 │   ├── rem.py
 │   ├── opciones.py / derivados.py / repo.py
@@ -951,4 +950,4 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-08-27 | **wipe(controles):** el auto-control de calidad de datos se dio de baja. Sus 16 controles eran de dos clases: 7 duplicaban un detector del AV AGENT (que además trae el botón) y los otros 9 se dieron de baja o se mudaron a la habilidad `ficha_incompleta`. Se va también `manager.controles_datos`. |
 | 2026-08-28 | **wipe(MCP):** borrado del MCP server — `api/mcp/` (FastMCP + provider OAuth 2.1 + discovery), sus 13 tools, el schema `mcp` y `docs/MCP.md` / `docs/MCP_TOOLS.md`. No lo consumía nadie y no era gratis: con `MCP_JWT_SECRET` seteada quedaba expuesto el provider OAuth entero, y `/oauth/register` y `/oauth/token` estaban en la allowlist de BYPASS de Cloudflare Access, o sea alcanzables **sin autenticar** — cada request disparaba `CREATE SCHEMA/TABLE` + 2 `DELETE` sobre el pool web que sirve a la mesa. La secuencia fue **apagar y después borrar**: primero se sacaron las env vars y se verificó `/mcp` → 404 con `/api/health` → 200. Sobrevive `rv_motor.get_correlation_matrix()`, que no era MCP-only. |
 | 2026-08-30 | **wipe(código muerto):** barrido de los dos repos. Se borran 13 endpoints sin consumidor (`/market/candle`, `/market/profile`, 2 checks del manager, 2 gemelos de scanner, `/portfolio/aum`, 2 alias de assets, `/trading/trades`, `/trading/renta-fija`, `/mails/buscar`, `/rem/debug`) + `require_manager` (cero `Depends()`) y sus espejos en `superficie.py`; 4 modules y 26 símbolos de `api/services`, `core/`, `quant/` y `engines/`; la cascada de 4 services que quedaron sin caller; 15 scripts one-shot cumplidos; y del lado del front 5 componentes, 3 proxies de `/api/valuaciones` y 6 símbolos. `mercado.precios_extremos_hist` estaba declarada dos veces en el schema. **530 → 517 endpoints.** |
-
+| 2026-08-30 | **feat(renta-fija) + wipe(estrategia):** nace `GET /api/analitica/simular-inversion` (modal SIMULAR INVERSIÓN de `/renta-fija`: motor con precio inyectado + cronograma escalado al importe) y se elimina la vista ESTRATEGIA (`/retorno`): fuera `/analitica/{comparar,comparar/bonos,descomposicion-retorno,rolldown-esperado}` y sus services (`comparar_inversion.py`, `descomposicion_retorno.py`); el módulo `estrategia` sale de `core/roles.py`. ANÁLISIS SENSIBILIDAD se muda tal cual a RESEARCH (mismo endpoint `/analitica/sensibilidad-retorno`). |

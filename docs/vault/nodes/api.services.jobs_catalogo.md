@@ -23,7 +23,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.jobs]]  ·  _module_
-- [[api.services.av_agent_agenda]]  ·  _module_
-- [[api.services.av_agent_errores]]  ·  _module_
-- [[api.services.av_agent_skills]]  ·  _module_
 - [[api.services.salud]]  ·  _module_

@@ -20,6 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.ext.lectura]]  ·  _module_
 - [[api.services.aca]]  ·  _module_
 - [[api.services.aca_valores]]  ·  _module_
 - [[api.services.acavalores_retorno]]  ·  _module_
@@ -27,12 +28,15 @@ _(pendiente de enriquecimiento)_
 - [[api.services.anulados]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.bancos]]  ·  _module_
+- [[api.services.bono_detalle]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.carteras_informe]]  ·  _module_
 - [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.clientes_admin_sql]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
+- [[api.services.conoce_cliente_sql]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
+- [[api.services.cuantitativo_sql]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.db_obs]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
@@ -45,13 +49,16 @@ _(pendiente de enriquecimiento)_
 - [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.operativa_mep_sql]]  ·  _module_
 - [[api.services.ordenes_sql]]  ·  _module_
+- [[api.services.perfil_cliente_sql]]  ·  _module_
 - [[api.services.pnl_ajustes_sql]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.portfolio_sql]]  ·  _module_
+- [[api.services.profundidad_sql]]  ·  _module_
 - [[api.services.rem_sql]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.salud]]  ·  _module_
 - [[api.services.senebis]]  ·  _module_
+- [[api.services.simular_inversion]]  ·  _module_
 - [[api.services.tesoreria]]  ·  _module_
 - [[api.services.titulos_negativos]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_

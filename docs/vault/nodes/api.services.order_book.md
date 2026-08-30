@@ -19,11 +19,7 @@ Devuelve el libro de órdenes (LOB) live de un ticker, con profundidad 5 (bids/o
 Conecta con: lee `Trading.MarketSnapshot` (lo popula `engines/valores.py` cada 1s desde pyRofex WS) con proyección acotada al libro; cachea la lista de tickers por curva desde `Trading.Curvas`. Lo invoca el router de cotizaciones / order book.
 
 ## Usa / conecta con →
-- [[api.cache]]  ·  _module_
-- [[core]]  ·  _module_
-- [[core.curvas_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_

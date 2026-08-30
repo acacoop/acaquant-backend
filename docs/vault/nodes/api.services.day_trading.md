@@ -23,6 +23,5 @@ _(pendiente de enriquecimiento)_
 - [[quant.intraday]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.renta_variable]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_

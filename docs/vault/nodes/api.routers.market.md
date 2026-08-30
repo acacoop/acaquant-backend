@@ -9,7 +9,7 @@ path: api/routers/market.py
 
 # api/routers/market
 
-> Router Market: watchlist quotes, titulares Eikon, candles históricos.
+> Router Market: watchlist quotes + titulares Eikon.
 
 **Archivo:** `api/routers/market.py`
 
@@ -22,8 +22,6 @@ Conecta con: lee `Market.Quotes` (poblada por `jobs.market_quotes`) y `Market.Ec
 - [[api.services]]  ·  _module_
 - [[api.services.market_sql]]  ·  _module_
 - [[core.eikon_news]]  ·  _module_
-- [[core.finnhub]]  ·  _module_
-- [[core.yahoo]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

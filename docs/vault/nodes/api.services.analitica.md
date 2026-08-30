@@ -27,6 +27,4 @@ Conecta con: lee `Trading.SnapshotsCierre`, `Trading.Curvas` y `Trading.TimeSale
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
-- [[api.services.descomposicion_retorno]]  ·  _module_

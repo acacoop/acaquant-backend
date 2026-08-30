@@ -19,7 +19,6 @@ Cliente de Yahoo Finance vía la librería `yfinance` (gratis, sin API key). Ree
 Conecta con: la API pública de Yahoo Finance (yfinance). Lo invocan jobs de precios/watchlist (ej. `jobs.adr_live`, `jobs.market_quotes`) y el router `api.routers.market` para candles históricos.
 
 ## Lo usan (backlinks) ←
-- [[api.routers.market]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_

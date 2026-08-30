@@ -26,4 +26,3 @@ Conecta con: importa helpers de `engines.curvas`; lee `Trading.TimeSales`, `Trad
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_
-- [[api.services.av_agent_explicar]]  ·  _module_

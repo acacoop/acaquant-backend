@@ -18,5 +18,8 @@ Replica la planilla de "Mejoras Precio Disponible" del Agro: en vez de pagarle a
 
 Conecta con: lee el precio ARS manual de `Derivados.CamaraCereales`, la TNA (TIR efectiva) de `Trading.MarketSnapshot.metrics.TEA` y el dólar oficial live (`core.dolar_oficial`); matchea LECAP↔futuro DLR por año-mes igual que `sinteticos`. Lo expone el router `/api/derivados/agro`.
 
+## Usa / conecta con →
+- [[quant.tasas]]  ·  _module_
+
 ## Lo usan (backlinks) ←
 - [[api.services.agro_sql]]  ·  _module_

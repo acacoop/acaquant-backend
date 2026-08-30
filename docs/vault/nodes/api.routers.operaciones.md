@@ -26,12 +26,16 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 - [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
+- [[api.services.conoce_cliente_sql]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
+- [[api.services.cuantitativo_sql]]  ·  _module_
 - [[api.services.financiamiento]]  ·  _module_
 - [[api.services.financiamiento_calc]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.operaciones_view]]  ·  _module_
+- [[api.services.perfil_cliente_sql]]  ·  _module_
+- [[api.services.profundidad_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[db.CashFlow.Operaciones]]  ·  _collection_
 

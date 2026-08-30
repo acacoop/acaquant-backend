@@ -24,15 +24,14 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[api.mcp.oauth]]  ·  _module_
 - [[api.routers.aca]]  ·  _module_
-- [[api.routers.avisos]]  ·  _module_
+- [[api.routers.agente]]  ·  _module_
+- [[api.routers.ap5]]  ·  _module_
 - [[api.routers.back_office]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.derivados_sinteticos]]  ·  _module_
-- [[api.routers.ia]]  ·  _module_
 - [[api.routers.interbanking]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.manager.aca]]  ·  _module_

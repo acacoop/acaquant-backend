@@ -32,15 +32,13 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 
 ## Lo usan (backlinks) ←
 - [[api.services.acreencias]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_vista]]  ·  _module_
-- [[api.services.comparar_inversion]]  ·  _module_
+- [[api.services.bono_detalle]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
+- [[api.services.simular_inversion]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[svc.motor_curvas]]  ·  _service_

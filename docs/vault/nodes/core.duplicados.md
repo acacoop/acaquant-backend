@@ -18,7 +18,3 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[core.postgres]]  ·  _module_
-
-## Lo usan (backlinks) ←
-- [[api.services.av_agent]]  ·  _module_
-- [[jobs.controles_datos]]  ·  _module_

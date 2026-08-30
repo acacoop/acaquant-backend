@@ -26,5 +26,4 @@ Conecta con: lee precios de `Trading.MarketSnapshot` y los flujos del prospecto 
 - [[engines.curvas]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_

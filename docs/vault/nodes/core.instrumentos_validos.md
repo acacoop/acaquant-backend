@@ -20,8 +20,5 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_sin_precio]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 - [[jobs.validar_instrumentos]]  ·  _module_

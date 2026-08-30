@@ -40,9 +40,8 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
 
     fecha_str = str(fecha)[:10]
 
-    # Metadata estática de Trading.Curvas (necesaria sea cual sea la fuente).
-    # cer_emision lo necesita descomposicion_retorno (curva CER) y NO está
-    # en SnapshotsCierre — siempre lo joineamos con Curvas.
+    # Metadata estática de Trading.Curvas (necesaria sea cual sea la fuente):
+    # cer_emision NO está en SnapshotsCierre — siempre lo joineamos con Curvas.
     curva_docs = curvas_sql.por_curva(curva)
     if not curva_docs:
         return []

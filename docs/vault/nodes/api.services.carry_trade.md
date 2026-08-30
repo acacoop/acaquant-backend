@@ -29,6 +29,5 @@ Conecta con: lee precios diarios de `Trading` (cierre + live-fallback) y la seri
 - [[db.Trading.DOLAR]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_

@@ -22,8 +22,6 @@ Conecta con: lee `Trading.<BADLAR/CER/…>` y `Trading.MarketSnapshot.metrics`, 
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
-- [[api.services]]  ·  _module_
-- [[api.services.macro_sql]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.dolar_sql]]  ·  _module_
@@ -31,13 +29,10 @@ Conecta con: lee `Trading.<BADLAR/CER/…>` y `Trading.MarketSnapshot.metrics`, 
 - [[db.Trading.DOLAR]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
 - [[api.services.clientes_admin_sql]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
-- [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
+- [[api.services.simular_inversion]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_

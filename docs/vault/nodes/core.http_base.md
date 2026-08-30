@@ -22,3 +22,4 @@ _(pendiente de enriquecimiento)_
 - [[core.finnhub]]  ·  _module_
 - [[core.fred_api]]  ·  _module_
 - [[core.interbanking]]  ·  _module_
+- [[core.postrade]]  ·  _module_

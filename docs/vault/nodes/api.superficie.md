@@ -19,6 +19,3 @@ _(pendiente de enriquecimiento)_
 ## Usa / conecta con →
 - [[api.main]]  ·  _module_
 - [[core.roles]]  ·  _module_
-
-## Lo usan (backlinks) ←
-- [[api.services.av_agent_seguridad]]  ·  _module_

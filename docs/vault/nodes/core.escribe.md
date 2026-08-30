@@ -16,6 +16,4 @@ path: core/escribe.py
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
-## Lo usan (backlinks) ←
-- [[api.services.av_agent_contexto]]  ·  _module_
-- [[api.services.av_agent_errores]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

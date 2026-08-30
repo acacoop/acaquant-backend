@@ -21,9 +21,6 @@ _(pendiente de enriquecimiento)_
 - [[core.curvas_catalogo]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_
 - [[api.services.ons]]  ·  _module_

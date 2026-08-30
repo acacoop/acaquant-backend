@@ -9,7 +9,7 @@ path: core/ai.py
 
 # core/ai
 
-> core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).
+> core/ai.py — gateway único de IA.
 
 **Archivo:** `core/ai.py`
 
@@ -21,12 +21,3 @@ _(pendiente de enriquecimiento)_
 - [[core.llm]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[core.roles]]  ·  _module_
-
-## Lo usan (backlinks) ←
-- [[api.services.av_agent_analista]]  ·  _module_
-- [[api.services.av_agent_errores]]  ·  _module_
-- [[api.services.av_agent_explicar]]  ·  _module_
-- [[api.services.av_agent_hacer]]  ·  _module_
-- [[api.services.av_agent_skills]]  ·  _module_
-- [[api.services.ia_obs]]  ·  _module_
-- [[jobs.research_mail]]  ·  _module_

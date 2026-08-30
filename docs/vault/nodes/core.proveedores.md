@@ -23,7 +23,6 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.aunesa_negocio]]  ·  _module_
-- [[api.services.av_agent_proveedores]]  ·  _module_
 - [[core.aunesa]]  ·  _module_
 - [[jobs.aum]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_

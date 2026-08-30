@@ -23,7 +23,6 @@ Conecta con: lee `FINNHUB_API_KEY` de `config`; pega a `finnhub.io/api/v1`; lo c
 - [[core.http_base]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.routers.market]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.news_finnhub]]  ·  _module_

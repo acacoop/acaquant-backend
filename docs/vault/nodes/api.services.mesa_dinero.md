@@ -25,6 +25,7 @@ _(pendiente de enriquecimiento)_
 - [[core.roles]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.routers.ap5]]  ·  _module_
 - [[api.routers.manager.mesa]]  ·  _module_
 - [[api.routers.me]]  ·  _module_
 - [[api.routers.mesa_dinero]]  ·  _module_

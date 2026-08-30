@@ -22,7 +22,6 @@ Conecta con: lee `Trading.DiasHabiles` (calendario) y `Trading.Curvas`, borra do
 
 ## Usa / conecta con →
 - [[core]]  ·  _module_
-- [[core.calendario]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.postgres]]  ·  _module_

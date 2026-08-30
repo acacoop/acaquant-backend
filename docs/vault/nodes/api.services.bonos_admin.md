@@ -28,4 +28,3 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.bonos]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_

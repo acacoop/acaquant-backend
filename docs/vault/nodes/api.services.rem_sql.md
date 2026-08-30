@@ -21,5 +21,4 @@ _(pendiente de enriquecimiento)_
 - [[api.services._sql]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_

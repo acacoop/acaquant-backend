@@ -24,5 +24,6 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.ext.lectura]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[jobs.ops_agregado]]  ·  _module_

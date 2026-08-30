@@ -18,5 +18,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.logs]]  ·  _module_
-- [[api.services.av_agent_motores]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_

@@ -18,7 +18,6 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
-- [[api.services.av_agent_mensajes]]  ·  _module_
 - [[api.services.titulos_negativos]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 

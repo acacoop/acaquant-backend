@@ -25,3 +25,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.interbanking]]  ·  _module_
+- [[jobs.interbanking_sync]]  ·  _module_

@@ -1,6 +1,6 @@
 # 🗄️ base — colecciones Mongo
 
-28 notas.
+26 notas.
 
 - [[db.CashFlow.Contrapartes]] — Colección Mongo en DB CashFlow.
 - [[db.CashFlow.NegocioMovimientos]] — Colección Mongo en DB CashFlow.
@@ -10,8 +10,6 @@
 - [[db.Clientes.Comitentes]] — Colección Mongo en DB Clientes.
 - [[db.CuentasAPI.AccionistasAPI]] — Colección Mongo en DB CuentasAPI.
 - [[db.CuentasAPI.ContrapartesAPI]] — Colección Mongo en DB CuentasAPI.
-- [[db.MCP.OAuthCodes]] — Colección Mongo en DB MCP.
-- [[db.MCP.OAuthTokens]] — Colección Mongo en DB MCP.
 - [[db.Manager.RoleAudit]] — Colección Mongo en DB Manager.
 - [[db.Manager.RoleMatrix]] — Colección Mongo en DB Manager.
 - [[db.Manager.Users]] — Colección Mongo en DB Manager.

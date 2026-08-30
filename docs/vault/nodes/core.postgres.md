@@ -17,7 +17,7 @@ path: core/postgres.py
 _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.oauth]]  ·  _module_
+- [[api.ext.db]]  ·  _module_
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cuentas]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
@@ -36,37 +36,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.anulados]]  ·  _module_
+- [[api.services.ap5_posiciones]]  ·  _module_
 - [[api.services.aranceles_jobs]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
 - [[api.services.aunesa_aranceles]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_acciones]]  ·  _module_
-- [[api.services.av_agent_agenda]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_analista]]  ·  _module_
-- [[api.services.av_agent_centinela]]  ·  _module_
-- [[api.services.av_agent_contexto]]  ·  _module_
-- [[api.services.av_agent_control]]  ·  _module_
-- [[api.services.av_agent_db]]  ·  _module_
-- [[api.services.av_agent_errores]]  ·  _module_
-- [[api.services.av_agent_espejo]]  ·  _module_
-- [[api.services.av_agent_evals]]  ·  _module_
-- [[api.services.av_agent_hacer]]  ·  _module_
-- [[api.services.av_agent_items]]  ·  _module_
-- [[api.services.av_agent_latencia]]  ·  _module_
-- [[api.services.av_agent_masivo]]  ·  _module_
-- [[api.services.av_agent_memoria]]  ·  _module_
-- [[api.services.av_agent_mensajes]]  ·  _module_
-- [[api.services.av_agent_pata]]  ·  _module_
-- [[api.services.av_agent_preguntas]]  ·  _module_
-- [[api.services.av_agent_proveedores]]  ·  _module_
-- [[api.services.av_agent_recuperados]]  ·  _module_
-- [[api.services.av_agent_rehacer]]  ·  _module_
-- [[api.services.av_agent_respuesta]]  ·  _module_
-- [[api.services.av_agent_seguimiento]]  ·  _module_
-- [[api.services.av_agent_seguridad]]  ·  _module_
-- [[api.services.av_agent_sin_precio]]  ·  _module_
-- [[api.services.av_agent_vista]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.bancos]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
@@ -79,7 +52,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[api.services.control_automatico]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
-- [[api.services.controles_sql]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
@@ -88,7 +60,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.financiamiento]]  ·  _module_
 - [[api.services.financiamiento_calc]]  ·  _module_
-- [[api.services.ia_obs]]  ·  _module_
 - [[api.services.import_tenencia_sql]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_
@@ -146,6 +117,7 @@ _(pendiente de enriquecimiento)_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.mercado_1816]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
+- [[core.postrade]]  ·  _module_
 - [[core.proveedores]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[core.roles_sql]]  ·  _module_
@@ -161,10 +133,10 @@ _(pendiente de enriquecimiento)_
 - [[jobs._aum_filters]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
+- [[jobs.ap5_portfolio]]  ·  _module_
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
 - [[jobs.assets_autofill]]  ·  _module_
-- [[jobs.av_agent]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra_research]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
@@ -177,7 +149,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.cleanup_retencion]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.control_saldos]]  ·  _module_
-- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.eikon_cierres]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_
@@ -202,7 +173,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.research_mail]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
-- [[jobs.seguimiento]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
 - [[jobs.tamar_1816]]  ·  _module_

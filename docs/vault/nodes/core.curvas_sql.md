@@ -18,6 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[core]]  ·  _module_
+- [[core.calendario]]  ·  _module_
 - [[core.curvas_ejes]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
@@ -27,22 +28,17 @@ _(pendiente de enriquecimiento)_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_centinela]]  ·  _module_
-- [[api.services.av_agent_explicar]]  ·  _module_
-- [[api.services.av_agent_hacer]]  ·  _module_
+- [[api.services.bono_detalle]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
-- [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
-- [[api.services.order_book]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
+- [[api.services.simular_inversion]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
@@ -50,6 +46,5 @@ _(pendiente de enriquecimiento)_
 - [[engines._curvas_loader]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
-- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.guardrails]]  ·  _module_
 - [[jobs.mercado_1816_discovery]]  ·  _module_

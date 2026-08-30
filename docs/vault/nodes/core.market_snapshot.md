@@ -21,13 +21,11 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.agro_sql]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_centinela]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
+- [[api.services.simular_inversion]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
@@ -36,5 +34,4 @@ _(pendiente de enriquecimiento)_
 - [[engines.forwards]]  ·  _module_
 - [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bonos_ohlc_daily]]  ·  _module_
-- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_

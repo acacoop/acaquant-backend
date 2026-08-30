@@ -27,7 +27,6 @@ _(pendiente de enriquecimiento)_
 - [[engines.curvas]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.services.curvas_vista]]  ·  _module_

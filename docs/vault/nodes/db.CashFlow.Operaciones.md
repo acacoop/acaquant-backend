@@ -16,4 +16,5 @@ Operaciones normalizadas e ingestadas desde los informes de Aunesa, en la base `
 Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operaciones_informes.py` (normalización + ingesta idempotente); backfill manual por CSV vía `api/routers/manager/operaciones.py`. La leen routers de operaciones/operativa y el scoping de grupos (`_grupos_scope.py`).
 
 ## Lo usan (backlinks) ←
+- [[api.ext.app]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_

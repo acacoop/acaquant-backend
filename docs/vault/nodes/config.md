@@ -24,12 +24,13 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 ## Lo usan (backlinks) ←
 - [[api.auth]]  ·  _module_
 - [[api.deps]]  ·  _module_
+- [[api.ext.auth]]  ·  _module_
+- [[api.ext.db]]  ·  _module_
+- [[api.ext.lectura]]  ·  _module_
 - [[api.main]]  ·  _module_
-- [[api.mcp.auth]]  ·  _module_
-- [[api.mcp.discovery]]  ·  _module_
-- [[api.mcp.oauth]]  ·  _module_
 - [[api.profiling]]  ·  _module_
 - [[api.routers.ingest]]  ·  _module_
+- [[api.services.ap5_posiciones]]  ·  _module_
 - [[api.services.aunesa_negocio]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
@@ -37,10 +38,12 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[core.aunesa]]  ·  _module_
 - [[core.finnhub]]  ·  _module_
 - [[core.interbanking]]  ·  _module_
+- [[core.postrade]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_
 - [[engines.estrategia]]  ·  _module_
+- [[jobs.ap5_portfolio]]  ·  _module_
 - [[jobs.aum]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_

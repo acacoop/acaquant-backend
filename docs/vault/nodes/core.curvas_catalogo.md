@@ -22,8 +22,6 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.services.av_agent_alta]]  ·  _module_
-- [[api.services.av_agent_preguntas]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[core.curvas_ejes]]  ·  _module_
 - [[jobs.tamar_1816]]  ·  _module_

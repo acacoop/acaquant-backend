@@ -21,7 +21,6 @@ Conecta con: lee `Trading.Curvas/TimeSales/CER/DiasHabiles/FuturosDLRSnapshot/Pr
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
-- [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.debug_derivados]]  ·  _module_
 - [[core]]  ·  _module_

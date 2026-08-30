@@ -27,4 +27,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.cotizaciones]]  ·  _module_
-- [[api.services.av_agent]]  ·  _module_
+- [[api.services.bono_detalle]]  ·  _module_

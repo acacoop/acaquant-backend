@@ -1,10 +1,10 @@
 # 🧱 core — infraestructura
 
-57 notas.
+59 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
-- [[core.ai]] — core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).
+- [[core.ai]] — core/ai.py — gateway único de IA.
 - [[core.argentina_datos]] — Cliente de argentinadatos.com — indicadores macro AR públicos.
 - [[core.aunesa]] — core/aunesa.py — cliente único de la API del custodio Aunesa.
 - [[core.bars_sql]] — bars_sql.py — readers de las barras de 1 minuto de CEDEARs (ARS).
@@ -12,12 +12,10 @@
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.cafci]] — Parseo de un string `unidad` de FCI.
 - [[core.calendario]] — Calendario hábil argentino — fuente ÚNICA del repo.
-- [[core.ciclo]] — core/ciclo.py — EL CICLO DE VIDA DE UNA COSA QUE EL AGENTE ENCONTRÓ O DIJO.
 - [[core.crontab]] — core/crontab.py — el parser del crontab, UNA sola vez y sin dependencias.
 - [[core.curvas_catalogo]] — core/curvas_catalogo.py — las curvas que se crean sin deploy.
 - [[core.curvas_ejes]] — core/curvas_ejes.py — los EJES de una curva de renta fija (rediseño 2026-08-15).
 - [[core.curvas_sql]] — core/curvas_sql.py — lectura del master de renta fija desde SQL.
-- [[core.dependencias]] — core/dependencias.py — DE QUÉ DEPENDE CADA PIEZA, sin escribir una lista.
 - [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
 - [[core.dolar_sql]] — core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje.
@@ -38,7 +36,7 @@
 - [[core.instrumentos_validos]] — core/instrumentos_validos.py — LA validación de símbolos. Una sola, para todos.
 - [[core.interbanking]] — core/interbanking.py — cliente único de las APIs de Interbanking.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
-- [[core.llm]] — core/llm.py — transporte LLM único y RUTEO de proveedores (QuantAI, docs/QUANTAI.md).
+- [[core.llm]] — core/llm.py — transporte LLM único y RUTEO de proveedores.
 - [[core.logs]] — core/logs.py — UN SOLO FORMATO DE LOG, con el NIVEL adentro.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 - [[core.mav_tasa]] — core/mav_tasa.py — parseo de la TASA de los boletos MAV.
@@ -46,7 +44,11 @@
 - [[core.pareo]] — core/pareo.py — EMPAREJAR POR FICHA. La identidad no es el nombre.
 - [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres, la única base del sistema.
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
-- [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.
+- [[core.postrade]] — core/postrade.py — cliente ÚNICO de la API Postrade (A3 Mercados / ACyRSA).
+- [[core.postrade_catalogo]] — core/postrade_catalogo.py — QUÉ métodos existen en Postrade, declarados UNA vez.
+- [[core.postrade_cuentas]] — core/postrade_cuentas.py — cómo se LLAMA cada cuenta de la cámara.
+- [[core.postrade_margenes]] — core/postrade_margenes.py — márgenes requeridos y balance de saldos, planos.
+- [[core.postrade_posicion]] — core/postrade_posicion.py — PositionReport → posición de FUTUROS, plana.
 - [[core.proveedores]] — core/proveedores.py — LOS DE AFUERA SE CAEN, Y HAY QUE ENTERARSE.
 - [[core.rofex_orders_session]] — Sesión pyRofex dedicada a envío/seguimiento de órdenes.
 - [[core.rofex_session]]

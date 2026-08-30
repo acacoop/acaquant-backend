@@ -27,4 +27,5 @@ _(pendiente de enriquecimiento)_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
+- [[api.services.cuantitativo_sql]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_

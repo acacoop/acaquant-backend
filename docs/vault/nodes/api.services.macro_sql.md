@@ -29,4 +29,3 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
-- [[api.services.macro]]  ·  _module_

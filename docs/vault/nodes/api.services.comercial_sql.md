@@ -25,6 +25,9 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.carteras]]  ·  _module_
-- [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
+- [[api.services.conoce_cliente_sql]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
+- [[api.services.cuantitativo_sql]]  ·  _module_
+- [[api.services.perfil_cliente_sql]]  ·  _module_
+- [[api.services.profundidad_sql]]  ·  _module_

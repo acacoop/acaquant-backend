@@ -54,13 +54,13 @@ pasar con `get_historico_curva` (commit `746d8b6`).
 Cloudflare Access = quién entra. `core/roles.py` = qué ve.
 
 Módulos canónicos (`core/roles.py::MODULES`): `home, renta-fija, derivados,
-renta-variable, estrategia, operar, operaciones, portfolios, manager`.
+renta-variable, operar, operaciones, portfolios, manager`.
 (`asistente` se quitó al eliminar `api/agent`; verificá `MODULES` antes de
 asumir la lista exacta.)
 
 | Módulo | admin | trader | sales |
 |---|---|---|---|
-| home / renta-fija / derivados / renta-variable / estrategia | ✓ | ✓ | ✓ |
+| home / renta-fija / derivados / renta-variable | ✓ | ✓ | ✓ |
 | operaciones / portfolios | ✓ | ✓ | – |
 | operar (envío/cancel de órdenes) | ✓ | – | – |
 | manager | ✓ | – | – |

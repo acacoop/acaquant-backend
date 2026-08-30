@@ -9,7 +9,7 @@ path: jobs/_aum_filters.py
 
 # jobs/_aum_filters
 
-> Reglas de exclusión aplicadas a `Valuaciones.AuM`.
+> Reglas de exclusión del AuM — qué tenencia NO cuenta.
 
 **Archivo:** `jobs/_aum_filters.py`
 

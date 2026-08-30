@@ -55,10 +55,6 @@ def base_boleto(s: str) -> str:
     return " ".join(_RE_MARCA_A.sub("", str(s or "")).split()).upper()
 
 
-def tiene_marca_a(s: str) -> bool:
-    return bool(_RE_MARCA_A.search(str(s or "")))
-
-
 def _fila(r: dict, tabla: str) -> dict:
     return {
         "tabla": tabla,

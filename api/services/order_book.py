@@ -10,11 +10,8 @@ saliendo de Trading.Curvas (Mongo, colección aparte no migrada aún).
 """
 from __future__ import annotations
 
-from api.cache import cached
-from core import curvas_sql
 from core.postgres import get_pool
 
-_CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
 _PLAZOS_VALIDOS = ("CI", "24hs", "48hs")
 
 # Métricas del LOB (sin TEA/duration: no es lo que pide un order book).
@@ -46,19 +43,6 @@ def _lob_rows(where: str, params: tuple) -> list[dict]:
         return [dict(zip(names, r)) for r in cur.fetchall()]
 
 
-@cached(ttl=300)
-def _tickers_de_curva(curva: str) -> list[str]:
-    """Tickers ROFEX completos de una curva, desde Trading.Curvas (Mongo, no migrada).
-    Cacheable: Curvas cambia rara vez (alta de instrumento) — TTL 5min seguro."""
-    if curva not in _CURVAS_VALIDAS:
-        return []
-    return [
-        d["ticker"]
-        for d in curvas_sql.por_curva(curva)
-        if d.get("ticker")
-    ]
-
-
 def get_order_book(instrumento: str, plazo: str = "24hs") -> dict | None:
     """LOB live (depth 5) de un ticker. Full ROFEX → match exacto; corto + plazo →
     match por sufijo ' - <corto> - <plazo>'. SQL-only (mercado.market_snapshot).
@@ -80,11 +64,3 @@ def get_order_book(instrumento: str, plazo: str = "24hs") -> dict | None:
         (f"% - {suf} - {plz}",),
     )
     return _shape(rows[0]) if rows else None
-
-
-def get_order_books_curva(curva: str) -> list[dict]:
-    """LOBs live (depth 5) de todos los tickers de la curva. SQL-only."""
-    tickers = _tickers_de_curva(curva)
-    if not tickers:
-        return []
-    return [_shape(d) for d in _lob_rows("ticker = ANY(%s)", (tickers,))]

@@ -32,23 +32,6 @@ from api.cache import cached
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-# Series BADLAR/CER/DOLAR: SQL-native (decomiso Mongo) → delegan en macro_sql
-# (macro.series_macro). Trading.{BADLAR,CER,DOLAR} dropeadas.
-def get_badlar(desde: str | None = None, hasta: str | None = None) -> list:
-    from api.services import macro_sql
-    return macro_sql.get_badlar(desde=desde, hasta=hasta)
-
-
-def get_cer(desde: str | None = None, hasta: str | None = None) -> list:
-    from api.services import macro_sql
-    return macro_sql.get_cer(desde=desde, hasta=hasta)
-
-
-def get_dolar(desde: str | None = None, hasta: str | None = None) -> list:
-    from api.services import macro_sql
-    return macro_sql.get_dolar(desde=desde, hasta=hasta)
-
-
 @cached(ttl=5)
 def get_ultimo_mep() -> dict:
     """Último valor de dólar MEP/CCL/canje + oficial. Prefiere snapshot live
@@ -148,37 +131,3 @@ def get_historico_dolares(
 # Trading.{TAMAR,CER,DOLAR,BADLAR,RiesgoPais,Inflacion*,Caucion} y Valuaciones.Dolar
 # fueron dropeadas; macro_sql es la única implementación.
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def obtener_serie_macro(variable: str, ventana_dias: int = 90) -> dict:
-    """actual + serie + stats para una variable macro (delega en macro_sql, SQL)."""
-    from api.services import macro_sql
-    return macro_sql.obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
-
-
-def clasificar_nivel(variable: str, ventana_dias: int = 90) -> dict:
-    """Wrapper compacto de obtener_serie_macro — devuelve solo clasificación + contexto."""
-    full = obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
-    pct = full.get("percentil_actual")
-    z = full.get("zscore_actual")
-    clasif = full.get("clasificacion", "sin_datos")
-
-    # Armar contexto textual corto para que el modelo lo incluya como disclaimer
-    contexto_parts: list[str] = []
-    if pct is not None:
-        contexto_parts.append(f"percentil {pct:.0f}")
-    if z is not None:
-        contexto_parts.append(f"z-score {z:.2f}")
-    contexto_parts.append(f"vs {ventana_dias}d")
-    contexto = "; ".join(contexto_parts)
-
-    return {
-        "variable": variable,
-        "actual": full.get("actual"),
-        "clasificacion": clasif,
-        "percentil_actual": pct,
-        "zscore_actual": z,
-        "ventana_dias": ventana_dias,
-        "contexto": contexto,
-        "hint": full.get("hint"),  # None si no aplica
-    }

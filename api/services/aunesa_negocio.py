@@ -79,9 +79,6 @@ ACREENCIA_OPS: tuple[tuple[str, str], ...] = (
     ("redemption",         "Redemption"),    # genérico de la familia
 )
 
-# Compat: varios lugares (y el diag) miran sólo las keys.
-ACREENCIA_KEYS = tuple(k for k, _ in ACREENCIA_OPS)
-
 # Ops canónicas sin duplicar, en orden de aparición. Lo consume `pnl.py` para
 # armar el breakdown del PnL pasivo — así las dos listas no pueden driftear.
 ACREENCIA_OPS_CANONICAS = tuple(dict.fromkeys(op for _, op in ACREENCIA_OPS))

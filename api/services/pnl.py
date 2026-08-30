@@ -216,12 +216,6 @@ _OPS_PASIVOS = ACREENCIA_OPS_CANONICAS
 # que es la tabla maestra del mapping unidad ↔ ticker corto.
 _RE_TICKER_FALLBACK = re.compile(r"^\[\d+\]\s*(.+?)(?=\s+-\s+|$)")
 
-# Para extraer id_cuenta del campo `cuenta` formato "[123] NOMBRE" cuando
-# se hace bulk-load de NegocioMovimientos en pnl_todas_cuentas. La
-# colección no tiene `id_cuenta` directo, sólo `cuenta` como string.
-_RE_TICKER_FALLBACK_ID_CUENTA = re.compile(r"^\[(\d+)\]")
-
-
 def _ticker_corto_fallback(unidad: str) -> str:
     """Solo si Valuaciones.Assets no tiene TICKER para esta unidad."""
     m = _RE_TICKER_FALLBACK.match(unidad or "")

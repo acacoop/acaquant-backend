@@ -343,14 +343,6 @@ def ops_carteras() -> dict:
     return {"carteras": carteras}
 
 
-def ops_tipos_operacion() -> dict:
-    """Valores distintos de `operacion` presentes en los boletos — catálogo
-    vivo para el vocabulario del asistente de negocio (P7)."""
-    rows = _q("SELECT DISTINCT operacion FROM operaciones "
-              "WHERE operacion IS NOT NULL AND operacion <> '' ORDER BY operacion")
-    return {"tipos": [r["operacion"] for r in rows]}
-
-
 def ops_fechas() -> dict:
     rows = _q("SELECT concertacion AS fecha, count(*) AS n FROM operaciones "
               "WHERE concertacion IS NOT NULL AND anulado_en IS NULL "
@@ -605,12 +597,6 @@ _DIMENSIONES_CONSOLIDADO: dict[str, str] = {
 _CLAVE_MES = "to_char(concertacion, 'YYYY-MM')"
 
 
-def dimensiones_consolidado() -> tuple[str, ...]:
-    """Las dimensiones válidas de `ops_consolidado`. FUENTE ÚNICA: el enum que
-    ve el modelo se DERIVA de acá (antes había una lista duplicada en
-    asistente_tools y agregar una dimensión exigía tocar dos archivos, con el
-    riesgo de que el modelo pidiera algo que el SQL rechazaba)."""
-    return (*_DIMENSIONES_CONSOLIDADO, "operador")
 _CLAVE_CARTERA = (
     "COALESCE((SELECT a.cartera FROM portafolio.assets a "
     " WHERE a.unidad = operaciones.instrumento), '(SIN CARTERA)')"

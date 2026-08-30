@@ -29,16 +29,6 @@ def _fci_assets_map() -> dict[str, dict]:
     }
 
 
-@cached(ttl=600)
-def _assets_enrich_map() -> dict[str, dict]:
-    """unidad → {cartera, clase_activo} desde SQL `portafolio.assets` (vía `assets_rows`)."""
-    return {
-        a["unidad"]: {"cartera": a["CARTERA"] or "OTROS", "clase_activo": a["CLASE_ACTIVO"]}
-        for a in assets_rows(["CARTERA", "CLASE_ACTIVO"])
-        if a["unidad"]
-    }
-
-
 def _valuacion_api(cant: float, px: float, cartera: str, clase_activo: str) -> float:
     """Regla de valuación: FCI o clase OTROS → P×Q directo, resto → P×Q/100."""
     if clase_activo == "OTROS" or "FCI" in cartera:

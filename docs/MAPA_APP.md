@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **530 endpoints** montados en `api.main.app`, en **32 routers**.
-- **189 escriben** (POST/PUT/PATCH/DELETE); 341 son de solo lectura.
+- **517 endpoints** montados en `api.main.app`, en **32 routers**.
+- **188 escriben** (POST/PUT/PATCH/DELETE); 329 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -55,29 +55,29 @@
 | `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
 | `/api/back-office/interbanking` | 26 | 17 | `back-office` | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
-| `/api/cotizaciones` | 35 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
+| `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/estrategia` | 4 | 0 | `trading` | — |  |
 | `/api/ia` | 1 | 0 | `ia` | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 143 | 69 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
-| `/api/market` | 4 | 0 | — | — | ⚠️ |
+| `/api/manager` | 139 | 68 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/market` | 2 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 9 | 4 | — · 7 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 54 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 17 | 3 | `portfolios` · 13 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 12 rutas con gate extra | `portfolios` |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
-| `/api/research1816` | 11 | 0 | `research` | — |  |
+| `/api/research1816` | 10 | 0 | `research` | — |  |
 | `/api/risk` | 5 | 0 | `operar` | `operar` |  |
-| `/api/scanner` | 9 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
+| `/api/scanner` | 7 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
 | `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
-| `/api/trading` | 9 | 1 | `trading` | `trading` |  |
+| `/api/trading` | 7 | 1 | `trading` | `trading` |  |
 | `/api/valuaciones` | 8 | 0 | `portfolios` · 8 rutas con gate extra | — |  |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
@@ -85,9 +85,9 @@
 - `(raíz)` (2 de 2 rutas sin gate de módulo)
 - `/api/aca` (declara `aca`, no lo aplica)
 - `/api/analitica` (14 de 14 rutas sin gate de módulo)
-- `/api/cotizaciones` (34 de 35 rutas sin gate de módulo)
+- `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
-- `/api/market` (4 de 4 rutas sin gate de módulo)
+- `/api/market` (2 de 2 rutas sin gate de módulo)
 - `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)
 - `/api/news` (3 de 3 rutas sin gate de módulo)
 - `/api/titulos` (declara `portfolios`, no lo aplica)

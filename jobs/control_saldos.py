@@ -17,7 +17,8 @@ que es la que contesta «¿esta cuenta está en descubierto HOY?».
 `DIF` (diferido) NO está liquidado por más que Aunesa mande su importe en la
 columna `cantidadLiquidada` — ver `ESTADOS_DIFERIDOS`.
 
-Medido contra la cuenta 805 el 2026-08-13 (`scripts/diag_posiciones_resumen`):
+Medido contra la cuenta 805 el 2026-08-13 (el diag que lo midió ya cumplió y
+se borró; lo medido quedó acá, que es donde sirve):
   · formato de `fecha` = **DD/MM/YYYY**. Con `YYYY-MM-DD` devuelve HTTP 400
     («Error en formato de fechas») — no es un detalle de estilo, es el contrato.
   · el endpoint responde en ~260-420ms.

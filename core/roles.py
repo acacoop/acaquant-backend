@@ -27,7 +27,6 @@ import logging
 import threading
 import time
 from datetime import UTC, datetime, timedelta
-from typing import TypedDict
 
 from config import MANAGER_EMAILS
 
@@ -235,16 +234,6 @@ def invalidate_cache() -> None:
 # ─────────────────────────────────────────────────────────────
 # Lectura de Mongo
 # ─────────────────────────────────────────────────────────────
-
-class UserDoc(TypedDict, total=False):
-    email: str
-    role: str
-    enabled: bool
-    control_comercial: bool
-    notes: str
-    created_at: datetime
-    updated_at: datetime
-
 
 def _audit_insert(doc: dict) -> None:
     """Inserta un evento de auditoría SQL-NATIVE en manager.role_audit (decomiso Mongo:

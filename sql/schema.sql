@@ -3037,23 +3037,6 @@ ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS razonamiento text;
 -- 2026-07-12: conversaciones separadas del copiloto (cada chat su mundo)
 ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS conv_id text;
 
--- Extremos históricos PRE-serie (2005 → arranque de la serie diaria) por
--- underlying. Decisión user 2026-07-11: NO cargar 20 años de velas — el
--- script scripts/backfill_extremos_hist.py releva el máximo y el mínimo de
--- Yahoo y guarda SOLO los lados que SUPERAN a los de la serie viva (si el
--- extremo ya está en 2024+, no se guarda nada). Lector:
--- api/services/copiloto._extremos_serie (merge con la serie).
-CREATE TABLE IF NOT EXISTS mercado.precios_extremos_hist (
-    ticker      text PRIMARY KEY,
-    max_high    numeric,
-    max_fecha   date,
-    min_low     numeric,
-    min_fecha   date,
-    desde       date NOT NULL,
-    hasta       date NOT NULL,
-    updated_at  timestamptz NOT NULL DEFAULT now()
-);
-
 -- Config editable del gateway de IA (presupuestos de tokens). Se edita desde
 -- Manager → OBSERVABILIDAD → IA (solo admin). Precedencia en core/ai.py:
 -- esta tabla > env var > default del código. Claves: budget_dia_global,

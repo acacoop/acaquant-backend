@@ -46,13 +46,6 @@ def get_riesgo_pais_serie() -> list[dict]:
     return data
 
 
-def get_riesgo_pais_ultimo() -> dict:
-    data = _get("/v1/finanzas/indices/riesgo-pais/ultimo")
-    if not isinstance(data, dict):
-        raise ArgDataError(f"riesgo-pais/ultimo: shape inesperada {type(data).__name__}")
-    return data
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Inflación (IPC mensual + YoY)
 # ─────────────────────────────────────────────────────────────────────────────

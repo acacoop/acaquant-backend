@@ -296,26 +296,6 @@ def obtener_4_timeframes(ticker: str) -> dict:
     }
 
 
-# Mantengo la API anterior por compat. Equivale a obtener_4_timeframes()["frames"]["diario"].
-def obtener_para_ticker(ticker: str) -> dict | None:
-    """Legacy: solo el frame diario.
-
-    Mantenido por si algo importa esta función. Para uso nuevo, ir directo
-    a obtener_4_timeframes().
-    """
-    res = obtener_4_timeframes(ticker)
-    diario = res["frames"].get("diario")
-    if not diario:
-        return None
-    return {
-        "fecha_ref": diario["fecha_hasta"],
-        "high":      diario["h"],
-        "low":       diario["l"],
-        "close":     diario["c"],
-        "levels":    diario["levels"],
-    }
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # Debug — detalle paso a paso del cálculo (panel Manager → Validaciones)
 # ──────────────────────────────────────────────────────────────────────────

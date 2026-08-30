@@ -192,12 +192,6 @@ def ultimo_cer_publicado() -> str | None:
     return ultima_fecha("CER")  # SQL-only (ya viene 'YYYY-MM-DD')
 
 
-def obtener_teas_cer(tickers):
-    """Última TEA por ticker CER (SQL-only: mercado.market_snapshot.tea)."""
-    from core.market_snapshot import metric_map
-    return metric_map(tickers, "tea")
-
-
 # ─────────────────────────────────────────────
 # Cálculo de breakevens
 # ─────────────────────────────────────────────

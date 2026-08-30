@@ -86,15 +86,6 @@ _lock = threading.Lock()
 _ultimo: dict[str, tuple[float, bool]] = {}      # proveedor → (cuándo, estaba_ok)
 
 
-def de_url(url: str) -> str | None:
-    """Qué proveedor es esa URL, o None si no es de ninguno conocido."""
-    u = (url or "").lower()
-    for clave, p in PROVEEDORES.items():
-        if p.host in u:
-            return clave
-    return None
-
-
 def es_caida(codigo: int) -> bool:
     """¿Ese código HTTP significa que **el proveedor** está caído?
 

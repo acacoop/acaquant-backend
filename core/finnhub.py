@@ -7,7 +7,7 @@ respetando el límite.
 
 Expone wrappers de alto nivel para los endpoints que usamos:
     - general_news, company_news
-    - quote, stock_candle, forex_candle
+    - quote, stock_candle
     - profile (company profile v2)
 
 Las excepciones vienen tipadas (FinnhubError). El caller decide si reintenta
@@ -71,12 +71,6 @@ def quote(symbol: str) -> dict:
 def stock_candle(symbol: str, resolution: str, desde: int, hasta: int) -> dict:
     """Velas OHLCV. Resolution: 1,5,15,30,60,D,W,M. Timestamps en epoch seconds."""
     out = _get("/stock/candle", {"symbol": symbol, "resolution": resolution, "from": desde, "to": hasta})
-    return out or {}
-
-
-def forex_candle(symbol: str, resolution: str, desde: int, hasta: int) -> dict:
-    """Velas FX. Ej symbol='OANDA:EUR_USD'."""
-    out = _get("/forex/candle", {"symbol": symbol, "resolution": resolution, "from": desde, "to": hasta})
     return out or {}
 
 

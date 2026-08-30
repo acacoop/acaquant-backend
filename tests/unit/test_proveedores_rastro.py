@@ -88,8 +88,8 @@ def _modulos_que_le_hablan_a(host: str) -> list[pathlib.Path]:
                 t = f.read_text(encoding="utf-8")
             except OSError:
                 continue
-            # El propio catálogo y este test nombran el host para declararlo.
-            if host in t and f.name not in ("dependencias.py", "proveedores.py"):
+            # El propio catálogo nombra el host para declararlo.
+            if host in t and f.name != "proveedores.py":
                 out.append(f)
     return out
 

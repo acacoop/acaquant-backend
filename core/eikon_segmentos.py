@@ -275,14 +275,6 @@ def agregado_segmentos(tipo: str = "negocio", periodo: str = "anual",
     }
 
 
-def tickers_con_segmentos() -> list[str]:
-    """Underlyings que ya tienen desglose bajado (para que la vista sepa si el
-    panel tiene sentido antes de pedirlo)."""
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ticker FROM mercado.eikon_segmentos ORDER BY ticker")
-        return [t for (t,) in cur.fetchall()]
-
-
 def _num(v) -> float | None:
     if v is None or isinstance(v, bool):
         return None

@@ -9,11 +9,6 @@ from __future__ import annotations
 from core import curvas_sql
 
 
-def cargar_todos() -> list[dict]:
-    """Todos los docs del master (sin filtros)."""
-    return curvas_sql.cargar_todos()
-
-
 def cargar_por_curva() -> dict[str, list[dict]]:
     """Docs agrupados por el campo `curva`. Ignora docs sin `curva`.
 

@@ -28,29 +28,12 @@ def pivots(tickers: str = Query("", description="CSV de ticker_corto de CEDEARs"
     return svc.get_pivots(tickers=lista)
 
 
-@router.get("/trades")
-def trades(ticker: str, limite: int = 200):
-    """Time & Sales (tape) del activo de la card. Resuelve la fuente por
-    `ticker` (ticker_corto) igual que /pivots: CEDEAR → tabla de CEDEARs; bono
-    → mercado.timesales (tape de renta fija). Shape:
-    [{timestamp, price, size, side, money}] desc por ts."""
-    return svc.get_trades(ticker=ticker, limite=limite)
-
-
 @router.get("/intraday")
 def intraday(ticker: str):
     """Serie intradía por minuto (OHLC) para el chart LIVE. Resuelve la fuente
     por `ticker` igual que /pivots y /trades: CEDEAR → tabla de CEDEARs; bono →
     mercado.timesales agregado por minuto. Shape: [{t, o, h, l, c, vol}] asc."""
     return svc.get_intraday(ticker=ticker)
-
-
-@router.get("/renta-fija")
-def renta_fija():
-    """Radar de renta fija (pesos: tasa fija + CER) para el tab RENTA FIJA del
-    panel de movers de TRADING: [{ticker_corto, last, tna, volumen}] ordenado
-    por volumen del día desc. Click en una fila → carga la card."""
-    return svc.get_renta_fija_radar()
 
 
 @router.get("/pivot-radar")

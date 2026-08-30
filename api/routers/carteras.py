@@ -123,25 +123,6 @@ def operadores():
     return listar_operadores_comercial()
 
 
-@router.get("/aum")
-def listar_aum(
-    id_cuenta: str | None = Query(None, description="Filtrar por id de cuenta"),
-    unidad: str | None = Query(None, description="Filtrar por unidad/instrumento"),
-    cuenta: str | None = Query(None, description="Filtrar por cuenta (formato [N] NOMBRE)"),
-    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    ultimo: bool = Query(False, description="Si true, devuelve solo el último snapshot"),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-):
-    # Si se pide una cuenta puntual, verificar que esté dentro del scope.
-    if id_cuenta and scope is not None and str(id_cuenta) not in scope:
-        raise HTTPException(status_code=403, detail="no tenés acceso a esa cuenta")
-    return svc_sql.listar_aum(
-        id_cuenta=id_cuenta, unidad=unidad, cuenta=cuenta,
-        desde=desde, hasta=hasta, ultimo=ultimo, scope=scope,
-    )
-
-
 @router.get("/pnl", dependencies=[Depends(verificar_id_cuenta)])
 def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')")):
     """PnL por (cuenta, ticker) basado en cash flows — SIEMPRE SQL (`pnl_sql`,

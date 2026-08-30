@@ -270,13 +270,6 @@ def rem_breakeven_acumulado(
     return svc_rem_sql.breakeven_acumulado(informe=informe)
 
 
-@router.get("/rem/debug")
-def rem_debug():
-    """Diagnóstico: qué informes / períodos hay y cuántos. Útil cuando el chart
-    no dibuja."""
-    return svc_rem_sql.debug_info()
-
-
 # ── Renta Fija ──
 
 
@@ -382,5 +375,3 @@ def historico_curva(
     curva: str = Query(..., description="tasa_fija / cer"),
 ):
     return svc_rf_sql.get_historico_curva(curva=curva)
-
-

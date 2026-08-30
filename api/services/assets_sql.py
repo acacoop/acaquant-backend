@@ -124,16 +124,6 @@ def list_assets_panel(cartera: str | None = None, emisor: str | None = None,
         return [_row_panel(r) for r in cur.fetchall()]
 
 
-def gaps_assets_panel(limit: int = 5000) -> list[dict]:
-    """Assets con CARTERA o EMISOR vacíos."""
-    sql = (f"SELECT {', '.join(_PANEL_COLS)} FROM portafolio.assets "
-           f"WHERE {_EMPTY.format(col='cartera')} OR {_EMPTY.format(col='emisor')} "
-           f"ORDER BY unidad LIMIT {int(limit)}")
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql)
-        return [_row_panel(r) for r in cur.fetchall()]
-
-
 def values_assets_panel(fields: Iterable[str]) -> dict[str, list[str]]:
     """Valores únicos por campo UPPERCASE (para los datalist del form). Filtra
     vacíos y 'NO APLICA'. UNA query para todos los campos (array_agg DISTINCT

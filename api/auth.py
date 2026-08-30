@@ -15,7 +15,7 @@ Uso:
         ...
 
     # Gate de admin (MANAGER_EMAILS)
-    app.include_router(manager.router, dependencies=[Depends(require_manager)])
+    app.include_router(manager.router, dependencies=[Depends(require_module("manager"))])
 """
 from __future__ import annotations
 
@@ -267,25 +267,6 @@ def get_user_email(
     if cf_email:
         return cf_email.lower().strip()
     return "anon"
-
-
-def require_manager(email: str = Depends(get_user_email)) -> str:
-    """Exige role con acceso al módulo `manager`.
-
-    Alias histórico que ahora delega a la matriz RBAC. El resultado es
-    idéntico para admins: MANAGER_EMAILS queda como fallback (`core/roles.py`
-    lo cacha en `get_user_role`) y los emails ya seedeados en
-    `Manager.Users` con `role=admin` pasan naturalmente.
-
-    Se mantiene por compat con callers externos; código nuevo usar
-    `require_module("manager")` directamente.
-    """
-    from core.roles import has_access
-
-    if has_access(email, "manager"):
-        return email
-    logger.warning("require_manager: rechazado email=%r", email)
-    raise HTTPException(status_code=403, detail="acceso al módulo manager no autorizado")
 
 
 # ─────────────────────────────────────────────────────────────

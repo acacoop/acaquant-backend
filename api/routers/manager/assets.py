@@ -25,7 +25,6 @@ from pydantic import BaseModel, Field
 from api.auth import get_user_email
 from api.services.assets_sql import (
     asset_one_panel,
-    gaps_assets_panel,
     list_assets_panel,
     values_assets_panel,
 )
@@ -104,13 +103,6 @@ def list_assets(
 ) -> dict:
     """Lista assets de Valuaciones.Assets. Sin filtros: todo el catálogo."""
     assets = _list_assets(cartera=cartera, emisor=emisor, campo_vacio=campo_vacio)
-    return {"assets": assets, "n": len(assets)}
-
-
-@router.get("/assets/gaps")
-def get_assets_gaps() -> dict:
-    """Compat: assets con CARTERA o EMISOR vacíos (desde SQL portafolio.assets)."""
-    assets = _normalize_assets(gaps_assets_panel())
     return {"assets": assets, "n": len(assets)}
 
 
@@ -213,17 +205,3 @@ def _write_sql(unidad: str, set_fields: dict) -> None:
     Ahora la puerta está en el service y esto es solo el nombre viejo."""
     from api.services import assets_sql
     assets_sql.set_campos(unidad, set_fields)
-
-
-# Compat: PATCH /assets/{unidad} sigue funcionando para clientes viejos
-# pero internamente delega al nuevo handler. Usar el body es preferible.
-@router.patch("/assets/{unidad}")
-def patch_asset_legacy(
-    unidad: str,
-    body: dict = Body(...),
-    actor: str = Depends(get_user_email),
-):
-    """DEPRECATED — use PATCH /api/manager/assets con unidad en body."""
-    body["unidad"] = unidad
-    req = _AssetPatch(**body)
-    return patch_asset(req=req, actor=actor)

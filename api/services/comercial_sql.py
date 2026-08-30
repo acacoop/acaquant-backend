@@ -193,22 +193,6 @@ def _scope_cuentas(operador, p: dict, nivel_1=None,
             f"WHERE {_comitentes_where(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)})")
 
 
-def _ids_operador(operador, nivel_1=None, nivel_3=None,
-                  referido=None, corte: str | None = None,
-                  nivel_4=None, nivel_5=None, nivel_2=None, division=None) -> list[str]:
-    """ids de cuenta activas del scope (operador + niveles + referido + division). `corte`
-    (ISO) limita a las cuentas que YA existían a esa fecha (fecha_alta_legajo <= corte).
-    Resolvedor liviano standalone (lo usa control_comercial_sql); las vistas que además
-    necesitan ficha/cupos usan `_universo_comercial` (una sola pasada)."""
-    p: dict = {}
-    where = _comitentes_where(operador, p, nivel_1, nivel_3, referido, nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
-    if corte is not None:
-        where += " AND fecha_alta_legajo <= %(corte_alta)s"
-        p["corte_alta"] = corte
-    return sorted(r["id_cuenta"] for r in _q(
-        f"SELECT id_cuenta FROM comitentes WHERE {where}", p))
-
-
 def _aum_por_cuenta_sql(operador, nivel_1=None,
                         nivel_3=None, referido=None,
                         corte: str | None = None,
@@ -1037,58 +1021,3 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
             "clientes": clientes, "operaciones": operaciones,
             "n_operaciones": n_operaciones}
-
-
-def debug_comercial(*, operador: str | None = None, segmento: str | None = None,
-                    moneda: str = "ARS") -> dict:
-    """Auditoría del Informe comercial (Manager → Diagnóstico): desglose POR CUENTA
-    (# ops, volumen total/mes, arancel) + totales + ticket, para un operador O un
-    segmento (nivel_1). Espejo SQL de comercial.debug_comercial — vol/n_ops de
-    negocio_movimientos, arancel de operaciones (vía _rollup_por_cuenta). Volumen
-    pesificado (incluye USD); `moneda='USD'` dolariza al MEP."""
-    factor = _factor_usd(moneda)
-
-    where = "c.estado = 'Activa'"
-    p: dict = {}
-    if operador:
-        where += " AND c.operador_email = %(op)s"
-        p["op"] = operador
-    if segmento:
-        if segmento == "(sin segmentar)":
-            where += " AND c.nivel_1 IS NULL"
-        else:
-            where += " AND c.nivel_1 = %(seg)s"
-            p["seg"] = segmento
-    cuentas = {r["id_cuenta"]: (r["denominacion"] or "—") for r in _q(
-        f"SELECT c.id_cuenta, u.denominacion FROM comitentes c "
-        f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)}
-    ids = list(cuentas)
-    if not ids:
-        return {"operador": operador, "segmento": segmento or "todos",
-                "n_cuentas_filtradas": 0, "n_cuentas_con_actividad": 0,
-                "totales": {}, "cuentas": []}
-
-    # vol/n_ops (negocio_movimientos) + arancel (operaciones) por cuenta, en vivo.
-    por_cuenta = _rollup_por_cuenta("id_cuenta = ANY(%(ids)s)", {"ids": ids})
-    filas = [{
-        "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
-        "n_ops": int(agg["n_ops"] or 0),
-        "vol_total": _cv(_f(agg["vol_total"]), factor),
-        "vol_mes": _cv(_f(agg["vol_mes"]), factor),
-        "ar_total": _cv(_f(agg["ar_total"]), factor),
-    } for idc, agg in por_cuenta.items()]
-    filas.sort(key=lambda x: x["vol_total"], reverse=True)
-    n_ops = sum(f["n_ops"] for f in filas)
-    vol_total = round(sum(f["vol_total"] for f in filas), 2)
-    return {
-        "operador": operador, "segmento": segmento or "todos",
-        "n_cuentas_filtradas": len(ids),
-        "n_cuentas_con_actividad": len(filas),
-        "totales": {
-            "n_ops": n_ops, "vol_total": vol_total,
-            "vol_mes": round(sum(f["vol_mes"] for f in filas), 2),
-            "ar_total": round(sum(f["ar_total"] for f in filas), 2),
-            "ticket_promedio": round(vol_total / n_ops, 2) if n_ops else 0.0,
-        },
-        "cuentas": filas[:300],
-    }

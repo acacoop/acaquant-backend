@@ -40,29 +40,6 @@ def cedears_scanner():
     return svc_sql.get_cedears_scanner()
 
 
-@router.get("/cedears/trades")
-def cedears_trades(ticker: str, limite: int = 200):
-    """Time & Sales intradía del CEDEAR (tape). Trades inferidos por el motor
-    en Trading.CedearsTimeSales (se vacía al cierre). `ticker` = ticker_corto.
-
-    Returns:
-        list[{timestamp, price, size, side, money}] desc por timestamp.
-    """
-    return svc.get_cedears_trades(ticker=ticker, limite=limite)
-
-
-@router.get("/cedears/intraday")
-def cedears_intraday(ticker: str):
-    """Serie intradía por minuto (OHLC + vol) del CEDEAR desde el Time & Sales
-    de hoy. Para el chart LIVE del Scanner (mismo feed que tabla/tape, sin delay).
-    `ticker` = ticker_corto.
-
-    Returns:
-        list[{t, o, h, l, c, vol}] asc por minuto (UTC ISO).
-    """
-    return svc.get_cedears_intraday(ticker=ticker)
-
-
 @router.get("/ccl")
 def ccl_live():
     """CCL live + variación 1D — para el KPI del shell de Renta Variable.

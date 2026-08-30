@@ -80,19 +80,6 @@ def mails(
     return svc.listar_research(limit=limit, offset=offset)
 
 
-@router.get("/mails/buscar")
-def buscar(
-    q: str = Query(..., min_length=2, description="texto a buscar (full-text español)"),
-    limit: int = Query(30, ge=1, le=100),
-) -> dict:
-    """Búsqueda full-text sobre el cuerpo del research ('¿qué dijeron del BCRA?').
-
-    Returns:
-        {items: [{..., fragmento}], total, q}
-    """
-    return svc.buscar_research(q=q, limit=limit)
-
-
 # ── Market Data 1816 (pilar A) — laboratorio de series/spreads ───────────────
 
 

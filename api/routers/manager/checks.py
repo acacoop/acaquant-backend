@@ -10,18 +10,6 @@ from core.postgres import get_pool
 router = APIRouter()
 
 
-@router.get("/checks/debug-comercial")
-def check_debug_comercial(
-    operador: str | None = Query(None, description="operador_email a auditar"),
-    segmento: str | None = Query(None, description="nivel_1 a auditar"),
-    moneda: str = Query("ARS", description="ARS | USD"),
-):
-    """Auditoría del Informe comercial: desglose por cuenta (# ops, volumen,
-    arancel) + totales + ticket promedio, para un operador o un segmento."""
-    from api.services.comercial_sql import debug_comercial
-    return debug_comercial(operador=operador, segmento=segmento, moneda=moneda)
-
-
 @router.get("/checks/tasa-fija")
 def check_tasa_fija():
     """Estado de instrumentos tasa_fija en AuM."""
@@ -87,59 +75,6 @@ def check_breakevens_debug():
     + Fisher clásico). Lógica en api/services/debug_derivados.py."""
     from api.services import debug_derivados
     return debug_derivados.breakevens_debug()
-
-
-@router.get("/checks/futuros-dlr")
-def check_futuros_dlr():
-    """Debug de la curva de futuros DLR — spot, fuente y TNA por outright.
-
-    Lee Trading.FuturosDLRSnapshot tal como lo escribe el motor (no recalcula).
-    Útil para confirmar:
-      - Qué spot está usando el motor y de qué fuente cayó (oficial / a3500 / mep).
-      - Hace cuánto se reescribió el snapshot (stale_min). Fuera de horario de
-        mercado los docs quedan viejos — esperable.
-      - Dispersión TNA bid vs last vs offer en outrights cortos (ABR/MAY) donde
-        un last desactualizado distorsiona la TNA reportada en la watchlist.
-    """
-    from datetime import UTC, datetime
-
-    from api.services.debug_derivados import _futuros_dlr_docs
-    docs = _futuros_dlr_docs()
-
-    if not docs:
-        return {"spot": None, "outrights": [], "total": 0}
-
-    primero = docs[0]
-    ts = primero.get("updated_at")
-    stale_min: float | None = None
-    if isinstance(ts, datetime):
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=UTC)
-        stale_min = round((datetime.now(UTC) - ts).total_seconds() / 60.0, 1)
-
-    spot = {
-        "valor":      primero.get("spot_referencia"),
-        "fuente":     primero.get("fuente_spot"),
-        "stale_min":  stale_min,
-    }
-
-    outrights = [
-        {
-            "ticker":     d.get("ticker"),
-            "vto":        d.get("vencimiento"),
-            "dias":       d.get("dias_a_vto"),
-            "bid":        d.get("bid_price"),
-            "last":       d.get("last_price"),
-            "offer":      d.get("offer_price"),
-            "tna_bid":    d.get("tasa_implicita_tna_bid"),
-            "tna_last":   d.get("tasa_implicita_tna"),
-            "tna_offer":  d.get("tasa_implicita_tna_offer"),
-            "updated_at": d.get("updated_at"),
-        }
-        for d in docs
-    ]
-
-    return {"spot": spot, "outrights": outrights, "total": len(docs)}
 
 
 @router.get("/checks/debug-tna-futuros")

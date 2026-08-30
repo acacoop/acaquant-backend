@@ -40,7 +40,7 @@ from fastapi.routing import APIRoute
 # Los gates que ALCANZAN para considerar una ruta protegida por identidad.
 # `require_module_*`/`require_any_module_*` se detectan por prefijo (son
 # generados) y por eso no están acá.
-GATES_DUROS = frozenset({"require_admin", "require_manager", "require_no_invitado"})
+GATES_DUROS = frozenset({"require_admin", "require_no_invitado"})
 
 
 @dataclass
@@ -67,7 +67,7 @@ class Ruta:
 
     @property
     def es_admin(self) -> bool:
-        return "require_admin" in self.gates or "require_manager" in self.gates
+        return "require_admin" in self.gates
 
     @property
     def sin_gate(self) -> bool:

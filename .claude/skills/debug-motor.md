@@ -12,7 +12,6 @@ Se aplica cuando el usuario reporta "el motor X no anda", "no llegan datos de Y"
 Motores de mercado corren **L-V 13:00–20:05 UTC** (10:00–17:05 ART). Antes de debuggear:
 
 - Fuera de ese horario → NO es un bug, el motor está stopped por cron. Data live es de ayer.
-- 04:00–11:20 UTC → Atlas pausado. La API devuelve errores de conexión por diseño. Esperar resume.
 
 ## 2. Status del service
 
@@ -27,7 +26,7 @@ Síntomas y decisión:
 - **active (running)**: el motor está vivo. Saltar a paso 3.
 - **failed**: leer el traceback. Típicos:
   - `pyRofex` auth error → expiró la sesión (revisar `ROFEX_*` en `.env`).
-  - `ServerSelectionTimeoutError` → Atlas pausado o MONGO_URI mal.
+  - Error de conexión a Postgres → revisar `POSTGRES_URI` en el unit file / `.env`.
   - `ImportError` → cambio de imports tras refactor, probar `python -m engines.<nombre>` manual.
 - **inactive (dead)**: probablemente fuera de horario o el cron no lo arrancó. `systemctl start motor_<nombre>.service` si hace falta.
 
@@ -81,5 +80,5 @@ Si el problema persiste después de recovery:
 ## Criterios de éxito
 
 - ✓ `journalctl` sin errores en los últimos 5 min.
-- ✓ Colección destino con `updated_at` / `timestamp` reciente.
+- ✓ Tabla destino con `updated_at` / `ingestado_en` reciente.
 - ✓ Vista del frontend muestra data fresca.

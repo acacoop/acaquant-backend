@@ -15,7 +15,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | Comando | Qué hace |
 |---|---|
 | `/perf` | `scripts.perf_scan --strict` + resumen de findings por código PERF001…4. |
-| `/motor-status` | Estado systemd + última actividad Mongo de los motores. |
+| `/motor-status` | Estado systemd + última actividad en Postgres de los motores. |
 | `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. |
 | `/sistema` | Regenera + muestra el plano único del sistema (`deploy/SISTEMA.md`) desde systemd + crontab. |
 
@@ -25,8 +25,8 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 |---|---|
 | `add-bono` | Agregar un instrumento nuevo (tasa_fija / CER / soberano). |
 | `add-endpoint` | Crear un endpoint REST end-to-end (service → router → proxy + RBAC). |
-| `add-job` | Crear un job batch/cron (`JobRunLogger`, crontab, índices). |
-| `debug-motor` | Troubleshooting de cualquier motor (systemd, journalctl, Mongo). |
+| `add-job` | Crear un job batch/cron (`JobRunLogger`, `run_job.sh`, crontab, índices). |
+| `debug-motor` | Troubleshooting de cualquier motor (systemd, journalctl, Postgres). |
 | `backfill-mes` | Rehacer el snapshot de AuM de un mes (delete + backfill + fix precios). |
 | `audit-obsoleto` | Auditar scripts/tests/docs obsoletos → listas BORRAR/REVISAR/MANTENER. On-demand. |
 | `safe-backfill` | Backfill/migración/`--full` que NO tira el CPU: medir → scopear → batchear+throttle → run_job → fuera de rueda (REGLA #4, post-incidente 2026-06-04). |

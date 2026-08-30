@@ -6,11 +6,11 @@ Corré `python -m scripts.perf_scan --strict` y resumí el output.
 
 Pasos:
 
-1. Ejecutá el comando. El script es estático (no toca Mongo), debería tardar < 5s.
+1. Ejecutá el comando. El script es estático (no toca la base), debería tardar < 5s.
 2. Agrupá findings por código:
    - **PERF001** — `find()` sin projection (trae todo el doc).
    - **PERF002** — query en `for` (N+1, mover a `$in` o aggregate).
-   - **PERF003** — `count_documents({})` sobre toda la colección.
+   - **PERF003** — `count(*)` sobre la tabla entera.
    - **PERF004** — misma query repetida (candidata a `@cached`).
 3. Para cada finding, mostrá archivo:línea + sugerencia corta de cómo arreglarlo.
 4. Si hay 0 findings → "Todo limpio ✓".

@@ -26,17 +26,22 @@ Patrón:
 
 ```python
 from api.cache import cached
+from core.postgres import get_pool
 
 @cached(ttl=60)  # ajustar TTL según frescura requerida
 def nombre_funcion(param1: str, param2: int | None = None) -> dict:
     """Docstring con qué devuelve y por qué."""
-    client = get_mongo_client_read()  # READ-ONLY para queries de API
-    # ... pipeline / queries ...
-    return resultado
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ...", (param1,))
+        filas = cur.fetchall()
+    return armar(filas)
 ```
 
 **Reglas del service**:
-- Siempre `get_mongo_client_read()` (no el rw).
+- Pool singleton `core.postgres.get_pool()` — no cerrarlo. Parámetros siempre, nunca
+  SQL concatenado.
+- `api/services/` es PURO: no importa FastAPI. El `Depends`, el `HTTPException` y el
+  status code viven en el router.
 - Cache con `@cached(ttl=N)` — nunca escribir caches manuales.
 - Inputs parseados/validados acá (no dejar para el router).
 - Si hay mutación (raro), explicitar y NO cachear.

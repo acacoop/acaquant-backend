@@ -2,20 +2,20 @@
 name: safe-backfill
 description: >
   Aplicar SIEMPRE que el pedido implique correr un backfill, migración, --full,
-  update_many, o cualquier operación que toque muchos documentos de prod (Atlas
-  M10). Operacionaliza la REGLA #4. NO entregar un backfill sin pasar por estos
+  UPDATE masivo, o cualquier operación que toque muchas filas de prod
+  (Postgres/Supabase). Operacionaliza la REGLA #4. NO entregar un backfill sin estos
   pasos — el incidente 2026-06-04 (CPU 100% tres veces) fue por saltearlos.
 ---
 
 # safe-backfill — backfills/migraciones que NO tiran el CPU
 
-El M10 tiene 2 vCPU y comparte el CPU con los motores de mercado (13-20 UTC L-V).
-Un scan sin índice sobre cientos de miles de docs lo clava. Reglas #2 y #4.
+La base comparte CPU con los motores de mercado (13-20 UTC L-V). Un seq scan sobre
+cientos de miles de filas la clava. Reglas #2 y #4.
 
 ## NUNCA
 
-- `--full` que re-lea toda una colección sin índice (`update_many({campo_sin_indice})`,
-  `find({})` sobre 100k+, `find_one({campo: {$ne: ...}}, sort=...)`).
+- `--full` que re-lea una tabla entera sin índice (`UPDATE ... WHERE campo_sin_indice`,
+  `SELECT *` sobre 100k+ filas, un `ORDER BY` sin índice de soporte).
 - Declarar algo "liviano/seguro" sin haberlo MEDIDO en prod. Prohibido.
 - Correr backfills pesados en horario de rueda (13-20 UTC L-V).
 

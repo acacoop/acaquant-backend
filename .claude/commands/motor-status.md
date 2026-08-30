@@ -1,5 +1,5 @@
 ---
-description: Estado de los motores de mercado en el Droplet (systemctl) + última actividad en Mongo
+description: Estado de los motores de mercado en el Droplet (systemctl) + última actividad en Postgres
 ---
 
 Diagnóstico rápido del estado de los motores de mercado. Responde "¿está todo corriendo?" en una sola vista sin que el usuario tenga que hacer 8 `systemctl status`.
@@ -11,7 +11,7 @@ Pasos:
    ```
    ssh root@droplet 'for s in motor_rofex motor_options motor_curvas motor_forwards motor_breakevens motor_caucion motor_futuros_dlr motor_dolares; do echo "=== $s ==="; systemctl is-active $s.service; done'
    ```
-3. **Actividad reciente en Mongo** — para cada motor, query a la colección destino:
+3. **Actividad reciente en Postgres** — para cada motor, query a la tabla destino:
    - `motor_rofex` → último `Trading.TimeSales` (cualquier ticker).
    - `motor_curvas` → último doc con `duration` seteada.
    - `motor_options` → último `Opciones.OptionsSnapshot.updated_at`.
@@ -34,5 +34,5 @@ Pasos:
 5. Si alguno está `failed`: sugerir `journalctl -u <motor>.service -n 100 --no-pager` y aplicar el skill `debug-motor` para el playbook completo. **No reiniciar sin confirmación del usuario.**
 
 Consideraciones:
-- Atlas pausado 04:00–11:20 UTC → las queries a Mongo van a fallar. Reportar "Atlas pausado" y omitir la parte de actividad; el systemd sí se puede checkear siempre.
+- Si Postgres no responde, reportarlo y omitir la parte de actividad; el systemd sí se puede checkear siempre.
 - No asumir ssh key configurada — si falla, pedirle al usuario que corra los comandos manualmente y pegue el output.

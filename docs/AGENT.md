@@ -2641,7 +2641,7 @@ mirado nunca los logs de producción** (REGLA #2), y un detector mal calibrado
 grita todos los días hasta que alguien lo silencia — peor que no tenerlo, porque
 además enseña a ignorar la pantalla donde vive.
 
-Así que primero se mide: `python -m scripts.diag_logs_motores` imprime el reparto
+Así que primero se midió (el diag ya cumplió y se borró): el reparto era
 por motor, lo grave aparte (aunque haya salido una sola vez) y los patrones más
 repetidos con su ventana. Con esos números se elige el umbral, y recién ahí el
 detector.

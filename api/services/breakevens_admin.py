@@ -19,7 +19,7 @@ Los dos tienen efecto instantáneo y sobreviven al reinicio del motor.
 
 También vive acá el DIAGNÓSTICO de cobertura (`diagnostico()`): por qué cada bono
 `tasa_fija` del master entra o no entra a la matriz. Lo consumen el endpoint de
-Manager y `scripts/diag_breakevens_cobertura.py` — una sola fuente de verdad,
+Manager vía `GET /api/manager/breakevens/diagnostico` — una sola fuente de verdad,
 para que la pantalla y el script no puedan contradecirse.
 """
 from __future__ import annotations
@@ -383,7 +383,7 @@ def _emparejar(grupos: dict[str, list[dict]], hoy: date, ipc_mes: str | None,
 
 def diagnostico() -> dict[str, Any]:
     """Cobertura completa de la matriz. Lo consumen el panel de Manager y
-    `scripts/diag_breakevens_cobertura.py` — una sola fuente para los dos."""
+    `GET /api/manager/breakevens/diagnostico` — una sola fuente para los dos."""
     from core import curvas_sql
     from engines.breakevens import MAX_DIFF_DIAS, MIN_DIAS_PLAZO, ultimo_ipc_publicado
 

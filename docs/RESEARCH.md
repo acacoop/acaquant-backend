@@ -459,7 +459,7 @@ de `mercado.curvas` están en 1816 (95,5%), la cobertura de cashflow es 98,6%, e
 cuadro viene COMPLETO desde emisión, y la escala coincide instrumento por
 instrumento con la nuestra.
 
-**Lo que falta decidir, y por qué hace falta medirlo antes** — `scripts/diag_1816_mapeo.py`:
+**Lo que falta decidir, y por qué hizo falta medirlo antes** (el diag ya cumplió y se borró; el mapeo medido quedó acá):
 
 - **El mapeo de curvas NO se inventa, se deriva.** El diag muestra, para cada
   valor de `mercado.curvas.curva`, en qué curvas de 1816 cayeron sus tickers.

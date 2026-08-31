@@ -1093,7 +1093,7 @@ el único independiente de las tabs.
 > de cobertura de cashflow, ~29 créditos/día detectar novedades) y la decisión
 > asentada: **el job PROPONE el alta, no la escribe solo** (un flujo mal escalado
 > entra directo a la valuación y al AuM). Herramienta: `python -m
-> scripts.diag_1816_mapeo`. Antes de tocar `mercado.curvas.curva` —el campo que
+> un diag de mapeo (ya cumplido y borrado). Antes de tocar `mercado.curvas.curva` —el campo que
 > agrupa estas vistas y arma el fair value— leer esa sección.
 
 ---
@@ -1230,7 +1230,7 @@ es una expectativa, así que se descarta.
 > (`GET /api/manager/breakevens/diagnostico`) lista cada bono `tasa_fija` del
 > master con el motivo exacto por el que entra o no entra, los CER sin par y la
 > frescura del doc publicado. Es la forma de distinguir "el motor falla" de "nadie
-> dio de alta el bono". `python -m scripts.diag_breakevens_cobertura` imprime lo
+> dio de alta el bono". `GET /api/manager/breakevens/diagnostico` devuelve lo
 > MISMO en consola — las dos leen `breakevens_admin.diagnostico()`, así que la
 > pantalla y el script no pueden contradecirse.
 

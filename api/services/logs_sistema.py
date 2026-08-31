@@ -25,7 +25,7 @@ un muro de texto en una lista de tres o cuatro cosas.
 ⚠️ **NO DECIDE QUÉ ES UN PROBLEMA.** Cuenta y agrupa, nada más. Poner umbrales
 acá sin haber mirado nunca los logs de producción sería adivinar (REGLA #2), y un
 detector mal calibrado grita todos los días hasta que se lo ignora — que es peor
-que no tenerlo. Primero se mide (`scripts/diag_logs_motores`), después se calibra.
+que no tenerlo. Se midió antes de calibrar (el diag ya cumplió y se borró).
 
 ⚠️ **Y SI NO SE PUEDE LEER, SE DICE.** `disponible: False` con el motivo. En un
 contenedor sin systemd, o si el proceso no tiene permiso sobre el journal, un

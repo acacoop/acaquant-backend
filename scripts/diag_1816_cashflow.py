@@ -102,7 +102,7 @@ def _delta(antes: dict | None, despues: dict | None) -> str:
 # El censo SE MUDÓ al cliente (`core.mercado_1816.censar`) cuando el AV Agent pasó
 # a necesitarlo: un job de producción no puede depender de un `scripts/diag_*`,
 # que por la REGLA #5 se borra cuando cumple. Queda el alias porque
-# `scripts/diag_1816_mapeo.py` lo importa de acá.
+# Vive acá porque el censo es la única fuente del universo de 1816.
 censar = mercado_1816.censar
 
 

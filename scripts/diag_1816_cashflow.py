@@ -1,6 +1,6 @@
 """scripts/diag_1816_cashflow.py — censo del universo de 1816 + prueba del endpoint
 NUEVO de cashflow, con validación cruzada contra NUESTRO master (`mercado.curvas`
-+ `portafolio.assets`). Doc madre: docs/VISTA_RESEARCH.md.
++ `portafolio.assets`). Doc madre: docs/RESEARCH.md.
 
 Responde TRES preguntas, en este orden:
 

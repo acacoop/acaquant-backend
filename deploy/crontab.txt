@@ -312,7 +312,7 @@
 # ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
 # Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
 # → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.
-# Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/VISTA_RESEARCH.md.
+# Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/RESEARCH.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
 # ─── Guardrails de datos (invariantes post-cierre) — docs/OBSERVABILIDAD_ROBUSTEZ.md
@@ -343,7 +343,7 @@
 
 # ─── BCRA (tab BCRA de RESEARCH) — series monetarias v4 → research.bcra_series
 # 4×/día L-S (el BCRA publica 1×/día hábil con rezago 1-2d; la vista sirve de la
-# DB 24/7). Incremental por watermark (−7d, captura revisiones). docs/RESEARCH_BCRA.md.
+# DB 24/7). Incremental por watermark (−7d, captura revisiones). docs/RESEARCH.md.
 0 12,16,20,23 * * 1-6 /root/TradingAV/deploy/run_job.sh bcra_research 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra_research'
 
 # ─── Market Data 1816 (vista RESEARCH) — series históricas EOD → research.mkt_1816_series
@@ -370,7 +370,7 @@
 # ─── FRED (tab DATOS INTERNACIONALES de RESEARCH) — series macro global → research.fred_observations
 # 4×/día L-V (FRED publica en días hábiles USA; la vista sirve de la DB 24/7).
 # Incremental por watermark con colchón por frecuencia (D:−10d, M/Q:−95d, revisiones).
-# Requiere env FRED_API_KEY. Arranque: bloque Tasas USA. docs/RESEARCH_FRED.md.
+# Requiere env FRED_API_KEY. Arranque: bloque Tasas USA. docs/RESEARCH.md.
 0 12,16,20,23 * * 1-5 /root/TradingAV/deploy/run_job.sh fred_research 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.fred_research'
 
 # ─── Cierres diarios de los feeds Eikon (bonos offshore + Chicago) → anchors 7D/MTD/YTD

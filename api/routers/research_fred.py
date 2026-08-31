@@ -1,6 +1,6 @@
 """Router /api/research-fred — tab "Datos Internacionales" (FRED) de Research.
 
-Doc vivo: docs/RESEARCH_FRED.md. Gate a nivel router: módulo `research` (interno,
+Doc vivo: docs/RESEARCH.md. Gate a nivel router: módulo `research` (interno,
 JAMÁS invitado — REGLA #8). Read-only: sirve de `research.fred_*` (el sync lo hace
 jobs/fred_research.py). Gotcha: prefijo nuevo ⇒ route handler de Next
 (`src/app/api/research-fred/[...path]/route.ts`) + entrada en proxy.ts.

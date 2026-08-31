@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 RAMAS_AUTOMATICAS = ("tasa_fija", "soberanos", "cer", "dolar_linked")
 
 # Tolerancia para decidir la ESCALA del cuadro. 1816 manda por VN 100 en los bonos
-# por paridad y en NOMINALES en algunas ONs (medido, §4.9 de VISTA_RESEARCH): no
+# por paridad y en NOMINALES en algunas ONs (medido, §A.4.9 de RESEARCH.md): no
 # se asume un divisor global, se mide la Σ de amortizaciones.
 _VN100_MIN, _VN100_MAX = 95.0, 105.0
 
@@ -248,7 +248,7 @@ def _doc_simulado(ticker: str, ejes, conv: dict, vencimiento: str,
         "ajuste": ejes.ajuste, "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley,
         "fecha_vencimiento": vencimiento, "valor_nominal": 100.0,
         # `moneda_flujo` decide el divisor del precio en el motor y DEBE coincidir
-        # con la cartera (falla #1 del catálogo de SALUD_CURVAS).
+        # con la cartera (falla #1 del catálogo — docs/RENTA_FIJA.md §9.2).
         "moneda_flujo": "USD" if ejes.moneda == "USD" else "ARS",
     }
     if cer_emision:
@@ -2143,7 +2143,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
         if curva_depende_de(rama_doc, "mep"):
             # `get_ultimo_mep` devuelve un DICT {mep, ccl, canje, oficial, …}, no un
             # float — `calcular_campos` espera el número. Sin MEP un bono USD en
-            # pesos queda sin TEA (falla conocida, §3 de SALUD_CURVAS): se reporta,
+            # pesos queda sin TEA (falla conocida, docs/RENTA_FIJA.md §9.2): se reporta,
             # no se inventa un tipo de cambio.
             from api.services.macro import get_ultimo_mep
             mep = (get_ultimo_mep() or {}).get("mep")

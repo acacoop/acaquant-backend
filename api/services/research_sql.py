@@ -1,10 +1,10 @@
 """api/services/research_sql.py — lectura del research diario (mails de 1816) para
-la vista RESEARCH (pilar B, Nivel 1). Doc madre: docs/VISTA_RESEARCH.md.
+la vista RESEARCH (pilar B, Nivel 1). Doc madre: docs/RESEARCH.md.
 
 Lee `ia.research` (lo escribe jobs/research_mail.py): el mail CRUDO, que es lo
 único que hay — el DESTILADO del LLM se borró el 2026-08-28 (nunca corrió y
 ninguna pantalla lo dibujaba). Puro (sin FastAPI). El `tipo` (diario/mensual) se
-deriva del asunto al vuelo — todavía no es columna (ver docs/VISTA_RESEARCH.md §5.2).
+deriva del asunto al vuelo — todavía no es columna (ver docs/RESEARCH.md §A.5.2).
 """
 from __future__ import annotations
 

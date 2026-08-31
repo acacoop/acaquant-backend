@@ -1301,7 +1301,7 @@ def test_el_dia_que_falta_no_depende_de_que_el_arbol_lo_note():
 
     El 28/08 el job del AuM falló a las 08:00, la tarjeta apareció, y para el
     mediodía `motor_caido` tenía **cero abiertos** — mientras el día seguía sin
-    escribirse (medido con `scripts/diag_tenencia_dia`: 0 filas y 0 renglones en
+    escribirse (medido en prod: 0 filas y 0 renglones en
     `portafolio.backfill_log` para el 27/08).
 
     El árbol de diagnóstico juzga la pieza por su último `run_status` y su
@@ -1908,7 +1908,7 @@ def test_el_agente_solo_mira_nuestro_territorio():
     """El inventario sale del catálogo de Postgres, así que trae también los
     schemas que crea **Supabase** para sus propios servicios.
 
-    Medido el 2026-08-28 con `scripts/diag_schemas_ajenos`: **33 tablas** de
+    Medido en prod el 2026-08-28: **33 tablas** de
     `auth`, `storage`, `realtime` y `vault` que el agente venía juzgando sin
     saber de ellas nada — ni quién las escribe ni cada cuánto deberían. La
     primera que dio la cara fue `realtime.schema_migrations`, marcada como «dejó

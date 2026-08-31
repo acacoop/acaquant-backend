@@ -3,6 +3,25 @@
 > Documento vivo del feature. El **LOG DE AVANCES** (al final) es append-only
 > con fecha. Cada vez que toquemos algo de esta feature, agregar una entrada.
 >
+> ## ⚠️ ESTADO REAL (verificado contra el código, 2026-08-31)
+>
+> **El plan de 7 fases de §5 se ejecutó, pero NO con los nombres que dice.** Se
+> deja el plan porque explica el criterio; lo que hay que creerle es esta tabla:
+>
+> | Lo que el doc nombra | Qué existe de verdad |
+> |---|---|
+> | `api/routers/manager/comercial.py` | **`api/routers/manager/clientes.py`** — ahí vive la carga de cupos y la re-clasificación |
+> | `api/services/comercial.py` (upsert de cupo) | **`api/services/segmentacion.py`** |
+> | `jobs/uva.py` / serie UVA propia | **no se creó**: el motor lee la UVA de `api.services.macro.get_ultimo_uva` |
+> | `clientes.limites_fondeo_historico` | **no existe.** No hay tabla de histórico: la Fase 6 era opcional y no se hizo |
+> | `scripts/cargar_cupos_fondeo.py`, `cargar_limites_fondeo.py`, `rename_limite_fondeo_a_cupo.py`, `backfill_segmentos_upper.py`, `diag_segmentacion_patrimonial.py` | **ninguno existe.** Los tres primeros eran fallbacks opcionales que la UI volvió innecesarios; los otros dos eran one-shot y ya cumplieron |
+> | `GET /api/manager/comercial/debug-segmento` | **no existe** |
+>
+> **Sí existe y corre**: `jobs/segmentar_patrimonial.py` (el motor, Fase 4) —
+> ⚠️ **pero NO tiene cron**: no está en `deploy/crontab.txt`, así que hoy se
+> corre a mano. Es la única diferencia con el diseño que puede sorprender en
+> producción.
+>
 > Sub-feature del **Tablero Comercial** (vista por operador; ver `CLAUDE.md` →
 > "Tablero Comercial") — esto es
 > "Segmentación de clientes" (capa [3] en la cadena de dependencias del tablero),

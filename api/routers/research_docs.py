@@ -1,7 +1,7 @@
 """Router /api/research-docs — LECTURA de los documentos manuales de la vista
 REPORTES FINANCIEROS (Research). Gate módulo `research` (interno, JAMÁS invitado —
 REGLA #8). La ESCRITURA (subir/borrar) vive en api/routers/manager/documentos.py
-(gate manager). docs/RESEARCH_FRED.md.
+(gate manager). docs/RESEARCH.md.
 """
 from __future__ import annotations
 

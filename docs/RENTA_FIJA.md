@@ -56,7 +56,7 @@ de tocar la vista más usada de la app.
 | 3a | Endpoint `GET /api/cotizaciones/curvas-vista` (nadie lo consume) | no | **hecho** |
 | 3b | Tab **CURVAS** en el front (ARS izq / USD der) + absorber ONs | sí | ✅ **hecho** |
 | 4 | Tab **FORWARDS** (+ Fair Value adentro) | sí | pendiente |
-| 5 | Job de 1816 → altas automáticas (`docs/VISTA_RESEARCH.md` §4.10) | no | pendiente |
+| 5 | Job de 1816 → altas automáticas (`docs/RESEARCH.md` §4.10) | no | pendiente |
 | 6 | Renombrar las columnas de `mercado.curvas` | no | ✅ **hecho** |
 | 7 | Migrar el blob `data` (y matarlo) + ficha única en `assets` | no | pendiente |
 | 8 | `mercado.especies` — las PATAS de cada bono | no | ✅ **aplicado** (758 patas) |
@@ -366,7 +366,7 @@ Tres cosas que rompían y no daban error:
     había otro lugar donde ponerlos;
   · dar de alta un bono y **olvidarse la palabra** lo hacía invisible, en silencio.
 
-Medido antes de tocar (`scripts/diag_por_curva`, read-only): cer 22→25,
+Medido antes de tocar (diag read-only, ya cumplido y borrado): cer 22→25,
 dolar_linked 7→31, soberanos 21→129, tamar 5→18, tasa_fija 11→13.
 
 **`on_energia` / `on_finanzas` / `on_otros` dejan de ser curvas.** Nunca lo
@@ -404,13 +404,14 @@ fórmula —Lecap, CER, hard dólar, DL y ON son cinco cuentas distintas— y el
 elegía cuál usar leyendo **la palabra `curva`**. Ahora la elige `rama_calculo`
 desde `emisor_tipo`/`moneda_eje`/`ajuste`.
 
-**Se midió TODO antes de tocar una línea**, con tres diags encadenados:
+**Se midió TODO antes de tocar una línea**, con tres diags encadenados (los tres
+ya cumplieron y se borraron — REGLA #5; queda lo que contestaron):
 
-| diag | qué contestó |
+| qué se midió | qué contestó |
 |---|---|
-| `diag_motor_ejes` | 194 bonos elegirían la MISMA fórmula, 18 otra, 9 no se puede decidir |
-| `diag_tea_dos_ramas` | corre `calcular_campos` **las dos veces** y compara el número real: 14 perdían la TEA |
-| `diag_convertir_flujos` | convierte los flujos en memoria y remide: **7 vuelven a su TEA exacta (Δ = +0 bps)** |
+| qué fórmula elegiría cada bono con los ejes | 194 bonos elegirían la MISMA, 18 otra, 9 no se puede decidir |
+| correr `calcular_campos` con las DOS ramas sobre el mismo bono | 14 perdían la TEA al cambiar de rama |
+| convertir los flujos en memoria y remedir | **7 vuelven a su TEA exacta (Δ = +0 bps)** |
 
 **Dos hallazgos que no estaban en el plan.**
 
@@ -876,7 +877,7 @@ portfolio le SUSCRIBE a Primary (`engines/_universo_portfolio.py`), o sea de dó
 sale el `last_price` de toda la tenencia. Se cargaba **a mano** en Manager, así que
 el catálogo de market data terminó desparramado en tres lugares que se
 contradicen: `assets`, `mercado.curvas` y el universo real de Primary. El bloque 9
-de `diag_activos` lo midió: **65 assets con un símbolo distinto al del master**, y
+se midió en prod: **65 assets con un símbolo distinto al del master**, y
 los 65 con tenencia (24.521 filas).
 
 Ahora `assets` es un **derivado**. La regla `especies` de `jobs/assets_autofill`
@@ -950,7 +951,7 @@ alias elimina esa ventana. El escritor es uno solo (`ons.py::curva_doc_to_row`),
 y el `DO $$` de `sql/schema.sql` es idempotente (Postgres no tiene
 `RENAME COLUMN IF EXISTS`; el guard va contra `information_schema`).
 
-**Medido antes de tocar** (`scripts/diag_activos.py`, 221 instrumentos):
+**Medido antes de tocar** (diag ya cumplido y borrado, 221 instrumentos):
 
 - `instrumento` es `MERV - XMEV - <ticker> - 24hs` en **221/221**, un solo plazo y
   un solo mercado → hoy es **derivable**, no es dato. Se guarda igual porque es la
@@ -973,7 +974,7 @@ eligió mal la hermana correcta nunca entra al snapshot: el instrumento está ci
 Para medirlo hace falta el universo de 1816 o `manager.pyrofex_instruments`.
 
 **El modelo de curvas como OBJETO** (decidido con el user, deriva del cruce con
-1816 — ver `docs/VISTA_RESEARCH.md` §4.10):
+1816 — ver `docs/RESEARCH.md` §4.10):
 
 ```
 nivel 1 — EMISOR   soberano · provincial · corporativo · bcra
@@ -1087,7 +1088,7 @@ el único independiente de las tabs.
 > **🔜 ALTA Y FLUJOS DE BONOS — automatización con 1816 (diseño 2026-08-15).**
 > `mercado.curvas` se mantiene **a mano**: cada bono nuevo de una licitación hay
 > que darlo de alta y tipearle el cuadro de flujos (que además se saca de 1816).
-> El diseño para automatizar eso vive en **`docs/VISTA_RESEARCH.md` §4.10** —
+> El diseño para automatizar eso vive en **`docs/RESEARCH.md` §4.10** —
 > ahí están los números medidos (212 de nuestros 222 bonos están en 1816, 98,6%
 > de cobertura de cashflow, ~29 créditos/día detectar novedades) y la decisión
 > asentada: **el job PROPONE el alta, no la escribe solo** (un flujo mal escalado
@@ -1132,8 +1133,7 @@ Verificado: acceso a cada tabla en su service `*_sql.py` + el motor/job que escr
 
 | Tabla SQL | Qué es | La lee | La llena (verificado) |
 |---|---|---|---|
-| **mercado.forwards** (live) | Matriz de tasas forward (1 fila/curva, vivo) | derivados.py | **motor forwards** (`engines/forwards.py`) |
-| **mercado.forwards** (histórico) | Forwards de cierre (1 fila/fecha,curva) | derivados.py | motor forwards |
+| **mercado.mercado_hist** (`tipo='forwards'`) | Matriz de tasas forward, live y de cierre. ⚠️ **NO existe `mercado.forwards`**: el motor escribe en el histórico genérico y el reader vivo (`mercado_hist_sql.get_forwards`) toma la fila más nueva | derivados.py | **motor forwards** (`engines/forwards.py`) |
 | **mercado.forwards_zscore** | Media/desvío por par para z-score | derivados.py | **`jobs/forwards_zscore.py`** (post-cierre) |
 | **mercado breakevens** (live) | Breakeven Lecap↔CER (1 fila global, vivo) | derivados.py | **motor breakevens** (`engines/breakevens.py`) |
 | **mercado breakevens** (histórico) | Breakevens de cierre (1 fila/fecha) | derivados.py | motor breakevens |
@@ -1205,7 +1205,7 @@ eslabones y el primero es 100% manual:
 3. **REINICIO del motor** — `cargar_pares()` corre **una sola vez, al arrancar**
    (fuera del `while True`). El alta NO se ve al instante: se ve cuando el cron
    reinicia `motor_breakevens.service` (13:20 UTC L-V) o con un restart a mano.
-   Mismo comportamiento que `motor_rofex`/`motor_curvas` (ver `SALUD_CURVAS.md` §6 #7).
+   Mismo comportamiento que `motor_rofex`/`motor_curvas` (ver §9.2, falla #7).
 4. **CURADURÍA en la lectura** — Manager → TÍTULOS → BREAKEVENS, en los dos
    sentidos y sin tocar el motor:
    - **EXCLUIR** (`mercado.breakevens_overrides`): el motor lo sigue calculando,
@@ -1258,14 +1258,13 @@ y series macro) tiene su tabla SQL y se escribe directo desde su motor/job:
 | Tabla SQL | Qué guarda | Quién la escribe |
 |---|---|---|
 | `mercado.curvas` | Maestro de bonos | carga/edición |
-| `mercado.bonds_master` | Maestro complementario de bonos | carga/edición |
 | `mercado.market_snapshot` | Estado vivo por ticker | motor rofex + motor curvas (`core.pg_mirror`) |
 | `mercado.snapshots_cierre` | Cierre diario por bono | `jobs/snapshot_cierre.py` |
 | `mercado.canje_cierre` | Cierre de tickers de canje | `jobs/cierre_canje.py` |
 | `macro.series_macro` | CER · InflacionMensual · BADLAR · DOLAR · TAMAR · RiesgoPais · InflacionInteranual (las 7 juntas) | `jobs/bcra.py`, `jobs/argentina_datos.py` |
 | `macro.uva` | Valor UVA | carga manual |
 | `macro.rem` | Consenso REM | `jobs/argentina_datos.py` |
-| `mercado.forwards` (+ histórico) | Forwards live y de cierre | motor forwards |
+| `mercado.mercado_hist` (`tipo='forwards'`) | Forwards live y de cierre | motor forwards |
 | `mercado.forwards_zscore` | Coeficientes de z-score | `jobs/forwards_zscore.py` |
 | breakevens (live + histórico, schema `mercado`) | Breakevens live y de cierre | motor breakevens |
 | `mercado.fit_params` | Betas Nelson-Siegel | `jobs/fair_value.py` |
@@ -1333,9 +1332,68 @@ Esto **no se puede afirmar leyendo código** — requiere correr una medición:
   `forwards_zscore.py`, `argentina_datos.py`.
 - **SQL:** conexión `core.postgres.get_pool()`; escritura `core.pg_mirror`;
   helpers de lectura `core/market_snapshot`, `core/series_macro`; schema
-  `sql/schema.sql` (tablas `mercado.curvas`, `mercado.bonds_master`,
+  `sql/schema.sql` (tablas `mercado.curvas`,
   `mercado.market_snapshot`, `mercado.snapshots_cierre`, `mercado.canje_cierre`,
-  `mercado.forwards`, `mercado.forwards_zscore`, `mercado.fit_params`,
+  `mercado.forwards_zscore`, `mercado.fit_params`,
   `mercado.fair_value_residuos`, `mercado.futuros_dlr_snapshot`,
   `mercado.caucion_snapshot`, `mercado.timesales`, `mercado.dias_habiles`,
   `macro.series_macro`, `macro.rem`, `macro.uva`, `valuaciones.dolar`).
+
+---
+
+## 9. Salud de la valuación — las dos patas y el catálogo de fallas
+
+> Vivía en `docs/SALUD_CURVAS.md`, que se borró el 2026-08-31. Ese doc era un
+> **roadmap hacia un health-check** («que el sistema avise solo en vez de
+> descubrir los errores a ojo») y ese roadmap **ya se construyó**: es el AV AGENT
+> (`docs/AGENT_2.0.md`). Su §7 nombraba `jobs/curvas_healthcheck.py` y
+> `manager.controles_datos`, que no existen; su §2 describía las columnas de
+> `mercado.curvas` con la semántica **anterior** al renombre del 2026-08-15
+> (decía que `ticker` era el símbolo de mercado — hoy eso es `instrumento`, ver
+> el `CLAUDE.md` raíz). Sobrevive lo que sigue siendo cierto y no está en otro
+> lado: **el problema de la pata** y el **catálogo de fallas**.
+
+### 9.1 Las dos patas (ARS / USD) — la causa raíz más sutil
+
+Casi toda ON cotiza en **dos patas**: una en **pesos** (`VSCIO`, precio ~144.000)
+y una en **dólares** (sufijo `D`, `VSCIOD`, precio ~100). `mercado.curvas` guarda
+**una sola** en `instrumento` → de ahí sale el precio que valúa. La regla:
+
+- **HD (hard-dollar)** → la **pata USD** (precio ~100, tal cual). Con la pata
+  peso el motor hace ÷MEP y el MEP **no siempre recupera el precio dólar real**
+  → paridad y TEA infladas. *(`YMCTO`: pata peso 160.000 ÷MEP = 110 → TEA −25%.)*
+- **DL (dólar-linked)** → la **pata peso** (~144.000, ÷A3500). Con la pata USD
+  (~100) el motor la detecta por escala (<1000) y la usa tal cual. *(`TTCEO`.)*
+- **ARS (peso nativo)** → pata peso, precio directo.
+
+**Esto ya no es un frente abierto sin dueño**: lo mira la habilidad
+`precio_moneda` del agente (`agente/catalogo.py`), que separa las dos causas y
+**tiene botón para las dos** — `pata_equivocada → apuntar_pata` y
+`cotiza_en_pesos → pata_dolar`. Sus umbrales son la paridad fuera de `[40, 160]`,
+que es exactamente la regla que este doc proponía escribir a mano.
+
+### 9.2 Catálogo de fallas — síntoma → causa → quién lo ve hoy
+
+| # | Síntoma | Causa | Quién lo detecta HOY |
+|---|---|---|---|
+| 1 | TEA `--` o falsa | `moneda_flujo` ≠ tipo real (CARTERA) | `bono_sin_tasa` (rueda) + `tasas_al_cierre` (17:30 ART) |
+| 2 | XIRR no converge | flujo en escala peso vs precio USD (o al revés) | `bono_sin_tasa`; el detalle, con DEBUG TEA |
+| 3 | Paridad explotada (ej. 144.500%) | `valor_residual` en otra escala que el flujo | `precio_moneda` (umbral `paridad_max=160`) |
+| 4 | TEA negativa/inflada en un HD | **pata peso** guardada en un HD → ÷MEP infla el precio | `precio_moneda · pata_equivocada` → botón `apuntar_pata` |
+| 5 | TEA absurda (>50% o <−50%) | precio stale/ilíquido, o bono distressed | `bono_sin_precio · precio_viejo` (**sin arreglo a propósito**: es un dato del papel, no del sistema) |
+| 6 | Bono sin TEA pero con precio | precio de pantalla sin trade (market data) | `bono_sin_precio · sin_punta` (aviso, sin arreglo) |
+| 7 | Bono no cotiza tras un alta o un cambio | **los motores cargan `mercado.curvas` una sola vez al arrancar** | `bono_sin_precio · no_suscripto` → botón `pedir_pata`; si no, `systemctl try-restart motor_rofex motor_curvas` **fuera de rueda** |
+| 8 | Bono cargado que no valúa nada | sin cronograma de pagos | `bono_sin_flujo` → botón `alta_flujos` |
+| 9 | El bono existe en 1816 y no en el master | alta pendiente | `soberanos_faltantes` → botón `alta_bono` |
+
+⚠️ **La falla #7 es la que más se paga y la única que no se arregla con un dato**:
+un bono nuevo o un cambio de `moneda_flujo`/`flujos` **no impacta hasta reiniciar**
+los motores, y el deploy **no los reinicia a propósito** (ver `CLAUDE.md` §Deploy).
+
+### 9.3 La herramienta para mirar UN bono
+
+**DEBUG TEA** (`/manager → checks`, `api/services/debug_curva.py`) replica el
+motor para un ticker: precio, TC usado, flujos, el cashflow del XIRR, y compara
+lo calculado contra lo persistido. Lee el precio de **`mercado.market_snapshot`**
+(la misma fuente que el motor), no de `mercado.timesales` — por eso muestra bonos
+que cotizan sin haber operado.

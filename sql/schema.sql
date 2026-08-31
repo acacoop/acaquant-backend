@@ -1564,7 +1564,7 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
 -- óptimo (misma razón por la que no se indexan las tablas chicas de Tesorería).
 -- El eje bono/letra (`tipo_instrumento`) fue ELIMINADO el 2026-08-15: nació con el
 -- rediseño y nunca se pobló (221 de 221 bonos sin dato, medido con
--- `scripts/diag_curvas_columnas`). Una columna vacía no agrupa nada y sí obliga a
+-- medido en prod 2026-08). Una columna vacía no agrupa nada y sí obliga a
 -- todo el que lee la tabla a preguntarse qué significa.
 
 -- RENOMBRE de columnas (2026-08-15). El CREATE TABLE de arriba es no-op sobre una
@@ -2816,7 +2816,7 @@ CREATE TABLE IF NOT EXISTS mercado.ons_ignoradas (
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── Market Data 1816 (vista RESEARCH — laboratorio de series y spreads) ───────
--- API de 1816 (docs/VISTA_RESEARCH.md). Feed SEPARADO de mercado.curvas (que es
+-- API de 1816 (docs/RESEARCH.md). Feed SEPARADO de mercado.curvas (que es
 -- nuestro motor RF de HOY): acá vive la HISTORIA consistente de 1816 para comparar
 -- activos y spreads en el tiempo. Se puebla por job (throttled, EOD + snapshot).
 
@@ -2864,7 +2864,7 @@ CREATE TABLE IF NOT EXISTS research.mkt_1816_instrumentos (
     actualizado_en    timestamptz NOT NULL DEFAULT now()
 );
 
--- ── BCRA (tab BCRA de la vista RESEARCH — docs/RESEARCH_BCRA.md) ─────────────
+-- ── BCRA (tab BCRA de la vista RESEARCH — docs/RESEARCH.md) ─────────────
 -- Feed SEPARADO de macro.series_macro (que alimenta motores vía jobs/bcra.py y
 -- NO se toca). Solo Monetarias v4; cambiarias descartadas (user 2026-07-18).
 
@@ -2904,7 +2904,7 @@ CREATE TABLE IF NOT EXISTS research.bcra_series (
 CREATE INDEX IF NOT EXISTS ix_bcra_series_id_fecha
     ON research.bcra_series (id_variable, fecha DESC);
 
--- ── FRED (tab "Datos Internacionales" — docs/RESEARCH_FRED.md) ────────────────
+-- ── FRED (tab "Datos Internacionales" — docs/RESEARCH.md) ────────────────
 -- Feed SEPARADO de jobs/bcra.py y jobs/argentina_datos.py. Molde = las bcra_*
 -- de arriba, con 2 diferencias no inferibles: (1) series_id es TEXTO (ej DGS10),
 -- no int; (2) frecuencias MIXTAS D/W/M/Q → freq vive en el watch (clave para el
@@ -2955,7 +2955,7 @@ CREATE INDEX IF NOT EXISTS ix_fred_obs_id_fecha
 -- cargados a mano desde Manager. El PDF se guarda como bytea (decisión: cero infra;
 -- si crece se migra a un bucket sin que cambie la UX). Lo escribe el Manager
 -- (api/routers/manager/documentos.py, gate manager), lo lee la vista Research
--- (api/routers/research_docs.py, gate research). Doc: docs/RESEARCH_FRED.md.
+-- (api/routers/research_docs.py, gate research). Doc: docs/RESEARCH.md.
 CREATE TABLE IF NOT EXISTS research.documentos (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     titulo         text NOT NULL,

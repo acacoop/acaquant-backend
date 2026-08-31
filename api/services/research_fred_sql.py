@@ -1,5 +1,5 @@
 """api/services/research_fred_sql.py — lectura de las series FRED para la tab
-"Datos Internacionales" de la vista Research (docs/RESEARCH_FRED.md). Puro (sin
+"Datos Internacionales" de la vista Research (docs/RESEARCH.md). Puro (sin
 FastAPI); todo sale de la DB (0 requests a FRED por carga — el sync lo hace
 jobs/fred_research.py).
 

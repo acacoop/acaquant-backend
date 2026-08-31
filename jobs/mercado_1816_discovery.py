@@ -1,5 +1,5 @@
 """jobs/mercado_1816_discovery.py — arma el universo de la vista RESEARCH desde TUS
-bonos (no hardcodeado). Doc madre: docs/VISTA_RESEARCH.md.
+bonos (no hardcodeado). Doc madre: docs/RESEARCH.md.
 
 En vez de una lista fija, cruza los bonos que YA tenés en `mercado.curvas` (los
 no-ON: soberanos, CER, tasa fija, dollar-linked, duales) contra el catálogo REAL
@@ -25,7 +25,7 @@ from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# IDs de CURVA de 1816 a cruzar (docs/VISTA_RESEARCH.md §4.3). Son IDs de curva
+# IDs de CURVA de 1816 a cruzar (docs/RESEARCH.md §A.4.3). Son IDs de curva
 # (estables), no bonos hardcodeados: los bonos salen del cruce con los tuyos.
 # Soberanas + BCRA (BOPREALes como BPOC7 viven en la curva BCRA USD, id 24).
 _CURVAS_CRUCE = {
@@ -36,8 +36,8 @@ _CURVAS_CRUCE = {
     24: "BCRA USD",
 }
 
-# EXTRAS curados a mano (el "watch a demanda" del día a día — docs/VISTA_RESEARCH
-# §4.4b): tickers que NO salen del cruce con mercado.curvas pero se quieren en el
+# EXTRAS curados a mano (el "watch a demanda" del día a día —
+# docs/RESEARCH.md §A.4.4b): tickers que NO salen del cruce con mercado.curvas pero se quieren en el
 # watch de series. Editar esta lista + correr `--apply` = agregar uno.
 # Decisión del user (2026-07-18): BOPREALes + GD46. Las 7 ONs nuestras que
 # operan en 1816 (AER9O, AERBO, AFCIO, BACGO, BYCWO, ZPC3O, ZZC1O) quedaron

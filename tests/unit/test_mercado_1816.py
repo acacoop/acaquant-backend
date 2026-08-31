@@ -1,7 +1,7 @@
 """Tests del cliente de 1816 (core/mercado_1816.py) — parte pura, sin red.
 
 Congela el aplanado de series (el shape verificado contra la API real 2026-07-18:
-instrumentos.<ticker>.<campo> = [[fecha, valor], …]). Doc: docs/VISTA_RESEARCH.md.
+instrumentos.<ticker>.<campo> = [[fecha, valor], …]). Doc: docs/RESEARCH.md.
 """
 from __future__ import annotations
 

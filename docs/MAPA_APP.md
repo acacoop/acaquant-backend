@@ -48,12 +48,12 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
+| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/agente` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
-| `/api/back-office/interbanking` | 26 | 17 | `back-office` | `back-office` |  |
+| `/api/back-office/interbanking` | 26 | 17 | `back-office` · 22 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -63,13 +63,13 @@
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 139 | 68 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | — · 7 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 54 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 12 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
@@ -390,17 +390,15 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 | `invitado` (www) | HOME · AGRO · DERIVADOS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 5 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
 Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el briefing del footer),
-`asistente` (vista `negocio` del copiloto) y todos los `manager_*` salvo su efecto sobre el link MANAGER.
+y todos los `manager_*` salvo su efecto sobre el link MANAGER. (El módulo `asistente`
+se fue con el copiloto el 2026-08-19.)
 
-**Slot derecho del header — botón de copiloto (uno por página):**
-- `VISTA_IA_POR_RUTA`: `/`→`home`, `/renta-fija`→`renta_fija`, `/renta-variable`→`renta_variable`,
-  `/agro`→`agro`, `/derivados`→`derivados`.
-- `RUTAS_CON_PANEL_PROPIO = ["/trading","/research"]` → el header NO monta nada (esas vistas montan el
-  suyo adentro, cableado a su estado local).
-- Invitado → el header no monta nada fuera del mapa (nunca ve guía ni asistente de negocio).
-- Cualquier otra ruta → `<IaVistaPanel vista="negocio" fallback="ayuda">`: el backend decide si sos
-  jefe (módulo `asistente`) o caés al GUÍA.
-- El panel se auto-oculta si el probe a `GET /api/ia/copiloto/vistas` da 401/403.
+**Slot derecho del header — ⚠️ VACÍO.** Acá vivía el botón de copiloto por página
+(`VISTA_IA_POR_RUTA`, `RUTAS_CON_PANEL_PROPIO`, el probe a `GET /api/ia/copiloto/vistas`).
+**Todo el sistema de copilotos se dio de baja el 2026-08-19** y ninguno de esos
+endpoints existe. Lo único de IA que sobrevive en el header es el **briefing** del
+footer (módulo `ia`). En `research-view.tsx` quedó el `<div className="ml-auto">`
+vacío donde se montaba — se limpió el 2026-08-31.
 
 ### 3.3 Tabs por vista (nombre EXACTO, orden, componente)
 
@@ -488,7 +486,6 @@ CCL / OFICIAL → el chart cae al default `DXY` (esas filas son `clickable:false
 - **Semántica**: `HOY` = último valor; `null` → literal **"Sin Ops"** (nunca un número viejo disfrazado
   de vivo). `WTD`/`MTD` se calculan SIEMPRE sobre el último cierre. Flag `stale` pinta ⚠ (`_FUTUROS_STALE_MIN = 30`).
 - **Escrituras**: ninguna. "NO VOLVER A MOSTRAR HOY" escribe solo `localStorage`.
-- **Botón 🗣 NARRÁMELO**: dispara al copiloto de HOME (evento `acaquant:ia-pregunta`).
 
 #### Endpoints
 **`market.py` — `/api/market`, gate `_PUBLIC`**
@@ -497,8 +494,6 @@ CCL / OFICIAL → el chart cae al default `DXY` (esas filas son `clickable:false
 |---|---|---|---|---|
 | GET | `/api/market/quotes` | Últimas cotizaciones del watchlist (`home.market_quotes`); retornos 7d/MTD/YTD/1y computados on-the-fly desde los anchors. Cache TTL 3s en el path sin `symbols` | `symbols` (CSV opcional; con símbolos NO usa cache) | No |
 | GET | `/api/market/eikon-news` | Titulares Reuters del feed Eikon; traduce RIC → ticker display | `limit` (1-200, def 80) | No |
-| GET | `/api/market/candle` | Histórico OHLC vía Yahoo (Finnhub free bloqueó candles). **SIN CONSUMIDOR en el front** | `symbol` (req), `resolution` (1/5/15/30/60/D/W/M), `desde`, `hasta` | No |
-| GET | `/api/market/profile` | Company profile v2 de Finnhub. **SIN CONSUMIDOR en HOME** | `symbol` (req) | No |
 
 **`news.py` — `/api/news`, gate `_PUBLIC`**
 
@@ -584,7 +579,7 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 > curva, y con el modelo de ejes ser corporativo pasó a ser `emisor_tipo` — o sea
 > que una ON en USD a tasa fija se mira **en la tabla HARD DOLAR de `/renta-fija`,
 > al lado de los soberanos**, que es contra quién se compara su rendimiento.
-> Se fueron con ella: `ons-live.tsx`, `/api/analitica/ons-calendario`,
+> Se fueron con ella (ya no existen): `ons-live.tsx`, `/api/analitica/ons-calendario`,
 > `listar-curva?curva=on` y la vista `ons` del copiloto. Los ~140 corporativos
 > **siguen en `mercado.curvas`** alimentando `/renta-fija` y ACREENCIAS; se editan
 > desde Manager → TÍTULOS · BONOS.
@@ -747,8 +742,6 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 | **RADAR → ESTRATEGIA** | Contexto determinista por ticker: Last, ATR %, ER 30, ER día, chip **CHOPPY / MIXTO / LIMPIO** | `GET /api/estrategia/contexto` (10s) | Ninguno (universo FIJO `config.ESTRATEGIA_CONTEXTO_TICKERS` = QQQ, SPY, SNDK, NVDA, RKLB) | Ninguna |
 | **PIVOTS** → chart LIVE | Precio intradía por minuto (área) con líneas de los 7 pivots + VWAP; si hay override, las líneas siguen la edición | `GET /api/trading/intraday?ticker` | Zoom/pan; auto-reencuadre si el usuario no interactuó | Ninguna |
 | **PIVOTS** → chart ZONAS ADR | Velas diarias del ADR en USD + zonas del timeframe elegido | `GET /api/trading/adr-zonas?ticker&dias=400` | Timeframe **DIARIO/SEMANAL/MENSUAL/ANUAL**; ventana visible **7D/15D/30D/45D**; botón ⟲ | Ninguna |
-| **PIVOTS** → Copiloto | `IaVistaPanel vista="trading"` — manda tickers de las cards, foco, overrides y posiciones intraday de `localStorage` como `params` | `POST /api/ia/copiloto*` | — | Escribe traza de IA |
-| **PIVOTS** → EL VIGÍA | Toasts abajo-izquierda con "¿LO MIRAMOS?" y "➕ AGREGAR {ticker}" | `POST /api/ia/copiloto/vigia` (poll 15s + debounce 500ms; 403 silencioso) | — | POST al backend; los "vistos" persisten en `localStorage` por día |
 | **INTRADAY** | Monitor FIFO del día: se sube el **CSV de boletos** (export ROFEX/Aunesa, **latin-1**) y consolida por (cuenta, especie): posición neta, precio ponderado, PnL realizado/no realizado, intereses+IVA, costo en book, detalle por posición y simulador en drawer | `POST /api/operaciones/intraday/{analizar,recalcular,marks}` (**módulo `operaciones`, NO `trading`**) | **Selector de cuenta**; **tilde por especie**; **tilde por trade individual** (re-FIFO en backend); **override manual de mark**; **multiplicador de contrato** (1 acción/CEDEAR, 100 derivado); simulador con escalones ±0.25/0.5/0.75/1/1.25/1.5/2 % | POSTs de cálculo **efímeros: NO persisten en DB**. Todo vive en sessionStorage/localStorage (`intraday_fifo_v2`, `intraday_excl_v1`, `trd-fx-intraday-posiciones-v1` que es el puente al copiloto) |
 | **PNL HISTÓRICO** | Cuaderno **MANUAL** de PnL diario: días hábiles desde el 1-jul-2026 hasta fin del mes en curso, monto tipeado por día, acumulado total y mensual, subtotal por mes y 2 gráficos de línea | `GET`/`POST /api/trading/pnl-historico` | **Selector de cuenta** (etiqueta libre, def `General`; el GET devuelve la lista) | **SÍ ESCRIBE**: tipear un monto hace `POST` (upsert en `valuaciones.pnl_historico`); dejar la celda vacía **BORRA** la fila. **Sin allowlist propia** — el gate es el módulo `trading` |
 
@@ -780,7 +773,7 @@ Config en `config.py`: `ESTRATEGIA_TICKERS` (16 papeles), `ESTRATEGIA_INDICES` (
 `STOP_PCT=0.5`, `ER_CHOPPY=0.30`.
 
 #### Notas / rarezas
-- **`/api/trading/renta-fija` no tiene consumidor**: el comentario dice literal "(RENTA FIJA se removió — no se usa)".
+- ~~**`/api/trading/renta-fija` no tiene consumidor**~~ **— ya se borró.** El comentario decía literal "(RENTA FIJA se removió — no se usa)".
 - **`/api/estrategia/live`, `/track-record` y `/senales` tampoco tienen consumidor**: la tab ESTRATEGIA del radar consume SOLO `/contexto`. **Toda la zona LIVE / TRACK-RECORD / auditoría del ledger existe en backend y no está expuesta en UI.**
 - Los pivots se calculan **dos veces**: el backend en `/pivots` y el frontend (`calcPivots`) cuando el usuario edita máx/mín/cierre. Si divergieran, el chart mostraría líneas distintas a las cards.
 - Los overrides **nunca llegan al backend como estado persistido**: viven en localStorage y se mandan como *parámetro* al copiloto y al vigía. Cambiar de browser pierde la edición.
@@ -2858,13 +2851,16 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
     **tampoco tiene vista**.
 29. **Tablero de brackets**: `GET /api/operar/brackets/dia` existe pero no hay pantalla; los brackets se
     crean y después solo se ven las órdenes sueltas.
-30. **Endpoints huérfanos varios sin consumidor en el front** (verificado por grep): `/api/market/candle`,
-    `/api/market/profile`, `/api/scanner/cedears/trades`, `/api/scanner/cedears/intraday`,
-    `/api/trading/renta-fija` (el comentario dice literal "RENTA FIJA se removió — no se usa"),
-    `/api/risk/account/positions`, `/api/portfolio/aum`, `/api/titulos/assets`,
-    `/api/valuaciones/{id}/posiciones` (legacy, con proxy y todo),
-    `/api/research1816/mails/buscar` (lo usa el copiloto, pero **no por HTTP**),
-    `/api/manager/status`, `/api/manager/checks/debug-comercial`, `/api/manager/checks/futuros-dlr`.
+30. **Endpoints huérfanos sin consumidor en el front** — ⚠️ **relevado de nuevo el 2026-08-31
+    contra la app montada**, porque la lista anterior tenía ocho entradas que YA NO EXISTEN
+    (una lista de huérfanos que envejece se convierte en la propia basura que denuncia).
+    - **Se dieron de baja desde aquel relevamiento** (ya no hay nada que borrar):
+      `/api/market/candle`, `/api/market/profile`, `/api/scanner/cedears/trades`,
+      `/api/scanner/cedears/intraday`, `/api/trading/renta-fija`, `/api/portfolio/aum`,
+      `/api/research1816/mails/buscar`, `/api/manager/checks/{debug-comercial,futuros-dlr}`.
+    - **Siguen vivos y siguen sin consumidor**: `/api/risk/account/positions`,
+      `/api/titulos/assets`, `/api/valuaciones/{id}/posiciones` (legacy, con proxy y todo),
+      `/api/manager/status`.
 31. **`PATCH /api/derivados/agro/pizarra/{commodity}` es huérfano en la práctica**: funciona en el
     backend, **no hay proxy Next**, y `PizarraRow` es read-only con tooltip "Editable en la tab Datos".
     El parámetro `canEdit` se pasa hasta el componente y no se usa.
@@ -2930,10 +2926,12 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
     flags `*_SQL` del Tablero Comercial.
 60. **`mercado.breakevens_overrides` se crea con `CREATE TABLE IF NOT EXISTS` en runtime** desde el
     service: no depende de `sql/schema.sql`.
-61. **`PATCH /api/manager/assets/{unidad}` está marcado DEPRECATED** y solo delega (rompía con caracteres
-    especiales URL-encoded).
-62. **Los docstrings de los 4 routers de Research dicen "JAMÁS invitado"** cuando
-    `DEFAULT_MATRIX["invitado"]` **sí** incluye `research` desde el 2026-07-21.
+61. ~~**`PATCH /api/manager/assets/{unidad}` está marcado DEPRECATED**~~ — **ya no existe**
+    (verificado 2026-08-31): quedó solo `PATCH /api/manager/assets`, que era el que delegaba.
+    Rompía con caracteres especiales URL-encoded.
+62. **Los docstrings de los routers de Research dicen "JAMÁS invitado"** cuando
+    `DEFAULT_MATRIX["invitado"]` **sí** incluye `research` desde el 2026-07-21. (Son 4:
+    `research1816`, `research_bcra`, `research_fred`, `research_docs`.)
 63. **`trading-view.tsx:672` sigue consumiendo `/api/research1816/reuters`** desde la vista Trading, así
     que un usuario con `trading` y sin `research` ve esos KPIs vacíos.
 64. **El estado de `POST /jobs/run` vive en un dict in-process** → se pierde al reiniciar `api.service`.

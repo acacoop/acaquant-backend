@@ -60,7 +60,7 @@ MODULES: tuple[str, ...] = (
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
     "research",       # /research (vista Research: research diario 1816 por mail +
-                      # market data 1816 — docs/VISTA_RESEARCH.md). Gate de
+                      # market data 1816 — docs/RESEARCH.md). Gate de
                       # /api/research1816/*. Abierta al invitado desde 2026-07-21
                       # (otro sector de la MISMA empresa — sin redistribución).
     "ia",             # features de IA — hoy es el gate de /api/ia/*, o sea del

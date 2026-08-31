@@ -10,7 +10,7 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 <!-- AUTOGEN:START — generado por scripts.gen_herramientas, no editar a mano -->
 
-*5 herramientas en 3 categorías.*
+*6 herramientas en 4 categorías.*
 
 ### Performance / profiling
 
@@ -25,6 +25,12 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 |---|---|
 | `python -m scripts.gen_herramientas` | Regenera docs/HERRAMIENTAS.md (catálogo de herramientas) desde los docstrings. |
 | `python -m scripts.gen_sistema` | Regenera deploy/SISTEMA.md (plano de servicios/crons) desde systemd + crontab. |
+
+### diag
+
+| herramienta | qué hace |
+|---|---|
+| `python -m scripts.diag_clientes_enfriandose` | Mide ANTES de diseñar el detector (REGLA #2). |
 
 ### seguridad
 

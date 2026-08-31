@@ -121,7 +121,7 @@ def flujos_serie(
     calendario.
 
     Reemplaza a `/flujos/resumen` como fuente de esa vista. El grano bajaba
-    20.559 filas / 2.512 KB en cada apertura (medido `scripts/diag_peso_operaciones`)
+    20.559 filas / 2.512 KB en cada apertura (medido en prod, 2026-08-19)
     para que el browser filtrara y agrupara; acá viaja solo lo que se grafica.
     `/flujos/resumen` queda vivo por si algo más lo consume."""
     if filtro not in _cf_sql.FLUJOS_FILTROS:
@@ -156,7 +156,7 @@ def flujos_serie(
 # ── CATÁLOGOS DE LOS SELECTORES ──────────────────────────────────────────────
 # Los cuatro son un `SELECT DISTINCT` sobre `operaciones` (~490k filas) para
 # devolver entre 6 y 11 valores: la query cuesta un scan completo y el payload
-# pesa 0,1 KB. Medido 2026-08-19 (`scripts/diag_peso_operaciones`), con TTL de
+# pesa 0,1 KB. Medido en prod 2026-08-19, con TTL de
 # 300s los cuatro juntos consumían **96s en 7 días** — más que `/ops/serie` +
 # `/ops/resumen` sumados (100s), que son los que traen los datos de verdad.
 #

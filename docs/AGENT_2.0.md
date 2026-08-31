@@ -174,8 +174,8 @@ la fecha del nuevo es posterior a la del cierre.
 
 **Solo puede reincidir lo que se cerró POR ACCIÓN.**
 
-Verificado en el código actual: hoy `resuelto` **significa dos cosas mezcladas**
-—`core/ciclo.py` lo documenta con todas las letras—:
+Verificado contra el agente VIEJO: ahí `resuelto` **significaba dos cosas
+mezcladas** —su `core/ciclo.py`, ya borrado, lo documentaba con todas las letras—:
 
 - **Por acción**: alguien apretó ARREGLAR y después el detector dejó de verlo.
 - **Por ausencia**: el detector no lo vio en esa corrida, y nada más. *Un bono
@@ -193,9 +193,10 @@ mecanismo por el que se rompió todo lo demás: algo que parece señal y es ruid
 | Por ausencia | **No.** Se reabre en silencio, como un hallazgo más. |
 | Sin declarar | **No.** Ante la duda, el lado que no fabrica señal. |
 
-La distinción `accion` / `ausencia` **ya existe escrita en `core/ciclo.py`**.
-Lo que no existe es que gobierne una tabla propia: hoy vive como una columna
-más adentro del mismo saco que todo lo demás, y por eso es invisible.
+La distinción `accion` / `ausencia` ya estaba escrita en el agente viejo
+(`core/ciclo.py`), pero no gobernaba nada: vivía como una columna más adentro
+del mismo saco que todo lo demás, y por eso era invisible. **Acá gobierna una
+tabla propia** (`agente.reincidencias`) y la congela el invariante #4.
 
 #### Es un HECHO, no un puntaje
 
@@ -845,7 +846,7 @@ ensuciando AHORA**: se arregla con severidad en LA LISTA.
 #### Lo único que se escribe desde AHORA
 
 ```
-POST /api/ia/av-agent/ahora/leidos   { ids: [...] }
+POST /api/agente/leidos              { ids: [...] }
     → UPDATE agente.hallazgos
          SET leido_at = now(), leido_por = <email>
        WHERE id = ANY(%s) AND leido_at IS NULL
@@ -1379,8 +1380,11 @@ crontab deploy/crontab.txt            # saca los 3 crons viejos, suma agente_tas
   este repo los comentarios NOMBRAN el bug que evitan, así que grepear el archivo
   entero hacía fallar al test por documentar bien.
 - **2026-08-24** — **IMPLEMENTADO** (§11). El paquete `agente/`, el daemon
-  único, las cuatro tablas, los 16 detectores, los 6 arreglos, el router de 11
-  endpoints y el modal de tres tabs. Se borraron 29 services, 6 jobs,
+  único, las cuatro tablas del modelo (+5 de infraestructura), los detectores,
+  los arreglos, el router de 11 endpoints y el modal de tres tabs. **Los conteos
+  se sacaron de acá a propósito el 2026-08-31**: quedaron viejos en dos semanas
+  (decía 16 detectores y 6 arreglos; hoy son 18 y 7) y el número vive en
+  `agente/catalogo.py`, que es donde no puede mentir. Se borraron 29 services, 6 jobs,
   `core/ciclo.py`, ~60 tests, ~30 scripts y el modal viejo.
 - **2026-08-24** — Se define HISTORIAL (§6.6: se conserva, con una sola fuente
   paginada y la regla guardada en cada acción) y se listan las bajas (§6.7,

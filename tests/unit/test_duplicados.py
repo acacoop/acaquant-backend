@@ -41,35 +41,71 @@ def test_la_query_devuelve_SOLO_lo_que_difiere():
         assert "<>" in d.sql, f"{d.id}: la query no filtra por diferencia"
 
 
-def test_el_hallazgo_es_ALTA_y_lleva_los_DOS_valores():
+# ── el detector ─────────────────────────────────────────────────────────────
+#
+# ⚠️ `dato_partido(u)` NO lee `u`: va a la base él mismo vía
+# `duplicados.divergencias()`. Los tres tests de abajo le pasaban un payload
+# fabricado —contrato del agente VIEJO— y desde AGENT 2.0 lo ignoraba: corrían
+# contra Postgres, fallaban con `no_pude_chequear` para los 5 duplicados reales,
+# y afirmaban sobre `h["tipo"]`/`h["motivo"]`, campos que `Hallazgo` no tiene.
+# Se pincha la FUENTE, que es la única forma de que el test hable del detector.
+
+def _con(monkeypatch, res: dict):
+    from core import duplicados as D_
+    monkeypatch.setattr(D_, "divergencias", lambda: res)
+
+
+def test_el_hallazgo_es_ALTA_y_lleva_los_DOS_valores(monkeypatch):
     """`alta` sin dudar: si dos copias difieren, algo está leyendo el valor
     incorrecto AHORA — lo único que no sabemos es quién. Y tiene que mostrar los
     dos valores, porque decidir cuál está bien es de una persona."""
-    hs = det.dato_partido({"partidos": [{
+    _con(monkeypatch, {"partidos": [{
         "id": "x", "que": "el símbolo", "a": "columna", "b": "blob",
         "arbitro": "la columna", "rompe": "la fila sale vacía teniendo precio",
         "n": 2, "ejemplos": [{"sujeto": "AO29", "valor_a": "AO29D",
                               "valor_b": "AO29"}]}], "sin_mirar": []})
+    hs = det.dato_partido({})
     assert len(hs) == 1
     h = hs[0]
-    assert h["tipo"] == "dato_partido" and h["severidad"] == "alta"
-    assert "AO29D" in h["motivo"] and "«AO29»" in h["motivo"]
-    assert h["evidencia"]["arbitro"] == "la columna"
+    assert h.regla == "copias_que_no_coinciden" and h.severidad == "alta"
+    assert "AO29D" in h.problema and "«AO29»" in h.problema
+    assert h.evidencia["arbitro"] == "la columna"
+    # Y el árbitro viaja en el `que_hacer`: decidir cuál gana es de una persona.
+    assert "la columna" in h.que_hacer
 
 
-def test_lo_que_NO_SE_PUDO_MIRAR_se_canta():
+def test_lo_que_NO_SE_PUDO_MIRAR_se_canta(monkeypatch):
     """**El silencio no es un verde.** Un duplicado sin chequear se leería igual
     que uno sano, que es exactamente la forma de mentir que este módulo
     persigue."""
-    hs = det.dato_partido({"partidos": [], "sin_mirar": [
+    _con(monkeypatch, {"partidos": [], "sin_mirar": [
         {"id": "y", "que": "el emisor", "error": "UndefinedTable: no existe"}]})
+    hs = det.dato_partido({})
     assert len(hs) == 1
-    assert hs[0]["regla"] == "no_pude_chequear"
-    assert "no se miró" in hs[0]["motivo"]
+    assert hs[0].regla == "no_pude_chequear"
+    assert "no se miró" in hs[0].problema
 
 
-def test_sin_divergencias_no_hay_hallazgos():
-    assert det.dato_partido({"partidos": [], "sin_mirar": []}) == []
+def test_sin_divergencias_no_hay_hallazgos(monkeypatch):
+    _con(monkeypatch, {"partidos": [], "sin_mirar": []})
+    assert det.dato_partido({}) == []
+
+
+def test_si_no_puede_LEER_levanta_SIN_DATOS(monkeypatch):
+    """La otra mitad del invariante #1: una corrida que no pudo mirar no puede
+    devolver `[]`, porque con eso el motor cerraría por ausencia todo lo abierto.
+    """
+    import pytest
+
+    from agente.tipos import SinDatos
+    from core import duplicados as D_
+
+    def _revienta():
+        raise RuntimeError("el pool no responde")
+
+    monkeypatch.setattr(D_, "divergencias", _revienta)
+    with pytest.raises(SinDatos):
+        det.dato_partido({})
 
 
 def test_NO_se_automatiza_y_es_una_decision():

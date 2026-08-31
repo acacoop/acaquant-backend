@@ -2,7 +2,7 @@
 
 Tab `/manager → DOCUMENTOS`: subir PDFs (ej. el "Semanal") y comentarios que NO
 llegan por mail. Gate `manager` (se aplica en el paquete). La LECTURA la hace la
-vista Research (api/routers/research_docs.py, gate research). docs/RESEARCH_FRED.md.
+vista Research (api/routers/research_docs.py, gate research). docs/RESEARCH.md.
 
 Endpoints (prefix /api/manager lo agrega el paquete):
   GET    /documentos        → lista (metadata)

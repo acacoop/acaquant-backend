@@ -37,8 +37,7 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 |---|---|---|---|
 | **Tabla CEDEARs** (live BYMA + ADR EOD) | `GET /api/scanner/cedears` | 2s | `scanner.py::get_cedears_scanner` |
 | **CCL** (header) | `GET /api/scanner/ccl` | 5s | `scanner.py::get_ccl_live` |
-| **Time & Sales intradía** | `GET /api/scanner/cedears/trades?ticker=` | 2s | `scanner.py::get_cedears_trades` |
-| **Chart intradía (live)** | `GET /api/scanner/cedears/intraday?ticker=` | 3s | `scanner.py::get_cedears_intraday` |
+| ~~Time & Sales intradía~~ · ~~Chart intradía (live)~~ | **NO EXISTEN.** `/api/scanner/cedears/{trades,intraday}` se dieron de baja; el único endpoint de CEDEARs del scanner es `GET /api/scanner/cedears`, que es lo que consume el front (verificado 2026-08-31 contra `api/routers/scanner.py` y `src/`) | — | — |
 | **Pivot Points** (USD del subyacente) | `GET /api/scanner/pivot/{ticker}` | 60s | `scanner.py::get_pivot_points` |
 | **Vol / Beta** (lazy) | `GET /api/scanner/quant/{ticker}` | on-demand | `scanner.py::get_quant_stats` |
 | **Retornos diarios** (histograma, lazy) | `GET /api/scanner/returns/{ticker}` | on-demand | `scanner.py::get_ticker_returns` |

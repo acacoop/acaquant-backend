@@ -1,5 +1,5 @@
 """api/services/research_1816_sql.py — lectura de las series de 1816 para el
-LABORATORIO de series/spreads de la vista RESEARCH (pilar A). Doc: docs/VISTA_RESEARCH.md.
+LABORATORIO de series/spreads de la vista RESEARCH (pilar A). Doc: docs/RESEARCH.md.
 
 Lee `research.mkt_1816_series` (lo puebla jobs/mercado_1816_series). Puro (sin
 FastAPI). 0 créditos: todo sale de la DB. Tres cosas:

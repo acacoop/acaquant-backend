@@ -1,5 +1,5 @@
 """scripts/diag_1816_mapeo.py — el insumo de diseño para AUTOMATIZAR el master de
-renta fija con 1816. Doc madre: docs/VISTA_RESEARCH.md §4.10.
+renta fija con 1816. Doc madre: docs/RESEARCH.md §A.4.10.
 
 El objetivo del user (2026-08-15) NO es research: es que `mercado.curvas` deje de
 mantenerse a mano — que un bono nuevo de una licitación aparezca solo, con su

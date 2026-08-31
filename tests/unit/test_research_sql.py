@@ -2,7 +2,7 @@
 
 Congela la derivación de `tipo` desde el asunto (sin columna todavía) y el parseo
 La lectura SQL se prueba contra DB en integration. Doc madre:
-docs/VISTA_RESEARCH.md.
+docs/RESEARCH.md.
 """
 from __future__ import annotations
 

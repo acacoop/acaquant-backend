@@ -62,7 +62,7 @@ def test_un_run_sin_filas_y_con_errores_levanta(monkeypatch):
                         lambda idc, dn, desde, iso, amap: (idc, "error_http_500", []))
 
     log = JobRunLogger("test")
-    with pytest.raises(RuntimeError, match="no escribió ninguna fila"):
+    with pytest.raises(RuntimeError, match="NO escribió ninguna fila"):
         job._run_backfill(logger=log)
 
     # Y además dejó los contadores, que era lo que faltaba para poder verlo.

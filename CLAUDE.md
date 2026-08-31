@@ -42,7 +42,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las 40 rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base — verificado 2026-08-13; decían 20, el número había quedado viejo), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
+TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las **73** rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base — recontado 2026-08-31; el número queda viejo solo, ya pasó de 20 a 40 a 73), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
 
 > **MONGO DECOMISADO (2026-06-29).** El sistema es 100% Postgres/Supabase: motores,
 > jobs y API leen y escriben SQL. NO queda una sola referencia a
@@ -60,10 +60,19 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 >
 > **El agente vive en `agente/` (paquete raíz, al lado de `engines/` y `jobs/`).**
 >
-> **CUATRO tablas en el schema `agente`, y ninguna otra guarda estado de problemas:**
-> `habilidades` (el catálogo — y **cuándo corrió cada una**) · `hallazgos` (los
-> eventos, con `id` único) · `reincidencias` (**la que DEBE estar vacía**) ·
-> `acciones` (el libro: qué escribió, de qué valor a qué valor).
+> **CUATRO tablas llevan el MODELO** del agente, y ninguna otra decide si algo
+> es un problema: `habilidades` (el catálogo — y **cuándo corrió cada una**) ·
+> `hallazgos` (los eventos, con `id` único) · `reincidencias` (**la que DEBE
+> estar vacía**) · `acciones` (el libro: qué escribió, de qué valor a qué valor).
+>
+> ⚠️ El schema tiene **nueve** tablas, no cuatro: las otras cinco son de
+> INFRAESTRUCTURA y ninguna nace de un detector — `latido` (el pulso del daemon,
+> UNA fila) · `silenciados` (lo que una persona mandó a callar; **no borra el
+> hallazgo, evita crearlo de nuevo**) · `db_peso` (la serie del tamaño de la
+> base) · `avisos_dirigidos` (la bandeja hacia un usuario) · `tasa_1816` (el
+> dato que trae el único cron del agente). Decir «cuatro» a secas hacía que
+> `silenciados` pareciera no existir, y es la que explica por qué un problema
+> real no aparece en pantalla.
 >
 > **Sumar una habilidad es UNA fila en `agente/catalogo.py`.** No hay que tocar
 > un reloj, ni una lista de tipos, ni un mapa de dominios, ni un test que
@@ -356,12 +365,11 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
 | **EL AV AGENT — la especificación** | `AGENT_2.0.md` **[VIVO]** — el modelo, las 4 tablas, el motor único, las habilidades y los invariantes |
 | Por qué el agente quedó así (historia) | `AV_AGENT.md` — **HISTÓRICO**, no describe el código actual |
-| Vista `/research` (1816, mail diario) | `VISTA_RESEARCH.md` **[VIVO]** |
-| Research → tab BCRA / FRED | `RESEARCH_BCRA.md` · `RESEARCH_FRED.md` |
+| Vista `/research` — las 6 tabs (1816, BCRA, FRED, sensibilidad, reportes) | `RESEARCH.md` **[VIVO]** |
 | Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |
 | Interbanking (bancos: cuentas, saldos, extractos, transferencias) | `INTERBANKING.md` **[VIVO]** |
 | Postrade A3/ACyRSA (post-trade: cuentas, posiciones, garantías, márgenes) | `POSTRADE.md` **[VIVO]** — ⚠️ esta API PUEDE OPERAR (suscribe/rescata FCI, cancela órdenes): la escritura es default-deny con doble llave |
-| Renta fija / curvas | `RENTA_FIJA.md` · `SALUD_CURVAS.md` |
+| Renta fija / curvas (incluye salud de la valuación, §9) | `RENTA_FIJA.md` |
 | Renta variable / scanner | `RENTA_VARIABLE.md` |
 | Estrategia Quant (señal intradía, tab ESTRATEGIA de Trading) | `ESTRATEGIA_QUANT.md` **[VIVO]** |
 | Vista `/aca` (resumen ejecutivo de la cartera propia) | `ACA.md` **[VIVO]** |
@@ -377,7 +385,7 @@ Auto-generados (NO editar a mano): `HERRAMIENTAS.md`, `deploy/SISTEMA.md`.
 
 ## Mapa de la app — `docs/MAPA_APP.md` (LEER al empezar una sesión)
 
-**Es el índice de TODA la superficie**: 20 vistas, sus tabs, sus filtros, qué endpoint
+**Es el índice de TODA la superficie**: 19 vistas, sus tabs, sus filtros, qué endpoint
 consume cada cosa, quién la ve y qué puede escribir. Leerlo AHORRA re-relevar la app
 (que cuesta horas y cientos de miles de tokens). Si vas a tocar cualquier vista,
 empezá por ahí.

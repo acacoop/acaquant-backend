@@ -287,7 +287,7 @@ def flujos_resumen(
 # `flujos_resumen` devuelve el GRANO (día × cuenta × unidad) y la vista hacía
 # TODO en el browser: filtrar por rango, por moneda, por accionista, elegir una
 # cuenta, agrupar a día o mes y sumar los totales. Medido en el Droplet
-# (`scripts/diag_peso_operaciones`, 2026-08-19) eso son **20.559 filas y 2.512 KB
+# (medido en prod, 2026-08-19) eso son **20.559 filas y 2.512 KB
 # en cada apertura de la tab** — 4,3× más que el peor caso de todos los otros
 # tabs de la vista JUNTOS, y sin selector de rango que lo acote: baja 2 años
 # siempre.

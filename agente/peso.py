@@ -110,7 +110,7 @@ def mb(b) -> str:
 # agente nunca habría avisado si `ap5.portfolio` desaparecía.
 #
 # No falló nada: la función devolvía 234 tablas con cara de estar completa.
-# Lo cazó una medición (`scripts/diag_schemas_ajenos`), no el código.
+# Lo cazó una medición contra prod (2026-08-28), no el código.
 _RE_CREA = re.compile(
     r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
 _RE_DROP = re.compile(

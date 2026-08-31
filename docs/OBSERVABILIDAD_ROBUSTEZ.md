@@ -26,39 +26,14 @@ lo que la plataforma muestra y saber cómo se usa?**
 > endpoint normalizado × hora, mismo patrón de flush best-effort), middleware
 > en `api/main.py` (mide `perf_counter` alrededor de cada request),
 > `api/services/latencia_endpoints.py` y `GET /api/manager/latencia`.
-> `manager.uso_modulos` se DROPea vía apply_schema. Lo que sigue abajo queda
-> como registro histórico del diseño original.
+> `manager.uso_modulos` se DROPea vía apply_schema.
 
-## (histórico) Telemetría de uso por módulo — HECHO 2026-07-18, decomisada
-
-**Qué es:** contador **usuario × módulo × hora** en `manager.uso_modulos`
-(agregado, NO log por request → no crece sin control) + panel Manager →
-OBSERVABILIDAD → **USO** (heatmap con rango 7/30 días).
-
-**Diseño (decisiones clave):**
-- **Hot path intocado:** el middleware (`api/main.py`) solo incrementa un dict en
-  memoria (`api/telemetria.py`, lock + nanosegundos). Un thread flushea a SQL
-  cada ~60s con upsert incremental (`ON CONFLICT … hits = hits + EXCLUDED.hits`).
-  Best-effort: SQL caído → los contadores vuelven al buffer (techo 10k claves) y
-  NINGÚN request se rompe jamás. Cada worker de uvicorn flushea lo suyo
-  (incrementos aditivos — sin conflicto entre workers).
-- **Módulo del path:** REUSA `api.auth.get_module_for_path` /
-  `ENDPOINT_MODULE_PREFIXES` (mapa único, cero duplicación).
-- **Se ignora:** emails vacíos, `service:*`, portal INVITADO (REGLA #8 — ni se
-  mide), `/api/health`, `/api/me`, paths sin módulo mapeado, y
-  responses ≥400.
-- **Identidad:** los headers saneados del proxy (los mismos de la rama 2a de
-  `get_user_email`). Es un contador de producto, no una superficie de seguridad
-  — el gate real sigue siendo el RBAC de cada endpoint.
-- **Lectura:** `GET /api/manager/uso?dias=7` (gate `manager` umbrella), service
-  puro `api/services/uso_modulos.py`, query scopeada por el índice de `hora`.
-
-**Piezas:** `manager.uso_modulos` (schema) · `api/telemetria.py` · middleware en
-`api/main.py` · `api/services/uso_modulos.py` · `api/routers/manager/uso.py` ·
-pill USO en `manager-view.tsx` · `tests/unit/test_telemetria.py` (6 tests).
-
-**Para activar:** `python -m scripts.apply_schema` + `systemctl restart api.service`.
-El panel muestra datos a partir del primer flush (~1 min de uso real).
+> **El diseño original (36 líneas: el contador `manager.uso_modulos`, su
+> middleware, `api/services/uso_modulos.py`, `api/routers/manager/uso.py` y la
+> pill USO) se borró de acá el 2026-08-31.** Ninguna de esas piezas existe —
+> verificado contra el repo— y describir en presente un panel decomisado hace
+> que alguien lo busque. Está en git. Lo que corre hoy es la telemetría de
+> LATENCIA de arriba: `manager.latencia_endpoints` + `GET /api/manager/latencia`.
 
 ---
 
@@ -135,11 +110,12 @@ obliga a revisar lo ya ingestado con ese patrón.
 
 ```
 git pull
-python -m scripts.apply_schema        # crea manager.uso_modulos
+python -m scripts.apply_schema        # crea manager.latencia_endpoints
 systemctl restart api.service          # activa el middleware de telemetría
 python -m jobs.guardrails              # 1ª corrida del report de calibración
 ```
-- El panel **Manager → OBSERVABILIDAD → USO** muestra datos tras ~1 min de uso.
+- El panel **Manager → OBSERVABILIDAD → LATENCIA** muestra datos tras ~1 min de uso
+  (la tab USO se decomisó — ver arriba).
 - **Calibración de guardrails:** correr/leer el report unos días (el cron 20:45
   ya lo corre solo y el output queda en `logs/guardrails.log`); con los valores
   medidos, fijar los umbrales en `config.GUARDRAILS_UMBRALES` y cambiar el cron

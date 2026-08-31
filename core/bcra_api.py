@@ -1,6 +1,6 @@
 """core/bcra_api.py — cliente de la API de Estadísticas Monetarias del BCRA (v4).
 
-Doc vivo: docs/RESEARCH_BCRA.md. Alimenta la tab BCRA de la vista Research.
+Doc vivo: docs/RESEARCH.md. Alimenta la tab BCRA de la vista Research.
 SOLO Monetarias v4 (cambiarias descartadas por el user 2026-07-18; v3 redundante).
 
 API pública, sin key. Verificado contra la API viva (2026-07-18):

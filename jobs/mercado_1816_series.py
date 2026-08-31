@@ -1,6 +1,6 @@
 """jobs/mercado_1816_series.py — baja las series históricas de 1816 a Postgres.
 
-Doc madre: docs/VISTA_RESEARCH.md. Alimenta `research.mkt_1816_series` (el
+Doc madre: docs/RESEARCH.md. Alimenta `research.mkt_1816_series` (el
 laboratorio de series/spreads de la vista RESEARCH). Feed SEPARADO de mercado.curvas
 (nuestro motor RF de hoy) — no se pisan.
 

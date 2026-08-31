@@ -1,6 +1,6 @@
 """core/mercado_1816.py — cliente de la API de Mercado de 1816 (vista RESEARCH).
 
-Doc madre: docs/VISTA_RESEARCH.md. Cambiar de proveedor / URL = tocar solo acá.
+Doc madre: docs/RESEARCH.md. Cambiar de proveedor / URL = tocar solo acá.
 
 Lo que resuelve (verificado el 2026-07-18):
 - **Auth**: POST /v1/auth/token (apiKey + module=mercado) → JWT 24h. Cacheado en
@@ -10,7 +10,7 @@ Lo que resuelve (verificado el 2026-07-18):
   exponencial en 429. NADA de hammering — este cliente es para jobs de fondo, la
   latencia no importa.
 - **Créditos**: se controlan con balance() (100k/día, 3.1M/mes); el consumo por
-  endpoint está en docs/VISTA_RESEARCH.md §4.2.
+  endpoint está en docs/RESEARCH.md §A.4.2.
 
 Env vars (.env del Droplet):
   MERCADO_1816_API_KEY   — sin ella el cliente está apagado (disponible() = False).
@@ -715,7 +715,7 @@ def cashflow(ticker: str, campos: list[str] | None = None) -> dict:
 
     Devuelve {ticker, fechaOperacion, plazo, cashflow: [{campo: valor}, …]} tal
     cual lo manda la API (nada se recalcula acá — decisión 5 de
-    docs/VISTA_RESEARCH.md: 1816 es la fuente de la verdad de los números).
+    docs/RESEARCH.md: 1816 es la fuente de la verdad de los números).
     Costo: **1 crédito por cupón** devuelto → un bono con 20 cupones sale 20.
     `campos` es obligatorio en la API; el default de acá pide los cinco.
     """

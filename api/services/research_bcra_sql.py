@@ -1,5 +1,5 @@
 """api/services/research_bcra_sql.py — lectura de las series BCRA para la tab
-BCRA de la vista Research (docs/RESEARCH_BCRA.md). Puro (sin FastAPI); todo sale
+BCRA de la vista Research (docs/RESEARCH.md). Puro (sin FastAPI); todo sale
 de la DB (0 requests al BCRA por carga — el sync es de jobs/bcra_research.py).
 
 Eficiencia: `series()` es UNA query batch para N ids (la vista pide un bloque por

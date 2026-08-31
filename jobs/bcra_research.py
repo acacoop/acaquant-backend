@@ -1,6 +1,6 @@
 """jobs/bcra_research.py — sincroniza las series del BCRA a Postgres (tab BCRA).
 
-Doc vivo: docs/RESEARCH_BCRA.md. Feed SEPARADO de jobs/bcra.py (motores) — no se
+Doc vivo: docs/RESEARCH.md. Feed SEPARADO de jobs/bcra.py (motores) — no se
 tocan. Alimenta `research.bcra_series` SOLO para el universo curado
 (`research.bcra_watch`, seed abajo con IDs VERIFICADOS contra el catálogo vivo
 2026-07-18). Eficiencia primero: incremental por watermark, nada de bajar 1.581

@@ -2,7 +2,7 @@
 
 Lee la casilla por IMAP, detecta los mails de research (filtro por remitente) y
 persiste el texto CRUDO en `ia.research` — que es lo que se MUESTRA, tal cual, en
-la vista Research (docs/VISTA_RESEARCH.md).
+la vista Research (docs/RESEARCH.md).
 
 **Este job NO usa IA.** Tenía un DESTILADO opcional ({resumen, temas, hechos}
 generado por un LLM) detrás del flag `--destilar`, y se borró el 2026-08-28 por

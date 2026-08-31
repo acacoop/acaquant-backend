@@ -56,7 +56,7 @@ logger = logging.getLogger("SnapshotCierre")
 # usando como si fuera de hoy. SALUD tampoco lo ve: su contrato de frescura mira
 # `max(fecha)` de la tabla, que sigue fresco mientras cualquier otro actualice.
 #
-# Medido (`scripts/diag_precios_congelados`): 5 bonos VIVOS y EN CARTERA quedaron
+# Medido en prod (2026-08): 5 bonos VIVOS y EN CARTERA quedaron
 # con el precio del 30-abr, desviados entre 5,8% y 9,6% del valor real —
 # TTS26 (17 cuentas, 5.153 M de nominales), TTD26 (6 cuentas, 1.784 M), D30S6
 # (21 cuentas), TZV27 y TZV28. Los cinco viven en estas dos familias.

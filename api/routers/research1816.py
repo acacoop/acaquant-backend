@@ -1,6 +1,6 @@
 """Router /api/research1816 — vista RESEARCH (nueva vista principal).
 
-Doc madre: docs/VISTA_RESEARCH.md. Prefijo distinto del `/api/research` existente
+Doc madre: docs/RESEARCH.md. Prefijo distinto del `/api/research` existente
 (ese es la Análisis Fundamental de RV, gate renta-variable) para no pisarlo — la
 vista Research es OTRA cosa (research macro de 1816: mails ahora, market data 1816
 después). Gate a nivel router: módulo `research` (interno, JAMÁS invitado — REGLA #8).

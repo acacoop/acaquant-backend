@@ -242,7 +242,7 @@ def fecha_objetivo(job: str, ahora: datetime | None = None) -> str:
 
     Antes solo existía el paso 2 aplicado a HOY: un sábado exigía el viernes,
     que recién se escribe el lunes — y la alerta era falsa. Medido
-    (`diag_tenencia_fechas`, 2026-08-22): todos los viernes históricos están
+    (medido en prod, 2026-08-22): todos los viernes históricos están
     (14/08, 07/08); el máximo en sábado es el jueves, que es EXACTAMENTE lo
     que este cálculo espera.
     """

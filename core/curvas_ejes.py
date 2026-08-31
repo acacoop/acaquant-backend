@@ -36,7 +36,7 @@ del sistema: "sin dato" ≠ "cero"). `ley` solo se completa donde el nombre lo d
 **Eje ELIMINADO — bono/letra (2026-08-15).** Existió un quinto eje `instrumento`
 (bono · letra) que 1816 solo afirma en 3 de sus 28 curvas (Botes, Letras CER,
 Lelink). Se persistía en `mercado.curvas.tipo_instrumento` y quedó **vacío en los
-221 bonos** (medido con `scripts/diag_curvas_columnas`): un eje que casi nunca se
+221 bonos** (medido en prod, 2026-08): un eje que casi nunca se
 puede completar no parte el universo en dos, lo parte en "algunos" y "no sé". Se
 borró la columna y el campo. Si algún día hace falta, la forma correcta no es
 adivinarlo del prefijo del ticker (`S…` LECAP vs `T…` BONCAP es una heurística sin
@@ -144,7 +144,7 @@ CURVAS_SIN_EJES: dict[str, str] = {
 #     meterlo adentro corre la curva para TODOS los demás. El modo de fallar es
 #     mudo — el ajuste sale, el z-score sale, y los números son otros.
 #
-# VERIFICADO contra producción (`scripts/diag_fase_b`): el predicado FIT reproduce
+# VERIFICADO contra producción (2026-08): el predicado FIT reproduce
 # el universo de hoy BONO POR BONO, sin una sola diferencia, en las tres curvas
 # que tienen fit persistido (tasa_fija 11=11, cer 22=22, dolar_linked 7=7).
 #

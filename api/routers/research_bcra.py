@@ -1,6 +1,6 @@
 """Router /api/research-bcra — tab BCRA de la vista Research.
 
-Doc vivo: docs/RESEARCH_BCRA.md. Gate a nivel router: módulo `research` (interno,
+Doc vivo: docs/RESEARCH.md. Gate a nivel router: módulo `research` (interno,
 JAMÁS invitado — REGLA #8). Read-only: sirve de `research.bcra_*` (el sync lo
 hace jobs/bcra_research.py). Recordar el gotcha: prefijo nuevo ⇒ route handler
 de Next (`src/app/api/research-bcra/[...path]/route.ts`) + entrada en proxy.ts.

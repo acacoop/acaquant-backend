@@ -30,7 +30,7 @@ POST https://api.acaquant.com/api/ingest/eikon/quotes
 core/eikon_live.upsert_quotes → SQL mercado.eikon_snapshot (1 fila por ticker,
    │                            jsonb passthrough, updated_at lo pone el server)
    ▼
-GET /api/trading/reuters (módulo `trading`, admin-only — INVITADO JAMÁS)
+GET /api/research1816/reuters (módulo `trading`, admin-only — INVITADO JAMÁS)
    ▼
 acaquant-web → TRADING → tab REUTERS (reuters-view.tsx, poll 5s, tabla 60% izq)
 ```
@@ -50,9 +50,9 @@ acaquant-web → TRADING → tab REUTERS (reuters-view.tsx, poll 5s, tabla 60% i
 | Tabla | `mercado.eikon_snapshot` (ticker PK, ric, data jsonb, updated_at) |
 | Catálogo | `mercado.cedears.ric` + `mercado.cedears.ratio` — carga MANUAL |
 | Editor | Manager → TÍTULOS → RENTA VARIABLE (columnas RIC y RATIO) |
-| Endpoint vista | `GET /api/trading/reuters` (`api/routers/trading.py`) |
+| Endpoint vista | `GET /api/research1816/reuters` (`api/routers/trading.py`) |
 | Vista | `acaquant-web/src/components/reuters-view.tsx` (tab en `trading-shell`) |
-| Diag (temporal) | `scripts/diag_eikon_snapshot.py` — se borra al cerrar la prueba |
+| Diag (temporal) | ~~`scripts/diag_eikon_snapshot.py`~~ — **ya borrado** (la prueba cerró) |
 
 **Decisión clave (2026-07-16): los RICs se cargan SOLO a mano.** La primera
 versión los resolvía por symbology y los persistía sola → guardó 99 tickers
@@ -73,7 +73,8 @@ el motivo.
 **Agregar un activo**: Manager → TÍTULOS → RENTA VARIABLE → cargar RIC (y ratio)
 → cortar y volver a correr el feed (toma los RICs al arrancar).
 
-**Verificar del lado del server** (Droplet): `python -m scripts.diag_eikon_snapshot`.
+**Verificar del lado del server** (Droplet): el diag ya se borró; hoy se mira
+con `GET /api/research1816/reuters` y la tab REUTERS.
 
 **Si se toca `scripts/eikon_feed_simple.py`**: regenerar la copia del Desktop
 (mismo archivo con las 4 keys pegadas). Claude lo hace con un `sed` en un paso.
@@ -352,7 +353,7 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 - **2026-07-18 — la vista se MUDÓ a /research → tab RENTA VARIABLE INTERNACIONAL.**
   El tablero (`reuters-view.tsx`, con fundamentals, ficha y su copiloto in-view)
   ya no vive en /trading (que quedó con PIVOTS + INTRADAY) sino como segunda tab
-  de la vista Research (`research-view.tsx` — ver docs/VISTA_RESEARCH.md).
+  de la vista Research (`research-view.tsx` — ver docs/RESEARCH.md).
   **Feed/ingest/`core/eikon_live.py` intactos**, pero los endpoints HTTP se
   MUDARON: `/api/trading/reuters*` → **`/api/research1816/reuters*`** (gate módulo
   `research` — directiva del user: TRADING queda admin-only y RESEARCH se habilita
@@ -401,7 +402,7 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
   - Feed: pull de fundamentals 1 vez/día (arranque + cada 24 h; si falla
     reintenta a los 30 min, nunca voltea los precios) → POST
     `/api/ingest/eikon/fundamentals` → tabla `mercado.eikon_fundamentals`.
-  - Ficha: `GET /api/trading/reuters/ficha?ticker=X` = quote live + fundamentals
+  - Ficha: `GET /api/research1816/reuters/ficha?ticker=X` = quote live + fundamentals
     + ratio + velas 1 año de `mercado.precios_acciones` (EOD ya en casa — el
     chart NO depende de Eikon). UI `reuters-ficha.tsx`: header (precio live,
     pre/after, rango 52s, próximo balance), chart 1 año (lightweight-charts),
@@ -443,7 +444,7 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
     métricas de la ficha (valuación/negocio/salud + fecha de reporte), orden por
     columna, columnas ocultables y **buscador multi-empresa** ("AAPL, MSFT
     NVDA") para comparar. Click en fila → ficha.
-    `GET /api/trading/reuters/fundamentals` (sin las series, que pesan).
+    `GET /api/research1816/reuters/fundamentals` (sin las series, que pesan).
 
 - **2026-07-17 — v2.4: filtro AFTER HOURS + gráfico legible + explicaciones ("?").**
   - Filtro **AFTER HOURS** en cotizaciones: toggle que muestra/oculta las
@@ -464,7 +465,7 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
     métricas en 2 columnas, negritas en labels/valores (modo claro legible),
     botón ⛶ maximizar por cuadrante, gráfico de evolución dibujado al tamaño
     real del panel (ResizeObserver — fin del espacio muerto).
-  - Los KPIs SPY/QQQ del toolbar de PIVOTS ahora salen de `/api/trading/reuters`
+  - Los KPIs SPY/QQQ del toolbar de PIVOTS ahora salen de `/api/research1816/reuters`
     (real-time del feed) en vez de la watchlist externa.
   - Ratios: el 2º Excel del user (17061.xlsx, 02-jul) resultó IDÉNTICO al 1º —
     **los CEDEARs de ETF (SPY/QQQ/XLF…) NO están en ese listado de BYMA**; falta
@@ -501,7 +502,8 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 - Noticias Reuters en la plataforma (estudio hecho, §6b) — diseñar CON el user
   dónde viven (¿panel en REUTERS? ¿HOME?) y recién ahí implementar.
 - Cargar RICs del universo que la mesa quiera seguir (hoy: solo RKLB.O).
-- Al cerrar la prueba: borrar `scripts/diag_eikon_snapshot.py` y
-  `scripts/fix_limpiar_rics.py` (REGLA #5) y evaluar si `eikon_snapshot` pasa a
+- ~~Al cerrar la prueba: borrar `scripts/diag_eikon_snapshot.py` y
+  `scripts/fix_limpiar_rics.py` (REGLA #5)~~ **HECHO** — los dos ya no existen
+  (junto con `scripts/diag_eikon_segmentos.py`); evaluar si `eikon_snapshot` pasa a
   tener frescura monitoreada (Diagnóstico) como el resto de los feeds.
 - Futuro: migrar la lib `eikon` → `lseg-data` (la deprecación es real).

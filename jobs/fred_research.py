@@ -1,5 +1,5 @@
 """jobs/fred_research.py — sincroniza series de FRED a Postgres (tab Datos
-Internacionales). Doc vivo: docs/RESEARCH_FRED.md.
+Internacionales). Doc vivo: docs/RESEARCH.md.
 
 Feed SEPARADO de jobs/bcra.py / jobs/argentina_datos.py (motores) — no se tocan.
 Alimenta `research.fred_observations` SOLO para el universo curado

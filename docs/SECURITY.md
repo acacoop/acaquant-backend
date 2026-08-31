@@ -89,7 +89,8 @@ Detalle del modelo RBAC: `api/CLAUDE.md`.
 usuario** sacado del JWT firmado por CF (`cf-access-jwt-assertion`, no
 spoofable); los anónimos comparten **un solo bucket** (`anon`) para que un
 atacante no-autenticado no pueda quemar cuota por volumen. Límites por
-endpoint vía `@limiter.limit(...)` (ej. `/api/chat`, `/manager/jobs/run`).
+endpoint vía `@limiter.limit(...)` (ej. `/manager/jobs/run`). *(`/api/chat` era el
+otro ejemplo: el asistente legacy se borró el 2026-06-03.)*
 
 ## Secretos / env vars
 

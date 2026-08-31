@@ -312,7 +312,7 @@ def rama_calculo(instrumento: dict) -> str:
     muestran. Es una rampa de transición — cuando no quede ninguno sin clasificar,
     se borra junto con la columna.
 
-    Verificado bono por bono con `scripts/diag_motor_ejes` y `diag_tea_dos_ramas`
+    Verificado bono por bono contra producción (2026-08), corriendo las DOS ramas
     antes de migrar: los que cambian de rama están medidos, con su delta.
     """
     emisor = instrumento.get("emisor_tipo")

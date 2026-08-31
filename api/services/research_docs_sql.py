@@ -2,7 +2,7 @@
 
 Puro (sin FastAPI). Lo escribe Manager (upload/borrar) y lo lee la vista Research
 (listar/get_pdf). El PDF vive como bytea en research.documentos (ver schema).
-docs/RESEARCH_FRED.md.
+docs/RESEARCH.md.
 """
 from __future__ import annotations
 

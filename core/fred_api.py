@@ -1,6 +1,6 @@
 """core/fred_api.py — cliente de la FRED API (Federal Reserve Bank of St. Louis).
 
-Doc vivo: docs/RESEARCH_FRED.md. Alimenta la tab "Datos Internacionales" de la
+Doc vivo: docs/RESEARCH.md. Alimenta la tab "Datos Internacionales" de la
 vista Research (arranque: bloque Tasas USA). Feed ANCHO y SEPARADO de jobs/bcra.py
 (motores) — no se toca nada existente.
 
@@ -9,7 +9,7 @@ Diferencia CLAVE vs core/bcra_api.py: FRED EXIGE API key (el BCRA no).
 - Se manda como query param `api_key=` (NO header), obligatorio en todo endpoint.
 - Sin la env, el cliente levanta ErrorFRED al primer request (feed deshabilitado).
 
-Verificado (2026-07-19, ver docs/RESEARCH_FRED.md):
+Verificado (2026-07-19, ver docs/RESEARCH.md):
 - Base: https://api.stlouisfed.org/fred — REST, todo GET con query params.
 - Rate limit: 120 req/min por key → throttle 0.6s (holgado) + backoff en 429/5xx.
 - file_type=json SIEMPRE (el default es XML — la trampa #1).

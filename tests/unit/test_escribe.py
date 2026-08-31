@@ -78,10 +78,15 @@ def test_scripts_NO_cuenta_como_escritor():
 # ── y que el detector lo use ─────────────────────────────────────────────────
 
 def test_el_detector_SALTEA_las_de_evento():
+    """⚠️ El detector se llama `tabla_quieta` y vive en `agente/detectores/
+    sistema.py` desde AGENT 2.0. Este test apuntaba a `agente.tablas.
+    detectar_tablas`, que no existe desde entonces: reventaba con
+    `AttributeError` — o sea que el invariante llevaba semanas SIN mirarse."""
     import inspect
 
-    from agente import tablas as ctx
-    src = inspect.getsource(ctx.detectar_tablas)
+    from agente.detectores import sistema as det
+
+    src = inspect.getsource(det.tabla_quieta)
     assert "escribe.EVENTO" in src and "continue" in src
     # Y deja lo que la puerta va a necesitar.
     assert "que_relanzar" in src

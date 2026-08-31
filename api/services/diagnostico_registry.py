@@ -117,14 +117,16 @@ PIEZAS: list[Pieza] = [
           unidad="jobs.bonos_ohlc_daily",
           cadencia="20:16 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="bonos_ohlc_daily"),
-    Pieza("NEGOCIO", "job", "seguimiento (¿el arreglo aguantó?)", grupo="CLIENTES",
-          unidad="jobs.seguimiento",
-          cadencia="23:50 UTC diario", ventana="diario", umbral_s=int(3 * _D),
-          run_tipo="seguimiento"),
     Pieza("NEGOCIO", "job", "saldos_a_operadores (aviso diario)", grupo="CLIENTES",
           unidad="jobs.saldos_a_operadores",
           cadencia="19:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="saldos_a_operadores"),
+    # AP5 corre TODOS los días (también finde: si el viernes falló, el sábado lo
+    # recupera solo), así que su ventana es `diario` y no `habil`.
+    Pieza("NEGOCIO", "job", "ap5_portfolio (posición futuros cámara)", grupo="CLIENTES",
+          unidad="jobs.ap5_portfolio",
+          cadencia="13:00 UTC diario", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="ap5_portfolio"),
 
     # ── MERCADOS · DERIVADOS ───────────────────────────────
     Pieza("MERCADOS", "job", "snapshot_sinteticos (serie histórica)", grupo="DERIVADOS",

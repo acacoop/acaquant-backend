@@ -223,16 +223,26 @@ Handler-level errors use one of two shapes:
 
 ---
 
-## 7. Endpoint reference
+## 7. Endpoint contracts
 
-Routes are grouped by tag. Access column:
+> ⚠️ **Esta sección NO es el inventario de la API, y dejó de intentar serlo el
+> 2026-08-31.** El inventario canónico es **`docs/MAPA_APP.md` §0**, que un script
+> determinista regenera desde la app FastAPI montada y **la CI bloquea el merge si
+> quedó viejo** (`python -m scripts.gen_mapa_app --check`); el listado completo de
+> las 514 rutas sale de `python -m scripts.gen_mapa_app --full`.
+>
+> Mantener el inventario a mano acá era una segunda fuente de verdad que no tenía
+> quien la controle, y se desincronizó: se acaban de borrar **14 filas y una
+> sección entera** (`/api/simulaciones/*`) que documentaban rutas que ya no
+> existen. Lo que queda es lo que un generador **no puede saber**: shape del
+> payload, semántica de los parámetros, TTL de cache, y las rarezas por endpoint.
+
+Access column:
 
 - **pub** — `_PUBLIC` (auth + bearer, no module gate). Visible to every authenticated user including `sales`.
 - **port** — `_PORTFOLIOS` (`portfolios` module).
 - **opr** — `_OPERAR` (`operar` module — admin + trader + sales: trading-desk actions).
 - **op** — `_OPERACIONES` (`operaciones` module — admin + trader: mesa de flujo).
-- **chat** — `_ASISTENTE` (`asistente` module).
-- **mm** — `_MM` (`mm` module — admin only by default).
 - **adm** — `_MANAGER` (`manager` module — admin only by default).
 - **own** — no module gate; ownership filter inside the service (`user_email`).
 
@@ -266,7 +276,6 @@ Live and historical market data. All reads go directly against the SQL market ta
 | GET | `/rem/informes` | List of REM (BCRA expectations survey) reports available |
 | GET | `/rem` | REM expectations table |
 | GET | `/rem/breakeven-acumulado` | Cumulative breakeven implied by REM expectations |
-| GET | `/rem/debug` | Diagnostics for the REM aggregation |
 | GET | `/renta-fija` | Fixed-income market snapshot |
 | GET | `/opciones` | Options chain with Greeks |
 | GET | `/opciones/meta` | Risk-free rate + VR anchors |
@@ -325,7 +334,6 @@ HTTP projection of the assistant tools. Same functions invoked by the agent's to
 | GET | `/clasificar-nivel` | Percentile classification vs window |
 | GET | `/snapshot-curva-historico` | Curve at a past date |
 | GET | `/pendiente-curva` | Slope (long − short) in bps; optional vs past date |
-| GET | `/liquidez-secundario` | Today's volume vs N-day average + classification |
 | GET | `/sensibilidad-retorno` | Bond return sensitivity to YTM/duration shifts (RESEARCH → ANÁLISIS SENSIBILIDAD) |
 | GET | `/canje` | AL30/AL30D canje analysis (long ARS / short USD) |
 | GET | `/carry-trade` | Local carry vs forward-implied devaluation |
@@ -370,7 +378,7 @@ Runs the SAME engine that prices the curvas table (`engines.curvas.calcular_camp
 
 #### `POST /estrategia-historico`
 
-Backtests a strategy with body-passed inputs (positions + dates + initial capital). Body schema in `api/services/estrategia_historico.py`.
+Backtests a strategy with body-passed inputs (positions + dates + initial capital). Body schema in `api/services/opciones_sql.py::estrategia_historico`.
 
 ---
 
@@ -395,9 +403,6 @@ Mesa flow + cash movements (read-only).
 |---|---|---|
 | GET | `/flujo` | Trade flow (per-boleto) from `operaciones.operaciones` |
 | GET | `/flujos` | Cash movements from `operaciones.operaciones` |
-| GET | `/fondos` | Counterparties `grupo=Fondos` with at least one FCI asset |
-| GET | `/negocio` | Negocio del día consolidado por boleto desde `operaciones.negocio_movimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
-| GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `operaciones.negocio_movimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
 | GET | `/ops/resumen` | Vista MOVIMIENTOS: `por_operacion` / `por_denominacion` / `por_instrumento` (cross-filter 3-way) + `total`. Cada fila trae `bruto`, `arancel`, `n` y **`tasa_pond`**. |
 | GET | `/financiamiento` | Tab FINANCIAMIENTO: libro VIVO de pagarés/cheques (assets con `cartera='FINANCIAMIENTO'` y vencimiento ≥ hoy) al grano cuenta × instrumento. Ver abajo. |
 
@@ -565,17 +570,6 @@ Wrapped operativa: BUY AL30 + SELL AL30D in one call. Persists to `operaciones.o
 
 `GET /mep/dia` returns `usd_efectivo = sell.cum_qty × sell.avg_px × PRICE_FACTOR_BONOS` and `mep_efectivo = monto_ars / usd_efectivo` — i.e. the **realized** MEP including slippage and BYMA's "price per 100 VN" scaling factor.
 
-#### Triggers (operativa condicional)
-
-Background scanner in `api.main` lifespan polls `operaciones.triggers_mep` every 1 s. Stale guard: if AL30 / AL30D `last_trade > 5 s` old, the trigger does not fire — the cotization may be ghost (motor down). EOD auto-cancel at 19:50 UTC (16:50 ART).
-
-| Method | Path | Summary |
-|---|---|---|
-| POST | `/mep/trigger` | Body `{monto_ars, comision_pct, rueda, tc_objetivo, tp_objetivo?, sl_objetivo?, account?}`. Creates an `ACTIVE` trigger. With `tp_objetivo` or `sl_objetivo`, it becomes a bracket: after entry, transitions to `WAITING_EXIT` and fires the closing operativa when MEP crosses TP (≥) or SL (≤). |
-| DELETE | `/mep/trigger/{trigger_id}` | Cancels a trigger in `ACTIVE` or `WAITING_EXIT`. No-op for any other state. |
-| GET | `/mep/triggers/dia?account=` | All triggers created today (UTC), all states. |
-
-Trigger states: `ACTIVE | FIRING | EXECUTED | WAITING_EXIT | EXITING | EXITED | EXIT_FAIL | CANCELLED | CANCELLED_EOD | FAIL`.
 
 ---
 
@@ -628,9 +622,6 @@ Reads SQL-native from `portafolio.tenencia` and `portafolio.assets` (the `*API` 
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/aum` | AuM snapshots (historical) |
-| GET | `/tasa-fija` | Tasa-fija bucket from latest AuM snapshot |
-| GET | `/cer` | CER bucket from latest AuM snapshot |
 | GET | `/fci-serie` | FCI history (rollup + per-issuer split) |
 | GET | `/fci-snapshot` | FCI per-unit detail at a fecha |
 
@@ -643,27 +634,9 @@ Field schemas unchanged from v0.1; see `api/routers/carteras.py` and `_valuacion
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/assets` | Instrument metadata |
-| GET | `/flujos` | Unified cash flows (`mercado.curvas` + `mercado.bonds_master`) |
+| GET | `/flujos` | Unified cash flows (`mercado.curvas`; `mercado.bonds_master` se eliminó el 2026-06-22) |
 
 `flujos[]` element: `fecha`, `amortizacion` (% of VN for CER, absolute for bonds), `interes` (rate on residual for CER, absolute for bonds), `residual`.
-
----
-
-### 7.11 Simulaciones (`/api/simulaciones/*`) · own
-
-Hypothetical portfolios per user. Ownership is enforced inside the service (filter by `user_email`); 404 is returned both when the simulación does not exist and when it belongs to another user — does not leak existence.
-
-| Method | Path | Summary |
-|---|---|---|
-| GET | `` | List the caller's simulaciones, newest first |
-| POST | `` | Create with name + initial positions |
-| GET | `/tickers` | Universe of tickers (Assets ∪ Curvas) for autocomplete. Public within the desk — no `user_email` filter. |
-| GET | `/{simulacion_id}` | Read a simulación owned by the caller |
-| PUT | `/{simulacion_id}` | PATCH semantics: only fields with non-null values are updated |
-| DELETE | `/{simulacion_id}` | 204 on success, 404 on miss |
-| POST | `/calcular` | Stateless recompute: cashflows + composición + métricas. No DB write. Body `{posiciones: [...]}`. |
-
-Position schema: see `api/services/simulaciones.py::Posicion`.
 
 ---
 
@@ -686,9 +659,6 @@ Global watchlist + calendar + OHLC.
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/quotes` | Watchlist quotes with 7d/MTD/YTD/1Y returns |
-| GET | `/calendar/economic` | Finnhub economic calendar |
-| GET | `/candle` | OHLC via Yahoo Finance |
-| GET | `/profile` | Finnhub company profile |
 
 ---
 
@@ -791,10 +761,9 @@ escriben motores (real-time) y jobs SQL-native (vía `core.pg_mirror`).
 | `market.quotes` | — | `jobs.market_quotes`, `jobs.market_anchors` |
 | `manager.job_runs` | — | Background writers + TTL 60 d |
 | `manager.pyrofex_discovery` / `pyrofex_instruments` | — | `scripts.discovery_pyrofex` (one-shot manual) |
-| `manager.intel_docs` | — | `/api/manager/intel/*` |
 | `manager.users` / `role_matrix` / `role_audit` | — | `/api/manager/users`, `/api/manager/roles`, auto-register on first visit |
 | `operaciones.ordenes_live` / `ordenes_audit` | — | `motor_ordenes` (WS order_report) |
-| `operaciones.operativas_mep` / `triggers_mep` | — | `/api/operativa/*` + scanner asyncio in `api.main` lifespan |
+| `operaciones.operativas_mep` | — | `/api/operativa/*` (los triggers y su scanner se dieron de baja) |
 
 ---
 
@@ -820,9 +789,7 @@ api/
 │   ├── opciones.py / derivados.py / repo.py
 │   ├── ordenes.py           # send_order / cancel_order / list_orders_dia (pyRofex REST)
 │   ├── operativa_mep.py     # crear_operativa, get_cotizaciones, listar_operativas_dia, serie_mep_minuto
-│   ├── triggers_mep.py      # crear_trigger / cancelar / scanner_loop (asyncio)
 │   ├── risk.py              # account_report, account_positions, account_detailed_position, saldo_para_rueda
-│   ├── simulaciones.py      # CRUD + calcular (stateless)
 │   ├── portfolio.py / renta_fija.py / canje.py / carry_trade.py
 │   ├── derivados_agro.py    # PASE AGRO (pizarra manual + futuros live)
 │   ├── debug_curva.py       # Recompute paso-a-paso de TEA/duration (manager/checks)

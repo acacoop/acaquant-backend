@@ -79,6 +79,11 @@ HERRAMIENTAS: dict[str, str] = {
                              "(no resuelve contra PyPI, que pinearía a la última). Es lo que evita que un "
                              "`pip install` traiga una versión nueva y tumbe el boot en el restart.",
     "sellar_cierres":        "siembra el histórico de cierres de Interbanking (one-shot re-corrible).",
+    # ⏳ TEMPORAL — se borra (script + este renglón) en el mismo commit que aplique
+    #    la decisión, según REGLA #5. Está declarado y no escondido justamente
+    #    para que su borrado sea una tarea visible y no un olvido.
+    "diag_ctas_ops":         "mide cuánto cambia CTAS OPS del INFORME si el número pasa a salir de "
+                             "operaciones.operaciones (para que las cuentas OTC cuenten como operativas). Sin este número la decisión se toma a ciegas.",
 }
 
 _RE_ESCRIBE = re.compile(

@@ -255,3 +255,31 @@ def test_altas_es_una_metrica_auditable():
     assert "altas" in P.METRICAS
     assert "altas" in P._FILTRO_METRICA
     assert "altas" in P._TITULO_METRICA
+
+
+# ── ALTA DE CUENTAS (histórico) ─────────────────────────────────────────────
+def test_granularidad_anual():
+    """El histórico se lee por año; el label es el año pelado y la clave vuelve."""
+    filas = P._meses("2023-05", "2026-08", "ano")
+    assert [f["label"] for f in filas] == ["2023", "2024", "2025", "2026"]
+    assert (filas[0]["ini"], filas[0]["fin"]) == (date(2023, 1, 1), date(2023, 12, 31))
+    assert P._parse_clave("2026", "ano", P.PROFUNDIDAD_INICIO) == (2026, 1)
+    assert P._clave(2026, 7, "ano") == "2026"
+
+
+def test_el_scope_sin_estado_no_deja_un_where_vacio():
+    """`solo_activas=False` sin filtros madre saca TODAS las condiciones. Devolver ""
+    dejaría un `WHERE ` roto — y el histórico de altas es justo el que lo pide."""
+    from api.services.comercial_sql import _comitentes_where
+    assert _comitentes_where(None, {}, solo_activas=False) == "TRUE"
+    assert _comitentes_where(None, {}) == "estado = 'Activa'"
+
+
+def test_el_estado_sigue_filtrando_por_default():
+    """El default no puede haber cambiado: lo usan ~15 llamadores que cuentan CLIENTES
+    VIVOS, no altas históricas."""
+    import inspect
+
+    from api.services.comercial_sql import _comitentes_where
+    assert inspect.signature(_comitentes_where).parameters["solo_activas"].default is True
+    assert inspect.signature(P._scope).parameters["solo_activas"].default is True

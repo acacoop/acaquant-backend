@@ -705,8 +705,8 @@ def comercial_profundidad(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
     operacion: list[str] | None = Query(None, description="operacion(es) del boleto (multi). Vacío = todas. SOLO acota activos/ratio/aranceles"),
-    granularidad: str = Query("mes", pattern="^(mes|trimestre)$",
-                              description="mes (default) | trimestre. En trimestral los extremos se anclan al trimestre que los contiene"),
+    granularidad: str = Query("mes", pattern="^(mes|trimestre|ano)$",
+                              description="mes (default) | trimestre | ano. Los extremos se anclan al período completo que los contiene"),
 ) -> dict:
     """Una fila por período (mm-aa o Qn-aa) con clientes · altas · con AuM · sin AuM ·
     activos · ratio de actividad · aranceles · arancel por activo · AuM.
@@ -727,6 +727,37 @@ def comercial_profundidad(
         granularidad=granularidad)
 
 
+@router.get("/comercial/altas-historico")
+@cached(ttl=600)
+def comercial_altas_historico(
+    granularidad: str = Query("trimestre", pattern="^(mes|trimestre|ano)$",
+                              description="mes | trimestre (default) | ano"),
+    solo_activas: bool = Query(False, description="false (default) = TODAS las comitentes, cerradas incluidas"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
+    division: list[str] | None = Query(None, description="filtro madre division (multi)"),
+) -> dict:
+    """ALTA DE CUENTAS: el histórico COMPLETO de altas por período, desde la primera
+    que existe en `clientes.comitentes` hasta hoy.
+
+    Cada fila trae el FLUJO (`altas`) y el ACUMULADO (`acumulado`), los dos de la misma
+    lista de fechas. `solo_activas=false` por default a propósito: una cuenta abierta en
+    2019 y cerrada en 2022 fue un alta de 2019, y filtrar por estado haría que el pasado
+    se achique cada vez que se cierra una cuenta.
+
+    El rango termina en HOY y no en la última alta: si hace dos trimestres que no entra
+    nadie, esas filas en cero son el dato."""
+    return _prof.altas_historico(
+        granularidad=granularidad, solo_activas=solo_activas, operador=operador,
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4,
+        nivel_5=nivel_5, referido=referido, division=division)
+
+
 @router.get("/comercial/profundidad/detalle")
 @cached(ttl=120)
 def comercial_profundidad_detalle(
@@ -743,7 +774,7 @@ def comercial_profundidad_detalle(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
     operacion: list[str] | None = Query(None, description="MISMO valor que la tabla, o el detalle la contradice"),
-    granularidad: str = Query("mes", pattern="^(mes|trimestre)$",
+    granularidad: str = Query("mes", pattern="^(mes|trimestre|ano)$",
                               description="MISMO valor que la tabla, o el modal abre un mes de un trimestre"),
 ) -> dict:
     """Auditoría de UNA celda (mes × métrica): las cuentas que la componen, con su AuM,

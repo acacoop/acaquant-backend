@@ -92,7 +92,7 @@ def _iso(d):
 def _comitentes_where(operador, p: dict, nivel_1=None,
                       nivel_3=None, referido=None,
                       alias: str = "", nivel_4=None, nivel_5=None, nivel_2=None,
-                      division=None) -> str:
+                      division=None, solo_activas: bool = True) -> str:
     """WHERE de comitentes activas. Cada filtro (operador + nivel_1/2/3/4/5 + referido +
     division) acepta un valor O una LISTA (multi-select): entre filtros se CRUZA con AND;
     dentro de un filtro, OR (`= ANY(array)`). operador str/'__todos__'/lista vacía = sin
@@ -104,7 +104,11 @@ def _comitentes_where(operador, p: dict, nivel_1=None,
         items = [v] if isinstance(v, str) else list(v)
         return [str(x) for x in items if x and str(x) != "__todos__"]
     a = f"{alias}." if alias else ""
-    conds = [f"{a}estado = 'Activa'"]
+    # `solo_activas=False` saca el filtro de estado. Lo usa el histórico de ALTAS, que
+    # cuenta ALTAS y no clientes vivos: una cuenta abierta en 2019 y cerrada en 2022 fue
+    # un alta de 2019, y filtrarla haría que el pasado se achique cada vez que alguien
+    # cierra una cuenta. Default True → nada cambia para los ~15 llamadores existentes.
+    conds = [f"{a}estado = 'Activa'"] if solo_activas else []
     for col, val, key in (
         ("operador_email", operador, "ops"),
         ("nivel_1", nivel_1, "n1"), ("nivel_2", nivel_2, "n2"), ("nivel_3", nivel_3, "n3"),
@@ -130,7 +134,9 @@ def _comitentes_where(operador, p: dict, nivel_1=None,
             parts.append(f"({a}division IS NULL OR btrim({a}division) = '')")
         if parts:
             conds.append("(" + " OR ".join(parts) + ")")
-    return " AND ".join(conds)
+    # Sin condiciones (solo_activas=False y ningún filtro madre) devolver "" haría un
+    # `WHERE ` roto. TRUE es explícito y el planner lo descarta.
+    return " AND ".join(conds) if conds else "TRUE"
 
 
 def _madre_activa(operador=None, nivel_1=None, nivel_2=None, nivel_3=None,

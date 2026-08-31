@@ -80,8 +80,11 @@ METRICAS = ("clientes", "altas", "con_aum", "sin_aum", "activos", "ratio_activid
 # una tendencia. La granularidad es un PARÁMETRO y no una tabla nueva: el eje de esta
 # tab ya ES el tiempo, y dos pantallas contando altas con dos criterios es exactamente
 # lo que venimos sacando del sistema.
-GRANULARIDADES = ("mes", "trimestre")
-_GRAN_SQL = {"mes": ("month", "1 month"), "trimestre": ("quarter", "3 month")}
+GRANULARIDADES = ("mes", "trimestre", "ano")
+_GRAN_SQL = {"mes": ("month", "1 month"), "trimestre": ("quarter", "3 month"),
+             "ano": ("year", "1 year")}
+# Meses que avanza cada paso, y cuántos abarca el período.
+_GRAN_PASO = {"mes": 1, "trimestre": 3, "ano": 12}
 
 # Las ÚNICAS métricas que el filtro de operación acota. El resto sale de
 # `comitentes`/`tenencia` y es la base entera — filtrarlas rompería el porcentaje.
@@ -149,8 +152,10 @@ def _ops_and(ops: list[str], p: dict, alias: str = "o") -> str:
 
 
 def _label(anio: int, mes: int, gran: str = "mes") -> str:
-    """`(2025, 7)` → `jul-25`, o `Q3-25` en trimestral. El label lo arma el backend: si
-    lo derivara el front, dos pantallas podrían nombrar distinto el mismo período."""
+    """`(2025, 7)` → `jul-25`, `Q3-25` o `2025`. El label lo arma el backend: si lo
+    derivara el front, dos pantallas podrían nombrar distinto el mismo período."""
+    if gran == "ano":
+        return f"{anio:04d}"
     if gran == "trimestre":
         return f"Q{(mes - 1) // 3 + 1}-{anio % 100:02d}"
     return f"{_MESES_CORTOS[mes - 1]}-{anio % 100:02d}"
@@ -163,20 +168,24 @@ def _gran(v: str | None) -> str:
 
 
 def _mes_ancla(mes: int, gran: str) -> int:
-    """Primer mes del período que contiene a `mes` (en trimestral: 1, 4, 7 o 10)."""
+    """Primer mes del período que contiene a `mes` (trimestral: 1/4/7/10; anual: 1)."""
+    if gran == "ano":
+        return 1
     return ((mes - 1) // 3) * 3 + 1 if gran == "trimestre" else mes
 
 
 def _fin_de_periodo(anio: int, mes: int, gran: str) -> date:
     """Último día del período que ARRANCA en (anio, mes)."""
-    fin_mes = mes + 2 if gran == "trimestre" else mes
+    fin_mes = mes + _GRAN_PASO.get(gran, 1) - 1
     a, m = (anio + 1, fin_mes - 12) if fin_mes > 12 else (anio, fin_mes)
     return _fin_de_mes(a, m)
 
 
 def _clave(anio: int, mes: int, gran: str) -> str:
-    """Clave del período: `2025-07` (mes) o `2025-Q3` (trimestre). Es lo que viaja al
-    modal, así que tiene que poder volver a (anio, mes) sin ambigüedad."""
+    """Clave del período: `2025-07` (mes), `2025-Q3` (trimestre) o `2025` (año). Es lo
+    que viaja al modal, así que tiene que volver a (anio, mes) sin ambigüedad."""
+    if gran == "ano":
+        return f"{anio:04d}"
     if gran == "trimestre":
         return f"{anio:04d}-Q{(mes - 1) // 3 + 1}"
     return f"{anio:04d}-{mes:02d}"
@@ -186,6 +195,14 @@ def _parse_clave(v: str | None, gran: str, default: str) -> tuple[int, int]:
     """Inversa de `_clave`. Acepta `2026-Q1` y también `2026-01` (por si el front manda
     un mes con la tabla en trimestral: se ancla al trimestre que lo contiene)."""
     txt = (v or "").strip().upper()
+    if gran == "ano":
+        try:
+            a = int(txt[:4])
+            if a >= 1900:
+                return a, 1
+        except ValueError:
+            pass
+        return _parse_mes(v, default)[0], 1
     if gran == "trimestre" and "Q" in txt:
         try:
             anio, q = int(txt[:4]), int(txt.split("Q", 1)[1][:1])
@@ -226,7 +243,7 @@ def _meses(desde: str | None, hasta: str | None, gran: str = "mes") -> list[dict
         a1, m1 = hoy.year, hoy_m
     if (a0, m0) > (a1, m1):
         a0, m0 = a1, m1
-    paso = 3 if gran == "trimestre" else 1
+    paso = _GRAN_PASO.get(gran, 1)
     out: list[dict] = []
     a, m = a0, m0
     while (a, m) <= (a1, m1) and len(out) < MAX_MESES:
@@ -245,15 +262,18 @@ def _meses(desde: str | None, hasta: str | None, gran: str = "mes") -> list[dict
     return out
 
 
-def _scope(p: dict, alias: str = "", **filtros) -> str:
+def _scope(p: dict, alias: str = "", solo_activas: bool = True, **filtros) -> str:
     """WHERE de `comitentes` con los filtros madre de la barra (operador + nivel_1..5
-    + referido + division). Un solo predicado para las 3 queries y para el modal."""
+    + referido + division). Un solo predicado para las 3 queries y para el modal.
+
+    `solo_activas=False` solo lo usa el histórico de ALTAS (ver `altas_historico`)."""
     return _comitentes_where(
         filtros.get("operador"), p,
         nivel_1=filtros.get("nivel_1"), nivel_3=filtros.get("nivel_3"),
         referido=filtros.get("referido"), alias=alias,
         nivel_4=filtros.get("nivel_4"), nivel_5=filtros.get("nivel_5"),
-        nivel_2=filtros.get("nivel_2"), division=filtros.get("division"))
+        nivel_2=filtros.get("nivel_2"), division=filtros.get("division"),
+        solo_activas=solo_activas)
 
 
 def _mep_de(fecha: date, cache: dict[str, float | None]) -> float | None:
@@ -311,6 +331,102 @@ def _columnas(ops: list[str], disponibles: list[dict]) -> dict:
         "aranceles": f"Aranceles de {sufijo}",
         "arancel_por_activo": "Aranc. / operó",
         "sufijo": sufijo,
+    }
+
+
+# ── ALTA DE CUENTAS (tab propia) ─────────────────────────────────────────────
+#
+# El HISTÓRICO COMPLETO de altas, que la tabla de PROFUNDIDAD no puede dar: aquella
+# arranca en `PROFUNDIDAD_INICIO` (el ejercicio en curso) porque su pregunta es "cómo
+# viene el año". Acá la pregunta es otra —"cómo se construyó la base"— y recortarla al
+# ejercicio la deja sin sentido.
+#
+# TRES diferencias con la tabla, y las tres son a propósito:
+#
+#   1. **Arranca en la PRIMERA alta que existe**, no en una constante. El rango sale
+#      de los datos.
+#   2. **Cuenta TODAS las comitentes por default, no solo las `Activa`.** Una cuenta
+#      abierta en 2019 y cerrada en 2022 FUE un alta de 2019. Filtrar por estado haría
+#      que el pasado se achique cada vez que alguien cierra una cuenta — un gráfico
+#      histórico que cambia hacia atrás no se puede usar para nada. `solo_activas`
+#      existe para poder mirar las dos cosas, y la respuesta dice cuál se usó.
+#   3. **Devuelve el ACUMULADO además del flujo**, que es lo que se pidió ("en
+#      sumatoria"): la curva de cómo se construyó la base.
+#
+# Una sola query, chica: una fila por FECHA distinta de alta (no por cuenta). El
+# bucketeo por período se hace en Python — con `date_trunc` habría que elegir la
+# granularidad en SQL y volver a pegarle a la base por cada cambio de pill.
+
+def altas_historico(*, granularidad: str | None = None, solo_activas: bool = False,
+                    operador=None, nivel_1=None, nivel_2=None, nivel_3=None,
+                    nivel_4=None, nivel_5=None, referido=None, division=None) -> dict:
+    """Altas de cuentas por período, desde la primera que existe hasta hoy.
+
+    Devuelve por fila: `altas` (el flujo del período) y `acumulado` (la base construida
+    hasta su último día). Los dos salen de la MISMA lista de fechas, así que el
+    acumulado de una fila es siempre el de la anterior más sus altas."""
+    gran = _gran(granularidad)
+    filtros = dict(operador=operador, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
+                   nivel_4=nivel_4, nivel_5=nivel_5, referido=referido, division=division)
+    p: dict = {}
+    w = _scope(p, solo_activas=solo_activas, **filtros)
+    rows = _q(f"SELECT fecha_alta_legajo AS f, count(*) AS n FROM comitentes "
+              f"WHERE {w} GROUP BY 1", p)
+    sin_alta = sum(int(r["n"]) for r in rows if r["f"] is None)
+    con_alta = sorted((r["f"], int(r["n"])) for r in rows if r["f"] is not None)
+    total = sum(n for _, n in con_alta)
+
+    vacio = {"granularidad": gran, "solo_activas": bool(solo_activas),
+             "filas": [], "total": 0, "sin_alta": sin_alta,
+             "primera_alta": None, "ultima_alta": None,
+             "meta": {"advertencias": []}}
+    if not con_alta:
+        return vacio
+
+    hoy = _hoy_art()
+    primera, ultima = con_alta[0][0], con_alta[-1][0]
+    # El techo es HOY, no la última alta: si hace dos trimestres que no entra nadie,
+    # eso son dos filas en CERO y es exactamente el dato que hay que ver. Terminar en
+    # la última alta lo escondería dibujando el gráfico como si siguiera creciendo.
+    tope = max(ultima, hoy)
+    periodos = _meses(_clave(primera.year, primera.month, "mes"),
+                      f"{tope.year:04d}-{tope.month:02d}", gran)
+    if not periodos:
+        return vacio
+
+    filas, acum, i = [], 0, 0
+    for per in periodos:
+        ini, fin = per["ini"], per["fin"]
+        nuevas = 0
+        while i < len(con_alta) and con_alta[i][0] <= fin:
+            if con_alta[i][0] >= ini:
+                nuevas += con_alta[i][1]
+            acum += con_alta[i][1]
+            i += 1
+        filas.append({
+            "periodo": per["mes"], "label": per["label"],
+            "ini": _iso(ini), "fin": _iso(fin), "en_curso": per["en_curso"],
+            "altas": nuevas, "acumulado": acum,
+            # Qué parte de la base de HOY se construyó en este período. Lo calcula el
+            # backend sobre el mismo total que devuelve.
+            "pct_del_total": round(100 * nuevas / total, 2) if total else 0.0,
+        })
+
+    advertencias = []
+    if sin_alta:
+        advertencias.append(
+            f"{sin_alta} cuenta(s) del scope NO tienen fecha de alta de legajo: no entran "
+            f"en ninguna barra ni en el acumulado")
+    advertencias.append(
+        "cuenta TODAS las comitentes del scope, cerradas incluidas — un alta de 2019 sigue "
+        "siendo un alta de 2019" if not solo_activas else
+        "⚠️ SOLO cuentas hoy Activas: el pasado se ve más chico de lo que fue, porque las "
+        "que se cerraron desde entonces no figuran")
+    return {
+        "granularidad": gran, "solo_activas": bool(solo_activas),
+        "filas": filas, "total": total, "sin_alta": sin_alta,
+        "primera_alta": _iso(primera), "ultima_alta": _iso(ultima),
+        "meta": {"advertencias": advertencias},
     }
 
 

@@ -1,4 +1,4 @@
-"""EL AV AGENT 2.0 — sus invariantes. Doc: `docs/AGENT_2.0.md` §8.
+"""EL AV AGENT 2.0 — sus invariantes. Doc: `docs/AGENT.md` §8.
 
 Estos tests no prueban detectores: prueban que **no haya dónde equivocarse**.
 Cada uno corresponde a un invariante del doc, y a un bug real del agente viejo.

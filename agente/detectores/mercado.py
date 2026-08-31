@@ -1,4 +1,4 @@
-"""Detectores de MERCADO. Doc: `docs/AGENT_2.0.md` §5.
+"""Detectores de MERCADO. Doc: `docs/AGENT.md` §5.
 
 Todos devuelven `list[Hallazgo]` o levantan `SinDatos`. **Ninguno escribe.**
 """
@@ -481,7 +481,7 @@ def hueco_de_curva(u: dict) -> list[Hallazgo]:
 
 # ═══ tasas_al_cierre ═══════════════════════════════════════════════════════
 def tasas_al_cierre(u: dict) -> list[Hallazgo]:
-    """**EL BARRIDO DEL CIERRE.** Doc: `AGENT_2.0.md` §5.
+    """**EL BARRIDO DEL CIERRE.** Doc: `AGENT.md` §5.
 
     User (2026-08-24): *«todo esto es lo que entra en horario de mercado, no
     debe seguir pidiéndose después de las 17. A las 17:30 debería haber una

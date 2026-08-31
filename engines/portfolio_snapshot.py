@@ -42,7 +42,7 @@ from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from engines._universo_portfolio import tickers_de_tenencia
 
-# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+# El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
 logger = logging.getLogger("MotorPortfolioSnapshot")
 

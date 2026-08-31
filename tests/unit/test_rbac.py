@@ -71,7 +71,7 @@ def test_has_access_role_sin_entrada_en_matriz_no_ve_nada(monkeypatch):
     assert has_access("anon", "home") is False
 
 
-# ── Módulo `ia` (QuantAI, docs/QUANTAI.md) ───────────────────────────────────
+# ── Módulo `ia` (el briefing + el AV AGENT, docs/AGENT.md) ───────────────────────────────────
 
 def test_ia_es_modulo_canonico():
     assert "ia" in MODULES

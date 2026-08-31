@@ -1,4 +1,4 @@
-"""`agente/vista.py` — el READ MODEL. Doc: `AGENT_2.0.md` §6.
+"""`agente/vista.py` — el READ MODEL. Doc: `AGENT.md` §6.
 
 **Las pantallas LEEN. No derivan.** Clase, estado, arreglo y nombre vienen
 resueltos de acá; ningún contador se suma en el navegador.

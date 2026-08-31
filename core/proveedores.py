@@ -1,6 +1,6 @@
 """core/proveedores.py — LOS DE AFUERA SE CAEN, Y HAY QUE ENTERARSE.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.ad.
+Doc madre: **`docs/AGENT.md`** §0.ad.
 
 Pedido del user (2026-08-20), con Aunesa devolviendo HTTP 500 en su login
 mientras lo escribía: *«esto es una funcionalidad que la vi de milagro… sí o sí

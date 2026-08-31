@@ -1,4 +1,4 @@
-"""`agente/` — EL AV AGENT. Doc: `docs/AGENT_2.0.md`.
+"""`agente/` — EL AV AGENT. Doc: `docs/AGENT.md`.
 
 Reemplaza a los 37 `api/services/av_agent_*` y a los 4 relojes del agente
 viejo. La forma es una sola y no hay dónde equivocarse:

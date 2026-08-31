@@ -24,7 +24,7 @@ from engines._curvas_loader import cargar_tickers_ordenados
 #
 # Es el feed de precios de la mesa, el motor más importante de la plataforma, y
 # durante meses estuvo escribiendo a un lugar donde nadie podía leerlo. No fallaba
-# nada — por eso nadie lo vio. Ver AV_AGENT.md §0.ac.
+# nada — por eso nadie lo vio. Ver `AGENT.md` §0.ac.
 logger = configurar("MotorValores")
 
 ART = ZoneInfo("America/Argentina/Buenos_Aires")

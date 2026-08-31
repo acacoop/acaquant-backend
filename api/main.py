@@ -296,7 +296,7 @@ app.include_router(research_docs.router,      dependencies=_PUBLIC)  # documento
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
 app.include_router(estrategia.router,          dependencies=_TRADING)  # TRADING → tab ESTRATEGIA (docs/ESTRATEGIA_QUANT.md)
 app.include_router(ia.router,                 dependencies=_IA)       # IA — observabilidad + briefing (gate módulo `ia`)
-# EL AV AGENT (docs/AGENT_2.0.md). Mismo gate de módulo que /api/ia, y
+# EL AV AGENT (`docs/AGENT.md`). Mismo gate de módulo que /api/ia, y
 # ADEMÁS `require_admin` en cada ruta del router: el agente habla del
 # estado interno del sistema y `ia` lo tiene la mesa entera.
 app.include_router(agente.router,             dependencies=_IA)
@@ -353,7 +353,7 @@ def health():
 # extrañó: ninguna vista, job ni motor lo consumía. Lo que costaba tenerlo era
 # real — `/oauth/register` y `/oauth/token` estaban en la allowlist de BYPASS de
 # Cloudflare Access, o sea alcanzables SIN autenticar, y ya habían amplificado
-# carga sobre el pool web que sirve a la mesa. Historia: `docs/AV_AGENT.md`.
+# carga sobre el pool web que sirve a la mesa. Historia: `docs/AGENT.md`.
 
 
 # ── API EXTERNA para accionistas (sub-app en /ext) ──

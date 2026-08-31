@@ -44,7 +44,7 @@ jobs:
       # no puede tapar el resultado de los tests. CI estuvo roja 30 pushes
       # seguidos (2026-08-21/22) y como cada paso bloqueante corta el job,
       # Pytest nunca corría — dos tests rotos y un contrato de capas entraron
-      # sin que nadie los viera (AV_AGENT.md §0.ci). El orden correcto es del
+      # sin que nadie los viera (`AGENT.md` §0.ci). El orden correcto es del
       # veredicto más informativo al más formal.
       - name: Pytest
         run: pytest -ra
@@ -55,6 +55,6 @@ jobs:
       # el arreglo es una línea (`python -m scripts.gen_mapa_app`).
       # (2026-08-22: `superficie` cubre los dos mundos de FastAPI — con
       # envoltorios y plano — así que este check da lo mismo acá, en el
-      # Droplet y en el sandbox. Ver AV_AGENT.md §0.ci.)
+      # Droplet y en el sandbox. Ver `AGENT.md` §0.ci.)
       - name: Mapa de la app sincronizado
         run: python -m scripts.gen_mapa_app --check

@@ -2,7 +2,7 @@
 
 Lee `tipo_cliente` + `cupo_transaccional_ars` y aplica las reglas de
 `api.services.segmentacion.clasificar_nivel_3` (ver
-`docs/SEGMENTACION_PATRIMONIAL.md`). Escribe `nivel_3` en SQL `clientes.comitentes`.
+`docs/CLIENTES.md`). Escribe `nivel_3` en SQL `clientes.comitentes`.
 
 SQL-native (decomiso 2026-06-29): antes leía/escribía `Clientes.Comitentes` (Mongo,
 deprecado, nadie lo lee — la vista comercial lee SQL). `sync_comitentes` inicializa

@@ -1,6 +1,6 @@
 """agente/crontab.py — ¿EL CRON DEL REPO ES EL QUE CORRE?
 
-Doc madre: **`docs/AV_AGENT.md`** §0.al.
+Doc madre: **`docs/AGENT.md`** §0.al.
 
 EL AGUJERO
 ==========

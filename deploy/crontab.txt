@@ -315,7 +315,7 @@
 # Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/RESEARCH.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
-# ─── Guardrails de datos (invariantes post-cierre) — docs/OBSERVABILIDAD_ROBUSTEZ.md
+# ─── Guardrails de datos (invariantes post-cierre) — docs/RUNBOOK.md
 # Corre DESPUÉS de snapshot_cierre (20:25). Report en el log del job + stat
 # `violaciones` en manager.job_runs; los umbrales se fijan en
 # config.GUARDRAILS_UMBRALES (None = sin calibrar, no marca violación).
@@ -457,7 +457,7 @@
 # de los motores: son ~3 llamadas HTTP a Postrade, no toca Postgres pesado.
 0 13 * * * /root/TradingAV/deploy/run_job.sh ap5_portfolio 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ap5_portfolio'
 
-# ─── EL AV AGENT (docs/AGENT_2.0.md)
+# ─── EL AV AGENT (`docs/AGENT.md`)
 # El agente NO es un cron: es el daemon `agente.service`. Su agenda vive en
 # `agente.habilidades` — cada habilidad declara su ritmo y su ventana, así que
 # sumar una habilidad NO toca este archivo. Acá vivían los tres crons del agente
@@ -466,7 +466,7 @@
 # pantalla se veía viva con un cuarto del agente muerto.
 #
 # `seguimiento` también se fue: medía los hitos de los arreglos para el eval
-# set, que se dio de baja entero (AGENT_2.0.md §9.1).
+# set, que se dio de baja entero (`AGENT.md` §9.1).
 #
 # Lo único que sigue siendo cron es la LISTA DE PRIORIDAD contra 1816: cuesta
 # créditos, corre EN RUEDA, y su ritmo lo pidió el user explícito (cada 15').

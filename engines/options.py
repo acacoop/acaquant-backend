@@ -20,7 +20,7 @@ from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from quant.black_scholes import bs_greeks, calc_intrinseco, find_iv
 
-# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+# El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
 logger = logging.getLogger("MotorOpciones")
 

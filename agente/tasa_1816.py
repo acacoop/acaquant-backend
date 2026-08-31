@@ -1,4 +1,4 @@
-"""`agente/tasa_1816.py` — LA LISTA DE PRIORIDAD. Doc: `AGENT_2.0.md` §5.
+"""`agente/tasa_1816.py` — LA LISTA DE PRIORIDAD. Doc: `AGENT.md` §5.
 
 Pedido del user (2026-08-24), sobre los bonos que operan y no tienen TEA:
 

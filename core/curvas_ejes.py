@@ -67,7 +67,7 @@ LEYES = ("local", "ny")
 # migración está sacando, y el bono volvería a esconderse de sus dos tablas.
 AJUSTES = ("fija", "cer", "tamar", "badlar", "dolar_linked", "tpm", "caucion")
 
-# Las 28 curvas del catálogo de 1816 (relevado 2026-08-15, `diag_1816_cashflow`).
+# Las 28 curvas del catálogo de 1816 (relevado 2026-08-15 con `diag_1816_cashflow`).
 # Si 1816 agrega una, cae en `desconocidas()` y se suma acá A MANO — es la única
 # forma de no clasificar mal en silencio.
 EJES_1816: dict[str, Ejes] = {

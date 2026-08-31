@@ -1,6 +1,6 @@
 """agente/latencia.py — EL AGENTE DETECTA ENDPOINTS QUE SE PUSIERON LENTOS.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.q.
+Doc madre: **`docs/AGENT.md`** §0.q.
 
 **POR QUÉ LA PANTALLA DE LATENCIA NO SIRVIÓ** (user, 2026-08-19: *«la verdad
 tengo eso en observabilidad, jamás lo usé… ni siquiera se actualiza, puede haber

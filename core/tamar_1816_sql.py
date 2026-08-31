@@ -1,6 +1,6 @@
 """core/tamar_1816_sql.py — escritura de `mercado.tamar_1816`. Una sola.
 
-Doc madre: `docs/RENTA_FIJA.md` paso 18 · `docs/AV_AGENT.md`.
+Doc madre: `docs/RENTA_FIJA.md` paso 18 · `docs/AGENT.md`.
 
 **Qué guarda esa tabla.** La TEA y el **MARGEN** de los bonos cuya tasa NO
 calculamos nosotros (hoy los TAMAR): se traen de 1816 porque son notas de tasa

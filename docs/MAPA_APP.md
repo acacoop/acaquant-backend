@@ -2952,7 +2952,7 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
   `operaciones.py` + 2 en `cuentas.py` + 6 en el ABM de contrapartes de Manager**. La cifra "37" es
   errónea.
 - **Roles con `ia`**: verificado contra `core/roles.py::DEFAULT_MATRIX` (2026-08-30) — lo tienen
-  **`admin` e `invitado`**; `trader` y `sales` NO. La duda se apoyaba en `docs/QUANTAI.md`, que ya no
+  **`admin` e `invitado`**; `trader` y `sales` NO. La duda se apoyaba en `docs/QUANTAI.md`, borrado, que ya no
   existe, así que se resolvió contra el código. Lo que sigue sin poder verificarse desde el repo es si
   `manager.role_matrix` (la matriz editable en la base) pisa ese default.
 - **Gate del portal invitado sobre `research`**: docstrings de los routers vs. `DEFAULT_MATRIX` (§7.5.62).

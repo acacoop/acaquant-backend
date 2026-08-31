@@ -1,6 +1,6 @@
 """jobs/guardrails.py — invariantes de sanidad de datos post-cierre.
 
-Doc vivo: docs/OBSERVABILIDAD_ROBUSTEZ.md (commit 2). Vigila que el NÚMERO esté
+Doc vivo: docs/RUNBOOK.md (commit 2). Vigila que el NÚMERO esté
 BIEN: detecta un dato podrido (AuM que saltó, precio de cierre absurdo, curva
 incompleta, nulls donde no van) ANTES de que un usuario decida con él.
 

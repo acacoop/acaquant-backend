@@ -1,6 +1,6 @@
 """api/services/logs_sistema.py — LEER LOS LOGS DE SYSTEMD, UNA SOLA VEZ.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.ac.
+Doc madre: **`docs/AGENT.md`** §0.ac.
 
 Esta lectura vivía ADENTRO de `api/routers/manager/logs.py`, o sea que la única
 forma de mirar los logs era que una persona abriera la pantalla. El agente no

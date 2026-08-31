@@ -1,6 +1,6 @@
 """core/especies.py — LAS PATAS de un bono. Una sola lógica, dos usuarios.
 
-Doc madre: `docs/RENTA_FIJA.md` §0 paso 8 · `docs/AV_AGENT.md`.
+Doc madre: `docs/RENTA_FIJA.md` §0 paso 8 · `docs/AGENT.md`.
 
 **Qué es una especie.** Un mismo bono cotiza con varios símbolos según en qué
 moneda se liquide: `AL30` en pesos, `AL30D` en dólar MEP, `AL30C` en cable. Cada

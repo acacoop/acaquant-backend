@@ -135,7 +135,7 @@ def test_un_200_sin_token_no_pasa_por_bueno(monkeypatch):
 
 
 def test_la_caida_queda_anotada_para_el_agente(monkeypatch):
-    """El aviso del AV AGENT sale de acá (AV_AGENT.md §0.ad): si el login no
+    """El aviso del AV AGENT sale de acá (`AGENT.md` §0.ad): si el login no
     anota, el back office se entera solo si alguien abre la pantalla."""
     _postea(monkeypatch, [_Resp(500, texto="Internal Server Error")])
     with pytest.raises(aunesa.AunesaCaido):

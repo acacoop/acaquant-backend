@@ -1,7 +1,7 @@
 """Tests de core.eikon_segmentos — ingresos por segmento del feed Eikon.
 
 Los números de acá son los REALES del discovery del 2026-08-07 (AAPL/NVDA/KO/
-RKLB, ver docs/INTEGRACION_REUTERS.md §8). Fijan el criterio que hace que el
+RKLB, ver docs/RENTA_VARIABLE.md §8). Fijan el criterio que hace que el
 desglose cierre contra los ingresos totales: se tiran las filas de TOTAL y se
 guardan las de AJUSTE.
 """

@@ -2,7 +2,7 @@
 (+ `clientes.cuentas` con denominacion + `clientes.operadores`).
 
 Pobla/actualiza el master de clientes del Tablero de Control Comercial
-(docs/TABLERO_COMERCIAL.md) desde `GET /api/cuentas/listadoCuentas`. Pensado
+(docs/CLIENTES.md) desde `GET /api/cuentas/listadoCuentas`. Pensado
 para correr 1×/día por cron: las cuentas nuevas se agregan solas (upsert por
 `id_cuenta`), idempotente. Fuente ÚNICA SQL (Mongo Clientes.Comitentes deprecado).
 
@@ -60,7 +60,7 @@ MANUAL_FIELDS = (
 # los $set con dot-notation (ej. `cupo.transaccional_ars`) funcionen desde el
 # primer write. Igual que MANUAL_FIELDS: el sync no los toca nunca. Lo escribe
 # `POST /api/manager/clientes/bulk-fondeo` (carga del cupo del custodio) y el
-# motor de segmentación patrimonial. Ver docs/SEGMENTACION_PATRIMONIAL.md.
+# motor de segmentación patrimonial. Ver docs/CLIENTES.md.
 MANUAL_SUBDOCS = ("cupo",)
 
 # Campos derivados que el motor escribe — no se inicializan acá (el motor los

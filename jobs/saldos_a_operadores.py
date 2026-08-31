@@ -1,6 +1,6 @@
 """jobs/saldos_a_operadores.py — a cada operador, los saldos de SUS comitentes.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.ab.
+Doc madre: **`docs/AGENT.md`** §0.ab.
 
 Pedido del user (2026-08-19): *«que a las 16:45 todos los días hábiles envíe
 mensajes vía la app a todos los users que tengan saldos positivos o negativos por

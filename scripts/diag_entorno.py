@@ -1,6 +1,6 @@
 """scripts/diag_entorno.py — ¿el entorno real corre lo que pinea requirements.txt?
 
-READ-ONLY. Nace del hallazgo 2026-08-22 (AV_AGENT.md §0.ci): `api/superficie.py`
+READ-ONLY. Nace del hallazgo 2026-08-22 (`AGENT.md` §0.ci): `api/superficie.py`
 fue calibrada contra un `app.routes` que devuelve envoltorios `_IncludedRouter`
 (así se midió el 37/541), y la FastAPI que pinea `requirements.txt` (0.136.x)
 NO tiene esa clase — aplana las rutas. O sea que el entorno donde corre el
@@ -63,7 +63,7 @@ def main() -> None:
     if hay_drift:
         print("\n⚠️ Hay drift instalado-vs-pin: el mapa AUTOGEN y el chequeo de")
         print("   superficie se generan distinto acá que en CI. Decidir cuál de")
-        print("   los dos manda y alinear el otro (AV_AGENT.md §0.ci).")
+        print("   los dos manda y alinear el otro (`AGENT.md` §0.ci).")
     else:
         print("\n✅ Instalado == pineado en los paquetes clave.")
 

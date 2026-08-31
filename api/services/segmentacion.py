@@ -5,7 +5,7 @@ inputs y devuelve el label. Lo usan tanto el job `jobs.segmentar_patrimonial`
 (re-clasifica TODO) como el endpoint `bulk-fondeo` (re-clasifica solo las
 cuentas tocadas al subir el Excel).
 
-Reglas (ver docs/SEGMENTACION_PATRIMONIAL.md):
+Reglas (ver docs/CLIENTES.md):
 
 - Personas Humanas (PH) — umbral en **USD** vía MEP del día:
   - `< 50.000`              → `PH RETAIL`

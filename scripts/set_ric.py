@@ -2,7 +2,7 @@
 
 El RIC es cómo Refinitiv/LSEG identifica el subyacente (ej. RKLB → 'RKLB.O').
 La capa ANÁLISIS/RESEARCH lo usa para pedir fundamentals con lseg-data.
-Carga manual, idempotente. Ver docs/INTEGRACION_REUTERS.md.
+Carga manual, idempotente. Ver docs/RENTA_VARIABLE.md.
 
 Uso:
     python -m scripts.set_ric RKLB RKLB.O      # asigna el RIC

@@ -5,7 +5,7 @@ declaramos endpoints FastAPI que parsean query params y delegan.
 
 Scoping de grupos (Fase 2): cada endpoint resuelve el `scope` de cuentas
 visibles del usuario (`scope_cuentas`) y lo pasa al service. `scope=None`
-= sin restricción (admin o usuario sin grupo). Ver `docs/GRUPOS.md`.
+= sin restricción (admin o usuario sin grupo). Ver `docs/CLIENTES.md`.
 """
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field

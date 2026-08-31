@@ -274,7 +274,7 @@ def _template(blocks: dict[str, str]) -> str:
 - Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK: pausa de Atlas).
 - Deploy backend: `git pull` + `systemctl restart api.service`. Frontend: push → Vercel.
 
-> Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECRETS.md`.
+> Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECURITY.md`.
 """
 
 

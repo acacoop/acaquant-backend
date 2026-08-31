@@ -38,7 +38,7 @@ from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 
 logger = logging.getLogger(__name__)
-# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+# El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
 
 

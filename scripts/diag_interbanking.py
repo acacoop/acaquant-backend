@@ -2,7 +2,7 @@
 
 READ-ONLY. Todas las llamadas son GET; no escribe en Interbanking ni en la base.
 
-Corré ANTES `python -m scripts.diag_interbanking_auth`. Este script asume que el
+Asume que el
 token ya funciona: acá lo que se prueba son los datos, no la autenticación.
 
 Qué contesta (las preguntas que no se pueden responder sin pegarle a la API real,

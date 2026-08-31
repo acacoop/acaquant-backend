@@ -1,4 +1,13 @@
-# SQL / Postgres (Supabase) — la base de datos de TradingAV
+# SQL — el modelo relacional (Postgres/Supabase)
+
+> **Un doc.** Absorbió a `SQL_MODELO.md` el 2026-08-31: eran 2,7 kB de principios
+> de diseño que se leen SIEMPRE junto al inventario de tablas, y tenerlos aparte
+> solo lograba que se leyera uno de los dos.
+
+
+---
+
+# PARTE A — Inventario y notas por dominio
 
 Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed).
 
@@ -11,7 +20,7 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed)
 
 ---
 
-## 1. El modelo en una página
+### 1. El modelo en una página
 
 - **Una sola base** (Supabase Postgres), organizada en **17 schemas de dominio**.
   Nada vive en `public`; el `search_path` (definido en `core/postgres.py`) resuelve
@@ -30,7 +39,7 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed)
 
 ---
 
-## 2. El esquema — `sql/schema.sql` (17 schemas por dominio)
+### 2. El esquema — `sql/schema.sql` (17 schemas por dominio)
 
 `sql/schema.sql` es la fuente de verdad del modelo. (Nota: `schema.sql` no siempre
 está 100% aplicado en la DB real — es el espejo del diseño; al agregar/cambiar una
@@ -46,7 +55,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, news_headlines |
-| `agente` | **EL AV AGENT** (`docs/AGENT_2.0.md`): habilidades (el catálogo + cuándo corrió cada una), hallazgos, reincidencias (la que DEBE estar vacía), acciones (el libro). Más avisos_dirigidos, db_peso, latido, silenciados, tasa_1816 |
+| `agente` | **EL AV AGENT** (`docs/AGENT.md`): habilidades (el catálogo + cuándo corrió cada una), hallazgos, reincidencias (la que DEBE estar vacía), acciones (el libro). Más avisos_dirigidos, db_peso, latido, silenciados, tasa_1816 |
 | `research` | bcra_series, bcra_variables, bcra_watch, fred_series, fred_observations, fred_watch, mkt_1816_instrumentos, mkt_1816_series, mkt_1816_watch, documentos |
 | `bancos` | Interbanking (`docs/INTERBANKING.md`): cuentas, saldos, movimientos, movimientos_manuales, movimientos_ignorados, extracto_dia, cierres_diarios, conciliacion_pendientes, mayor_movimientos, mayor_sync_log, presencia, sync_log, audit_lecturas + los 5 de gastos_* |
 | `ap5` | Postrade A3/ACyRSA (`docs/POSTRADE.md`): cuentas, contratos, portfolio, margenes, activo_integrado |
@@ -70,7 +79,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 
 ---
 
-## 3. Convenciones de escritura (`core/pg_mirror.py`)
+### 3. Convenciones de escritura (`core/pg_mirror.py`)
 
 `core/pg_mirror.py` concentra los helpers de escritura native-SQL que usan los
 motores y jobs. Best-effort: nunca levanta una excepción que tumbe al motor/job.
@@ -101,9 +110,9 @@ jsonb pisaría al otro motor.
 
 ---
 
-## 4. Notas de modelo por dominio (referencia)
+### 4. Notas de modelo por dominio (referencia)
 
-### MERCADO (curvas, bonos, snapshots, opciones, RV, agro, macro)
+#### MERCADO (curvas, bonos, snapshots, opciones, RV, agro, macro)
 - `mercado.curvas` — PK **`ticker`** (`AL30`; se llamaba `ticker_corto` hasta el
   renombre del 2026-08-15) + **`instrumento`** = el símbolo de mercado
   `MERV - XMEV - AL30 - 24hs` (era la columna `ticker`). El eje bono/letra
@@ -125,7 +134,7 @@ jsonb pisaría al otro motor.
   scanner/day_trading/pivot_points leen SQL.
 - **Opciones** (GGAL): `mercado.options_{data, data_hist, snapshot, metadata, vr}`.
 
-### OPERACIONES / NEGOCIO
+#### OPERACIONES / NEGOCIO
 - `operaciones.operaciones` — fuente de la vista MOVIMIENTOS (`/api/operaciones/ops/*`)
   + Contrapartes (`/operaciones/flujo`). Se agrega **EN VIVO** con `GROUP BY` + índices
   (no hay rollup precomputado). Origen: `jobs.operaciones_informes` (API Aunesa) que
@@ -141,7 +150,7 @@ jsonb pisaría al otro motor.
 - `operaciones.negocio_movimientos` — cost-basis del PnL + vista `/operaciones/negocio`.
   Lo escribe `jobs.negocio_movimientos` (idempotente por boleto, campo `etapa`).
 
-### MOTOR DE ÓRDENES (transaccional, en vivo)
+#### MOTOR DE ÓRDENES (transaccional, en vivo)
 8 tablas en `operaciones`: `ordenes_live` (PK `cl_ord_id`, columnas account/ticker/
 estado + `data` jsonb), `ordenes_audit` (append-only, cada ER/evento = fila),
 `motor_heartbeat` (frescura → DIAG), `operativas_mep` (wrapper Dólar MEP),
@@ -152,7 +161,7 @@ real-time del listado del día (se reusa el builder puro `_broker_report_to_loca
 SQL aporta el doc local. Fechas en `data` jsonb son ISO → el read las rehidrata a
 datetime aware UTC.
 
-### VALUACIONES (caches precalculados por cron)
+#### VALUACIONES (caches precalculados por cron)
 Las dos vistas pesadas de Portfolio leen un cache precalculado (recorrer ~880 cuentas
 en una request = 502):
 - `/valuaciones/consolidado` → `valuaciones.consolidado` (columnar: 1 fila/cuenta con
@@ -164,7 +173,7 @@ en una request = 502):
   Service: `pnl_sql.pnl_todas_cuentas_sql`. El filtro de tipo de cuenta
   (accionistas/productores) se hace en Python contra los sets SQL (`_cuentas_filter`).
 
-### CLIENTES / COMERCIAL
+#### CLIENTES / COMERCIAL
 - `clientes.comitentes` (QUIÉN: operador + `nivel_1`), `clientes.cuentas`,
   `clientes.operadores` (= solo los `operador_email` que aparecen en comitentes — los
   que manejan cartera; NO se mezclan con `manager.manager_users`, que son usuarios de
@@ -173,7 +182,7 @@ en una request = 502):
 - `comitentes.estado_comercial` es DERIVADO (`comercial.py`) → se calcula en vivo, no
   se persiste. El Tablero Comercial agrega EN VIVO con índices (no hay rollup-cache).
 
-### MANAGER (plataforma)
+#### MANAGER (plataforma)
 `manager.{manager_users, role_matrix, role_audit, grupos, job_runs,
 pyrofex_instruments, pyrofex_discovery}`. `job_runs` (historial de
 corridas) y `role_audit` (auditoría append-only de cambios de rol/usuario) alimentan
@@ -181,7 +190,7 @@ el panel Manager (`/jobs/history`, `/roles/audit`) y la frescura del Diagnóstic
 `manager_infra_sql.py`. PKs `run_id` / `audit_id`; timestamps `timestamptz` (los
 writers usan `datetime.now(UTC)` aware → el cast no corre la hora).
 
-### HOME
+#### HOME
 - `home.{market_quotes, news_headlines}` — watchlist HOME y headlines (retención 2 días
   vía `prune_native`). Services `market_sql.py` / `news_sql.py`.
   (`market_calendar` se eliminó el 2026-08-03 junto con el calendario económico: FMP
@@ -189,7 +198,7 @@ writers usan `datetime.now(UTC)` aware → el cast no corre la hora).
 
 ---
 
-## 5. Reglas de traducción / convenciones de dato (referencia del modelo)
+### 5. Reglas de traducción / convenciones de dato (referencia del modelo)
 Sutilezas del modelo que importan al escribir/leer (heredadas del diseño original):
 - **NULL vs `''`**: las dimensiones usan `NULL` para "sin valor"; los labels de UI
   resuelven a `'(sin)'` donde corresponde.
@@ -204,7 +213,7 @@ Sutilezas del modelo que importan al escribir/leer (heredadas del diseño origin
 
 ---
 
-## 6. Cómo aplicar / extender el esquema (Supabase)
+### 6. Cómo aplicar / extender el esquema (Supabase)
 1. Proyecto en supabase.com → Postgres managed.
 2. SQL Editor → pegar `sql/schema.sql` → Run (o `psql < sql/schema.sql`). Los
    `CREATE … IF NOT EXISTS` son idempotentes → se puede re-correr.
@@ -215,3 +224,53 @@ Agregar un instrumento de renta fija: doc en `mercado.curvas` (PK `ticker`) +
 fila en `portafolio.assets` con el MISMO `ticker` (sin el segundo no aparece en
 AuM/Portfolios — ver `docs/ARQUITECTURA.md` y la sección de fórmulas no inferibles en
 el `CLAUDE.md` raíz).
+
+---
+
+# PARTE B — Principios de diseño (rigen cualquier tabla nueva)
+
+Subdoc de `docs/SQL.md`. Acá viven los **principios** del modelo relacional; el
+inventario de schemas/tablas y las notas por dominio están en `docs/SQL.md`.
+
+> **Estado (2026-06-29):** la migración terminó. Postgres/Supabase es la única base
+> y el modelo está implementado en `sql/schema.sql` (10 schemas de dominio). Este
+> doc ya no describe un "plan a futuro" — documenta las reglas que siguió el diseño
+> y que rigen cualquier tabla nueva.
+
+### Principios de diseño (a raja tabla)
+
+1. **Tipos reales**, no todo `text`: fechas `date`/`timestamptz`, plata `numeric`,
+   flags `boolean`. Lo anidado que no vale la pena descomponer va a `jsonb`.
+2. **Un dato vive una vez (normalización).** Nombres/denominaciones/segmentación
+   viven en la dimensión (`clientes.comitentes`, `clientes.cuentas`); los hechos
+   referencian por `id_cuenta`. Mata las inconsistencias de "misma cuenta, varias
+   grafías".
+3. **Schema = dominio.** Cada tabla vive en su schema (`mercado`, `operaciones`,
+   `clientes`, …), no en `public`. El `search_path` resuelve sin calificar.
+4. **Derivado = se calcula, no se cachea a mano** salvo cuando pesa. Lo que se puede
+   agregar en vivo (volumen/aranceles de operaciones, estado comercial) se hace con
+   `GROUP BY` + índices, NO con una tabla-cache mantenida por cron. Solo las dos
+   vistas de Portfolio que recorren ~880 cuentas usan un cache precalculado
+   (`valuaciones.consolidado`, `valuaciones.pnl_totales_cache`) porque no entran en
+   una request HTTP.
+5. **Índices por patrón de acceso** (medidos con `EXPLAIN`), no "por las dudas".
+6. **Calidad de dato en la frontera**: al ingestar, limpiar lo sucio (espacios,
+   decimales, mayúsculas, `''`→`NULL`).
+
+### Hechos vs dimensiones
+
+- **Dimensiones** (PK natural, estables): `clientes.{comitentes, cuentas, operadores,
+  contrapartes}`, masters de mercado (`mercado.curvas`, catálogos), `portafolio.assets`.
+- **Hechos** (`id_cuenta` indexado, **sin FK dura**): `operaciones.{operaciones,
+  negocio_movimientos}`. Sin FK dura porque la fuente histórica trae huérfanos; soft +
+  indexado deja cargarlos y auditarlos como calidad de dato.
+- **Snapshots / streams / históricos**: estado live por clave (`*_snapshot`,
+  `market_snapshot`), tape intradía (`timesales`, `cedears_time_sales`), cierres
+  diarios (`*_hist`, `snapshots_cierre_hist`, `mercado_hist`).
+
+### Convenciones de escritura
+
+Escritura native-SQL vía `core/pg_mirror.py` (`write_native`/`append_native`/
+`write_hist`/`replace_native`/`merge_jsonb_native`, `doc_iso` recursivo para jsonb) y
+SQL crudo en los services. Lectura por dominio en `api/services/<dominio>_sql.py`
+(puros, pool `core.postgres.get_pool`). Detalle completo en `docs/SQL.md §3`.

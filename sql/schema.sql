@@ -2153,7 +2153,7 @@ ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS rubro text;
 ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS es_ia boolean;
 -- RIC (Refinitiv Instrument Code): identidad del subyacente en Refinitiv/LSEG
 -- (ej. RKLB → 'RKLB.O'). Carga MANUAL. Clave para la capa ANÁLISIS/RESEARCH
--- (fundamentals via lseg-data). Ver docs/RESEARCH_REFINITIV.md.
+-- (fundamentals via lseg-data). Ver docs/RENTA_VARIABLE.md parte B.
 ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS ric text;
 -- Ratio de conversión del CEDEAR (cuántos CEDEARs = 1 acción del subyacente,
 -- ej. AAPL 10:1 → 10). Carga MANUAL en Manager → TÍTULOS → RENTA VARIABLE.
@@ -2263,7 +2263,7 @@ CREATE TABLE IF NOT EXISTS mercado.eikon_fundamentals (
 );
 
 -- INGRESOS POR SEGMENTO (familia TR.BGS.* de Eikon, validada en vivo 2026-08-07
--- — ver docs/INTEGRACION_REUTERS.md §8). NO va en el jsonb de eikon_fundamentals
+-- — ver docs/RENTA_VARIABLE.md §8). NO va en el jsonb de eikon_fundamentals
 -- porque el grano es otro: ticker × tipo × período × segmento (una fila por
 -- pata del desglose). El feed la manda 1 vez por día vía
 -- POST /api/ingest/eikon/segmentos.
@@ -3063,7 +3063,7 @@ CREATE TABLE IF NOT EXISTS ia.config (
 -- el CSV del backup.
 --
 -- Eran del copiloto y del asistente de negocio, dados de baja el 2026-08-19
--- (`docs/AV_AGENT.md` §0.k). El código se borró entonces y las tablas se
+-- (`docs/AGENT.md` §0.k). El código se borró entonces y las tablas se
 -- dejaron a propósito —*borrar código es reversible con un `git revert`, borrar
 -- datos no*—. Nueve días después, medido: **ninguna tenía una sola referencia
 -- en el código**, ni writer, ni lector, ni FK. Existían solo en este archivo.
@@ -4158,7 +4158,7 @@ CREATE TABLE IF NOT EXISTS bancos.presencia (
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- AV AGENT — hallazgos de integridad de renta fija (E1)
--- Doc madre: docs/AV_AGENT.md
+-- Doc madre: `docs/AGENT.md`
 --
 -- La tabla PROPIA del agente: acá escribe con autonomía total porque nada de lo
 -- que ponga entra a una valuación. `mercado.curvas` no se toca en esta etapa.
@@ -4249,7 +4249,7 @@ CREATE TABLE IF NOT EXISTS manager.tabla_perfil (
 -- plan es normal, y descubrirlo mirando un número que decía ser el total es
 -- exactamente cómo se pierde una tarde.
 -- manager.proveedor_estado — CÓMO VIENE CONTESTANDO CADA PROVEEDOR EXTERNO
--- (2026-08-20). Doc: AV_AGENT.md §0.ad.
+-- (2026-08-20). Doc: `AGENT.md` §0.ad.
 --
 -- Nace de una caída de Aunesa (HTTP 500 en su login) que el user vio «de
 -- milagro» al abrir Tesorería. La vista YA la detecta y la muestra bien — pero
@@ -4668,7 +4668,7 @@ CREATE INDEX IF NOT EXISTS idx_ap5_margenes_cuenta
     ON ap5.margenes (cuenta, fecha DESC);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AGENT 2.0 — el agente nuevo.  Doc: `docs/AGENT_2.0.md`
+-- AGENT 2.0 — el agente nuevo.  Doc: `docs/AGENT.md`
 -- ═══════════════════════════════════════════════════════════════════════════
 --
 -- CUATRO tablas y NINGUNA otra guarda estado de problemas (invariante 5):

@@ -1,4 +1,4 @@
-"""`api/routers/agente.py` — el AV AGENT por HTTP. Doc: `docs/AGENT_2.0.md`.
+"""`api/routers/agente.py` — el AV AGENT por HTTP. Doc: `docs/AGENT.md`.
 
 Solo plumbing: la lógica vive en `agente/`. Se monta con el mismo gate que
 `/api/ia` (bearer + módulo `ia`) **y además `require_admin` en cada ruta**: el

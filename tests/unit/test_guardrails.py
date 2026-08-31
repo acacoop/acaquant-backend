@@ -2,7 +2,7 @@
 
 Congelan el contrato de cada invariante: input dict → violación esperada, y la
 semántica de calibración (umbral None = mide pero NUNCA viola).
-Doc: docs/OBSERVABILIDAD_ROBUSTEZ.md (commit 2).
+Doc: docs/RUNBOOK.md (commit 2).
 """
 from __future__ import annotations
 

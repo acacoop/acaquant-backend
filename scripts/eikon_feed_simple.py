@@ -112,7 +112,7 @@ CAMPOS = {
 FIELDS = [*CAMPOS, "PRIMACT_1"]
 
 # ── Fundamentals para la FICHA de empresa (1 pull por día; validados en vivo
-#    2026-07-17 contra AAPL/RKLB — ver docs/INTEGRACION_REUTERS.md) ──────────
+#    2026-07-17 contra AAPL/RKLB — ver docs/RENTA_VARIABLE.md) ──────────
 FUND_SNAPSHOT = {
     "TR.CommonName":           "nombre",
     "TR.TRBCIndustry":         "industria",
@@ -177,7 +177,7 @@ FUND_CADA_SEG = 24 * 3600
 # ── INGRESOS POR SEGMENTO (familia TR.BGS.*) — validado en vivo 2026-08-07 ───
 # Desglose de las ventas: por segmento de NEGOCIO y por REGIÓN. Se baja junto
 # con los fundamentals (1 vez por día). Hallazgos del discovery que NO se
-# pueden re-inferir (doc: INTEGRACION_REUTERS.md §8):
+# pueden re-inferir (doc: RENTA_VARIABLE.md §8):
 #
 #  · El campo es `TR.BGS.BusTotalRevenue` — la grafía `BusinessTotalRevenue`
 #    NO existe (devuelve "The formula must contain at least one field").
@@ -426,7 +426,7 @@ def actualizar_bonos(rics):
 # Universo curado por el server (/eikon/news/universo). Una llamada por RIC
 # (count chico) cada NEWS_CADA_SEG — así cada titular queda mapeado a SU RIC.
 # Cache de storyIds para postear solo lo nuevo. Validado en vivo 2026-07-16
-# (ver docs/INTEGRACION_REUTERS.md §6b). Sus errores NUNCA voltean los precios.
+# (ver docs/RENTA_VARIABLE.md §6b). Sus errores NUNCA voltean los precios.
 NEWS_CADA_SEG = 600          # 10 min — los titulares no cambian cada 20s
 NEWS_POR_RIC = 4
 _news_vistos = set()         # storyIds ya posteados (cache de la sesión)

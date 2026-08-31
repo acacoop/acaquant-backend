@@ -51,7 +51,7 @@ de tocar la vista más usada de la app.
 
 | # | Paso | ¿Toca la vista? | Estado |
 |---|---|---|---|
-| 1 | Medir por qué tarda (`scripts/diag_renta_fija_perf.py`) | no | ✅ **medido** |
+| 1 | Medir por qué tarda | no | ✅ **medido** (el diag ya cumplió y se borró) |
 | 2 | Clasificar los 222 con los ejes (`scripts/clasificar_curvas.py`) | no | ✅ **aplicado** (212/222, test VERDE) |
 | 3a | Endpoint `GET /api/cotizaciones/curvas-vista` (nadie lo consume) | no | **hecho** |
 | 3b | Tab **CURVAS** en el front (ARS izq / USD der) + absorber ONs | sí | ✅ **hecho** |
@@ -906,7 +906,7 @@ ahí manda la mesa.
 **Lo que queda abierto:** de los 65 divergentes no está medido *cuál* pata es la
 correcta para el PnL. Hipótesis fuerte (no verificada): la de PESOS, porque el PnL
 trabaja pesificado (`pnl.py::_pesificar` convierte el cost-basis con el MEP del
-boleto). Lo mide `python -m scripts.diag_pnl_pata`, que valúa con las dos patas y
+boleto). Se midió valuando con las dos patas y comparando (diag ya cumplido y borrado);
 las contrasta contra la `valuacion` que manda Aunesa — la buena da ratio ≈ 1.
 **No bloquea nada**: mientras el job no pise, la respuesta sólo decide si además
 hay algo viejo que corregir.
@@ -1042,7 +1042,7 @@ liquidación ya publicado se sigue mostrando en TASA FIJA, como hoy.
 ### Por qué tarda — MEDIDO en el Droplet (2026-08-15)
 
 La página hace **9 fetches en un `Promise.all`** → no renderiza hasta que
-termina el más lento. Corrida real (`scripts/diag_renta_fija_perf.py`):
+termina el más lento. Corrida real:
 
 | Endpoint | Tab | Frío | Caliente | Payload | Filas |
 |---|---|---:|---:|---:|---:|
@@ -1346,7 +1346,7 @@ Esto **no se puede afirmar leyendo código** — requiere correr una medición:
 > Vivía en `docs/SALUD_CURVAS.md`, que se borró el 2026-08-31. Ese doc era un
 > **roadmap hacia un health-check** («que el sistema avise solo en vez de
 > descubrir los errores a ojo») y ese roadmap **ya se construyó**: es el AV AGENT
-> (`docs/AGENT_2.0.md`). Su §7 nombraba `jobs/curvas_healthcheck.py` y
+> (`docs/AGENT.md`). Su §7 nombraba `jobs/curvas_healthcheck.py` y
 > `manager.controles_datos`, que no existen; su §2 describía las columnas de
 > `mercado.curvas` con la semántica **anterior** al renombre del 2026-08-15
 > (decía que `ticker` era el símbolo de mercado — hoy eso es `instrumento`, ver

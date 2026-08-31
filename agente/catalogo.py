@@ -1,4 +1,4 @@
-"""`agente/catalogo.py` — **LAS HABILIDADES.** Doc: `docs/AGENT_2.0.md` §3.
+"""`agente/catalogo.py` — **LAS HABILIDADES.** Doc: `docs/AGENT.md` §3.
 
 Sumar una habilidad es **una fila acá**. No hay que tocar un reloj, ni una lista
 de tipos, ni un mapa de dominios, ni un test que recuerde declararla.

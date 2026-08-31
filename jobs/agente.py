@@ -1,4 +1,4 @@
-"""`jobs/agente.py` — EL AGENTE, como daemon. Doc: `docs/AGENT_2.0.md` §2.
+"""`jobs/agente.py` — EL AGENTE, como daemon. Doc: `docs/AGENT.md` §2.
 
 **Reemplaza a los CUATRO relojes del agente viejo**: el daemon del centinela
 (30 s), `av_agent_sistema` (cron cada 10 min), `av_agent` (cron 4×/día) y el

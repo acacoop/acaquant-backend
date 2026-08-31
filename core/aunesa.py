@@ -82,7 +82,7 @@ def _login() -> str:
     los daemons le pegan todo el tiempo, así que un 500 en el login queda anotado
     en segundos y con el mensaje exacto. `anotar` se auto-limita a una escritura
     por minuto y nunca levanta, así que llamarlo por intento es gratis. Ver
-    AV_AGENT.md §0.ad.
+    `AGENT.md` §0.ad.
     """
     # ⚠️⚠️ **`AUNESA_CLIENT_ID` VA VACÍO Y SIEMPRE FUE ASÍ** (user, 2026-08-20).
     #

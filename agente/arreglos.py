@@ -1,4 +1,4 @@
-"""`agente/arreglos.py` — LO QUE ESCRIBE. Doc: `docs/AGENT_2.0.md` §6.4.
+"""`agente/arreglos.py` — LO QUE ESCRIBE. Doc: `docs/AGENT.md` §6.4.
 
 **Un arreglo ESCRIBE en algún lado.** Después de apretarlo, el mundo es
 distinto. No son arreglos, y en el agente viejo estaban mezclados como si lo

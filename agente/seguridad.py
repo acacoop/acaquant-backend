@@ -1,6 +1,6 @@
 """agente/seguridad.py — ¿LOS PERMISOS SON REALES O ESTÁN EN LOS PAPELES?
 
-Doc madre: **`docs/AV_AGENT.md`** §0.s.
+Doc madre: **`docs/AGENT.md`** §0.s.
 
 Pedido del user (2026-08-19):
 

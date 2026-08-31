@@ -11,7 +11,7 @@ Modelado (viene del script de commodities original del user, 2026-07-24):
     soja posición 1 = contrato más cercano, `Sc2` el siguiente, etc. — OJO:
     Aceite y Harina saltean la posición 3, así estaba en el script original).
   - Campos Eikon: CONTR_MNTH (mes del contrato, ej 'JUL6'), PRIMACT_1 (last de
-    FUTUROS — para acciones es CF_LAST, ver INTEGRACION_REUTERS.md §5) y
+    FUTUROS — para acciones es CF_LAST, ver RENTA_VARIABLE.md §5) y
     SEC_ACT_1 (variación neta del día, misma unidad que el precio).
   - FACTORES a USD/tonelada viven ACÁ (server-side, fuente única): Chicago
     cotiza en ¢/bushel (soja/maíz/trigo), ¢/libra (aceite) y USD/short ton

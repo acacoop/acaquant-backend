@@ -20,7 +20,7 @@
 | **REPORTES FINANCIEROS** | `research-documentos.tsx` | `/api/research1816/mails` · `/api/research-docs/*` |
 | **BCRA** | `research-bcra.tsx` | `/api/research-bcra/{bloques,series}` |
 | **DATOS INTERNACIONALES** | `research-fred.tsx` | `/api/research-fred/{bloques,series}` |
-| **RENTA VARIABLE INTERNACIONAL** | (vista `reuters`) | ver `docs/INTEGRACION_REUTERS.md` |
+| **RENTA VARIABLE INTERNACIONAL** | (vista `reuters`) | ver `docs/RENTA_VARIABLE.md` |
 
 ⚠️ **ANÁLISIS SENSIBILIDAD llegó el 2026-08-30** desde `/retorno` (vista MERCADO →
 ESTRATEGIA, eliminada): mismo componente y **mismo endpoint**, sin cambio de RBAC.
@@ -120,7 +120,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
 - **Cliente:** `core/mercado_1816.py` cachea el token en memoria del proceso y lo
   **renueva solo** ante `401` (patrón: 1 reintento tras re-auth). Nunca guarda el
   token en DB (efímero, por proceso — mismo criterio que otros feeds).
-- **Env vars (van al `.env` del Droplet — REGLA #6, ver `docs/SECRETS.md`):**
+- **Env vars (van al `.env` del Droplet — REGLA #6, ver `docs/SECURITY.md`):**
   - `MERCADO_1816_API_KEY` — la API Key (se genera en la webapp de 1816).
   - `MERCADO_1816_BASE_URL` — opcional, default la base productiva de 1816.
   - Sin la key, el cliente queda apagado (el pilar A muestra lo persistido; nunca
@@ -503,7 +503,7 @@ una emisión rara se cuele sola. Manager → BONOS ya existe (`/bonos`,
 `/bonos/sin-flujo`, `/bonos/sin-tasa`, `/bonos/parse-flujos`) y está
 desactualizado: **es el lugar natural para esa bandeja**, y le devuelve sentido.
 
-> **⚡ ESTE DISEÑO SE MUDÓ — doc vivo: `docs/AV_AGENT.md` (QuantAI P8).**
+> **⚡ ESTE DISEÑO SE MUDÓ — doc vivo: `docs/AGENT.md` (QuantAI P8).**
 > Lo de acá arriba queda como el **registro de la medición** (los números de §4.9
 > son la evidencia que sostiene el proyecto y no se duplican). El plan ejecutable,
 > las etapas, las decisiones abiertas y el estado viven en el doc del agente — si

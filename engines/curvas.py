@@ -32,7 +32,7 @@ from core.logs import configurar
 from engines._curvas_loader import cargar_indexado_por_ticker
 from quant.xirr import xirr as _xirr_quant
 
-# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+# El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
 logger = logging.getLogger("MotorCurvas")
 

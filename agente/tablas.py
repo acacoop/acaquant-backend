@@ -1,6 +1,6 @@
 """agente/tablas.py — LO QUE EL AGENTE SABE DE LA BASE, SIN QUE NADIE SE LO ESCRIBA.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.r.
+Doc madre: **`docs/AGENT.md`** §0.r.
 
 Pedido del user (2026-08-19), y son dos cosas que van juntas:
 

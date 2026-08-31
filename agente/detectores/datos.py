@@ -1,4 +1,4 @@
-"""Detectores de DATOS y SEGURIDAD. Doc: `docs/AGENT_2.0.md` §5."""
+"""Detectores de DATOS y SEGURIDAD. Doc: `docs/AGENT.md` §5."""
 from __future__ import annotations
 
 import logging

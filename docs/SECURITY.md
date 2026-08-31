@@ -1,11 +1,20 @@
-# SECURITY.md — postura de seguridad de la API
+# SECURITY — postura de seguridad y credenciales
+
+> **Un doc.** Absorbió a `SECRETS.md` el 2026-08-31. El inventario de credenciales
+> y la postura que las protege son la misma pregunta: quién puede leer qué. Con
+> dos archivos, agregar un secreto no obligaba a revisar el gate.
+
+
+---
+
+# PARTE A — Postura, gates y auditoría
 
 Doc consolidado de cómo se protege `api.acaquant.com`. La seguridad está en
 **capas**: cada request pasa por todas las que apliquen. Código fuente de
 verdad: `api/auth.py`, `api/deps.py`, `api/main.py`, `api/ratelimit.py`,
 `core/roles.py`.
 
-## Las capas (en orden, de afuera hacia adentro)
+### Las capas (en orden, de afuera hacia adentro)
 
 ```
 Request
@@ -23,7 +32,7 @@ Request
   ▼  handler
 ```
 
-## 1. Cloudflare Access — quién entra
+### 1. Cloudflare Access — quién entra
 
 CF Access protege los hostnames (`trading.acaquant.com`, `api.acaquant.com`).
 Es el IdP: login por OTP/email.
@@ -36,7 +45,7 @@ ocupan **5/5 destinations**, la cuota entera, y volverían a estar vivos el día
 que algo se monte en esos paths. Sacarla es una acción en Cloudflare, no en
 este repo: por eso queda escrito acá y no se borra hasta hacerlo.
 
-## 2. API_KEY — el frontend autorizado
+### 2. API_KEY — el frontend autorizado
 
 `api/deps.py::verify_api_key` exige `Authorization: Bearer <API_KEY>`. Es el
 secreto compartido entre `acaquant-web` (server-side) y la API. Se aplica
@@ -48,7 +57,7 @@ como dependency `_PUBLIC` a casi todos los routers en `api/main.py`.
 ⚠️ **Fail-open dev**: si `API_KEY` no está en `.env`, `verify_api_key` deja
 pasar todo. En prod (Droplet) `API_KEY` **debe** estar seteada.
 
-## 3. JWT de Cloudflare Access — identidad real
+### 3. JWT de Cloudflare Access — identidad real
 
 `api/auth.py` valida criptográficamente el JWT que emite CF Zero Trust
 (JWKS de `{CF_ACCESS_TEAM}.cloudflareaccess.com`). Reemplaza la lectura
@@ -66,7 +75,7 @@ configurados, `auth.py` loggea warning y cae al header directo (spoofable).
 En prod **deben** estar seteados — ahí un JWT con firma/audience inválida
 da 401.
 
-## 4. RBAC — qué ve cada role
+### 4. RBAC — qué ve cada role
 
 CF Access dice quién entra; `core/roles.py` dice qué ve. `require_module(m)`
 es la dependency que chequea que el role del email (de `manager.role_matrix`)
@@ -83,7 +92,7 @@ tenga el módulo. Aplicado por router en `api/main.py`:
 
 Detalle del modelo RBAC: `api/CLAUDE.md`.
 
-## 5. Rate limiting
+### 5. Rate limiting
 
 `api/ratelimit.py` — slowapi, `SlowAPIMiddleware`. La key es el **email del
 usuario** sacado del JWT firmado por CF (`cf-access-jwt-assertion`, no
@@ -92,7 +101,7 @@ atacante no-autenticado no pueda quemar cuota por volumen. Límites por
 endpoint vía `@limiter.limit(...)` (ej. `/manager/jobs/run`). *(`/api/chat` era el
 otro ejemplo: el asistente legacy se borró el 2026-06-03.)*
 
-## Secretos / env vars
+### Secretos / env vars
 
 Viven en `.env` (local) y systemd unit files (Droplet). Nunca en el repo.
 
@@ -106,7 +115,7 @@ Viven en `.env` (local) y systemd unit files (Droplet). Nunca en el repo.
 Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
 + las env vars de Vercel (acaquant-web), redeploy de ambos.
 
-## Checklist al tocar la API
+### Checklist al tocar la API
 
 - Endpoint nuevo → ¿qué grupo de dependency (`_PUBLIC` / `_PORTFOLIOS` / …)?
   Default: el más restrictivo que tenga sentido.
@@ -122,7 +131,7 @@ Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
 - Antes de pushear router/service: REGLA #1 (ver `api/CLAUDE.md`).
 - Revisión de cambios con impacto en auth/datos: `/security-review`.
 
-## Verificar la superficie HTTP
+### Verificar la superficie HTTP
 
 El gate real de un endpoint se compone de tres lugares (montaje en
 `api/main.py` + `dependencies=` del sub-router + decorador). Leerlo a ojo no
@@ -138,7 +147,7 @@ en CI): recorre `app.routes` y falla si aparece una ruta `/api/*` sin bearer,
 una escritura sin gate de módulo, una ruta de `manager` sin gatear, o si al
 panel de IA le sacan el `require_admin`.
 
-## Auditoría 2026-08-03 — backlog pendiente
+### Auditoría 2026-08-03 — backlog pendiente
 
 Auditoría de código sobre las 361 rutas (6 dimensiones, cada hallazgo
 verificado de forma adversarial). **No hubo pentest contra prod** — todo lo de
@@ -219,3 +228,84 @@ pendiente revisar del lado del front: que `x-acaquant-portal: guest` se
 inyecte server-side sin poder forjarse desde el browser, que el proxy no
 reenvíe headers de identidad que vengan del cliente, y que no haya secretos en
 bundles `NEXT_PUBLIC_*`.
+
+---
+
+# PARTE B — Credenciales: dónde vive cada una
+
+Qué llave abre qué, dónde vive, y cómo cambiarla. Ninguna de estas va al repo:
+viven en `/root/TradingAV/.env` (las lee `config.py` vía `load_dotenv()`), en
+algunos systemd unit (`Environment=`), y las del frontend en las env vars de
+Vercel.
+
+**Regla:** rotar = regenerar en la fuente → actualizar el `.env` (y Vercel si el
+frontend la usa) → reiniciar el servicio afectado. Tras tocar `.env`, la API
+necesita `systemctl restart api.service`; los crons toman el cambio solos (cada
+run es un proceso nuevo).
+
+---
+
+### 🔴 Críticos (mueven plata o dan acceso amplio)
+
+| Secreto | Qué es / dónde se usa | Cómo rotar | Si se filtra |
+|---|---|---|---|
+| `ROFEX_USER` / `ROFEX_PASSWORD` / `ROFEX_ACCOUNT` | Credenciales del broker (pyRofex). La API y `motor_ordenes` las usan para **enviar y seguir órdenes reales**. | Portal del broker / pyRofex (cambiar password). | Alguien podría **operar tu cuenta**. Máxima prioridad. |
+| `POSTGRES_URI` | Cadena de conexión a Postgres/Supabase (la lee `core/postgres.py`). Acceso total a las DBs SQL. | Supabase → Database → rotar el password del rol → actualizar la URI. | Acceso total a datos de clientes. Rotar + revisar reglas de red. |
+| `API_KEY` | Bearer de la API (`api/deps.py`). El frontend la manda en cada request. | Generar un random nuevo → `.env` del backend **y** env var en Vercel (deben coincidir) → restart API + redeploy front. | Acceso a la API saltando el bearer (pero CF Access sigue adelante). |
+
+> **Obsoletos (ya NO se leen — eliminables del `.env`):** `MONGO_URI`, `ATLAS_*`.
+> Quedaron del stack Mongo/proveedor,
+> decomisado 2026-06-29; el código
+> ya no los usa. El secreto vivo de base de datos es `POSTGRES_URI`.
+
+### 🟠 Medios (acceso a datos o a servicios pagos)
+
+| Secreto | Qué es | Cómo rotar |
+|---|---|---|
+| `AUNESA_CLIENT_ID` / `AUNESA_USERNAME` / `AUNESA_PASSWORD` | Credenciales del custodio (Aunesa) — fuente de movimientos/posiciones. | Coordinar con Aunesa. |
+| `BYMA_CLIENT_ID` / `BYMA_CLIENT_SECRET` | OAuth2 para licitaciones primarias BYMA. | Portal BYMA Developer. |
+| `MAE_API_KEY` | MarketData MAE (repos/cauciones wholesale). | Coordinar con MAE. |
+| `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir el dólar oficial live, no da acceso a la DB. | Random nuevo → `.env` Droplet + oficina → restart API. |
+| `FINNHUB_API_KEY` | Data de mercado externa. | Dashboard de Finnhub. |
+| `RESEARCH_IMAP_USER` / `RESEARCH_IMAP_PASSWORD` / `RESEARCH_MAIL_FROM` | Casilla que recibe el research diario + app password + remitente(s) — los lee `jobs/research_mail.py` (IMAP readonly, QuantAI P6). OJO: la app password da acceso de LECTURA a toda la casilla — usar una app password dedicada, jamás la contraseña real. | Gmail: Cuenta → Seguridad → Contraseñas de aplicaciones → revocar y generar otra → `.env` (el cron la toma solo). |
+| `FRED_API_KEY` | API key de FRED (Federal Reserve de St. Louis) — la lee `core/fred_api.py` (tab DATOS INTERNACIONALES de Research, `jobs/fred_research.py`). Gratis, solo lectura de data pública sin cargo: si se filtra, el daño máximo es que un tercero use tu cuota. Sin ella, la tab FRED queda sin datos (todo lo demás sigue igual). | fredaccount.stlouisfed.org/apikeys → regenerar → `.env` (el cron la toma solo; restart API para que sirva la tab). |
+| `DEEPSEEK_API_KEY` | Proveedor LLM **default** del gateway (`core/llm.py`). ⚠️ **HOY NINGUNA TAREA LO USA** — el sistema no tiene features de IA desde el 2026-08-28; la clave queda porque el gateway se conservó. Cuenta prepaga, saldo chico: si se filtra, el daño máximo es quemar el saldo. ⚠ Este proveedor SÍ puede entrenar con lo que se le manda → jamás datos del negocio. | platform.deepseek.com → API Keys → regenerar → `.env` → restart API. **Si no vas a volver a usar IA, sacala del `.env`**: una key viva que nadie usa es saldo expuesto sin contrapartida. |
+| `OPENAI_API_KEY` | Proveedor LLM para tareas marcadas `datos:"negocio"` — se eligió por su compromiso de NO entrenar con datos de API + borrado a 30 días (decisión user 2026-07-21). El gateway es **fail-closed**: sin esta key, una tarea de negocio NO cae a DeepSeek, se niega. ⚠️ **HOY NINGUNA TAREA LO USA** (ver arriba). | platform.openai.com → API keys → regenerar → `.env` → restart API. Data controls: sharing en **Disabled**, API call logging **Disabled**, audit logging **Enabled**. |
+| `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | LLM del asistente (legacy, no en uso hoy). | Consola Anthropic / Google. |
+
+### 🟢 Config sensible (no son secretos, pero cuidá quién los edita)
+
+| Var | Qué es |
+|---|---|
+| `CF_ACCESS_TEAM` / `CF_ACCESS_AUD` | Identifican el tenant/app de Cloudflare Access para validar el JWT. Si faltan, el JWT no se valida (modo dev). |
+| `CF_TRUSTED_SERVICE_TOKENS` | `common_names` de máquinas confiables (ej. el frontend Vercel). |
+| `MANAGER_EMAILS` | Emails admin de bootstrap (fallback al RBAC de `manager.manager_users`). |
+| `ENV` | `prod` activa el fail-closed de auth (EXT-AUTH1). |
+
+### Frontend (env vars en Vercel, no en el `.env` del Droplet)
+
+- `API_URL` → apunta a `https://api.acaquant.com`.
+- `API_KEY` → debe coincidir con la del backend.
+- `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` → service token con el que el
+  SSR de acaquant-web pega al backend tras CF Access (`proxy.ts`).
+
+---
+
+### Procedimiento de rotación (general)
+
+1. **Regenerar** la credencial en su fuente (portal del proveedor, Supabase, BotFather…).
+2. **Actualizar** donde viva: `.env` del Droplet (`nano /root/TradingAV/.env`) y/o
+   env var en Vercel y/o el systemd unit.
+3. **Reiniciar** lo afectado: `systemctl restart api.service`. Frontend: redeploy en Vercel.
+4. **Verificar** que el servicio levantó OK (`systemctl status`, o un request de prueba).
+
+**Cuándo rotar:** ante sospecha de filtración (alguien vio un `.env`, un token en
+un log, etc.), cuando se va alguien del equipo con acceso al servidor, y como
+higiene periódica para las críticas (broker, base de datos) — al menos 1 vez al año.
+
+### Higiene
+
+- El `.env` **nunca** se commitea (verificar que esté en `.gitignore`).
+- No pegar secretos en logs, chats, ni URLs.
+- Revisión de accesos de usuarios: `/manager → USUARIOS` (último acceso + badge
+  INACTIVO; ver `docs/RUNBOOK.md`).

@@ -1,6 +1,6 @@
 """core/curvas_catalogo.py — las curvas que se crean sin deploy.
 
-Doc madre: `docs/AV_AGENT.md`. Lee `mercado.curvas_catalogo`.
+Doc madre: `docs/AGENT.md`. Lee `mercado.curvas_catalogo`.
 
 **Qué resuelve.** `curvas_ejes._pill_de_ajuste` era una función con ocho `if` que
 devolvían un string: una TABLA disfrazada de código. Mientras lo fue, agregar una

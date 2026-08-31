@@ -162,7 +162,7 @@ systemctl restart api.service
   del dominio (`/contexto`, `/live`, `/track-record`, `/senales`) — el backend y
   el schema estaban bien. Fix: `src/app/api/estrategia/[...path]/route.ts`
   (GET-only, copia del proxy de `/api/trading`, `force-dynamic` + `no-store`).
-  Diag de la cadena de datos: `python -m scripts.diag_estrategia_contexto`
+  Diag de la cadena de datos: el one-shot ya cumplió y se borró (2026-08-31)
   (ruedas guardadas, cuántas con `atr`, tape vivo y la salida real del service).
 
   Tres cosas más, para que la CLASE de bug no se repita:

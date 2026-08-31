@@ -1,4 +1,4 @@
-"""Detectores del CATÁLOGO DE TÍTULOS. Doc: `docs/AGENT_2.0.md` §5.
+"""Detectores del CATÁLOGO DE TÍTULOS. Doc: `docs/AGENT.md` §5.
 
 Devuelven `list[Hallazgo]` o levantan `SinDatos`. **Ninguno escribe.**
 """

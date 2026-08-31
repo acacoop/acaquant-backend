@@ -34,7 +34,7 @@ from core.logs import configurar
 from engines._curvas_loader import cargar_por_curva
 from engines.curvas import fecha_cer_liquidacion
 
-# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+# El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
 logger = logging.getLogger("MotorBreakevens")
 

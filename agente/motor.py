@@ -1,4 +1,4 @@
-"""`agente/motor.py` — **LA AGENDA.** Un solo reloj. Doc: `AGENT_2.0.md` §2.
+"""`agente/motor.py` — **LA AGENDA.** Un solo reloj. Doc: `AGENT.md` §2.
 
 El agente viejo tenía CUATRO programas separados haciendo exactamente lo mismo
 —despertarse, mirar, anotar— y lo único que los diferenciaba era el ritmo. Eso

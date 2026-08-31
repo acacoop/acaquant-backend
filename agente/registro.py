@@ -1,6 +1,6 @@
 """`agente/registro.py` — **LA ÚNICA PUERTA POR LA QUE EL AGENTE ESCRIBE.**
 
-Doc: `docs/AGENT_2.0.md` §1.
+Doc: `docs/AGENT.md` §1.
 
 El agente viejo tenía SEIS puertas escribiendo estado, cada una con su criterio
 sobre qué guardar y qué significaba «resuelto». No era un mal diseño: era una

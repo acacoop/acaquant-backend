@@ -59,7 +59,7 @@ from core.rofex_orders_session import (  # noqa: E402
     inicializar_para_motor,
 )
 
-# El formato (con NIVEL) vive en core/logs — ver AV_AGENT.md §0.ac.
+# El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
 logger = logging.getLogger("MotorOrdenes")
 

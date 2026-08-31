@@ -27,7 +27,7 @@ INTERBANKING_CLIENT_SECRET = os.getenv("INTERBANKING_CLIENT_SECRET")
 INTERBANKING_CUSTOMER_ID = os.getenv("INTERBANKING_CUSTOMER_ID")
 
 # Los tres siguientes son overrides de diagnóstico: existen para que, cuando
-# `scripts/diag_interbanking_auth` encuentre la combinación que funciona, se
+# un diag encontrara la combinación que funciona (ya cumplió y se borró), se
 # active desde el .env sin tocar código ni redeployar. El default es lo que
 # declara el propio servidor en su documento de descubrimiento OIDC — que NO
 # coincide con el tokenUrl de los YAML del proveedor (ver docs/INTERBANKING.md).
@@ -200,7 +200,7 @@ CF_TRUSTED_SERVICE_TOKENS: set[str] = {
     if t.strip()
 }
 
-# --- GUARDRAILS DE DATOS (docs/OBSERVABILIDAD_ROBUSTEZ.md, commit 2) ---
+# --- GUARDRAILS DE DATOS (docs/RUNBOOK.md, commit 2) ---
 # Umbrales de los invariantes de sanidad post-cierre (jobs/guardrails.py).
 # None = SIN CALIBRAR: el check corre igual (muestra el valor real medido)
 # pero JAMÁS marca violación. Calibrar corriendo varios días

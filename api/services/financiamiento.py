@@ -51,7 +51,7 @@ instrumento por una vía que no dejó boleto MAV con tasa parseada. Se devuelve
 `tasa = None` y la vista muestra '—'. NUNCA se inventa un número: la tasa es el
 dato por el que existe esta pantalla.
 
-VERIFICAR EN PROD: `python -m scripts.diag_financiamiento` mide cobertura de la
+VERIFICADO EN PROD (el diag ya cumplió y se borró): se midió la cobertura de la
 tasa, cuántos assets quedan vigentes y el tamaño real del payload.
 """
 from __future__ import annotations

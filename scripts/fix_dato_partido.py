@@ -1,6 +1,6 @@
 """scripts/fix_dato_partido.py — SINCRONIZAR dos copias del mismo dato.
 
-Doc madre: `docs/AV_AGENT.md` §0.aa · `CLAUDE.md` REGLA #9.
+Doc madre: `docs/AGENT.md` §0.aa · `CLAUDE.md` REGLA #9.
 **DRY-RUN por default** (REGLA #4). Idempotente: correrlo dos veces no hace nada
 la segunda, porque el WHERE del arreglo es el mismo que el de la detección.
 

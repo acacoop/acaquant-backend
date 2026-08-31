@@ -1,4 +1,100 @@
-# Segmentación Patrimonial de Clientes
+# CLIENTES — grupos, segmentación patrimonial y tablero comercial
+
+> **Un doc por dominio.** Consolidó a `GRUPOS.md`, `SEGMENTACION_PATRIMONIAL.md` y
+> `AGREGADO_COMERCIAL.md` el 2026-08-31. Los tres cruzan por `id_cuenta` contra
+> `clientes.comitentes` y los tres hablan de la misma pregunta —quién es el
+> cliente y cuánto pesa—, así que tenerlos separados obligaba a abrir tres
+> archivos para entender una fila del tablero.
+
+
+---
+
+# PARTE A — Grupos económicos
+
+Scoping multi-tenant: restringir qué cuentas comitentes ve cada usuario.
+El admin lo gestiona 100% desde `/manager → GRUPOS`.
+
+### Modelo
+
+Tabla **`manager.grupos`** (SQL). Shape conceptual de un grupo:
+
+```jsonc
+{
+  nombre:     "Mesa Rosario",
+  emails:     ["user1@x.com", "user2@x.com"],   // lowercased
+  id_cuentas: ["805", "1207", ...],             // id_cuenta (string)
+  creado_por: "admin@x.com",
+  creado_at:  <timestamptz>,
+  updated_at: <timestamptz>,
+  updated_por:"admin@x.com",
+}
+```
+
+Un grupo agrupa **usuarios** (por email) + **cuentas** (por `id_cuenta`).
+Las cuentas asignables son SOLO las que ya existen (último snapshot AuM) —
+el selector del panel se puebla con `portfolio.listar_cuentas()`.
+
+### Regla de visibilidad
+
+`core/grupos.py::cuentas_visibles(email) -> set[str] | None`:
+
+| Caso | Resultado |
+|---|---|
+| admin | `None` → ve TODO |
+| usuario en NINGÚN grupo | `None` → ve TODO (transición: nada se rompe) |
+| usuario en ≥1 grupo | `set` = unión de las `id_cuentas` de sus grupos |
+
+`None` = sin restricción. Cache TTL 60s; `invalidate_cache()` tras cada
+mutación. Fail-open ante error de DB (devuelve `None`) — los grupos no
+deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
+
+### Plan en fases
+
+- **Fase 1 (HECHA)** — modelo + CRUD.
+  - `core/grupos.py`: resolver + CRUD + cache.
+  - `api/routers/manager/grupos.py`: `GET/POST/PATCH/DELETE
+    /api/manager/grupos` (admin-only, hereda el gate de `manager`).
+  - Frontend: tab GRUPOS en el panel Manager (`grupos-panel.tsx`).
+  - **Todavía NO enforcea** — solo se pueden crear/editar grupos.
+
+- **Fase 2 (HECHA)** — enforcement backend para el namespace `id_cuenta`
+  (valuaciones + portfolio/AuM + PnL).
+  - `api/services/_grupos_scope.py`: dependencies `scope_cuentas`
+    (inyecta `tuple[str,...] | None`) y `verificar_id_cuenta` (403).
+  - Los services de `portfolio.py`, `pnl.py` y `valuaciones.py` aceptan
+    `scope` y lo aplican al filtro SQL (`WHERE id_cuenta IN ...`) / de filas.
+  - Routers `carteras.py` y `valuaciones.py` resuelven el scope y lo
+    pasan; los endpoints `/{id_cuenta}/*` quedan gateados.
+  - El cron (`pnl_todas_cuentas_compute`) corre sin scope.
+
+- **Fase 2b (HECHA)** — enforcement del namespace `cuenta`
+  (string "[<id>] NOMBRE") que usan `FlujosAPI` y `NegocioMovimientos`
+  (no tienen `id_cuenta` directo). Helpers `scope_cuenta_match` /
+  `aplicar_scope_cuenta` (regex sobre el id bracketed, vía `$and`) +
+  `verificar_cuenta_str` + `filtrar_cuentas_str` en `_grupos_scope.py`.
+  Aplicado en `/flujos` y `/negocio/{serie,cuentas,cuentas-matrix,
+  boletos,cuentas-list}`. `operar` sigue admin-only.
+
+- **Fase 3 (HECHA — sin cambios de código)** — frontend. Se revisaron
+  todos los selectores de cuenta de `acaquant-web`: todos sourcean de
+  endpoints ya scopeados por Fase 2/2b.
+  - `/aum` (+ VALUACIONES, PNL TÍTULOS): `aum-view` → `/api/portfolio-cuentas`.
+    `valuaciones-view` / `pnl-titulos-view` reciben `idCuenta` como prop.
+  - POR CUENTA / TOTALES: tablas de `consolidado` / `pnl-todas`.
+  - `/operaciones/negocio`: `negocio-view` → `/negocio/cuentas-list`.
+  - Manager (AUNESA, debug XIRR, GRUPOS): admin-only → scope None.
+  - Caso borde: URL bookmarkeada con `?cuenta=<ajena>` → backend 403.
+
+### Notas
+
+- `operar` quedó admin-only (commit `7478405`) como medida previa —
+  independiente de grupos.
+- No es RBAC: RBAC (`core/roles.py`) decide qué **módulos** ve un usuario;
+  grupos decide qué **cuentas** ve dentro de esos módulos.
+
+---
+
+# PARTE B — Segmentación patrimonial
 
 > Documento vivo del feature. El **LOG DE AVANCES** (al final) es append-only
 > con fecha. Cada vez que toquemos algo de esta feature, agregar una entrada.
@@ -28,7 +124,7 @@
 > pero con un criterio **patrimonial objetivo** (límite de fondeo) en vez de
 > categórico-manual.
 
-## Objetivo
+### Objetivo
 
 Clasificar cada cuenta comitente en uno de **6 segmentos patrimoniales** (3 para
 Personas Humanas, 3 para Personas Jurídicas) a partir del **límite de fondeo
@@ -47,13 +143,13 @@ con `nivel_3` (manual, lo que ya hay) — son **dos campos separados**. No se
 pisa el manual. Esto evita repetir el bug del revert y deja a la mesa la
 opción de overrides puntuales si el algoritmo no les cierra para una cuenta.
 
-## Reglas de clasificación (6 segmentos)
+### Reglas de clasificación (6 segmentos)
 
 El criterio depende de si la cuenta es **Persona Humana (PH)** o **Persona
 Jurídica (PJ)** y del **límite disponible para fondear** convertido a la
 moneda/unidad correspondiente.
 
-### Personas Humanas — umbral en **USD**
+#### Personas Humanas — umbral en **USD**
 
 | Segmento              | Límite disponible (USD) |
 |-----------------------|-------------------------|
@@ -61,7 +157,7 @@ moneda/unidad correspondiente.
 | `PH_MEDIO_RETAIL`     | ≥ 50.000 y ≤ 100.000    |
 | `PH_ALTO_PATRIMONIO`  | > 100.000               |
 
-### Personas Jurídicas — umbral en **UVAs**
+#### Personas Jurídicas — umbral en **UVAs**
 
 | Segmento       | Límite disponible (UVAs) |
 |----------------|--------------------------|
@@ -74,7 +170,7 @@ moneda/unidad correspondiente.
 > (intervalos `(−∞, A]`, `(A, B]`, `(B, +∞)` para PJ; `[0, 50k)`, `[50k, 100k]`,
 > `(100k, +∞)` para PH — leído tal cual del texto del usuario).
 
-### Distinguir PH vs PJ
+#### Distinguir PH vs PJ
 
 Source of truth: campo **`tipo_cliente`** de `Comitentes`. Mapping confirmado
 contra los valores reales (corrida 2026-05-28 sobre 1773 cuentas):
@@ -100,12 +196,12 @@ Si a futuro aparecen valores nuevos en `tipo_cliente` (Aunesa los puede
 agregar), el motor los loguea como "sin mapear" y no asigna segmento — hay
 que actualizar el mapping a mano. El diag detecta eso re-corriéndolo.
 
-## Conversiones de moneda/unidad
+### Conversiones de moneda/unidad
 
 El **input siempre viene en ARS** (es lo que reporta el custodio en el Excel).
 Para clasificar PH se convierte a USD; para clasificar PJ se convierte a UVAs.
 
-### ARS → USD (para PH)
+#### ARS → USD (para PH)
 
 **Decisión recomendada (a confirmar)**: usar **MEP** del momento del cálculo
 (no del momento de la carga). Justificación: el "patrimonio del cliente" en
@@ -117,7 +213,7 @@ Alternativas si se descarta MEP: dólar oficial mayorista (BCRA A3500) desde la
 serie macro DOLAR (`series_macro`, fixing diario) o desde
 `valuaciones.dolar_oficial_live` (feed MAE intradiario).
 
-### ARS → UVAs (para PJ)
+#### ARS → UVAs (para PJ)
 
 **Pendiente de implementar**: en el repo no hay serie UVA todavía. Hay que
 sumarla a `jobs/bcra.py` (es una serie estadística pública igual que CER /
@@ -127,7 +223,7 @@ serie UVA más en SQL (timeseries diaria, mismo shape que la serie DOLAR).
 Una vez ingestada: el motor toma el último valor UVA publicado al momento
 del cálculo y hace `limite_uvas = limite_ars / uva`.
 
-## Modelo de datos
+### Modelo de datos
 
 Todo vive en **`clientes.comitentes`** (la tabla ya existente) como
 **campos/objetos propios de la cuenta** — no se crea tabla nueva en esta fase.
@@ -175,9 +271,9 @@ pise. Mismo patrón que `nivel_1..5` y `operador_email/operador_nombre` hoy.
 métricas temporales (evolución del segmento del cliente mes a mes) sin migrar
 el modelo actual. No se construye ahora; se deja la puerta abierta.
 
-## Componentes a construir
+### Componentes a construir
 
-### 1. Carga desde Manager — endpoint bulk + tab "Fondeos"
+#### 1. Carga desde Manager — endpoint bulk + tab "Fondeos"
 
 **No es un script suelto, es parte del manager** (mismo patrón que la carga
 de segmentación de Clientes hoy). Espejo de `POST /api/manager/clientes/bulk`
@@ -224,7 +320,7 @@ muy grande, o para batch ad-hoc desde el Droplet. **No es el flujo
 principal**. Internamente reusa el mismo helper que el endpoint para que la
 lógica viva en un solo lugar (en `api/services/`, no duplicada).
 
-### 2. Motor de segmentación — `jobs/segmentar_patrimonial.py`
+#### 2. Motor de segmentación — `jobs/segmentar_patrimonial.py`
 
 - Toma todas las cuentas de `clientes.comitentes` con `cupo.transaccional_ars` poblado.
 - Para cada cuenta: detecta PH/PJ, obtiene TC (MEP) o UVA según corresponda,
@@ -234,7 +330,7 @@ lógica viva en un solo lugar (en `api/services/`, no duplicada).
 - Cron: a definir (probablemente mensual, post-carga). Si UVA o MEP cambian
   mucho podría correr semanalmente — TBD.
 
-### 3. Vista en `/comercial`
+#### 3. Vista en `/comercial`
 
 - Servicio: `api/services/comercial.py` → agregaciones por `segmento_patrimonial`
   (counts + AuM agregado por banda + % utilización promedio), filtrable por
@@ -244,13 +340,13 @@ lógica viva en un solo lugar (en `api/services/`, no duplicada).
 - Frontend: card/tab nueva dentro del tablero comercial en `acaquant-web/`
   (cross-repo, ver feedback `acaquant_web_companion`).
 
-### 4. Diagnóstico — `scripts/diag_segmentacion_patrimonial.py`
+#### 4. Diagnóstico — `scripts/diag_segmentacion_patrimonial.py`
 
 Read-only. Imprime la distribución actual por segmento, qué cuentas tienen
 `cupo` pero no `segmento_patrimonial` (debería estar vacío post-motor),
 qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 
-## Plan de implementación (orden sugerido)
+### Plan de implementación (orden sugerido)
 
 1. **Fase 1 — Backend de carga (endpoint manager + protección del subdoc).**
    - `POST /api/manager/clientes/bulk-fondeo` en
@@ -288,7 +384,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 > habilitan la clasificación automática. La Fase 5 es la vista. Carga UVA
 > y motor pueden ir en paralelo con la UI si se quiere paralelizar.
 
-## Decisiones tomadas
+### Decisiones tomadas
 
 - **Campos propios en `clientes.comitentes`** (no tabla nueva en esta fase).
 - **`segmento_patrimonial` convive con `nivel_3` manual** (no lo pisa).
@@ -304,7 +400,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
   NO los pisa.
 - **Sin histórico en el MVP**; modelo deja la puerta abierta para fase 2.
 
-## Decisiones abiertas
+### Decisiones abiertas
 
 - [ ] **Endpoint dedicado vs extender el bulk existente**: opción (a)
       extender `POST /api/manager/clientes/bulk` con dos columnas más, o (b)
@@ -323,7 +419,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
       límite cargado? Opciones: `segmento_patrimonial = null`, o
       `"SIN_DATOS"` explícito.
 
-## Estado / TODO
+### Estado / TODO
 
 - [x] Diseño documentado.
 - [ ] Confirmar decisiones abiertas con la mesa.
@@ -337,7 +433,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 
 ---
 
-## LOG DE AVANCES
+### LOG DE AVANCES
 
 - **2026-05-28** — **Doc inicial.** Se definió el modelo (subdoc en
   `Clientes.Comitentes`, separado de `nivel_3` manual), los 6 segmentos con
@@ -445,3 +541,145 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
   - Migración: `scripts/rename_limite_fondeo_a_cupo.py` con `$rename`
     idempotente (subdoc + inner fields). Default `--dry-run`; correr con
     `--apply` ANTES del deploy del backend nuevo para no romper la sub-tab.
+
+---
+
+# PARTE C — Agregado del Tablero Comercial (DISEÑO, sin implementar)
+
+**Estado: DISEÑO APROBADO, sin implementar.** Este doc es el paso previo al código.
+Cuando se implemente, se pliega a la sección "Tablero Comercial" del `CLAUDE.md` raíz
+y este archivo se borra (REGLA #5).
+
+### 1. Por qué, con números medidos (2026-08-13)
+
+`/api/operaciones/comercial/operador` y `/comercial/serie` suman **~3.100 s por
+semana** de tiempo de API. Del lado de la base son el mayor bloque de LECTURA:
+
+| query | llamadas | media | total acumulado |
+|---|---|---|---|
+| `SUM(valuacion)` por fecha sobre `portafolio.tenencia` | 48.420 | 35,0 ms | 1.696 s |
+| `SUM(CASE WHEN moneda…)` por fecha sobre `negocio_movimientos` | 40.703 | 39,0 ms | 1.589 s |
+| ídem agrupado por `id_cuenta` | 39.588 | 38,2 ms | 1.512 s |
+| ídem, otra ventana | 22.295 | 39,0 ms | 870 s |
+| ídem | 22.265 | 38,1 ms | 848 s |
+| `SUM(valuacion) AS aum` sobre `tenencia` | 40.156 | 14,3 ms | 573 s |
+
+El perfil del endpoint (cProfile) da **8 viajes a la base de ~56 ms cada uno** y
+Python en el 11%. O sea: **no es N+1** (ese fue el caso de `/api/derivados/agro`, que
+se arregló agrupando y salió gratis) — son agregaciones caras de verdad.
+
+Y **crece solo**: `negocio_movimientos` va por 413.919 filas y suma todos los días.
+
+### 2. Lo que YA se descartó, para no re-proponerlo
+
+- **Índices.** `index_advisor` (con `hypopg`) sobre las 6 queries: mejoras de **0% a
+  3%**. La mejor sugerencia (`btree(categoria)`) no justifica el costo de escritura en
+  una tabla que el cron toca cada 30'. **Descartado con datos.**
+- **Cache.** Cambia frescura (el user pidió explícitamente no cambiar funcionalidad) y
+  **no escala**: la query sigue engordando y el primer usuario después de cada
+  expiración paga el precio completo. **Descartado por criterio.**
+
+### 3. El diseño
+
+Mismo patrón que `operaciones.ops_agregado_diario` (HOT/COLD), que ya funciona en
+esta casa:
+
+- **Días CERRADOS** → pre-agregados en tabla. No cambian nunca (salvo corrección, ver §4).
+- **HOY** → se calcula en vivo, como ahora.
+- La lectura hace `UNION` de las dos partes.
+
+**Grano propuesto:**
+
+```
+operaciones.comercial_agregado_diario
+  fecha, id_cuenta, moneda  →  volumen_ars, volumen_usd, n_boletos
+portafolio.tenencia_agregado_diario
+  fecha, id_cuenta          →  aum
+```
+
+**Por qué ese grano alcanza (la clave de todo):** el tablero filtra por operador,
+`nivel_1..5`, `referido` y `division` — y **todos esos son atributos de la CUENTA**
+(viven en `clientes.comitentes`), no del boleto. Agregando a `(fecha, id_cuenta)` no se
+pierde ninguna combinación de filtros: se agrega el hecho y se sigue joineando la
+dimensión en la lectura. Si algún filtro futuro fuera atributo del BOLETO (ej. mercado
+o especie), habría que sumarlo al grano o quedaría fuera del agregado.
+
+**Ganancia esperada:** leer ~200 filas de agregado por cuenta-mes en vez de sumar
+413.919. Los mismos números exactos.
+
+### 4. ⚠️ La trampa de corrección (verificada en el código, 2026-08-13)
+
+`ops_agregado_diario` detecta días sucios con `ingestado_en`. Acá **eso no alcanza**:
+
+```python
+## jobs/negocio_movimientos.py — marcar_anulados()
+"UPDATE negocio_movimientos SET anulado_en = now() "
+" WHERE fecha = %(fecha)s AND anulado_en IS NULL AND comprobante <> ALL(%(vivos)s)"
+```
+
+**La anulación NO toca `ingestado_en`.** Un boleto que Aunesa deja de devolver se marca
+anulado y su día **no se vería sucio** → el agregado seguiría contando un boleto
+anulado y el tablero mostraría de más, **en silencio y para siempre**.
+
+Es exactamente el incidente de los movimientos de tesorería que el back office detectó
+por un faltante clavado: un error silencioso de plata es peor que un endpoint lento.
+
+**Solución elegida:** el detector de días sucios mira **las dos** columnas —
+
+```sql
+WHERE GREATEST(max(ingestado_en), max(COALESCE(anulado_en, 'epoch'))) > <último recompute>
+```
+
+No se toca el writer (`ingestado_en` conserva su significado: "cuándo se ingestó").
+
+### 4-bis. Ratios MEDIDOS (2026-08-13) → el proyecto se parte en dos
+
+un diag en prod (ya cumplido y borrado; los números quedan acá):
+
+| | filas hoy | filas agregado | ratio |
+|---|---|---|---|
+| **AuM** (`portafolio.tenencia`) | 371.103 | 67.867 | **5,5×** |
+| **Volumen** (`negocio_movimientos`) | 414.219 | 117.838 | **3,5×** |
+
+Proyección del endpoint: ~535 ms → **~220 ms**. No baja más porque queda el piso
+de ~68 ms de peaje de red (8 viajes) + ~60 ms de Python.
+
+**Decisión: NO se hacen las dos mitades juntas.** La de AuM es netamente mejor
+negocio y, sobre todo, mucho más simple:
+
+| | AuM (`tenencia`) | Volumen (`negocio_movimientos`) |
+|---|---|---|
+| Ratio | 5,5× | 3,5× |
+| La query que ahorra | la #1: 48.420 llamadas · 1.696 s | 40.703 · 1.589 s |
+| Quién escribe | **un cron diario** (11:00 UTC L-V) | cron **cada 30'** |
+| Cómo se invalida | **`portafolio.backfill_log` dice exactamente qué (fecha, cuenta) se escribió y cuándo** → invalidación EXACTA | heurística sobre `ingestado_en` + la trampa de `anulado_en` (§4) |
+
+**FASE 1 — solo AuM.** Se recomputa después del backfill diario, leyendo de
+`backfill_log` los pares tocados. Sin heurísticas, sin la trampa de la anulación,
+con el mejor ratio y sobre la query más llamada del tablero. Es cuestión de un día,
+no de varios.
+
+**FASE 2 — volumen.** Se decide DESPUÉS, con la fase 1 medida en prod. Si la
+mejora real se acerca a lo proyectado, se hace; si no, se descarta y no se pagó
+la complejidad de la invalidación por día sucio.
+
+### 5. Plan de implementación
+
+1. **Tabla + writer**, sin leerla todavía. Job que recomputa por día sucio.
+2. **Backfill** de días cerrados: scopeado, batcheado, fuera de rueda (REGLA #4).
+3. **Verificación ANTES de leerla**: un diag a escribir junto con el agregado, que compare
+   agregado vs live para N cuentas × N fechas y exige **diferencia 0.000000** — el
+   mismo patrón que `diag_tesoreria_front_vs_back`, que ya se usó para validar el saldo
+   final de Tesorería (48 filas, diferencia 0).
+4. **Recién ahí**, cambiar la lectura a agregado+hoy.
+5. Medir con `diag_costo_real` y comparar contra los números de §1.
+
+### 6. Riesgos
+
+- **Drift** (el agregado deja de coincidir con la realidad). Mitigado por §4 + el diag
+  de comparación, que puede quedar como control periódico.
+- **Filtro nuevo sobre el boleto** rompería el grano (§3). Documentado arriba.
+- **Doble fuente de verdad**: la fórmula de volumen (con conversión por `mep`) tiene que
+  vivir **una sola vez**. Si el writer y la lectura live la escriben por separado, van a
+  divergir — es el mismo error que se corrigió sacando la fórmula del saldo final del
+  frontend.

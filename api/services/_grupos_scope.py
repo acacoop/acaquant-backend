@@ -14,7 +14,7 @@ Dependencies FastAPI:
 Helper:
 - `filtrar_rows` — filtra una lista de dicts ya materializada al scope.
 
-Regla (docs/GRUPOS.md): `None` = sin restricción. Tuple vacío = usuario en
+Regla (docs/CLIENTES.md): `None` = sin restricción. Tuple vacío = usuario en
 un grupo sin cuentas → no ve nada.
 """
 from __future__ import annotations

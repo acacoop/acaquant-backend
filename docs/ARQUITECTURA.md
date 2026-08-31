@@ -7,15 +7,15 @@
 >
 > **Docs de referencia operativa (separados, vivos):** `API.md` (endpoints),
 > `RUNBOOK.md` (operación/incidentes),
-> `MOTOR_VALUACIONES.md` (PnL), `SECRETS.md` +
+> `MOTOR_VALUACIONES.md` (PnL), `SECURITY.md` +
 > `SECURITY.md` (seguridad),
-> `GRUPOS.md`, `SEGMENTACION_PATRIMONIAL.md`, `HERRAMIENTAS.md` (auto-gen).
+> `CLIENTES.md`, `CLIENTES.md`, `HERRAMIENTAS.md` (auto-gen).
 > El plano vivo de servicios/crons: `deploy/SISTEMA.md`.
 
 Última actualización: 2026-08-30.
 
 > ⚠️ Este doc se quedó en el decomiso de Mongo (2026-06-29) y no registraba nada
-> de lo que pasó después: el **AV AGENT** (`docs/AGENT_2.0.md`), **research** (1816,
+> de lo que pasó después: el **AV AGENT** (`docs/AGENT.md`), **research** (1816,
 > BCRA, FRED), **interbanking**, **postrade** ni la **API externa** para accionistas.
 > Están todos en el «Mapa de docs» del `CLAUDE.md` raíz — que es hoy el índice real.
 

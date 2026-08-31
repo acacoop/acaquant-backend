@@ -539,7 +539,7 @@ volverse admin). No pierde nadie en la práctica: admin siempre pasa
   diaria. Solo nav — no toca módulos, roles ni gates.
 
 ### 2026-08-13 — Verificación post-deploy
-- `scripts/diag_aca_estado.py` (read-only): confirma que el schema, los
+- ~~`scripts/diag_aca_estado.py`~~ (borrado 2026-08-31, ya cumplió): confirmaba que el schema, los
   catálogos y **el RBAC** quedaron bien parados, y lista lo que falta con la
   acción concreta. Existe porque "el statement corrió sin error" no es "insertó
   lo que tenía que insertar": las semillas de `role_matrix` están guardadas

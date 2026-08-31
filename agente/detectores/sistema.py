@@ -1,4 +1,4 @@
-"""Detectores de SISTEMA. Doc: `docs/AGENT_2.0.md` §5.
+"""Detectores de SISTEMA. Doc: `docs/AGENT.md` §5.
 
 Todos devuelven `list[Hallazgo]` o levantan `SinDatos`. **Ninguno escribe.**
 
@@ -368,7 +368,7 @@ def _todavia_no_le_toco(p: dict, ahora) -> bool:
 
     ⚠️ **Hoy la hora de arranque sale de un REGEX sobre prosa** — cada pieza
     declara su cadencia como texto libre (`"cada 30m :05,:35 · 15-22 UTC L-V"`).
-    Es la deuda que `AGENT_2.0.md` §5.1 deja anotada: el horario real vive en
+    Es la deuda que `AGENT.md` §5.1 deja anotada: el horario real vive en
     `deploy/crontab.txt` y en los units de systemd, que es la MISMA fuente que ya
     lee la habilidad `cron_desalineado`. Hasta entonces: ante cualquier duda
     devuelve `False` — avisar de más es mejor que callar un motor caído.

@@ -138,9 +138,7 @@ funcione sin tocar código: `INTERBANKING_TOKEN_URL`, `INTERBANKING_AUTH_STYLE`
 ## Cómo probar
 
 ```bash
-python -m scripts.diag_interbanking_auth   # PRIMERO: por qué falla el token
 python -m scripts.diag_interbanking        # DESPUÉS: los datos reales
-python -m scripts.diag_interbanking_raw    # el JSON crudo + qué campos vienen vacíos
 ```
 
 Se pueden correr **desde cualquier PC**, no hace falta el Droplet: las APIs de
@@ -148,7 +146,7 @@ Interbanking son internet público y los diags de auth y de forma no tocan la ba
 Lo único que necesita DB es el cruce contra `tesoreria_cuentas` del segundo diag,
 que está escrito para saltearse solo si no hay conexión.
 
-`diag_interbanking_auth` prueba en matriz endpoint × forma de mandar las
+Un diag (ya cumplido y borrado) probó en matriz endpoint × forma de mandar las
 credenciales × con/sin scope, y de cada intento muestra el status, el header
 `WWW-Authenticate` (que suele traer el motivo real cuando el cuerpo viene vacío)
 y el cuerpo. Si ninguna funciona, sondea el gateway para distinguir
@@ -1343,7 +1341,7 @@ Respeta el filtro por banco de la vista.
 
 - **2026-08-18 (3)** — **MOVIMIENTOS pasa de 4 a 8 columnas.** El back office
   pidió CONCEPTO · COD OP · FECHA · COMPROBANTE · SUCURSAL · IMPORTE ·
-  DESCRIPCIÓN · COD OP BCO. Medido con `scripts/diag_interbanking_columnas`:
+  DESCRIPCIÓN · COD OP BCO. Medido en prod (2026-08):
   **las dos que faltaban de verdad (`branch_office_activity` y
   `operation_code_bank`) ya estaban GUARDADAS** en `bancos.movimientos` desde la
   primera corrida — el backend no las publicaba. Costo real: dos líneas en
@@ -1383,7 +1381,7 @@ Respeta el filtro por banco de la vista.
   ingerir. También se actualizó el estado del doc, que decía que faltaba la tab del
   front (existe) y que el maestro de cuentas eran 2 llamadas (son 4).
 - **2026-08-14** — Alta de la aplicación en el portal. `core/interbanking.py`,
-  `scripts/diag_interbanking_auth.py`,
-  `scripts/diag_interbanking.py` y `scripts/diag_interbanking_raw.py`. Detectado
+  un diag de auth (ya borrado),
+  `scripts/diag_interbanking.py` (el smoke, que se conserva). Detectado
   que el `tokenUrl` de los YAML del proveedor no es el endpoint real. **Auth
   resuelta y 26 cuentas leídas** contra producción.

@@ -51,7 +51,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > Si ves "Mongo"/"colección"/"Atlas" en algún doc viejo, es residual — la fuente de
 > verdad es `sql/schema.sql` + `docs/SQL.md`.
 
-> **⚡ EL AV AGENT → `docs/AGENT_2.0.md` (LEER al arrancar la sesión).**
+> **⚡ EL AV AGENT → `docs/AGENT.md` (LEER al arrancar la sesión).**
 > **Se rehízo ENTERO el 2026-08-24.** El agente viejo eran 37 services / 24.319
 > líneas / 18 tablas / **cuatro relojes** haciendo lo mismo con distinta
 > frecuencia, y el user lo resumió así: *«tiene muchas cosas positivas pero en
@@ -83,7 +83,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > declara su ritmo y su ventana; el motor pregunta a quién le toca. El único
 > cron que queda es `agente_tasa` (cuesta créditos de 1816).
 >
-> **Los invariantes (`AGENT_2.0.md` §8), congelados por `tests/unit/test_agente.py`:**
+> **Los invariantes (`AGENT.md` §8), congelados por `tests/unit/test_agente.py`:**
 > 1. Una habilidad que no corrió **no cierra nada**. Solo un resultado `ok`
 >    puede cerrar por ausencia: una corrida ciega que cierra 40 problemas deja
 >    el tablero en verde justo el día que menos ve.
@@ -105,7 +105,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 > botón es «leído», que **no resuelve**) · **ENCONTRÓ** = lo abierto que tiene
 > arreglo · **HISTORIAL** = el libro, paginado del backend.
 >
-> **`docs/AV_AGENT.md` es HISTÓRICO**: explica por qué las cosas quedaron como
+> **`docs/AGENT.md` es HISTÓRICO**: explica por qué las cosas quedaron como
 > quedaron (cada §0.x es un bug real), **no cómo funciona el agente hoy**.
 
 ## Contexto por subdirectorio
@@ -268,7 +268,7 @@ próxima divergencia dure horas y no cuatro días.
 Costó tres incidentes en cuatro días: el símbolo columna-vs-blob (2 bonos enteros
 en `--` teniendo el precio), el `ticker_corto` invertido por el renombre, y
 `preferencia` escrita tres veces eligiendo distinto en cada una. Ver
-`docs/AV_AGENT.md` §0.y y §0.aa.
+`docs/AGENT.md` §0.y y §0.aa.
 
 ## ⚠️ REGLA #10 — LEY DE CONEXIÓN del AV AGENT: nada nuevo queda suelto
 
@@ -288,8 +288,8 @@ estructura la cumple sola. Toda funcionalidad nueva del agente es **una fila en
 5. **QUÉ HACER** con cada hallazgo — un hallazgo sin `que_hacer` no se guarda,
    y eso lo exige un CHECK de la base.
 
-Historia de por qué hizo falta escribirla: `docs/AV_AGENT.md` §0.cw–§0.cx.
-Cómo se cumple hoy: `docs/AGENT_2.0.md` §3 y §8.
+Historia de por qué hizo falta escribirla: `docs/AGENT.md` §0.cw–§0.cx.
+Cómo se cumple hoy: `docs/AGENT.md` §3 y §8.
 
 ## ⚠️ REGLA #8 — Portal INVITADO (www.acaquant.com): SOLO mercado/research, nunca filtrar datos del negocio
 
@@ -341,11 +341,11 @@ core/        # infra (postgres, pg_mirror, ai + llm [gateway LLM, SIN tareas hoy
 engines/     # motores WS → SQL (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
 jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via SQL mercado.precios_acciones)
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)
-agente/      # EL AV AGENT (docs/AGENT_2.0.md) — catalogo · registro · motor · detectores/ · arreglos · vista
+agente/      # EL AV AGENT (`docs/AGENT.md`) — catalogo · registro · motor · detectores/ · arreglos · vista
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 scripts/     # one-shot / migraciones / smoke
-tests/       # pytest — unit/ + integration/ (marker `integration`, excluido por defecto via addopts)
+tests/       # pytest — TODO es unit/. ⚠️ NO hay suite de integración (ver abajo)
 sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
@@ -353,6 +353,11 @@ docs/        # documentación (ver "Mapa de docs" abajo)
 ```
 
 ## Mapa de docs — cuál leer ANTES de tocar cada dominio
+
+**19 docs, uno por dominio.** Eran 32 el 2026-08-30. La regla que los mantiene en
+19: **un dominio = un doc**. Si dos archivos explican el mismo tema, el que lee
+abre uno de los dos y no sabe cuál manda — es la REGLA #9 aplicada a la
+documentación, y ya pasó (el agente tenía DOS docs, la vista `/research` TRES).
 
 `docs/ARQUITECTURA.md` es el **DOC MADRE** (arquitectura/datos/estrategia/roadmap).
 Los marcados **[VIVO]** tienen changelog obligatorio: si tocás ese dominio y no
@@ -362,24 +367,22 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 |---|---|
 | Arquitectura, datos, roadmap | `ARQUITECTURA.md` (madre) |
 | Qué vistas/tabs/endpoints/permisos hay (superficie completa) | `MAPA_APP.md` **[VIVO]** |
-| Modelo SQL / schema | `SQL.md` + `SQL_MODELO.md` + `sql/schema.sql` |
-| **EL AV AGENT — la especificación** | `AGENT_2.0.md` **[VIVO]** — el modelo, las 4 tablas, el motor único, las habilidades y los invariantes |
-| Por qué el agente quedó así (historia) | `AV_AGENT.md` — **HISTÓRICO**, no describe el código actual |
+| **EL AV AGENT** | `AGENT.md` **[VIVO]** — ⚠️ **doc ÚNICO, dos partes**: A = cómo funciona (manda), B = el diario histórico (no describe el código actual). Congelado por `tests/unit/test_doc_agente.py` |
+| Modelo SQL / schema | `SQL.md` (inventario + principios) + `sql/schema.sql` |
+| API HTTP (contratos de payload) | `API.md` — ⚠️ el **inventario** de rutas es `MAPA_APP.md` §0, autogenerado y verificado por CI |
+| **API EXTERNA para accionistas** (`/ext`) | `API_EXTERNA.md` **[VIVO]** — ⚠️ superficie hacia AFUERA: el permiso es un dato (`ext.cuentas_autorizadas`), el scope es fail-closed y **no se reusa `verify_api_key` ni `cuentas_visibles`** |
+| Renta fija / curvas (incluye salud de la valuación, §9) | `RENTA_FIJA.md` |
+| Renta variable: scanner local **+ feed Reuters/Eikon** | `RENTA_VARIABLE.md` **[VIVO]** |
 | Vista `/research` — las 6 tabs (1816, BCRA, FRED, sensibilidad, reportes) | `RESEARCH.md` **[VIVO]** |
-| Feed Eikon live / tab REUTERS (`eikon_*`) | `INTEGRACION_REUTERS.md` **[VIVO]** |
+| Derivados: futuros · sintéticos · agro | `DERIVADOS.md` |
+| Estrategia Quant (señal intradía, tab ESTRATEGIA de Trading) | `ESTRATEGIA_QUANT.md` **[VIVO]** |
+| Valuaciones / PnL | `MOTOR_VALUACIONES.md` |
+| Clientes: grupos · segmentación patrimonial · tablero comercial | `CLIENTES.md` |
+| Vista `/aca` (resumen ejecutivo de la cartera propia) | `ACA.md` **[VIVO]** |
 | Interbanking (bancos: cuentas, saldos, extractos, transferencias) | `INTERBANKING.md` **[VIVO]** |
 | Postrade A3/ACyRSA (post-trade: cuentas, posiciones, garantías, márgenes) | `POSTRADE.md` **[VIVO]** — ⚠️ esta API PUEDE OPERAR (suscribe/rescata FCI, cancela órdenes): la escritura es default-deny con doble llave |
-| Renta fija / curvas (incluye salud de la valuación, §9) | `RENTA_FIJA.md` |
-| Renta variable / scanner | `RENTA_VARIABLE.md` |
-| Estrategia Quant (señal intradía, tab ESTRATEGIA de Trading) | `ESTRATEGIA_QUANT.md` **[VIVO]** |
-| Vista `/aca` (resumen ejecutivo de la cartera propia) | `ACA.md` **[VIVO]** |
-| Derivados · sintéticos · agro | `DERIVADOS.md` · `SINTETICOS.md` · `AGRO.md` |
-| Valuaciones / PnL | `MOTOR_VALUACIONES.md` |
-| Operación, incidentes, monitoreo | `RUNBOOK.md` · `OBSERVABILIDAD_ROBUSTEZ.md` |
-| Seguridad / credenciales | `SECURITY.md` · `SECRETS.md` |
-| Clientes / grupos / segmentación | `GRUPOS.md` · `SEGMENTACION_PATRIMONIAL.md` |
-| API HTTP (contratos) | `API.md` |
-| **API EXTERNA para accionistas** (`/ext`) | `API_EXTERNA.md` **[VIVO]** — ⚠️ superficie hacia AFUERA: el permiso es un dato (`ext.cuentas_autorizadas`), el scope es fail-closed y **no se reusa `verify_api_key` ni `cuentas_visibles`** |
+| Operación, incidentes, telemetría y guardrails | `RUNBOOK.md` |
+| Seguridad, gates y credenciales | `SECURITY.md` |
 
 Auto-generados (NO editar a mano): `HERRAMIENTAS.md`, `deploy/SISTEMA.md`.
 
@@ -420,7 +423,7 @@ empezá por ahí.
 > `audit_rbac` y `test_rbac_superficie` veían **37 de 541 rutas** y pasaban en
 > verde (auditaban el 7% y afirmaban que estaba todo bien), y `gen_mapa_app`
 > duplicaba el prefijo en **395 de 541 paths** (el `prefix` de un `APIRouter` ya
-> viene aplicado a sus propias rutas). Ver `AV_AGENT.md` §0.s.
+> viene aplicado a sus propias rutas). Ver `AGENT.md` §0.s.
 
 ## Plano del sistema — `deploy/SISTEMA.md`
 
@@ -445,9 +448,13 @@ parte también. Skill: `/sistema`.
 uvicorn api.main:app --reload --port 8000
 python -m engines.<motor> | jobs.<job> | scripts.<cmd>
 ruff check . [--fix]                           # line-length=100, py312
-pytest -ra                                     # unit (pyproject ya excluye integration via addopts)
+pytest -ra                                     # toda la suite (1.550 tests, todos unit)
 pytest tests/<path>::<test_name>               # single test
-pytest -m integration                          # integration (requiere Postgres accesible)
+# ⚠️ NO existe suite de integración. `pytest -m integration` deselecciona los 1.550
+# y sale en VERDE con exit 0 — «no miré nada» indistinguible de «está todo bien», que
+# es justo lo que prohíbe el invariante #1 del agente. El marker queda declarado en
+# pyproject (`--strict-markers` lo exige el día que se escriba la primera), y
+# `tests/integration/` se borró el 2026-08-31 por estar vacío desde siempre.
 python -m scripts.perf_scan [--strict]         # anti-patterns de queries
 ```
 

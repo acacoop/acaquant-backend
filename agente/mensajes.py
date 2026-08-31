@@ -1,6 +1,6 @@
 """`agente/mensajes.py` — LO QUE EL AGENTE LE MANDA A UNA PERSONA.
 
-Doc: `docs/AGENT_2.0.md` §6.6 (COMUNICACIONES).
+Doc: `docs/AGENT.md` §6.6 (COMUNICACIONES).
 
 **No es un hallazgo.** Un hallazgo es un problema del sistema; esto es un
 mensaje dirigido a alguien: «tu cliente quedó descubierto», «Aunesa está caído».

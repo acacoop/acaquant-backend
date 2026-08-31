@@ -14,7 +14,7 @@ pantalla lo dibujaba**: el campo viajaba en el payload y el front lo tiraba. Con
 
 Idempotente: dedup por Message-ID (UNIQUE en la tabla) → re-correr no duplica.
 
-Env vars (van al `.env` del Droplet — ver docs/SECRETS.md):
+Env vars (van al `.env` del Droplet — ver docs/SECURITY.md):
   RESEARCH_IMAP_USER      — casilla que recibe el research (ej. Gmail).
   RESEARCH_IMAP_PASSWORD  — app password de la casilla (NO la contraseña normal;
                             Gmail: Cuenta → Seguridad → Verificación en 2 pasos →

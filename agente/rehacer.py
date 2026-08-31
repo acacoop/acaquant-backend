@@ -1,6 +1,6 @@
 """agente/rehacer.py — RELANZAR UN JOB, PERO CON LA PRUEBA EN LA MANO.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.ar.
+Doc madre: **`docs/AGENT.md`** §0.ar.
 
 EL PEDIDO, Y LA CONDICIÓN QUE LO HACE SEGURO
 ============================================

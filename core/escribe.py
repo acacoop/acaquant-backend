@@ -1,6 +1,6 @@
 """core/escribe.py — ¿QUIÉN ESCRIBE ESTA TABLA, Y LA DISPARA UN RELOJ O UN EVENTO?
 
-Doc madre: **`docs/AV_AGENT.md`** §0.aq.
+Doc madre: **`docs/AGENT.md`** §0.aq.
 
 LO QUE ESTO ARREGLA
 ===================

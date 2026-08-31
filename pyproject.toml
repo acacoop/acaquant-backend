@@ -37,6 +37,8 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    # ⚠️ DECLARADO, SIN USUARIOS: hoy no hay ni un test con este marker (ver CLAUDE.md).
+    # Se conserva porque `--strict-markers` lo pide el día que se escriba el primero.
     "integration: requiere Postgres o APIs externas (corre con -m integration)",
 ]
 addopts = "-m 'not integration' -ra --strict-markers"

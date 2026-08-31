@@ -2,7 +2,7 @@
 
 Servicio PURO (sin FastAPI) detrás de Manager → CLIENTES (router
 api/routers/manager/clientes.py, que queda como plumbing HTTP). Editor del
-master de clientes del Tablero Comercial (ver docs/TABLERO_COMERCIAL.md).
+master de clientes del Tablero Comercial (ver docs/CLIENTES.md).
 Los campos de Aunesa (id_cuenta, denominacion, operador, etc.) son READ-ONLY;
 se editan SOLO los 13 campos manuales de segmentación.
 

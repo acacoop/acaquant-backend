@@ -1,6 +1,6 @@
 """agente/alta.py — E2: SIMULAR un alta antes de escribirla.
 
-Doc madre: **`docs/AV_AGENT.md`**.
+Doc madre: **`docs/AGENT.md`**.
 
 **Qué resuelve.** Hasta acá, contestar «alta» guardaba la decisión y nada más.
 Esto la ejecuta: baja el cuadro de flujos de 1816, lo convierte a NUESTRA shape,

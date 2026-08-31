@@ -1,6 +1,6 @@
 """core/pareo.py — EMPAREJAR POR FICHA. La identidad no es el nombre.
 
-Doc madre: `docs/ARQUITECTURA.md` · `docs/AV_AGENT.md` §0.y.
+Doc madre: `docs/ARQUITECTURA.md` · `docs/AGENT.md` §0.y.
 
 EL PATRÓN, Y POR QUÉ ES GENERAL
 ================================
@@ -50,7 +50,7 @@ sigue, con el dato de otro. Las cuatro salieron de errores reales:
      el dominio admite, es genérica —o la fuente cambió— y hay que callarse.
 
   4. **«No pude mirar» nunca es «no existe».** Sin fuente se devuelve vacío y se
-     DICE; jamás un veredicto negativo. Es la regla del AO29 (`AV_AGENT.md` §0.v).
+     DICE; jamás un veredicto negativo. Es la regla del AO29 (`AGENT.md` §0.v).
 
 Todo acá es **PURO**: recibe las filas ya leídas. Quién las trae y de dónde es
 del dominio, no de este módulo.

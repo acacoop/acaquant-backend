@@ -15,7 +15,7 @@ from api.services import trading_pivots as svc
 
 # (Los endpoints /reuters* se mudaron a /api/research1816/reuters* el 2026-07-18:
 # la vista REUTERS vive en /research y trading es ADMIN-ONLY — ver
-# docs/INTEGRACION_REUTERS.md.)
+# docs/RENTA_VARIABLE.md.)
 
 router = APIRouter(prefix="/api/trading", tags=["Trading"])
 

@@ -64,7 +64,7 @@ MODULES: tuple[str, ...] = (
                       # /api/research1816/*. Abierta al invitado desde 2026-07-21
                       # (otro sector de la MISMA empresa — sin redistribución).
     "ia",             # features de IA — hoy es el gate de /api/ia/*, o sea del
-                      # AV AGENT (docs/AV_AGENT.md) y el briefing. El módulo
+                      # AV AGENT (`docs/AGENT.md`) y el briefing. El módulo
                       # `asistente` se eliminó el 2026-08-19 junto con el
                       # copiloto: dejar un checkbox en ROLES Y PERMISOS que no
                       # controla nada es peor que no tenerlo.
@@ -179,7 +179,7 @@ def es_invitado_id(usuario: str | None) -> bool:
 # este default).
 # renta-variable: habilitado para todos los roles (2026-05-13). Smart Money
 # se eliminó del producto, el módulo ahora hospeda el Scanner de CEDEARs.
-# ia: default SOLO admin (canary/rollout gradual, docs/QUANTAI.md 2026-07-10).
+# ia: default SOLO admin (canary/rollout gradual desde 2026-07-10, docs/AGENT.md).
 # Como la role_matrix de prod está poblada (pisa este default), activarlo es
 # una acción del admin en /manager → ROLES Y PERMISOS: primero para `admin`,
 # después rol por rol con evidencia. Sacarlo del rol = kill switch (~60s, TTL

@@ -358,7 +358,7 @@ def ops_cuentas_list(scope: tuple[str, ...] | None = None) -> dict:
     se llevaba el padrón COMPLETO de comitentes con su denominación — los
     nombres de todos los clientes de la mesa. `scope=None` (admin o usuario
     sin grupo) sigue viendo todo; un tuple vacío no devuelve nada, que es la
-    semántica de "está en un grupo sin cuentas" (docs/GRUPOS.md).
+    semántica de "está en un grupo sin cuentas" (docs/CLIENTES.md).
 
     `id_cuenta` acá es el id pelado, mismo namespace que `manager.grupos`.
     """

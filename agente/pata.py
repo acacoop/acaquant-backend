@@ -1,6 +1,6 @@
 """agente/pata.py — IR A BUSCAR LA PATA EN DÓLARES, Y AGREGARLA.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.x.
+Doc madre: **`docs/AGENT.md`** §0.x.
 
 Pedido del user (2026-08-19), mirando los 43 hallazgos `cotiza_en_pesos`:
 *«los de cotiza en pesos… no ofrece una solución o algo, nada. Le falta ahí una

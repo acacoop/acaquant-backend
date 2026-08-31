@@ -733,7 +733,7 @@ def censar(vencidos: bool = False) -> dict:
 
     **Costo: 1 crédito por llamada** → ~29 el censo (1 + 28 curvas), ~57 con
     `vencidos=True`. Es la operación más barata del proveedor y la base del
-    AV Agent (docs/AV_AGENT.md E1).
+    AV Agent (`docs/AGENT.md` E1).
 
     Vive acá y no en un `scripts/diag_*` porque **es el censo del PROVEEDOR** y lo
     usan tres consumidores (el diag de cashflow, el de mapeo y el job del

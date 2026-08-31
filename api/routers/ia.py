@@ -5,7 +5,7 @@ estructural: se monta en api/main.py con `_IA` (bearer + require_module("ia")),
 y el prefijo /api/ia ya mapea al módulo en ENDPOINT_MODULE_PREFIXES.
 
 ⚠️ **El AV AGENT ya NO vive acá.** Sus 44 endpoints se fueron a
-`api/routers/agente.py` con el rediseño 2.0 (`docs/AGENT_2.0.md`):
+`api/routers/agente.py` con el rediseño 2.0 (`docs/AGENT.md`):
 estaban colgados de este router por herencia, no por pertenencia.
 """
 from __future__ import annotations

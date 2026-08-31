@@ -5,7 +5,7 @@ Mismo riel que precios/Chicago/bonos: el MISMO script de oficina pollea
 cache de storyId para no repetir) y postea a `POST /api/ingest/eikon/news`;
 la API persiste en `mercado.eikon_news`. Solo TITULARES (la nota completa no
 se guarda — decisión v1: tamaño acotado). Estudio y validación en vivo:
-docs/INTEGRACION_REUTERS.md §6b (2026-07-16).
+docs/RENTA_VARIABLE.md §6b (2026-07-16).
 
 Universo CURADO server-side (pedido del user 2026-07-24): los papeles más
 relevantes de la mesa + los soberanos offshore. Editar acá = el feed lo toma

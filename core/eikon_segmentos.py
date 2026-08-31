@@ -8,7 +8,7 @@ Desglose de las ventas de cada empresa: por SEGMENTO DE NEGOCIO (`tipo='negocio'
 feed).
 
 Todo lo de acá está VALIDADO EN VIVO (2026-08-07, discovery sobre
-AAPL.O/NVDA.O/KO.N/RKLB.O — ver docs/INTEGRACION_REUTERS.md §8). Tres cosas que
+AAPL.O/NVDA.O/KO.N/RKLB.O — ver docs/RENTA_VARIABLE.md §8). Tres cosas que
 NO son inferibles y que este módulo encapsula:
 
 1. **Las filas de TOTAL no se guardan.** Reuters devuelve, además de los

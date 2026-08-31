@@ -1,6 +1,6 @@
 """core/logs.py — UN SOLO FORMATO DE LOG, con el NIVEL adentro.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.ac.
+Doc madre: **`docs/AGENT.md`** §0.ac.
 
 **Por qué existe.** Buscando errores en los logs de los motores aparecieron cero
 en 24 horas, y no porque no hubiera: porque *no había forma de encontrarlos*.

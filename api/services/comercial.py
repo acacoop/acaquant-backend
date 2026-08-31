@@ -15,7 +15,7 @@ eran SQL-native (no tenían twin en comercial_sql):
 `_CATS_OPERACIONES` que importan `comercial_sql`, `sin_operador` y
 `jobs/actividad_mensual`, y `_cuentas_de_operador` (lo usa `carteras.py`). NO borrar.
 
-Diseño completo: docs/TABLERO_COMERCIAL.md.
+Diseño completo: docs/CLIENTES.md + `CLAUDE.md` §Tablero Comercial.
 """
 from __future__ import annotations
 

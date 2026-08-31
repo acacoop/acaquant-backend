@@ -1,6 +1,6 @@
 """scripts/diag_logs_motores.py — QUÉ VIENEN DICIENDO LOS MOTORES.
 
-Doc madre: **`docs/AV_AGENT.md`** §0.ac.
+Doc madre: **`docs/AGENT.md`** §0.ac.
 
 Pedido del user (2026-08-19): *«es fundamental que el agente tenga presente los
 logs de los motores constantemente»*.
@@ -90,7 +90,7 @@ def main() -> int:
     print(f"    {con_nivel} de {len(muestra)} dicen su nivel en el texto")
     if con_nivel == 0:
         # Sin el nivel escrito no hay forma de encontrar un error, ni para el
-        # agente ni para una persona. Ver AV_AGENT.md §0.ac.
+        # agente ni para una persona. Ver `AGENT.md` §0.ac.
         print("    ⚠ NINGUNA lo dice: ese motor está corriendo con el formato "
               "viejo.\n      Se arregla al reiniciarlo (el deploy no toca "
               "motores).")

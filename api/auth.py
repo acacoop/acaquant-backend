@@ -313,7 +313,7 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/trading",     "trading"),  # vista TRADING (pivots CEDEAR), admin-only
     # /api/mm → módulo `mm` (MM Workstation: order book + timesales — en reconstrucción)
     ("/api/mm",          "mm"),
-    # /api/ia → módulo `ia` (features de IA — QuantAI, docs/QUANTAI.md). El gate
+    # /api/ia → módulo `ia` (el briefing + el AV AGENT, docs/AGENT.md). El gate
     # queda cableado ANTES de que exista el primer endpoint: cualquier router
     # futuro bajo /api/ia nace default-deny (solo roles con el módulo tildado).
     ("/api/ia",          "ia"),

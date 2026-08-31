@@ -72,8 +72,16 @@ _MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun",
 
 # Métricas auditables (columnas de la tabla). El valor es lo que el modal usa para
 # decidir QUÉ cuentas listar y por qué columna ordenarlas.
-METRICAS = ("clientes", "con_aum", "sin_aum", "activos", "ratio_actividad",
+METRICAS = ("clientes", "altas", "con_aum", "sin_aum", "activos", "ratio_actividad",
             "aranceles", "arancel_por_activo", "aum")
+
+# Granularidad de la fila. MES es el default (la tabla nació así); TRIMESTRE se pidió
+# para leer ALTAS, que a nivel mensual es ruido —3, 1, 4, 2— y a nivel trimestral es
+# una tendencia. La granularidad es un PARÁMETRO y no una tabla nueva: el eje de esta
+# tab ya ES el tiempo, y dos pantallas contando altas con dos criterios es exactamente
+# lo que venimos sacando del sistema.
+GRANULARIDADES = ("mes", "trimestre")
+_GRAN_SQL = {"mes": ("month", "1 month"), "trimestre": ("quarter", "3 month")}
 
 # Las ÚNICAS métricas que el filtro de operación acota. El resto sale de
 # `comitentes`/`tenencia` y es la base entera — filtrarlas rompería el porcentaje.
@@ -140,10 +148,53 @@ def _ops_and(ops: list[str], p: dict, alias: str = "o") -> str:
     return f" AND {a}operacion = ANY(%(ops_filtro)s)"
 
 
-def _label(anio: int, mes: int) -> str:
-    """`(2025, 7)` → `jul-25`. El label lo arma el backend: si lo derivara el front,
-    dos pantallas podrían nombrar distinto el mismo mes."""
+def _label(anio: int, mes: int, gran: str = "mes") -> str:
+    """`(2025, 7)` → `jul-25`, o `Q3-25` en trimestral. El label lo arma el backend: si
+    lo derivara el front, dos pantallas podrían nombrar distinto el mismo período."""
+    if gran == "trimestre":
+        return f"Q{(mes - 1) // 3 + 1}-{anio % 100:02d}"
     return f"{_MESES_CORTOS[mes - 1]}-{anio % 100:02d}"
+
+
+def _gran(v: str | None) -> str:
+    """Granularidad válida; cualquier otra cosa cae a `mes` (el comportamiento viejo)."""
+    g = (v or "mes").strip().lower()
+    return g if g in GRANULARIDADES else "mes"
+
+
+def _mes_ancla(mes: int, gran: str) -> int:
+    """Primer mes del período que contiene a `mes` (en trimestral: 1, 4, 7 o 10)."""
+    return ((mes - 1) // 3) * 3 + 1 if gran == "trimestre" else mes
+
+
+def _fin_de_periodo(anio: int, mes: int, gran: str) -> date:
+    """Último día del período que ARRANCA en (anio, mes)."""
+    fin_mes = mes + 2 if gran == "trimestre" else mes
+    a, m = (anio + 1, fin_mes - 12) if fin_mes > 12 else (anio, fin_mes)
+    return _fin_de_mes(a, m)
+
+
+def _clave(anio: int, mes: int, gran: str) -> str:
+    """Clave del período: `2025-07` (mes) o `2025-Q3` (trimestre). Es lo que viaja al
+    modal, así que tiene que poder volver a (anio, mes) sin ambigüedad."""
+    if gran == "trimestre":
+        return f"{anio:04d}-Q{(mes - 1) // 3 + 1}"
+    return f"{anio:04d}-{mes:02d}"
+
+
+def _parse_clave(v: str | None, gran: str, default: str) -> tuple[int, int]:
+    """Inversa de `_clave`. Acepta `2026-Q1` y también `2026-01` (por si el front manda
+    un mes con la tabla en trimestral: se ancla al trimestre que lo contiene)."""
+    txt = (v or "").strip().upper()
+    if gran == "trimestre" and "Q" in txt:
+        try:
+            anio, q = int(txt[:4]), int(txt.split("Q", 1)[1][:1])
+            if 1 <= q <= 4 and anio >= 1900:
+                return anio, (q - 1) * 3 + 1
+        except (ValueError, IndexError):
+            pass
+    anio, mes = _parse_mes(v, default)
+    return anio, _mes_ancla(mes, gran)
 
 
 def _parse_mes(v: str | None, default: str) -> tuple[int, int]:
@@ -158,31 +209,39 @@ def _parse_mes(v: str | None, default: str) -> tuple[int, int]:
     return anio, mes
 
 
-def _meses(desde: str | None, hasta: str | None) -> list[dict]:
-    """Lista de meses [desde, hasta], ascendente. `hasta` nunca supera el mes en
-    curso (no se dibujan filas de meses que todavía no existen)."""
+def _meses(desde: str | None, hasta: str | None, gran: str = "mes") -> list[dict]:
+    """Lista de períodos [desde, hasta], ascendente. `hasta` nunca supera el período en
+    curso (no se dibujan filas de períodos que todavía no existen).
+
+    En trimestral los extremos se ANCLAN al trimestre que los contiene: pedir
+    `desde=2025-08` arranca en Q3-25 igual, porque medio trimestre no es un trimestre
+    y una fila a la que le faltan dos meses se lee como una caída del negocio."""
     hoy = _hoy_art()
     a0, m0 = _parse_mes(desde, PROFUNDIDAD_INICIO)
     a1, m1 = _parse_mes(hasta, f"{hoy.year:04d}-{hoy.month:02d}")
-    # Techo = mes en curso.
-    if (a1, m1) > (hoy.year, hoy.month):
-        a1, m1 = hoy.year, hoy.month
+    m0, m1 = _mes_ancla(m0, gran), _mes_ancla(m1, gran)
+    hoy_m = _mes_ancla(hoy.month, gran)
+    # Techo = período en curso.
+    if (a1, m1) > (hoy.year, hoy_m):
+        a1, m1 = hoy.year, hoy_m
     if (a0, m0) > (a1, m1):
         a0, m0 = a1, m1
+    paso = 3 if gran == "trimestre" else 1
     out: list[dict] = []
     a, m = a0, m0
     while (a, m) <= (a1, m1) and len(out) < MAX_MESES:
-        fin = _fin_de_mes(a, m)
         out.append({
-            "mes": f"{a:04d}-{m:02d}",
-            "label": _label(a, m),
+            "mes": _clave(a, m, gran),
+            "label": _label(a, m, gran),
             "ini": date(a, m, 1),
-            "fin": fin,
-            # El mes en curso está INCOMPLETO: los flujos van hasta hoy, no hasta
-            # fin de mes. Decirlo evita leer una caída que es solo "todavía no pasó".
-            "en_curso": (a, m) == (hoy.year, hoy.month),
+            "fin": _fin_de_periodo(a, m, gran),
+            # El período en curso está INCOMPLETO: los flujos van hasta hoy, no hasta
+            # su último día. Decirlo evita leer una caída que es solo "todavía no pasó".
+            "en_curso": (a, m) == (hoy.year, hoy_m),
         })
-        a, m = (a + 1, 1) if m == 12 else (a, m + 1)
+        m += paso
+        if m > 12:
+            a, m = a + 1, m - 12
     return out
 
 
@@ -259,17 +318,27 @@ def _columnas(ops: list[str], disponibles: list[dict]) -> dict:
 def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
                          hasta: str | None = None, operador=None, nivel_1=None,
                          nivel_2=None, nivel_3=None, nivel_4=None, nivel_5=None,
-                         referido=None, division=None, operacion=None) -> dict:
-    """Filas mm-aa con: clientes · con AuM · sin AuM · activos · ratio · aranceles ·
-    arancel/activo · AuM. Cuatro queries agregadas para TODA la tabla (una por fuente
-    + las opciones del filtro), no una por mes.
+                         referido=None, division=None, operacion=None,
+                         granularidad: str | None = None) -> dict:
+    """Filas mm-aa (o Qn-aa) con: clientes · altas · con AuM · sin AuM · activos ·
+    ratio · aranceles · arancel/activo · AuM. Cuatro queries agregadas para TODA la
+    tabla (una por fuente + las opciones del filtro), no una por período.
+
+    `granularidad`: `mes` (default) o `trimestre`.
+
+    `altas` = cuentas del scope cuya `fecha_alta_legajo` cae DENTRO del período. Es el
+    FLUJO; `clientes` es el STOCK acumulado a su último día. Salen las dos de la misma
+    lista de fechas —una sola query—, así que no pueden discrepar: el stock de un
+    período es el del anterior más sus altas.
 
     `operacion` (multi) acota SOLO lo que se operó — ver regla 6 del docstring del
     módulo. Vacío = sin filtro = comportamiento idéntico al de siempre."""
-    meses = _meses(desde, hasta)
+    gran = _gran(granularidad)
+    meses = _meses(desde, hasta, gran)
     ops_f = _ops_lista(operacion)
     if not meses:
         return {"moneda": moneda, "desde": None, "hasta": None, "filas": [],
+                "granularidad": gran,
                 "operacion": ops_f, "operaciones_disponibles": [],
                 "columnas": _columnas([], []),
                 "columnas_filtradas": list(METRICAS_FILTRABLES),
@@ -291,12 +360,22 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
     sin_alta = sum(int(r["n"]) for r in altas if r["f"] is None)
     con_alta = sorted((r["f"], int(r["n"])) for r in altas if r["f"] is not None)
     clientes_por_mes: dict[date, int] = {}
+    altas_por_mes: dict[date, int] = {}
     acum, i = 0, 0
-    for fin in fines:                       # fines viene ordenado ascendente
+    for m in meses:                         # meses viene ordenado ascendente
+        fin, alta_ini = m["fin"], m["ini"]
+        nuevas = 0
         while i < len(con_alta) and con_alta[i][0] <= fin:
+            if con_alta[i][0] >= alta_ini:
+                nuevas += con_alta[i][1]
             acum += con_alta[i][1]
             i += 1
         clientes_por_mes[fin] = acum
+        # ALTAS del período. Se cuentan en la MISMA pasada que el acumulado, así el
+        # stock y el flujo no pueden contarse distinto. ⚠️ Las altas ANTERIORES al
+        # primer período de la tabla suman al stock y NO son altas de ninguna fila:
+        # por eso el total de altas no tiene por qué dar el total de clientes.
+        altas_por_mes[fin] = nuevas
 
     # ── 2) ACTIVIDAD + ARANCELES: UN scan de `operaciones` para todos los meses.
     #
@@ -325,11 +404,12 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
     w2 = _scope(p2, alias="c", **filtros)
     f_ops = _ops_and(ops_f, p2, "o")
     dentro = "alta IS NOT NULL AND alta <= fin"
-    _mes_ini = "date_trunc('month', o.concertacion)"
+    _trunc, _paso = _GRAN_SQL[gran]
+    _mes_ini = f"date_trunc('{_trunc}', o.concertacion)"
     ops = {r["fin"]: r for r in _q(
         f"WITH esc AS (SELECT c.id_cuenta, c.fecha_alta_legajo FROM comitentes c WHERE {w2}), "
         f"por_cuenta AS ("
-        f"  SELECT ({_mes_ini} + interval '1 month' - interval '1 day')::date AS fin, "
+        f"  SELECT ({_mes_ini} + interval '{_paso}' - interval '1 day')::date AS fin, "
         f"    o.id_cuenta, e.fecha_alta_legajo AS alta, "
         f"    COALESCE(SUM(CASE WHEN {_arancel_where('o')} THEN abs(o.arancel) END), 0) AS arancel "
         f"  FROM operaciones o "
@@ -384,6 +464,7 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
             "mes": m["mes"], "label": m["label"],
             "ini": _iso(m["ini"]), "fin": _iso(fin), "en_curso": m["en_curso"],
             "clientes": n_cli,
+            "altas": int(altas_por_mes.get(fin, 0)),
             "con_aum": con_aum,
             "sin_aum": (n_cli - con_aum) if con_aum is not None else None,
             "activos": activos,
@@ -405,6 +486,12 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
         })
 
     advertencias = []
+    if filas and any(f["altas"] for f in filas):
+        advertencias.append(
+            f"ALTAS es el flujo DEL período; CLIENTES es el stock acumulado a su último "
+            f"día. La suma de altas de la tabla ({sum(f['altas'] for f in filas)}) no da "
+            f"el total de clientes: las cuentas dadas de alta antes de "
+            f"{filas[0]['label']} ya estaban en la base")
     if sin_alta:
         advertencias.append(
             f"{sin_alta} cuenta(s) del scope no tienen fecha de alta de legajo → no entran "
@@ -427,7 +514,12 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
     return {
         "moneda": "USD" if usd else "ARS",
         "desde": meses[0]["mes"], "hasta": meses[-1]["mes"],
+        "granularidad": gran,
         "filas": filas,
+        # El TOTAL de altas del rango, sumado ACÁ y no en el navegador: es la respuesta
+        # a "cuántas cuentas se dieron de alta", y tiene que salir de las mismas filas
+        # que la tabla dibuja.
+        "total_altas": sum(f["altas"] for f in filas),
         # Qué filtro quedó aplicado (normalizado) y qué se podía elegir.
         "operacion": ops_f,
         "operaciones_disponibles": disponibles,
@@ -438,7 +530,8 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
             "sin_alta": sin_alta,
             "advertencias": advertencias,
             "fuentes": {
-                "clientes": "clientes.comitentes (estado='Activa', fecha_alta_legajo <= fin de mes)",
+                "clientes": "clientes.comitentes (estado='Activa', fecha_alta_legajo <= fin del período)",
+                "altas": "clientes.comitentes (estado='Activa', fecha_alta_legajo DENTRO del período)",
                 "aum": "portafolio.tenencia (aum='si'), snapshot más reciente <= fin de mes",
                 "activos": ("operaciones.operaciones — cualquier boleto no anulado en el mes"
                             + sufijo_fuente),
@@ -465,6 +558,8 @@ _FILTRO_METRICA = {
     "aranceles":          (lambda r: (r["arancel"] or 0) > 0,  "arancel"),
     "arancel_por_activo": (lambda r: (r["arancel"] or 0) > 0,  "arancel"),
     "aum":                (lambda r: (r["aum"] or 0) != 0,     "aum"),
+    # ALTAS: las que se dieron de alta DENTRO del período (el resto ya estaba).
+    "altas":              (lambda r: bool(r.get("es_alta")),   "aum"),
 }
 
 _TITULO_METRICA = {
@@ -472,13 +567,14 @@ _TITULO_METRICA = {
     "activos": "Cuentas activas", "ratio_actividad": "Ratio de actividad",
     "aranceles": "Aranceles del mes", "arancel_por_activo": "Arancel por cuenta activa",
     "aum": "AuM a fin de mes",
+    "altas": "Altas del período",
 }
 
 
 def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
                 limite: int = 500, operador=None, nivel_1=None, nivel_2=None,
                 nivel_3=None, nivel_4=None, nivel_5=None, referido=None,
-                division=None, operacion=None) -> dict:
+                division=None, operacion=None, granularidad: str | None = None) -> dict:
     """Cuentas que forman UNA celda (mes × métrica), con su AuM, sus boletos y su
     arancel del mes. Los totales se calculan sobre TODAS las filas y recién después
     se capea la lista → el total del modal no puede diferir de la tabla por el límite.
@@ -486,8 +582,12 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
     `operacion` tiene que llegar SIEMPRE con el mismo valor que la tabla: si el modal
     no filtrara igual, se abriría una celda de 47 y saldrían 389 cuentas."""
     metrica = metrica if metrica in _FILTRO_METRICA else "clientes"
-    anio, m = _parse_mes(mes, PROFUNDIDAD_INICIO)
-    ini, fin = date(anio, m, 1), _fin_de_mes(anio, m)
+    gran = _gran(granularidad)
+    # `granularidad` tiene que llegar con el MISMO valor que la tabla: si el modal
+    # abriera un mes cuando la fila es un trimestre, mostraría un tercio de las
+    # cuentas y el total no cerraría — el mismo modo de falla que `operacion`.
+    anio, m = _parse_clave(mes, gran, PROFUNDIDAD_INICIO)
+    ini, fin = date(anio, m, 1), _fin_de_periodo(anio, m, gran)
     usd = (moneda or "ARS").upper() == "USD"
     ops_f = _ops_lista(operacion)
     filtros = dict(operador=operador, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
@@ -511,7 +611,8 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         f"      FROM operaciones o WHERE o.concertacion >= %(ini)s AND o.concertacion <= %(fin)s "
         f"        AND {_act_where('o')}{f_ops} GROUP BY o.id_cuenta) "
         f"SELECT e.id_cuenta, u.denominacion, e.nivel_1, e.nivel_3, op.nombre AS operador_nombre, "
-        f"       e.fecha_alta_legajo, (SELECT f FROM snap) AS snapshot, "
+        f"       e.fecha_alta_legajo, (e.fecha_alta_legajo >= %(ini)s) AS es_alta, "
+        f"       (SELECT f FROM snap) AS snapshot, "
         f"       COALESCE(a.aum, 0) AS aum, COALESCE(o.n_boletos, 0) AS n_boletos, "
         f"       o.ult, COALESCE(o.arancel, 0) AS arancel "
         f"FROM esc e "
@@ -531,6 +632,9 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         "operador_nombre": r["operador_nombre"],
         "nivel_1": r["nivel_1"], "nivel_3": r["nivel_3"],
         "fecha_alta_legajo": _iso(r["fecha_alta_legajo"]),
+        # Se dio de alta DENTRO del período (vs. las que ya estaban) — es lo que
+        # separa el FLUJO del stock, y lo decide SQL con el mismo rango de la fila.
+        "es_alta": bool(r["es_alta"]),
         "aum": _cv(_f(r["aum"]), f_aum) if snapshot is not None else None,
         "n_boletos": int(r["n_boletos"] or 0),
         "arancel": _cv(_f(r["arancel"]), f_ar),
@@ -542,6 +646,7 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
     n_clientes = len(items)
     n_con_aum = sum(1 for i in items if (i["aum"] or 0) > 0) if snapshot is not None else None
     n_activos = sum(1 for i in items if i["activo"])
+    n_altas = sum(1 for i in items if i["es_alta"])
     t_aranceles = round(sum(i["arancel"] or 0 for i in items), 2)
     t_aum = round(sum(i["aum"] or 0 for i in items), 2) if snapshot is not None else None
     totales = {
@@ -553,6 +658,7 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         "aranceles": t_aranceles,
         "arancel_por_activo": round(t_aranceles / n_activos, 2) if n_activos else None,
         "aum": t_aum,
+        "altas": n_altas,
     }
 
     pred, orden = _FILTRO_METRICA[metrica]
@@ -580,11 +686,13 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
                                f"{totales['arancel_por_activo'] or 0:,.2f}"),
         "aum": (f"suma del AuM de las {n_clientes} cuentas al {_iso(snapshot) or '—'}"
                 if snapshot is not None else "sin snapshot de tenencia <= fin de mes"),
+        "altas": (f"{n_altas} cuenta(s) con fecha de alta de legajo entre "
+                  f"{ini.strftime('%d/%m/%Y')} y {fin.strftime('%d/%m/%Y')}"),
     }[metrica]
 
     return {
-        "mes": f"{anio:04d}-{m:02d}", "label": _label(anio, m),
-        "ini": _iso(ini), "fin": _iso(fin),
+        "mes": _clave(anio, m, gran), "label": _label(anio, m, gran),
+        "granularidad": gran, "ini": _iso(ini), "fin": _iso(fin),
         "metrica": metrica, "titulo": _TITULO_METRICA[metrica],
         # Contra qué filtro se calculó ESTE detalle. Va a la vista para que no se
         # pueda confundir un modal filtrado con uno que no lo está.

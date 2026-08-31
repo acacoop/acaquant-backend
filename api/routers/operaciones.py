@@ -705,9 +705,14 @@ def comercial_profundidad(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
     operacion: list[str] | None = Query(None, description="operacion(es) del boleto (multi). Vacío = todas. SOLO acota activos/ratio/aranceles"),
+    granularidad: str = Query("mes", pattern="^(mes|trimestre)$",
+                              description="mes (default) | trimestre. En trimestral los extremos se anclan al trimestre que los contiene"),
 ) -> dict:
-    """Una fila por mes (mm-aa) con clientes · con AuM · sin AuM · activos · ratio de
-    actividad · aranceles · arancel por activo · AuM. Todo medido al ÚLTIMO día del mes;
+    """Una fila por período (mm-aa o Qn-aa) con clientes · altas · con AuM · sin AuM ·
+    activos · ratio de actividad · aranceles · arancel por activo · AuM.
+
+    `altas` = cuentas dadas de alta DENTRO del período (el FLUJO); `clientes` es el
+    STOCK acumulado a su último día. `total_altas` viene sumado. Todo medido al ÚLTIMO día del mes;
     los flujos, sobre el mes completo. Los ratios, los labels y los encabezados vienen
     calculados.
 
@@ -718,13 +723,14 @@ def comercial_profundidad(
     return _prof.profundidad_clientes(
         moneda=moneda, desde=desde, hasta=hasta, operador=operador, nivel_1=nivel_1,
         nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5,
-        referido=referido, division=division, operacion=operacion)
+        referido=referido, division=division, operacion=operacion,
+        granularidad=granularidad)
 
 
 @router.get("/comercial/profundidad/detalle")
 @cached(ttl=120)
 def comercial_profundidad_detalle(
-    mes: str = Query(..., description="mes de la celda clickeada, YYYY-MM"),
+    mes: str = Query(..., description="período de la celda clickeada: YYYY-MM o YYYY-Qn"),
     metrica: str = Query("clientes", description="|".join(_prof.METRICAS)),
     moneda: str = Query("ARS", description="ARS | USD"),
     limite: int = Query(500, ge=1, le=5000, description="cuentas listadas (los totales NO se capean)"),
@@ -737,6 +743,8 @@ def comercial_profundidad_detalle(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
     operacion: list[str] | None = Query(None, description="MISMO valor que la tabla, o el detalle la contradice"),
+    granularidad: str = Query("mes", pattern="^(mes|trimestre)$",
+                              description="MISMO valor que la tabla, o el modal abre un mes de un trimestre"),
 ) -> dict:
     """Auditoría de UNA celda (mes × métrica): las cuentas que la componen, con su AuM,
     sus boletos y su arancel del mes. Mismos predicados, mismo snapshot y MISMO filtro
@@ -746,7 +754,8 @@ def comercial_profundidad_detalle(
     return _prof.detalle_mes(
         mes=mes, metrica=metrica, moneda=moneda, limite=limite, operador=operador,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4,
-        nivel_5=nivel_5, referido=referido, division=division, operacion=operacion)
+        nivel_5=nivel_5, referido=referido, division=division, operacion=operacion,
+        granularidad=granularidad)
 
 
 @router.get("/comercial/cobros-futuros")

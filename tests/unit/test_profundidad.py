@@ -211,3 +211,47 @@ def test_el_encabezado_dice_que_cambio_de_sentido():
 def test_un_valor_sin_etiqueta_igual_se_puede_filtrar():
     assert P._op_label("caucion_tom_ap") == "Caución tomadora"
     assert P._op_label("futuro_dlr") == "Futuro dlr"      # fallback, no se esconde
+
+
+# ── GRANULARIDAD TRIMESTRAL Y ALTAS ─────────────────────────────────────────
+def test_trimestres_ancla_los_extremos():
+    """Pedir desde agosto en trimestral tiene que arrancar en Q3 (jul-sep), no en
+    agosto: media fila de trimestre se lee como una caída del negocio."""
+    filas = P._meses("2025-08", "2026-05", "trimestre")
+    assert [f["mes"] for f in filas] == ["2025-Q3", "2025-Q4", "2026-Q1", "2026-Q2"]
+    assert [f["label"] for f in filas] == ["Q3-25", "Q4-25", "Q1-26", "Q2-26"]
+    q1 = filas[2]
+    assert (q1["ini"], q1["fin"]) == (date(2026, 1, 1), date(2026, 3, 31))
+
+
+def test_trimestre_de_fin_de_ano_no_se_desborda():
+    """Q4 termina el 31/12 y el siguiente arranca en enero del año que viene: es la
+    aritmética que se rompe sola si se suma 3 al mes sin mirar el año."""
+    q4 = P._meses("2025-10", "2025-12", "trimestre")[0]
+    assert (q4["ini"], q4["fin"]) == (date(2025, 10, 1), date(2025, 12, 31))
+    assert P._fin_de_periodo(2025, 10, "trimestre") == date(2025, 12, 31)
+
+
+def test_la_clave_del_periodo_vuelve_intacta():
+    """La clave viaja al modal y tiene que poder volver a (año, mes) sin ambigüedad:
+    si no, el modal abre otro período que la fila y los totales no cierran."""
+    for anio, mes in ((2026, 1), (2026, 4), (2026, 7), (2026, 10)):
+        clave = P._clave(anio, mes, "trimestre")
+        assert P._parse_clave(clave, "trimestre", P.PROFUNDIDAD_INICIO) == (anio, mes)
+    # Un mes suelto en trimestral se ancla, no se rechaza.
+    assert P._parse_clave("2026-02", "trimestre", P.PROFUNDIDAD_INICIO) == (2026, 1)
+
+
+def test_granularidad_desconocida_cae_a_mes():
+    """Un valor raro no puede cambiar en silencio lo que la tabla mide."""
+    assert P._gran(None) == "mes"
+    assert P._gran("semestre") == "mes"
+    assert P._gran("TRIMESTRE") == "trimestre"
+
+
+def test_altas_es_una_metrica_auditable():
+    """Si ALTAS no está en METRICAS ni en el filtro del modal, la celda se dibuja pero
+    no se puede abrir — y un número que no se puede auditar es el que nadie discute."""
+    assert "altas" in P.METRICAS
+    assert "altas" in P._FILTRO_METRICA
+    assert "altas" in P._TITULO_METRICA

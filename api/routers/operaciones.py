@@ -904,15 +904,17 @@ def comercial_informe_cliente_ops(
     id_cuenta: str = Query(..., description="cuenta a abrir"),
     moneda: str = Query("ARS", description="ARS | USD"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
+    ventana: str = Query("mes", pattern="^(mes|ano)$",
+                         description="mes = mes calendario del HASTA · ano = 1/1 → HASTA"),
 ) -> dict:
-    """Los boletos de UN cliente en el MES del corte — modal de la tabla Detalle (Q4).
+    """Los boletos de UN cliente en el MES o en el AÑO del corte — modal de Q4.
 
-    La ventana es el MES CALENDARIO del HASTA (no `[Desde, Hasta]`) y entra CUALQUIER
-    boleto no anulado: es la misma definición que usan CTAS OPS y el filtro SOLO
-    OPERATIVAS, así que una cuenta que ese filtro dejó pasar nunca puede abrirse vacía.
+    Nunca el período `[Desde, Hasta]`: entra CUALQUIER boleto no anulado, y la ventana
+    tiene que ser la MISMA con la que el filtro de la tabla dejó pasar esa fila, o una
+    cuenta marcada como operativa se abre vacía.
     """
     return _com_sql.informe_cliente_operaciones(
-        id_cuenta=id_cuenta, moneda=moneda, fecha=fecha)
+        id_cuenta=id_cuenta, moneda=moneda, fecha=fecha, ventana=ventana)
 
 
 # ── CONTROL COMERCIAL (jefatura) — editor de objetivos (etapa 1) ──────────────

@@ -941,7 +941,7 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
 
 
 def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
-                                fecha: str | None = None) -> dict:
+                                fecha: str | None = None, ventana: str = "mes") -> dict:
     """Los boletos de UN cliente en el MES del corte — el modal de la tabla Detalle.
 
     Reemplaza a la lista genérica de "todas las operaciones de todos los clientes del
@@ -949,11 +949,13 @@ def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
 
     Dos decisiones que tienen que quedar dichas:
 
-    1. **La ventana es el MES CALENDARIO del HASTA**, no el período `[Desde, Hasta]`.
-       Es la misma del filtro SOLO OPERATIVAS y la de CTAS OPS: el modal se abre desde
-       una fila que ese filtro dejó pasar, así que tiene que mostrar exactamente los
-       boletos que la hicieron pasar. Con otra ventana, una cuenta marcada como
-       operativa podría abrirse VACÍA.
+    1. **La ventana la elige quien abre** (`ventana`): `mes` = el mes calendario del
+       HASTA · `ano` = del 1 de enero al HASTA. Nunca el período `[Desde, Hasta]`.
+
+       Tiene que ser la MISMA con la que el filtro de la tabla dejó pasar esa fila.
+       Ya pasó al revés y por eso está parametrizado: el modal estaba clavado al mes,
+       se abría desde una fila filtrada por AÑO, y una cuenta que operó en marzo salía
+       "Sin boletos en ago 26" — la pantalla desmintiendo su propio filtro.
 
     2. **Trae CUALQUIER boleto no anulado** (`_ULT_OP_WHERE`), no solo los que cobraron
        arancel. Por lo mismo: el arancel no es lo que define que la cuenta operó, y
@@ -971,9 +973,10 @@ def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
 
     idc = str(id_cuenta)
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
-    mes_ini = corte.replace(day=1)
+    es_ano = str(ventana) == "ano"
+    ini = date(corte.year, 1, 1) if es_ano else corte.replace(day=1)
     factor = _factor_usd(moneda)
-    p: dict = {"idc": idc, "ini": mes_ini, "fin": corte}
+    p: dict = {"idc": idc, "ini": ini, "fin": corte}
 
     cab = _q("SELECT u.denominacion, c.nivel_1, o.nombre AS operador_nombre "
              "FROM cuentas u LEFT JOIN comitentes c ON c.id_cuenta = u.id_cuenta "
@@ -1017,8 +1020,9 @@ def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
     return {
         "id_cuenta": idc, "denominacion": cab.get("denominacion") or "—",
         "operador_nombre": cab.get("operador_nombre"), "nivel_1": cab.get("nivel_1"),
-        "mes": f"{corte.year:04d}-{corte.month:02d}",
-        "desde": mes_ini.isoformat(), "hasta": corte.isoformat(),
+        "mes": f"{corte.year:04d}-{corte.month:02d}", "ano": corte.year,
+        "ventana": "ano" if es_ano else "mes",
+        "desde": ini.isoformat(), "hasta": corte.isoformat(),
         "n_boletos": len(ops), "volumen": _cv(vol, factor), "arancel": _cv(ar, factor),
         "operaciones": ops,
     }

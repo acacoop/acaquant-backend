@@ -8,7 +8,7 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from pathlib import Path
 
 import pytest
@@ -1948,3 +1948,38 @@ def test_el_agente_solo_mira_nuestro_territorio():
     # Y la tabla del botón «pedir pata» es de ocasión, como las de órdenes.
     from core import escribe
     assert escribe.la_dispara("mercado.adhoc_subscriptions") == escribe.EVENTO
+
+
+def test_el_fin_de_semana_entero_no_cuenta_como_atraso():
+    """Un lunes a la mañana, el cierre del VIERNES está al día.
+
+    El 2026-08-31 —lunes— seis tablas de cierre salieron todas juntas con «no
+    escribe hace 2,6 días» teniendo el dato correcto del viernes 28. Reacción
+    del user: *«TOMAN EL FIN DE SEMANA COMO DIA A CONTAR!!»*. Tenía razón.
+
+    `_segundos_de_finde` sumaba el día ANTES de mirarlo, así que el día de
+    `desde` nunca se evaluaba y de cada fin de semana descontaba UNO SOLO. Con
+    el cierre del viernes, `ult_efectivo` cae en sábado → el bucle arrancaba
+    mirando el domingo y **el sábado quedaba contado como día hábil**.
+
+    Y casi no se veía: con un día de descuento el tope daba 2,50 d contra un
+    atraso de 2,52 d el lunes a las 09:26 ART. **Fallaba por media hora.**
+    """
+    from datetime import datetime
+
+    from agente import tablas
+
+    sab = datetime(2026, 8, 29, tzinfo=UTC)          # sábado
+    lun = datetime(2026, 8, 31, 14, 26, tzinfo=UTC)  # lunes
+    assert tablas._segundos_de_finde(sab, lun) == 2 * 86400, "sábado Y domingo"
+
+    # El caso completo, con el ritmo que el cron declara para un job L-V.
+    declarado = {"hueco_s": 86400, "solo_habiles": True}
+    perfil = {"schema": "mercado", "tabla": "eikon_cierres", "col_fecha": "fecha",
+              "ultimo_dato": datetime(2026, 8, 28, tzinfo=UTC),
+              "cadencia": "diaria", "p50_s": 86400, "filas": 3908}
+    # Todo el lunes, no un instante: el bug fallaba recién pasada cierta hora.
+    for h in (12, 14, 17, 20, 23):
+        ahora = datetime(2026, 8, 31, h, 26, tzinfo=UTC)
+        r = tablas.frescura(perfil, ahora=ahora, declarado=declarado)
+        assert r["estado"] == "ok", f"{h}:26 UTC → {r}"

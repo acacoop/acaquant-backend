@@ -434,10 +434,22 @@ def _segundos_de_finde(desde: datetime, hasta: datetime) -> int:
     """Los sábados y domingos que hubo en el medio, en segundos. Sin esto, toda
     tabla de días hábiles aparece atrasada cada lunes a la mañana."""
     d, fin, seg = desde.date(), hasta.date(), 0
+    # ⚠️⚠️ **SE MIRA EL DÍA Y DESPUÉS SE AVANZA, NO AL REVÉS.** La versión
+    # anterior sumaba primero, así que el día de `desde` NUNCA se evaluaba y de
+    # cada fin de semana descontaba UNO SOLO.
+    #
+    # Pasó el 2026-08-31: el cierre del viernes 28 deja `ult_efectivo` en sábado
+    # 29, el bucle arrancaba mirando el domingo 30, y el sábado quedaba contado
+    # como día hábil. Seis tablas de cierre salieron «no escribe hace 2,6 días»
+    # un lunes a la mañana, teniendo el dato correcto del viernes.
+    #
+    # Y casi no se ve, que es lo peor: con un día de descuento el tope queda en
+    # 3,00 d contra un atraso de 2,98 d a las 23:26 — **zafa por media hora**.
+    # Un viernes que termine tarde, o un feriado pegado al finde, lo tumban.
     while d < fin:
-        d += timedelta(days=1)
         if d.weekday() >= 5:
             seg += 86400
+        d += timedelta(days=1)
     return seg
 
 

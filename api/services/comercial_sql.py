@@ -991,7 +991,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
         f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)}
     ids = list(detalle)
     if not ids:
-        return {"segmento": segmento or "todos", "n_clientes": 0,
+        return {"segmento": segmento or "todos", "n_clientes": 0, "n_operativas": 0,
                 "clientes": [], "operaciones": [], "n_operaciones": 0}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
@@ -1007,6 +1007,17 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     if desde:
         pa["lo"] = min(desde, mes_ini)
         lo = " AND concertacion >= %(lo)s"
+    # QUIÉN OPERÓ EN EL MES, para el filtro "solo operativas" de la tabla. Mismo
+    # predicado y misma ventana que la columna CTAS OPS del ranking (`_ULT_OP_WHERE`
+    # sobre `operaciones`, mes calendario del HASTA) — el filtro tiene que dejar
+    # exactamente las cuentas que ese número cuenta, o la pantalla se contradice.
+    # Viaja como FLAG por fila y no como una lista aparte: así el front filtra sin
+    # pedir de nuevo y no puede quedar desfasado del dato que ya dibujó.
+    operativas = {r["id_cuenta"] for r in _q(
+        f"SELECT DISTINCT id_cuenta FROM operaciones "
+        f"WHERE id_cuenta = ANY(%(ids)s) AND concertacion >= %(mes_ini)s{ub} "
+        f"AND {_ULT_OP_WHERE}", pa)}
+
     clientes = []
     for r in _q(f"SELECT id_cuenta, "
                 f"SUM(CASE WHEN {lb_tot} THEN arancel ELSE 0 END) AS ar_total, "
@@ -1019,6 +1030,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
             "arancel_total": _cv(_f(r["ar_total"]), factor),
             "arancel_mes": _cv(_f(r["ar_mes"]), factor),
+            "opero_mes": idc in operativas,
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
@@ -1057,6 +1069,10 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
             "importe": _f(r["bruto"]) if r["bruto"] is not None else None,
             "moneda": r["moneda"], "arancel": _cv(_f(r["arancel"]), factor),
         })
+    # El contador del filtro lo cuenta el BACKEND, sobre la misma lista que devuelve:
+    # sumarlo en el navegador es cómo un contador termina diciendo algo que la tabla
+    # de al lado no dice.
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
+            "n_operativas": sum(1 for c in clientes if c["opero_mes"]),
             "clientes": clientes, "operaciones": operaciones,
             "n_operaciones": n_operaciones}

@@ -924,6 +924,90 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
             "comerciales": comerciales, "aranceles_segmento": segmentos}
 
 
+def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
+                                fecha: str | None = None) -> dict:
+    """Los boletos de UN cliente en el MES del corte — el modal de la tabla Detalle.
+
+    Reemplaza a la lista genérica de "todas las operaciones de todos los clientes del
+    segmento", que mostraba miles de filas sin dueño y no se podía leer.
+
+    Dos decisiones que tienen que quedar dichas:
+
+    1. **La ventana es el MES CALENDARIO del HASTA**, no el período `[Desde, Hasta]`.
+       Es la misma del filtro SOLO OPERATIVAS y la de CTAS OPS: el modal se abre desde
+       una fila que ese filtro dejó pasar, así que tiene que mostrar exactamente los
+       boletos que la hicieron pasar. Con otra ventana, una cuenta marcada como
+       operativa podría abrirse VACÍA.
+
+    2. **Trae CUALQUIER boleto no anulado** (`_ULT_OP_WHERE`), no solo los que cobraron
+       arancel. Por lo mismo: el arancel no es lo que define que la cuenta operó, y
+       filtrar por él dejaría en blanco justo a las cuentas que operaron sin facturar
+       —las que la tabla ahora muestra con arancel en cero—.
+
+    Los totales (volumen, arancel, n) se calculan ACÁ, sobre las mismas filas que se
+    devuelven: un total que el navegador suma aparte puede no coincidir con su lista.
+    """
+    # Import LOCAL: `profundidad_sql` importa de este módulo (`_act_where`, `_f`, …),
+    # así que a nivel de módulo sería un ciclo. La etiqueta se reusa en vez de
+    # copiarse para que el modal no llame "Caución tomadora" a lo que otra pantalla
+    # llama distinto.
+    from api.services.profundidad_sql import _op_label
+
+    idc = str(id_cuenta)
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    mes_ini = corte.replace(day=1)
+    factor = _factor_usd(moneda)
+    p: dict = {"idc": idc, "ini": mes_ini, "fin": corte}
+
+    cab = _q("SELECT u.denominacion, c.nivel_1, o.nombre AS operador_nombre "
+             "FROM cuentas u LEFT JOIN comitentes c ON c.id_cuenta = u.id_cuenta "
+             "LEFT JOIN operadores o ON o.email = c.operador_email "
+             "WHERE u.id_cuenta = %(idc)s", {"idc": idc})
+    cab = cab[0] if cab else {}
+
+    filas = _q(f"SELECT concertacion, boleto, operacion, tipo_operacion, instrumento, "
+               f"  mercado, moneda, bruto, arancel, cantidad, etapa, es_cierre, mep "
+               f"FROM operaciones "
+               f"WHERE id_cuenta = %(idc)s AND {_ULT_OP_WHERE} "
+               f"  AND concertacion >= %(ini)s AND concertacion <= %(fin)s "
+               f"ORDER BY concertacion DESC, boleto DESC", p)
+
+    ops, vol, ar = [], 0.0, 0.0
+    for r in filas:
+        # Volumen: mismo criterio que el resto del informe — fuera los cierres de
+        # caución (doble conteo) y las solicitudes sin liquidar. Se pesifica por el
+        # MEP DEL BOLETO, no por el de hoy.
+        cuenta_vol = not bool(r["es_cierre"]) and r["etapa"] != "solicitud"
+        bruto = _f(r["bruto"]) or 0.0
+        bruto_ars = bruto if (r["moneda"] or "ARS") == "ARS" else bruto * (_f(r["mep"]) or 0.0)
+        if cuenta_vol:
+            vol += abs(bruto_ars)
+        if (_f(r["arancel"]) or 0.0) > 0 and r["etapa"] != "solicitud":
+            ar += abs(_f(r["arancel"]) or 0.0)
+        ops.append({
+            "fecha": _iso(r["concertacion"]),
+            "fecha_dmy": _dmy(r["concertacion"]),
+            "boleto": r["boleto"],
+            "operacion": r["operacion"], "operacion_label": _op_label(r["operacion"] or ""),
+            "tipo_operacion": r["tipo_operacion"], "instrumento": r["instrumento"],
+            "mercado": r["mercado"], "moneda": r["moneda"],
+            "bruto": _cv(abs(bruto_ars), factor),
+            "arancel": _cv(abs(_f(r["arancel"]) or 0.0), factor),
+            "cantidad": _f(r["cantidad"]),
+            "etapa": r["etapa"], "es_cierre": bool(r["es_cierre"]),
+            "cuenta_volumen": cuenta_vol,
+        })
+
+    return {
+        "id_cuenta": idc, "denominacion": cab.get("denominacion") or "—",
+        "operador_nombre": cab.get("operador_nombre"), "nivel_1": cab.get("nivel_1"),
+        "mes": f"{corte.year:04d}-{corte.month:02d}",
+        "desde": mes_ini.isoformat(), "hasta": corte.isoformat(),
+        "n_boletos": len(ops), "volumen": _cv(vol, factor), "arancel": _cv(ar, factor),
+        "operaciones": ops,
+    }
+
+
 def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
                                fecha: str | None = None, desde: str | None = None,
                                nivel_1=None, nivel_2=None, nivel_3=None,
@@ -964,7 +1048,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                              moneda: str = "ARS", fecha: str | None = None,
                              desde: str | None = None, nivel_1=None, nivel_2=None,
                              nivel_3=None, nivel_4=None, nivel_5=None, referido=None,
-                             division=None, max_ops: int | None = None) -> dict:
+                             division=None) -> dict:
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
     corte = date.fromisoformat(fecha) if fecha else hoy
@@ -992,7 +1076,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     ids = list(detalle)
     if not ids:
         return {"segmento": segmento or "todos", "n_clientes": 0, "n_operativas": 0,
-                "clientes": [], "operaciones": [], "n_operaciones": 0}
+                "clientes": []}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
     ub = ""                                    # tope superior = HASTA (aplica a todo)
@@ -1032,47 +1116,33 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
             "arancel_mes": _cv(_f(r["ar_mes"]), factor),
             "opero_mes": idc in operativas,
         })
+    # Las que OPERARON y no dejaron un peso de arancel en la ventana. Entran igual,
+    # con el arancel en cero.
+    #
+    # Sin esto el filtro "solo operativas" mostraba MENOS cuentas que el CTAS OPS del
+    # ranking (medido en pantalla: 30 contra 33) y las dos cifras eran "correctas" —
+    # la lista nacía de un WHERE `arancel > 0` y el contador de arriba no. Dos números
+    # de la misma pregunta que no coinciden es un bug aunque ninguno esté mal
+    # calculado: el que mira no tiene cómo saber cuál creer. Y son justo las filas
+    # más interesantes de la tabla — operó y no facturó.
+    vistos = {c["id_cuenta"] for c in clientes}
+    for idc in sorted(operativas - vistos):
+        clientes.append({
+            "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
+            "arancel_total": 0.0, "arancel_mes": 0.0, "opero_mes": True,
+        })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
-    # Lista de operaciones del período [desde, hasta] (todas las que cobraron arancel).
-    # `max_ops` capea el payload a las N más recientes (la tabla crece día a día y el costo
-    # real del endpoint es serializar/transferir miles de filas, no la query — medido).
-    # `count(*) OVER()` devuelve el TOTAL real en cada fila sin una segunda query, para
-    # que el front pueda avisar "mostrando N de M".
-    pop: dict = {"ids": ids}
-    bounds = ""
-    if desde:
-        pop["desde"] = desde
-        bounds += " AND concertacion >= %(desde)s"
-    if corte_iso:
-        pop["corte"] = corte_iso
-        bounds += " AND concertacion <= %(corte)s"
-    limit = ""
-    if max_ops:
-        pop["lim"] = max_ops
-        limit = " LIMIT %(lim)s"
-    operaciones = []
-    n_operaciones = 0
-    for r in _q("SELECT concertacion, id_cuenta, boleto, instrumento, operacion, "
-                "tipo_operacion, bruto, moneda, arancel, count(*) OVER() AS n_total "
-                "FROM operaciones "
-                "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 AND anulado_en IS NULL "
-                f"AND etapa IS DISTINCT FROM 'solicitud'{bounds} "
-                f"ORDER BY concertacion DESC, boleto DESC{limit}", pop):
-        n_operaciones = int(r["n_total"])
-        idc = r["id_cuenta"]
-        operaciones.append({
-            "fecha": _iso(r["concertacion"]), "id_cuenta": idc,
-            "denominacion": detalle.get(idc) or "—", "comprobante": r["boleto"],
-            "ticker": r["instrumento"], "categoria": r["operacion"],
-            "op": r["tipo_operacion"],
-            "importe": _f(r["bruto"]) if r["bruto"] is not None else None,
-            "moneda": r["moneda"], "arancel": _cv(_f(r["arancel"]), factor),
-        })
     # El contador del filtro lo cuenta el BACKEND, sobre la misma lista que devuelve:
     # sumarlo en el navegador es cómo un contador termina diciendo algo que la tabla
     # de al lado no dice.
+    #
+    # Acá vivía además una lista con TODAS las operaciones de TODOS los clientes del
+    # scope (capeada a `max_ops`, hasta 20.000 filas serializadas por request). La
+    # consumía la tab OPERACIONES de esta tabla, que se dio de baja: miles de boletos
+    # sin dueño no contestaban ninguna pregunta. Hoy los boletos se miran POR CLIENTE
+    # y a pedido (`informe_cliente_operaciones`), así que la query se fue con ella —
+    # dejarla habría sido pagar el viaje más caro del endpoint para nadie.
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
             "n_operativas": sum(1 for c in clientes if c["opero_mes"]),
-            "clientes": clientes, "operaciones": operaciones,
-            "n_operaciones": n_operaciones}
+            "clientes": clientes}

@@ -884,17 +884,35 @@ def comercial_informe_segmento_detalle(
     nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
-    max_ops: int = Query(1000, ge=1, le=20000, description="tope de operaciones en el detalle (payload)"),
 ) -> dict:
-    """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
-    operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
-    todos los segmentos (vista por defecto). `operador` opcional. `nivel_1` lo fija
-    `segmento`; el resto de los niveles + referido scopean. `max_ops` capea la lista de
-    operaciones a las N más recientes (`n_operaciones` trae el total real)."""
+    """Detalle de un segmento (Q4 dinámica): los clientes del scope con su arancel y
+    con `opero_mes` (el flag del filtro SOLO OPERATIVAS). `segmento='todos'` → todos
+    los segmentos (vista por defecto). `operador` opcional. `nivel_1` lo fija
+    `segmento`; el resto de los niveles + referido scopean.
+
+    Los BOLETOS ya no viajan acá: se miran por cliente y a pedido, en
+    `/comercial/informe-cliente-ops`."""
     return _com_sql.informe_segmento_detalle(
         segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde,
         nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5, referido=referido,
-        division=division, max_ops=max_ops)
+        division=division)
+
+
+@router.get("/comercial/informe-cliente-ops")
+@cached(ttl=120)
+def comercial_informe_cliente_ops(
+    id_cuenta: str = Query(..., description="cuenta a abrir"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+    fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
+) -> dict:
+    """Los boletos de UN cliente en el MES del corte — modal de la tabla Detalle (Q4).
+
+    La ventana es el MES CALENDARIO del HASTA (no `[Desde, Hasta]`) y entra CUALQUIER
+    boleto no anulado: es la misma definición que usan CTAS OPS y el filtro SOLO
+    OPERATIVAS, así que una cuenta que ese filtro dejó pasar nunca puede abrirse vacía.
+    """
+    return _com_sql.informe_cliente_operaciones(
+        id_cuenta=id_cuenta, moneda=moneda, fecha=fecha)
 
 
 # ── CONTROL COMERCIAL (jefatura) — editor de objetivos (etapa 1) ──────────────

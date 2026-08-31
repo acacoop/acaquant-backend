@@ -11,13 +11,12 @@ from pydantic import BaseModel, Field
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
-from api.services import comparar_inversion as svc_cmp
-from api.services import descomposicion_retorno as svc_desc
 from api.services import macro_sql as svc_macro_sql
 from api.services import opciones_sql as svc_opc_sql
 from api.services import renta_fija as svc_rf
 from api.services import renta_fija_sql as svc_rf_sql
 from api.services import sensibilidad as svc_sens
+from api.services import simular_inversion as svc_sim
 
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
 
@@ -191,45 +190,24 @@ class _EstrategiaHistoricoReq(BaseModel):
     hasta: str | None = None
 
 
-@router.get("/descomposicion-retorno")
-def descomposicion_retorno(
-    desde: str = Query(..., description="YYYY-MM-DD (snapshot inicial)"),
-    hasta: str = Query(..., description="YYYY-MM-DD (snapshot final, > desde)"),
-    metodo: str = Query("lineal", description="lineal | cuadratica"),
-    curva: str = Query("tasa_fija", description="tasa_fija | cer"),
+@router.get("/simular-inversion")
+def simular_inversion(
+    ticker: str = Query(..., description="Ticker corto (AL30 — PK de mercado.curvas)"),
+    importe: float = Query(..., gt=0, description="Importe a invertir, en la "
+                                                  "moneda en que cotiza la pata"),
+    precio: float | None = Query(None, gt=0, description="Precio simulado (por "
+                                                         "100 VN). Default: last "
+                                                         "del snapshot live"),
 ):
-    """Atribución ex-post entre dos fechas. Curva: tasa_fija (default) o cer.
+    """Simulador del modal SIMULAR INVERSIÓN (/renta-fija).
 
-    Descompone el retorno total en 3 componentes puros: carry (paso del
-    tiempo), rolldown (rolling sin que se mueva la curva) y cambio_tasa
-    (residuo, lo que el mercado movió). Cada uno en %.
-
-    Para `curva=cer` el cálculo se hace sobre paridad + TEA real (no sobre
-    precio sucio para no doble-contar la indexación) y agrega `cer_accrual`
-    del período + `r_total_ars` compuesto. Carry y descomposición usan
-    forma exacta (composición exponencial), no linealización.
+    Corre el MISMO motor de la tabla (`calcular_campos`) con el precio
+    inyectado: TEA/TEM/TNA/duration/paridad al precio simulado + cronograma
+    de cobros escalado al importe (`vn = importe × 100 / precio`). CER se
+    ajusta por CER de liquidación; los flujos sin CER publicado se proyectan
+    con el último constante (`cer_proyectado=true`).
     """
-    return svc_desc.descomposicion_realizada(
-        desde=desde, hasta=hasta, metodo=metodo, curva=curva,
-    )
-
-
-@router.get("/rolldown-esperado")
-def rolldown_esperado(
-    horizonte_dias: int = Query(30, ge=1, le=365, description="Horizonte en días"),
-    metodo: str = Query("lineal", description="lineal | cuadratica"),
-    curva: str = Query("tasa_fija", description="tasa_fija | cer"),
-):
-    """Atribución prospectiva: retorno esperado a horizonte si la curva no
-    se mueve. Curva: tasa_fija (default) o cer.
-
-    Para `curva=cer` suma `cer_accrual_esperado` (mediana del REM proyectada
-    en N meses) y `total_esperado_ars` compuesto. Útil para rankear qué
-    Lecap/Lecer comprar bajo escenario de curva quieta.
-    """
-    return svc_desc.rolldown_esperado(
-        horizonte_dias=horizonte_dias, metodo=metodo, curva=curva,
-    )
+    return svc_sim.simular(ticker=ticker, importe=importe, precio=precio)
 
 
 @router.post("/estrategia-historico")
@@ -256,21 +234,3 @@ def estrategia_historico(
     )
 
 
-@router.get("/comparar/bonos")
-def comparar_listar_bonos():
-    """Universo para el selector de la tab 'Comparar Inversión'.
-
-    Fase 1: solo Trading.Curvas (cer, tasa_fija, soberanos). BondsMaster
-    pendiente para Fase 2.
-    """
-    return svc_cmp.listar_bonos_seleccionables()
-
-
-@router.get("/comparar")
-def comparar_inversion(
-    a: str = Query(..., description="id del bono A (ej. 'curvas:TX26')"),
-    b: str = Query(..., description="id del bono B"),
-    monto: float = Query(..., gt=0, description="Monto a invertir"),
-    moneda: str = Query("ARS", description="Moneda del monto: ARS o USD"),
-):
-    return svc_cmp.comparar(a_id=a, b_id=b, monto=monto, moneda_input=moneda)

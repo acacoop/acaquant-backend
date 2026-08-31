@@ -544,6 +544,11 @@ solo la tercera necesita IA.
 
 - **Nueva vista principal** `acaquant-web/src/app/research` + `research-view.tsx`,
   entrada en la nav (gate módulo `research`, oculta sin el módulo).
+- **Tabs actuales (2026-08-30, keep-alive)**: RENTA FIJA ARGENTINA ·
+  **ANÁLISIS SENSIBILIDAD** (mudada desde la vista ESTRATEGIA `/retorno`,
+  eliminada — mismo componente `sensibilidad-table.tsx`, mismo endpoint
+  `/api/analitica/sensibilidad-retorno`) · REPORTES FINANCIEROS · BCRA ·
+  DATOS INTERNACIONALES · RENTA VARIABLE INTERNACIONAL.
 - **Layout propuesto (a diseñar CON el user, incremental):** dos secciones/tabs:
   - **MARKET DATA:** selector de ticker(s) + campos + rango → **gráfico de series**
     (la estrella) + tabla de indicadores de hoy + la calculadora teórica. Toggles de
@@ -585,6 +590,7 @@ Agregar el módulo nuevo (patrón de `api/CLAUDE.md`, igual que `back-office`):
 | Ingesta de mails | `jobs/research_mail.py` | **REUSA (P6)** |
 | Tabla de mails | `ia.research` (+ columna `tipo`) | **REUSA + 1 columna** |
 | Vista frontend | `acaquant-web/src/.../research-view.tsx` | **nuevo** |
+| Tab sensibilidad | `acaquant-web/src/.../sensibilidad-table.tsx` | **REUSA** (mudado de `/retorno` 2026-08-30; backend `api/services/sensibilidad.py`) |
 | RBAC | `core/roles.py` + `api/auth.py` | **editar** (módulo `research`) |
 
 ---
@@ -736,6 +742,21 @@ alguna línea del `.env` quedó mal escrita. Si lista los mails → está andand
 ---
 
 ## Registro de construcción (con fecha — qué y cómo)
+
+### 2026-08-30 (21) — ANÁLISIS SENSIBILIDAD llega desde la difunta vista ESTRATEGIA
+
+La vista MERCADO → ESTRATEGIA (`/retorno`) se dio de baja entera (sus otras dos
+tabs — COMPARAR INVERSIÓN y DESCOMPOSICIÓN — se borraron con sus endpoints y
+services; el reemplazo funcional de COMPARAR es el modal SIMULAR INVERSIÓN de
+`/renta-fija`, ver `RENTA_FIJA.md` §21). La única tab que sobrevive es el
+análisis de sensibilidad, y se mudó ACÁ tal cual: mismo componente
+(`sensibilidad-table.tsx`, montado `compact` dentro de `<Maximizable>`), mismo
+endpoint `_PUBLIC` (`/api/analitica/sensibilidad-retorno`, service
+`api/services/sensibilidad.py`). Sin cambios de RBAC: `research` ya estaba
+abierto al invitado y el endpoint ya era alcanzable por www (`/api/analitica`
+está en `GUEST_PATH_PREFIXES`) — la data es de mercado, no del negocio. El
+módulo `estrategia` salió de `core/roles.py::MODULES`; si aparece en
+`manager.role_matrix` de prod es residual.
 
 ### 2026-08-28 (20) — SE BORRÓ EL DESTILADO, y con él la IA de todo el sistema
 

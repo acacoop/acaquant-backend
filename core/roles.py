@@ -50,7 +50,11 @@ MODULES: tuple[str, ...] = (
     "sinteticos",     # /sinteticos (long ROFEX + LECAP, short ROFEX + DLK)
     "renta-variable", # /renta-variable + smart money 13F/Form 4 sobre CEDEARs
     "trading",        # /trading (panel intradía de CEDEARs — 5 sistemas, admin-only)
-    "estrategia",     # /retorno (sensibilidad, canje, carry)
+    # "estrategia" se eliminó el 2026-08-30 junto con la vista /retorno: el
+    # análisis de sensibilidad se mudó a /research (módulo `research`) y el
+    # resto de la vista (comparar, descomposición) se dio de baja. Si el
+    # string sigue apareciendo en manager.role_matrix es residual — no
+    # gatea nada.
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
@@ -93,12 +97,12 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo (incluye los 3 sub-módulos de manager)
     "trader": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
-        "renta-variable", "estrategia",
+        "renta-variable",
         "operaciones", "portfolios", "back-office",
     ),
     "sales":  (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
-        "renta-variable", "estrategia",
+        "renta-variable",
         "back-office",
     ),
     # EMPLEADO ACA: el mismo puesto que `sales` MÁS la vista /aca (resumen
@@ -112,7 +116,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     # del admin en /manager → USUARIOS.
     "empleado_aca": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
-        "renta-variable", "estrategia",
+        "renta-variable",
         "back-office",
         "aca",
     ),
@@ -122,7 +126,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     # Roles, etc.). Sin `manager_clientes_bulk` → no puede ejecutar carga masiva.
     "asistente_comercial": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
-        "renta-variable", "estrategia",
+        "renta-variable",
         "operaciones", "portfolios", "back-office",
         "manager_clientes", "manager_instrumentos",
         "manager_contrapartes", "manager_aunesa",
@@ -146,7 +150,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     # clientes, manager) sigue intacto: otro sector tampoco los ve.
     "invitado": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
-        "renta-variable", "estrategia",
+        "renta-variable",
         # research: decisión user 2026-07-21 (misma empresa → sin problema de
         # licencias). Abre la vista completa: 1816 + reportes + BCRA + FRED +
         # RV internacional, con sus copilotos.

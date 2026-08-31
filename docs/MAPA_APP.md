@@ -37,9 +37,9 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **517 endpoints** montados en `api.main.app`, en **32 routers**.
-- **188 escriben** (POST/PUT/PATCH/DELETE); 329 son de solo lectura.
-- **22 módulos** canónicos y **7 roles** en `core/roles.py`.
+- **514 endpoints** montados en `api.main.app`, en **32 routers**.
+- **188 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
+- **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
 ### 0.1 Endpoints y gate efectivo, por router
@@ -50,7 +50,7 @@
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
 | `/api/agente` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
-| `/api/analitica` | 14 | 1 | — | — | ⚠️ |
+| `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
 | `/api/back-office` | 59 | 35 | `back-office` · 30 rutas con gate extra | `back-office` |  |
 | `/api/back-office/interbanking` | 26 | 17 | `back-office` | `back-office` |  |
@@ -84,7 +84,7 @@
 
 - `(raíz)` (2 de 2 rutas sin gate de módulo)
 - `/api/aca` (declara `aca`, no lo aplica)
-- `/api/analitica` (14 de 14 rutas sin gate de módulo)
+- `/api/analitica` (11 de 11 rutas sin gate de módulo)
 - `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
 - `/api/market` (2 de 2 rutas sin gate de módulo)
@@ -115,7 +115,6 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 | `sinteticos` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `renta-variable` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `trading` | ✓ | · | · | · | · | · | · |
-| `estrategia` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `operar` | ✓ | · | · | · | · | · | · |
 | `operaciones` | ✓ | ✓ | · | · | ✓ | · | · |
 | `portfolios` | ✓ | ✓ | · | · | ✓ | · | · |
@@ -138,7 +137,7 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 
 ## 1. ÍNDICE DE VISTAS
 
-**21 vistas navegables** (el App Router tiene exactamente 21 `page.tsx`, y las 21 están en el menú:
+**19 vistas navegables** (el App Router tiene exactamente 19 `page.tsx`, y las 19 están en el menú:
 no hay rutas huérfanas). Los otros 68 archivos de `src/app/api/**/route.ts` son proxies HTTP, no
 páginas.
 
@@ -147,23 +146,22 @@ páginas.
 | 1 | **HOME** | `/` | `home` | admin, trader, sales, asistente_comercial, back_office, invitado | Terminal de apertura: watchlist live (Argentina + índices/futuros/UST + curva DLR + bonos offshore), noticias RSS con reader inline, chart TradingView y modal de briefing. |
 | 2 | **OPERAR** | `/operar` | `operar` | **solo admin** | Única pantalla transaccional: manda y cancela órdenes REALES contra ROFEX (títulos, FCI, brackets) y ejecuta la operativa Dólar MEP de 2 patas. |
 | 3 | **TRADING** | `/trading` | `trading` | **solo admin** | Escritorio intradía: pivots Floor Trader por activo, radares (movers/volumen/pivotes/contexto), order book, charts live + zonas del ADR, monitor FIFO del día y cuaderno manual de PnL. |
-| 4 | **RESEARCH** | `/research` | `research` | admin, invitado | Laboratorio de research: spreads/series 1816, reportes escritos (mails + PDFs), BCRA, FRED y el tablero/screener de renta variable internacional (feed Reuters/Eikon). |
+| 4 | **RESEARCH** | `/research` | `research` | admin, invitado | Laboratorio de research: spreads/series 1816, análisis de sensibilidad precio×TIR (ex vista ESTRATEGIA), reportes escritos (mails + PDFs), BCRA, FRED y el tablero/screener de renta variable internacional (feed Reuters/Eikon). |
 | 5 | **AGRO** | `/agro` | `agro` | admin, trader, sales, asistente_comercial, invitado (sin tab DATOS) | Mesa de agro: pases TRIGO/MAÍZ/SOJA vs futuros MATBA, cobertura del productor (ON/Pagaré/Sintético), mejoras de precio disponible, opciones agro con simulador y tablero CBOT. |
 | 6 | **DERIVADOS** | `/derivados` | `derivados` | admin, trader, sales, asistente_comercial, invitado | Chain de opciones de GGAL con griegas, armado de estrategias multi-pata, payoff, escenarios y post-trade lab. |
-| 7 | **ESTRATEGIA** | `/retorno` | `estrategia` | admin, trader, sales, asistente_comercial, invitado | Herramientas de decisión de renta fija: comparar dos bonos por monto, sensibilidad de precio por TIR, y atribución carry/rolldown/cambio de tasa. |
-| 8 | **RENTA FIJA** | `/renta-fija` | `renta-fija` | admin, trader, sales, asistente_comercial, invitado | Pantalla live de renta fija ARS/HD: tablero por curva, chart de curva (live/histórico/fair value), matriz de forwards y breakevens Lecap↔CER vs REM. |
-| 9 | **RENTA VARIABLE** | `/renta-variable` | `renta-variable` | admin, trader, sales, asistente_comercial, invitado | Scanner de CEDEARs (ARS live) + ADR (USD EOD), con métricas quant (pulso por rubro, pivots/volatilidad, retornos) y chart por ticker. |
-| 10 | **SINTÉTICOS** | `/sinteticos` | `sinteticos` | admin, trader, sales, asistente_comercial, invitado | Dos tablas de sintéticos con futuro DLR (LONG ROFEX+LONG LECAP / SHORT ROFEX+LONG DLK) y su curva de TNA por plazo. |
-| 11 | **AUM** | `/aum` | `portfolios` | admin, trader, asistente_comercial | Activos bajo administración: evolución del total por cartera, snapshot con drill-down cuenta×asset, sub-vista FCI y comparación de saldos entre dos fechas. |
-| 12 | **CARTERAS** | `/valuaciones` | `portfolios` | admin, trader, asistente_comercial | Performance por cuenta: valor del portfolio, tabla mensual con TWR/TEM/XIRR, posiciones a una fecha, atribución de la variación y PnL cost-basis por título. |
-| 13 | **CONTRAPARTES** | `/contrapartes` | `operaciones` | admin, trader, asistente_comercial | Contra quién operamos: volumen bruto por contraparte, por grupo/segmento y por mes, con drill-down a los boletos de un día. |
-| 14 | **MESA DE DINERO** | `/mesa-dinero` | **ninguno** — allowlist per-usuario | admin + `mesa_dinero_lectores`/`_escritores`; `mesa_dinero_lectores_resultados` ve **solo la tab RESULTADOS** | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
-| 15 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / POSICIONES Y DIFERENCIAS y los depósitos/extracciones. |
-| 16 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
-| 17 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
-| 18 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes, extractos bancarios de Interbanking y saldos de cuentas comitentes. |
-| 19 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | **Link de primer nivel del header** (no está adentro de NEGOCIO: es la cartera de la casa y la mira gerencia). Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
-| 20 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
+| 7 | **RENTA FIJA** | `/renta-fija` | `renta-fija` | admin, trader, sales, asistente_comercial, invitado | Pantalla live de renta fija ARS/HD: tablero por curva, chart de curva (live/histórico/fair value), matriz de forwards, breakevens Lecap↔CER vs REM y el modal SIMULAR INVERSIÓN (importe + bono + precio → TIR y cronograma de cobros). |
+| 8 | **RENTA VARIABLE** | `/renta-variable` | `renta-variable` | admin, trader, sales, asistente_comercial, invitado | Scanner de CEDEARs (ARS live) + ADR (USD EOD), con métricas quant (pulso por rubro, pivots/volatilidad, retornos) y chart por ticker. |
+| 9 | **SINTÉTICOS** | `/sinteticos` | `sinteticos` | admin, trader, sales, asistente_comercial, invitado | Dos tablas de sintéticos con futuro DLR (LONG ROFEX+LONG LECAP / SHORT ROFEX+LONG DLK) y su curva de TNA por plazo. |
+| 10 | **AUM** | `/aum` | `portfolios` | admin, trader, asistente_comercial | Activos bajo administración: evolución del total por cartera, snapshot con drill-down cuenta×asset, sub-vista FCI y comparación de saldos entre dos fechas. |
+| 11 | **CARTERAS** | `/valuaciones` | `portfolios` | admin, trader, asistente_comercial | Performance por cuenta: valor del portfolio, tabla mensual con TWR/TEM/XIRR, posiciones a una fecha, atribución de la variación y PnL cost-basis por título. |
+| 12 | **CONTRAPARTES** | `/contrapartes` | `operaciones` | admin, trader, asistente_comercial | Contra quién operamos: volumen bruto por contraparte, por grupo/segmento y por mes, con drill-down a los boletos de un día. |
+| 13 | **MESA DE DINERO** | `/mesa-dinero` | **ninguno** — allowlist per-usuario | admin + `mesa_dinero_lectores`/`_escritores`; `mesa_dinero_lectores_resultados` ve **solo la tab RESULTADOS** | Registro MANUAL de las operaciones de la mesa (compra+venta) con resultado diario, TC manual, atribución por comercial (regla 50/50) y panel del fondo ACA R.TOTAL. |
+| 14 | **OPERACIONES** | `/operaciones` | `operaciones` | admin, trader, asistente_comercial | Volumen y arancel de boletos de mercado, más las verticales AGRO / DÓLAR FUTURO / POSICIONES Y DIFERENCIAS y los depósitos/extracciones. |
+| 15 | **OPERADORES** | `/operadores` | `operaciones` (+ `control_comercial` per-usuario para una sub-vista) | admin, trader, asistente_comercial | Tablero Comercial: qué cuentas gestiona cada operador, cuánto AuM/volumen/arancel generan, estado comercial y objetivos. |
+| 16 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
+| 17 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes, extractos bancarios de Interbanking y saldos de cuentas comitentes. |
+| 18 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | **Link de primer nivel del header** (no está adentro de NEGOCIO: es la cartera de la casa y la mira gerencia). Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
+| 19 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
 
 **Superficies transversales (no son rutas propias):**
 
@@ -178,7 +176,7 @@ páginas.
 
 ## 2. MATRIZ ROL × MÓDULO
 
-### 2.1 Los 23 módulos canónicos (`core/roles.py::MODULES`)
+### 2.1 Los 22 módulos canónicos (`core/roles.py::MODULES`)
 
 | Módulo | Qué cubre | Enforcement server-side REAL (verificado sobre las 423 rutas) |
 |---|---|---|
@@ -189,7 +187,6 @@ páginas.
 | `sinteticos` | `/sinteticos` | **NINGUNO** — `derivados_sinteticos.router` va `_PUBLIC` bajo `/api/derivados` |
 | `renta-variable` | `/renta-variable` | `/api/scanner/*` (9 rutas) |
 | `trading` | `/trading` | `/api/trading/*` + `/api/estrategia/*` (13) |
-| `estrategia` | `/retorno` | **NINGUNO** — vive en `/api/analitica` (`_PUBLIC`) |
 | `operar` | `/operar` + envío de órdenes | `/api/ordenes`, `/api/operativa`, `/api/operar`, `/api/risk` (22) |
 | `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos` | `/api/operaciones`, `/api/cuentas` (46) — **`/mesa-dinero` salió del módulo el 2026-08-11**: allowlist per-usuario |
 | `portfolios` | `/aum`, `/valuaciones` | `/api/portfolio`, `/api/valuaciones` (18) |
@@ -207,10 +204,10 @@ páginas.
 | `manager_contrapartes` | Manager → CONTRAPARTES | 6 rutas |
 | `manager_aunesa` | Manager → AUNESA / IMPORTAR AUM | `import_tenencia.router` (3) |
 
-> **Lectura clave:** **5 módulos (`home`, `renta-fija`, `derivados`, `sinteticos`, `estrategia`) no
+> **Lectura clave:** **4 módulos (`home`, `renta-fija`, `derivados`, `sinteticos`) no
 > tienen gate server-side.** Sacarlos de un rol solo esconde el link del nav; con el bearer del
 > frontend la data sigue accesible. Está declarado como decisión en `api/auth.py:289-293` ("sale más
-> barato un `_PUBLIC` sin `require_module`"), pero el efecto es que **la matriz miente para esos 5**.
+> barato un `_PUBLIC` sin `require_module`"), pero el efecto es que **la matriz miente para esos 4**.
 
 ### 2.2 Matriz por DEFAULT (`core/roles.py::DEFAULT_MATRIX`) — bootstrap, NO la verdad de prod
 
@@ -223,7 +220,6 @@ páginas.
 | sinteticos | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
 | renta-variable | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
 | trading | ✓ | – | – | – | – | – | – |
-| estrategia | ✓ | ✓ | ✓ | ✓ | ✓ | – | ✓ |
 | operar | ✓ | – | – | – | – | – | – |
 | operaciones | ✓ | ✓ | – | – | ✓ | – | – |
 | portfolios | ✓ | ✓ | – | – | ✓ | – | – |
@@ -287,7 +283,7 @@ Cloudflare y compara el `aud` contra `CF_ACCESS_AUD_GUEST`; si matchea, `src/pro
    `/api/titulos`, `/api/market`, `/api/news`, `/api/scanner`, `/api/research1816`,
    `/api/research-bcra`, `/api/research-fred`, `/api/research-docs`, `/api/ia`.
 2. **`require_module`**: si es guest, NO mira el rol del email — chequea contra `INVITADO_MODULES`
-   (`home, renta-fija, derivados, agro, sinteticos, renta-variable, estrategia, research, ia`).
+   (`home, renta-fija, derivados, agro, sinteticos, renta-variable, research, ia`).
 3. **Gates duros**: `require_admin` y `require_control_comercial` rechazan al guest SIEMPRE;
    `require_no_invitado` bloquea escrituras que viven en un módulo de mercado (las 5 PATCH de agro).
 
@@ -347,7 +343,6 @@ ACA                       → /aca               [aca]
 MERCADOS ▼                (grupo, aparece si tiene ≥1 item)
   ├─ Agro                 → /agro              [agro]
   ├─ Derivados            → /derivados         [derivados]
-  ├─ Estrategia           → /retorno           [estrategia]
   ├─ Renta Fija           → /renta-fija        [renta-fija]
   ├─ Renta Variable       → /renta-variable    [renta-variable]
   └─ Sintéticos           → /sinteticos        [sinteticos]
@@ -386,13 +381,13 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 
 | Rol | Entradas visibles |
 |---|---|
-| `admin` | HOME · OPERAR · TRADING · RESEARCH · **ACA** · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
-| `trader` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, ACA, MANAGER |
-| `sales` | HOME · MERCADOS (7/7) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, ACA, MANAGER |
-| `empleado_aca` | HOME · **ACA** · MERCADOS (7/7) · BACK OFFICE. Es `sales` + la vista ACA, **SOLO LECTURA**. **Sin** NEGOCIO y **sin MANAGER** (por lo tanto tampoco la tab Manager → ACA) |
-| `asistente_comercial` | HOME · MERCADOS (7/7) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH. **ACA y Manager → ACA aparecen si está en la allowlist de escritura de la mesa** — no las da el rol |
+| `admin` | HOME · OPERAR · TRADING · RESEARCH · **ACA** · MERCADOS (5/5) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
+| `trader` | HOME · MERCADOS (5/5) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, ACA, MANAGER |
+| `sales` | HOME · MERCADOS (5/5) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, ACA, MANAGER |
+| `empleado_aca` | HOME · **ACA** · MERCADOS (5/5) · BACK OFFICE. Es `sales` + la vista ACA, **SOLO LECTURA**. **Sin** NEGOCIO y **sin MANAGER** (por lo tanto tampoco la tab Manager → ACA) |
+| `asistente_comercial` | HOME · MERCADOS (5/5) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH. **ACA y Manager → ACA aparecen si está en la allowlist de escritura de la mesa** — no las da el rol |
 | `back_office` | HOME · BACK OFFICE. Nada más |
-| `invitado` (www) | HOME · AGRO · DERIVADOS · ESTRATEGIA · ONS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 7 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
+| `invitado` (www) | HOME · AGRO · DERIVADOS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 5 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
 Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el briefing del footer),
 `asistente` (vista `negocio` del copiloto) y todos los `manager_*` salvo su efecto sobre el link MANAGER.
@@ -414,11 +409,10 @@ Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el brie
 | `/` HOME | *sin tabs de vista*. Watchlist: **General** · FUTUROS ROFEX · NOTICIAS. Panel derecho: noticias + chart | — | La tab FUTUROS ROFEX solo aparece si el endpoint devolvió filas |
 | `/operar` | **DÓLAR MEP** · TÍTULOS Y FCI | no persistida; deep-link `?tab=` | Sub-tabs MEP: **COMPRA** · VENTA (estado compartido). TÍTULOS Y FCI: TÍTULOS · FCI |
 | `/trading` | **PIVOTS** · INTRADAY · PNL HISTÓRICO | `trading.tab` (keep-alive) | Radar interno: fila arriba **MOVERS ±4%** · VOLUMENES ACCIONES; fila abajo **PIVOTES** · ESTRATEGIA |
-| `/research` | **RENTA FIJA ARGENTINA** · REPORTES FINANCIEROS · BCRA · DATOS INTERNACIONALES · RENTA VARIABLE INTERNACIONAL | no persistida (keep-alive) | RV Internacional tiene sub-vista propia persistida: **COTIZACIONES** · FUNDAMENTALS, + FICHA de empresa |
+| `/research` | **RENTA FIJA ARGENTINA** · ANÁLISIS SENSIBILIDAD · REPORTES FINANCIEROS · BCRA · DATOS INTERNACIONALES · RENTA VARIABLE INTERNACIONAL | no persistida (keep-alive) | RV Internacional tiene sub-vista propia persistida: **COTIZACIONES** · FUNDAMENTALS, + FICHA de empresa |
 | `/agro` | **Mercado** · Mejoras Precio Dispo · Chicago · Datos | deep-link `?tab=` | **Datos oculta al invitado** (y si quedó seleccionada, se fuerza a Mercado) |
 | `/derivados` | *sin tabs de vista* | — | Tabs dentro de paneles: **CALL** · PUT · ESTRAT.; y PAYOFF · ESCENARIOS · LAB |
-| `/retorno` | **COMPARAR INVERSIÓN** · ANÁLISIS SENSIBILIDAD · DESCOMPOSICIÓN | `estrategia.tab` | DESCOMPOSICIÓN tiene 3 grupos de botones: curva TASA FIJA/CER, vista REALIZADO/ESPERADO, método LINEAL/CUADRÁTICA |
-| `/renta-fija` | *sin tabs de vista* (grid 2×2) | — | Sub-tabs por panel: RF (TASA FIJA/CER/HARD DOLAR/DOLAR LINKED/LIBRO), CURVAS (LIVE/HISTÓRICO/FAIR VALUE), FORWARDS (LIVE/GRÁFICO/Z-SCORE), BREAKEVENS (LIVE/HISTÓRICO) |
+| `/renta-fija` | *sin tabs de vista* (grid 2×2) | — | Sub-tabs por panel: RF (TASA FIJA/CER/HARD DOLAR/DOLAR LINKED/LIBRO), CURVAS (LIVE/HISTÓRICO/FAIR VALUE), FORWARDS (LIVE/GRÁFICO/Z-SCORE), BREAKEVENS (LIVE/HISTÓRICO). En la barra de tabs, el botón **SIMULAR INVERSIÓN** abre un MODAL (no una pantalla): importe + bono + precio editable → TIR/TEA + cronograma de cobros escalado |
 | `/renta-variable` | *sin tabs de vista* | — | MÉTRICAS: **PULSO** · PIVOTS/VOL · RETORNOS (y dentro ZONAS · VOLATILIDAD & BETA con DIARIO/SEMANAL/MENSUAL/ANUAL). CHART: HISTÓRICO · RETORNOS DIARIOS |
 | `/sinteticos` | *sin tabs* | — | 2 tablas + 2 charts |
 | `/aum` | **TOTAL** · FCI · ANÁLISIS DE DINERO | en la URL (`?tab=`) | |
@@ -618,15 +612,12 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 | GET | `/clasificar-nivel` | Clasifica el nivel actual de una variable vs su ventana | `variable` (**req**), `ventana_dias` | No |
 | GET | `/snapshot-curva-historico` | Reconstruye la curva a un cierre. Aplica **live fallback** | `curva` (**req**), `fecha` (**req**) | No |
 | GET | `/pendiente-curva` | Pendiente (anchor corto vs largo) | `curva` (**req**), `metrica` (`tea`\|`tem`\|`duration`), `fecha_comparacion`, `dias_min_corto` (0-365, def 30) | No |
-| GET | `/sensibilidad-retorno` | Upside de PRECIO por escenario de TIR (capital-only, sin carry) | `curva` (def `soberanos`), `tirs` (CSV %, def `4..11`), `horizonte_dias` (0-1095), `modo` (`absoluta`\|`relativa`), `tipos` (CSV) | No |
+| GET | `/sensibilidad-retorno` | Upside de PRECIO por escenario de TIR (capital-only, sin carry). Consumido por RESEARCH → ANÁLISIS SENSIBILIDAD (ex `/retorno`) | `curva` (def `soberanos`), `tirs` (CSV %, def `4..11`), `horizonte_dias` (0-1095), `modo` (`absoluta`\|`relativa`), `tipos` (CSV) | No |
 | GET | `/canje` | Serie del canje CCL/MEP intra-bono (`precio_C/precio_D − 1`) | `par` (def `AL30`), `desde`, `hasta` | No |
 | GET | `/carry-trade` | Carry en USD = `(1+ret_ars)/(1+var_dolar) − 1` | `curva`, `desde`, `hasta`, `dolar` (`mep`\|`ccl`) | No |
 | GET | `/retorno-total` | Precios diarios de la curva + series MEP/oficial (el front calcula los retornos) | `curva` (**req**) | No |
-| GET | `/descomposicion-retorno` | Atribución ex-post: carry / rolldown / cambio_tasa. `cer` agrega `cer_accrual` y `r_total_ars` | `desde` (**req**), `hasta` (**req**), `metodo`, `curva` | No |
-| GET | `/rolldown-esperado` | Atribución prospectiva con curva quieta | `horizonte_dias` (1-365), `metodo`, `curva` | No |
+| GET | `/simular-inversion` | Simulador del modal SIMULAR INVERSIÓN (/renta-fija): corre el motor (`calcular_campos`) con el precio inyectado → TEA/TNA/TEM/duration/paridad + cronograma escalado (`vn = importe × 100 / precio`); CER ajustado (proyección constante con flag) | `ticker` (**req**, corto), `importe` (**req**, >0), `precio` (opcional; def last del snapshot) | No |
 | POST | `/estrategia-historico` | Serie intradía del costo de una estrategia de opciones (dominio DERIVADOS) | `legs[]` (1-8), `bucket_min` (1-240), `desde`, `hasta` | No (cálculo) |
-| GET | `/comparar/bonos` | Universo del selector de Comparar Inversión (solo `mercado.curvas`) | — | No |
-| GET | `/comparar` | Compara dos bonos para un monto | `a`, `b` (**req**, ej. `curvas:TX26`), `monto` (**req**, >0), `moneda` | No |
 
 #### Endpoints — `cotizaciones.py` (`/api/cotizaciones`, `_PUBLIC`) — 33 rutas
 `renta-fija` (snapshot live por instrumento) · **`snapshot-live`** (bundle `{renta_fija, forwards,
@@ -932,13 +923,14 @@ de parámetros globales) · `futuros_dlr_snapshot` · `curvas` (LECAPs) · `mark
 
 ### Vista: RESEARCH (ruta frontend: `/research`)
 - **Módulo RBAC**: `research`, declarado **DENTRO de cada router** (`dependencies=[Depends(require_module("research"))]`); en `main.py` los 4 routers van `_PUBLIC`. | **Roles (default)**: `admin` e `invitado`. **NO** trader / sales / asistente_comercial / back_office. **SIN VERIFICAR** la matriz de prod.
-- **Archivos front**: `research/page.tsx` (SSR de `/mails?limit=30`) → `research-view.tsx` (+ el sub-componente `ReportesFinancieros`); cuadrantes `research-lab.tsx`, `research-forwards.tsx`, `research-retorno-total.tsx`; tabs `research-bcra.tsx`, `research-fred.tsx`, `research-documentos.tsx`; RV int. `reuters-view.tsx` → `reuters-fundamentals.tsx`, `reuters-ficha.tsx`; wrapper `maximizable.tsx`.
+- **Archivos front**: `research/page.tsx` (SSR de `/mails?limit=30`) → `research-view.tsx` (+ el sub-componente `ReportesFinancieros`); cuadrantes `research-lab.tsx`, `research-forwards.tsx`, `research-retorno-total.tsx`; tabs `sensibilidad-table.tsx` (mudada desde la vista ESTRATEGIA, eliminada 2026-08-30), `research-bcra.tsx`, `research-fred.tsx`, `research-documentos.tsx`; RV int. `reuters-view.tsx` → `reuters-fundamentals.tsx`, `reuters-ficha.tsx`; wrapper `maximizable.tsx`.
 - **Routers**: `research1816.py`, `research_bcra.py`, `research_fred.py`, `research_docs.py`. Consume además 2 endpoints `_PUBLIC` de otros dominios.
-- Las 5 tabs son **keep-alive**: una tab visitada no se desmonta.
+- Las 6 tabs son **keep-alive**: una tab visitada no se desmonta.
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
 | **RENTA FIJA ARGENTINA** (def.) | Grid 2×2 maximizable: Spread A−B · Forwards · Comparar · Retorno Total | `/research1816/universo`, `/spread`, `/series`; `/api/cotizaciones/historico/forwards`; `/api/analitica/retorno-total` ×3 | ver desglose | **Ninguna** |
+| **ANÁLISIS SENSIBILIDAD** | Tabla de sensibilidad de PRECIO por escenario de TIR (upside **capital-only, sin carry**), soberanos. Mudada tal cual desde la vista ESTRATEGIA (`/retorno`, eliminada 2026-08-30) — mismo componente (`sensibilidad-table.tsx`, `compact`), mismo endpoint | `/api/analitica/sensibilidad-retorno` | **modo** `absoluta` (def) / `relativa` (shocks pp sobre la TEA actual) · **TIRs** (CSV editable; def `4..11` absoluta, `-4..4` relativa) · **horizonte_dias** (def `365`) · **tipos** (def `["globales"]`) · `curva` fija en `soberanos` (hardcodeada en el fetch) | **Ninguna** |
 | **REPORTES FINANCIEROS** | UN feed unificado por fecha desc: mails 1816/ACA (`kind=mail`) + documentos manuales (`kind=pdf`/`comentario`). Lista izq (w-72), visor der: texto en párrafos (detecta titular en mayúsculas), PDF embebido o comentario plano | `GET /research1816/mails?limit=30` (SSR + paginado con `offset`); `GET /research-docs/list`; `GET /research-docs/{id}/pdf` | **Ninguno** (sin buscador ni filtro de fuente/tipo). Solo selección + botón "Cargar más reportes (N)" | **Ninguna desde la vista** — el alta/baja vive en Manager → DOCUMENTOS |
 | **BCRA** | Sub-tabs por bloque, cada uno con chips de series (con su último valor inline) y chart multi-serie | `GET /research-bcra/bloques`; `/series?ids=&desde=` (batch por bloque) | Bloque (orden fijo: RESERVAS · TIPO DE CAMBIO · TASAS · DINERO · INFLACIÓN · CER & UVA · DEPÓSITOS); chips ON/OFF por serie (def: las 3 primeras; en bloques "split" TODAS); rango **3M/6M/1A/5A** (def 1A) | **Ninguna** |
 | **DATOS INTERNACIONALES** (FRED) | Sub-tabs por bloque. Dos layouts: un chart multi-serie (con transformación + índice de referencia superpuesto y 2º eje) o **cuadrantes 2×2** (`eeuu_macro`, `commodities`, `riesgo_credito`, `macro_global`) | `GET /research-fred/bloques`; `/series?ids=&desde=` | Bloque (TASAS USA · EEUU MACRO · DÓLAR/FX · COMMODITIES · RIESGO/CRÉDITO · VOLATILIDAD · ÍNDICES BOLSA · MACRO GLOBAL); chips por serie; **transformación** Nivel / Base 100 / Var %; selector **"+ índice…"** (S&P/Nasdaq/Dow); rango 3M/6M/1A/5A | **Ninguna** |
@@ -1861,23 +1853,14 @@ tickers con ratio `qty_aum/qty_calc` consistente entre cuentas + factor sugerido
 precarga el form. Impacto: `/portfolio/pnl` al instante; TOTALES/consolidado en la próxima corrida
 de sus crons. Doc: `MOTOR_VALUACIONES.md` § "Ajustes manuales por eventos corporativos".
 
-### Vista: ESTRATEGIA (`/retorno`)
-- **Módulo**: **`estrategia`**, NO `portfolios`. **No está en `PATH_MODULES` ni en el matcher de `src/proxy.ts`** → no hay pre-gate en el middleware. **Roles**: admin, trader, sales, asistente_comercial, **invitado**. NO back_office.
-- **Router**: `analitica.py`, montado **`_PUBLIC`** → **sin gate de módulo**. La restricción por `estrategia` es **solo de navegación en el frontend**.
-
-| Tab | Qué muestra | Endpoints | Filtros | Escrituras |
-|---|---|---|---|---|
-| **COMPARAR INVERSIÓN** (def.) | Compara dos bonos para un monto: flujos agrupados por mes, chart de renta o de total (cupón + capital apilados), acumulado | `/analitica/comparar/bonos`, `/analitica/comparar` | **familia de curva** (achica el universo de A/B) · **bono A** y **B** (comboboxes tipeables) · **monto** (def `1000000`, se ignora si ≤0) · **moneda** ARS/**USD** · **modo** renta/total · **vista** mes (cupón del mes) / acum | Sólo lectura |
-| **ANÁLISIS SENSIBILIDAD** | Tabla de sensibilidad de PRECIO por escenario de TIR (upside **capital-only, sin carry**): precio actual + analíticos + `[{tir, shock_pp, precio_objetivo, upside}]`. Se renderiza `compact` (el panel de cálculos se migró a Manager → Debug) | `/analitica/sensibilidad-retorno` | **modo** `absoluta` (def) / `relativa` (shocks pp sobre la TEA actual) · **TIRs** (CSV editable; def `4..11` absoluta, `-4..4` relativa; se aplica con botón) · **horizonte_dias** (def `365` desde el front; `0` = upside instantáneo, >0 incluye pull-to-par; backend `ge=0 le=1095`) · **tipos** (CSV, def `["globales"]`) · **`curva` fijo en `soberanos` (hardcodeado en el fetch)** · selección de celda | Sólo lectura |
-| **DESCOMPOSICIÓN** | Sub-tabs **REALIZADO** (atribución ex-post `carry` + `rolldown` + `cambio_tasa`) y **ESPERADO** (rolldown prospectivo). Modal de auditoría por fila | `/api/historico-curva` (pobla las fechas), `/analitica/descomposicion-retorno`, `/analitica/rolldown-esperado` | sub-tab · **método** lineal/cuadrática · **curva** tasa_fija/cer · REALIZADO: **slider de rango de dos extremos** (no dispara si son iguales) · ESPERADO: **horizonte** en días (def 30, backend 1–365) | Sólo lectura |
-
-**Rarezas**: la vista se llama `/retorno` pero **ya no tiene "RETORNO TOTAL" ni "CANJE"** (migraron a la
-HOME); `BOOK & RIESGO` se eliminó (2026-06-10), `TRADE LAB` se movió a `/trade-lab` admin-only
-(2026-06-11) **y esa ruta NO existe en el repo**, `COBERTURAS` se eliminó (2026-07-13). **No hay tab de
-"carry"** — el carry aparece como componente de la descomposición · `sensibilidad-retorno` y
-`descomposicion-retorno` devuelven `{"error": …}` con **HTTP 200** en varios casos de input inválido, y
-el front chequea `j.error` a mano · el front hardcodea `curva=soberanos` aunque el endpoint acepta el
-parámetro.
+### Vista: ESTRATEGIA (`/retorno`) — ELIMINADA (2026-08-30)
+La vista se dio de baja entera: COMPARAR INVERSIÓN y DESCOMPOSICIÓN se borraron (código front,
+proxies `/api/comparar/*`, endpoints `/analitica/{comparar,comparar/bonos,descomposicion-retorno,
+rolldown-esperado}` y services `comparar_inversion.py` / `descomposicion_retorno.py`), y
+**ANÁLISIS SENSIBILIDAD se mudó tal cual a RESEARCH** (ver 4.5) — mismo componente, mismo endpoint.
+El módulo `estrategia` salió de `core/roles.py::MODULES`; si sigue apareciendo en
+`manager.role_matrix` (prod) es residual y no gatea nada. La necesidad de "¿qué pasa si invierto
+X?" que cubría COMPARAR la toma el modal **SIMULAR INVERSIÓN** de `/renta-fija` (ver 4.2).
 
 ### Router auxiliar TÍTULOS (sin vista propia)
 Montado `_PUBLIC` con comentario explícito ("antes estaba bajo `_PORTFOLIOS` y para roles sin ese módulo
@@ -2472,10 +2455,10 @@ equivalente del tab DEPÓSITOS & EXTRACCIONES es **client-side en React**.
 |---|---|---|
 | **Cuadrantes 50/50 (grid 2×2)** | `grid-cols-2` + `grid-rows-2` con `min-w-0 min-h-0` (comentado: evita "grid blowout") | HOME, `/renta-fija`, `/renta-variable`, `/ons`, `/derivados`, Research→RF ARGENTINA, `/mesa-dinero`, Tesorería (MERCADOS, CHEQUES, BANCO A BANCO) |
 | **Tabs keep-alive** (se montan la 1ª vez y luego se ocultan con `display:none` → no re-fetchean ni pierden estado) | `visited: Set<Tab>` + `<Pane active>` | `trading-shell`, `operaciones-view`, `research-view` |
-| **Tabs que sí desmontan** | render condicional simple | `back-office-shell`, `manager-view` y sus grupos, `agro-shell`, `operar-shell`, `retorno-total-view`, `valuaciones-shell` |
+| **Tabs que sí desmontan** | render condicional simple | `back-office-shell`, `manager-view` y sus grupos, `agro-shell`, `operar-shell`, `valuaciones-shell` |
 | **Panel maximizable** (header con ⛶/⊡ + Esc) | `Panel expandable` → overlay por `createPortal` | `/renta-fija`, `/ons`, `/renta-variable`, `/derivados`, `/sinteticos`, agro-datos, agro-mejoras-dispo |
 | **Wrapper maximizable genérico** (botón flotante on-hover, NO desmonta el hijo) | `<Maximizable>` `position: fixed inset-0` | los 5 panes de `/research` y los 4 cuadrantes de RF ARGENTINA |
-| **Preferencias persistidas** | `usePersistedState(key, initial, "session"\|"local")` — `sessionStorage` por default (arranca limpio cada sesión), `localStorage` para preferencias duraderas | tabs (`trading.tab`, `operaciones.tab`, `backoffice.tab`, `manager.*`, `tes.tab`, `senebis.tab`, `mesaDinero.tab`, `estrategia.tab`), filtros (`operadores.*`, `referidos.*`, `reuters.*`), columnas (`tes.cols`, `reuters.ocultas` → `"local"`) |
+| **Preferencias persistidas** | `usePersistedState(key, initial, "session"\|"local")` — `sessionStorage` por default (arranca limpio cada sesión), `localStorage` para preferencias duraderas | tabs (`trading.tab`, `operaciones.tab`, `backoffice.tab`, `manager.*`, `tes.tab`, `senebis.tab`, `mesaDinero.tab`), filtros (`operadores.*`, `referidos.*`, `reuters.*`), columnas (`tes.cols`, `reuters.ocultas` → `"local"`) |
 | **Estado en la URL** (sobrevive F5 y se puede compartir) | `history.replaceState` + `URLSearchParams` | `/aum` (`?tab=`), `/valuaciones` (`?sub=`, `?cuenta=`); deep-links de entrada en `/agro` y `/operar` |
 | **Polling** | `usePoll(endpoint, initial, ms)` — compara el **texto crudo** del payload y NO hace `setData` si no cambió (preserva identidad de referencia); expone `lastAt` y `error` | `/renta-fija` 5s (endpoint consolidado), `/renta-variable` 2s + 5s, `/ons` 10s, `/operar`→MEP 5s/60s, Manager→DIAG 10s, Manager→BASE 60s, Tesorería 20s (= heartbeat), SENEBIS 10s (= heartbeat) |
 | **Selector de columnas** | menú con checkboxes + set persistido | Tesorería (`tes.cols`), Reuters (`reuters.ocultas`) |
@@ -2488,7 +2471,7 @@ equivalente del tab DEPÓSITOS & EXTRACCIONES es **client-side en React**.
 | **Preview → commit** | `commit=false` previsualiza, `commit=true` aplica | casi todas las escrituras masivas de Manager (excepción: `POST /operaciones/backfill`) |
 | **Botón ✦ IA por vista** | `IaVistaPanel` (drawer; el probe al backend decide si se renderiza) | header global + in-view en `/trading` y `/research` |
 | **Navegación asistida** | `usePersistedState` escucha `ESTADO_APLICADO_EVENT` (`lib/aplicar-estado`) → el guía IA escribe claves de sessionStorage y deja la vista abierta en una tab/filtro concreto | toda la app; los modales de anuncio lo usan |
-| **Guards de estado persistido obsoleto** | sanear el valor leído contra la lista viva de tabs | `trading.tab='reuters'`→`pivots`, `operaciones.tab='intraday'`→`operaciones`, `estrategia.tab` muertas→`comparar`, `manager.obs.sub='uso'`→`controles`, `tes.tab='saldo_al2'`→`movimientos` |
+| **Guards de estado persistido obsoleto** | sanear el valor leído contra la lista viva de tabs | `trading.tab='reuters'`→`pivots`, `operaciones.tab='intraday'`→`operaciones`, `manager.obs.sub='uso'`→`controles`, `tes.tab='saldo_al2'`→`movimientos` |
 | **Tema claro/oscuro** | clase `light` en `<html>` + script anti-parpadeo inline que lee `localStorage['aca-theme']` antes del paint | global |
 | **Export a Excel** | client-side (`exportToXlsx`) con lo que está en pantalla | AUM, Operadores (×3), Referidos (×4), Carteras (×4), Títulos/Mercado |
 
@@ -2523,7 +2506,7 @@ Variantes y trampas verificadas:
 - **El matcher NO cubre todas las páginas**: gatea `/manager`, `/operaciones`, `/operadores`,
   `/referidos`, `/contrapartes`, `/operar`, `/aum`, `/valuaciones`, `/back-office`, `/research`,
   `/mesa-dinero`, `/renta-variable` (+ sus `/api/*`). **NO** cubre `/trading`, `/agro`, `/derivados`,
-  `/ons`, `/sinteticos`, `/retorno` ni `/`.
+  `/sinteticos` ni `/`.
 - **Un request SSR con `apiFetch` directo al `API_URL` no pasa por el matcher** (caso `/api/titulos/flujos`).
 - **Fail-closed en las dos capas**: `layout.tsx` con `modules = []` en prod si `getMe()` falla; `proxy.ts`
   redirige a `/` o devuelve 502 en `/api/*` (el comentario "fail-open" del docstring quedó viejo).
@@ -2570,11 +2553,11 @@ GET `/renta-fija` · `/snapshot-live` · `/forwards` · `/historico/forwards` ·
 `/opciones/meta` · `/historico/opciones` · `/vr-ggal` · `/griegas/opciones` — **32 GET, ninguno escribe**
 | **PUT** | `/opciones/tasa` | **✍** (gate inline `manager`) |
 
-### `analitica.py` — `/api/analitica`, `_PUBLIC` (15)
+### `analitica.py` — `/api/analitica`, `_PUBLIC` (11)
 GET `/listar-curva` · `/serie-macro` · `/clasificar-nivel` ·
 `/snapshot-curva-historico` · `/pendiente-curva` · `/sensibilidad-retorno` · `/canje` · `/carry-trade` ·
-`/retorno-total` · `/descomposicion-retorno` · `/rolldown-esperado` · `/comparar/bonos` · `/comparar`
-— **14 GET, ninguno escribe**
+`/retorno-total` · `/simular-inversion`
+— **10 GET, ninguno escribe**
 | **POST** | `/estrategia-historico` | ⚡ |
 
 ### `titulos.py` — `/api/titulos`, `_PUBLIC`
@@ -2907,14 +2890,14 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
     `ret_wtd`/`ret_mtd` hardcodeados a `None`** → el mismo dato existe en una superficie y no en la otra.
 41. **El front usa `30/90` como fallback de los umbrales de estado comercial, cuando el default real del
     backend es `45/90`.** En la práctica el backend siempre los devuelve, pero la constante está mal.
-42. **`sensibilidad-retorno` y `descomposicion-retorno` devuelven `{"error": …}` con HTTP 200** ante input
+42. **`sensibilidad-retorno` y `simular-inversion` devuelven `{"error": …}` con HTTP 200** ante input
     inválido; el front chequea `j.error` a mano en vez de confiar en el status.
 43. **Los pivots se calculan dos veces** (backend en `/pivots`, frontend en `calcPivots` al editar
     máx/mín/cierre). Si las fórmulas divergieran, el chart mostraría líneas distintas a las cards.
 44. **Breakevens filtra a 2026 hardcodeado en el frontend** (el backend devuelve todos): cambiar de año
     exige tocar el componente.
-45. **El front hardcodea `curva=soberanos`** en ANÁLISIS SENSIBILIDAD aunque el endpoint acepta el
-    parámetro.
+45. **El front hardcodea `curva=soberanos`** en RESEARCH → ANÁLISIS SENSIBILIDAD aunque el endpoint
+    acepta el parámetro.
 46. **La barra de DÓLAR MEP dice "refresca cada 2s"** y los intervalos reales son 5s y 60s.
 47. **La fila `dispo` del Pase Agro devuelve `#N/A` en las 4 columnas numéricas** por hardcodeo del
     frontend — no es un problema de datos.

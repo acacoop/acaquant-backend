@@ -62,6 +62,43 @@ de tocar la vista más usada de la app.
 | 8 | `mercado.especies` — las PATAS de cada bono | no | ✅ **aplicado** (758 patas) |
 | 9 | Limpiar el VALOR de `curvas.ticker` (sacar el sufijo D/C) | sí | pendiente |
 | 20 | Perf con EMISOR=CORPORATIVO + filtro de TEA + **ficha del bono** (§20) | sí | ✅ **hecho** (2026-08-28) |
+| 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
+
+### Paso 21 (2026-08-30) — el modal SIMULAR INVERSIÓN (y la baja de la vista ESTRATEGIA)
+
+**La pregunta que contesta**: *"si pongo $X en este bono a este precio, ¿qué tasa
+me llevo y cuánta plata me entra, cuándo?"*. La tabla da la TEA al last; el modal
+deja **tocar el precio** y ver la TIR responder — que es como se piensa una orden
+que no va a pegar al last.
+
+**El contrato que ordena todo**: la simulación corre **EL MISMO MOTOR** que la
+tabla. `engines/curvas.py::calcular_campos` recibe el precio como argumento (no
+lo busca), así que simular es llamarlo con el precio tipeado — el patrón que ya
+usaban `agente/alta._simular_tasa` y `jobs/backfill_tasas`. El cronograma sale de
+`bono_detalle.cronograma` (despacho por rama — sumar `amortizacion + interes` a
+mano daría CERO en soberanos y CER) y las conversiones TEM/TNA de `quant.tasas`.
+
+- **Backend**: `api/services/simular_inversion.py` + `GET /api/analitica/simular-inversion`
+  (`ticker`, `importe`, `precio` opcional — default el last, que viaja como
+  `precio_referencia`). Escala: `vn = importe × 100 / precio`; la moneda del
+  PRECIO la decide el sufijo del símbolo (regla de `precio_soberano_a_usd`, NO
+  `moneda_eje`: AL30 tiene eje USD pero su pata en pesos cotiza en ARS). CER se
+  ajusta por CER de liquidación por flujo; sin CER publicado se proyecta con el
+  último constante y viaja `cer_proyectado=true` (a diferencia de la FICHA, que
+  muestra los valores contractuales de emisión: la pregunta de este modal es
+  cuánta plata entra, no qué promete el papel). Tests: `tests/unit/test_simular_inversion.py`
+  (el motor real corre en el test, no un mock).
+- **Frontend**: botón SIMULAR INVERSIÓN en la barra de tabs de `/renta-fija`
+  (`renta-fija-live.tsx`) → modal `simular-inversion-modal.tsx`. El universo del
+  selector son los tickers de `curvas-vista` (dedupe por `ticker_corto`).
+  Izquierda: resultado al precio simulado + la compra + ficha. Derecha: flujo de
+  fondos apilado (amortización/interés) + cronograma, escalados al importe.
+  Fetch con debounce de 400 ms; los importes con `NumeroInput` (es-AR).
+- **En la misma entrega se dio de baja la vista ESTRATEGIA (`/retorno`)**:
+  COMPARAR INVERSIÓN y DESCOMPOSICIÓN se borraron (endpoints, services, front),
+  ANÁLISIS SENSIBILIDAD se mudó tal cual a RESEARCH y el módulo `estrategia`
+  salió de `core/roles.py`. Lo que COMPARAR contestaba con dos bonos, este modal
+  lo contesta con uno y precio editable.
 
 ### Paso 20 (2026-08-28) — la vista con EMISOR=CORPORATIVO, el filtro de TEA y la FICHA del bono
 
@@ -316,7 +353,7 @@ los incluye; sacarlos es quitar el `OR ajuste_alt` del modo `fit`.
 
 `core/curvas_sql.py::por_curva(curva)` es el helper que **~20 archivos** usan para
 preguntar "dame los bonos de esta curva": forwards, breakevens, fair value,
-sintéticos, carry, sensibilidad, order book, comparar inversión, el healthcheck.
+sintéticos, carry, sensibilidad, order book, el healthcheck.
 Hasta hoy contestaba comparando contra `mercado.curvas.curva`, **una palabra
 escrita a mano por fila**. Ahora la pertenencia se DERIVA de los ejes, con la
 misma función que usa la vista (`curvas_ejes.pills` → `curvas_de`).
@@ -342,7 +379,8 @@ dos funciones `*_like` se **borraron** para que nadie las reintroduzca.
 
 Tres lugares comparaban `doc['curva'] != X` teniendo el doc en la mano y habrían
 contradicho al listado (un bono ofrecido por el combo, rechazado al guardarlo):
-`comparar_inversion` ×2 y `breakevens_admin`. Los tres usan ahora
+`comparar_inversion` ×2 (service borrado el 2026-08-30 con la vista ESTRATEGIA) y
+`breakevens_admin`. Los tres pasaron a usar
 **`curvas_sql.esta_en_curva(doc, curva)`** — el predicado existe una sola vez.
 
 ⚠️ **Un bono sin ejes no cae en ninguna curva y desaparece de todo lo que llame a
@@ -1114,10 +1152,10 @@ Verificado: acceso a cada tabla en su service `*_sql.py` + el motor/job que escr
 |---|---|---|---|
 | **mercado.timesales** | Cada trade (Time & Sales) — alimenta sub-tab Libro | analitica, canje, renta_fija, macro | motor rofex (cada trade) |
 | **mercado.canje_cierre** | Cierre diario de tickers de canje | canje.py | `jobs/cierre_canje.py` |
-| **macro.series_macro** (CER) | Valor CER publicado por BCRA (1 fila/día) | renta_fija, descomposicion_retorno | `jobs/bcra.py` |
+| **macro.series_macro** (CER) | Valor CER publicado por BCRA (1 fila/día) | renta_fija | `jobs/bcra.py` |
 | **macro.series_macro** (InflacionMensual) | IPC mensual (usado por motor breakevens) | (motor breakevens) | `jobs/argentina_datos.py` ⚠️ *a verificar el job exacto* |
 | **mercado.dias_habiles** | Calendario hábil (liquidación CER T+10) | renta_fija | job de días hábiles ⚠️ *nombre a verificar* |
-| **macro.rem** | Consenso de inflación (overlay breakevens / rolldown) | derivados (rem), descomposicion_retorno | `jobs/argentina_datos.py` ⚠️ *a verificar* |
+| **macro.rem** | Consenso de inflación (overlay breakevens / rolldown) | derivados (rem) | `jobs/argentina_datos.py` ⚠️ *a verificar* |
 | **macro.uva** | Valor UVA | macro.py | carga manual ⚠️ *a verificar* |
 | **mercado.caucion_snapshot** | Caución cierre / vivo | repo.py | motor caución (`engines/caucion.py`) |
 | **mercado.futuros_dlr_snapshot** | Futuros DLR cierre / vivo | derivados.py | motor futuros DLR |
@@ -1287,7 +1325,7 @@ Esto **no se puede afirmar leyendo código** — requiere correr una medición:
   `libro-panel.tsx`.
 - **Routers:** `api/routers/cotizaciones.py`, `api/routers/analitica.py`.
 - **Services:** `renta_fija.py`, `derivados.py`, `fair_value.py`, `analitica.py`,
-  `canje.py`, `carry_trade.py`, `sensibilidad.py`, `descomposicion_retorno.py`,
+  `canje.py`, `carry_trade.py`, `sensibilidad.py`, `simular_inversion.py`,
   `titulos_flujos.py`, `macro.py`, `repo.py`, `rem.py`.
 - **Motores:** `engines/valores.py`, `engines/curvas.py`, `engines/forwards.py`,
   `engines/breakevens.py`, `engines/caucion.py`.

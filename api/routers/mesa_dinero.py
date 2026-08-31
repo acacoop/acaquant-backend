@@ -15,14 +15,19 @@ OPERACIONES, `/retorno` → tab ACA VALORES RETORNO) llevan además
 esconder una solapa no es un permiso — el dato seguiría estando a un request de
 distancia.
 
+CARGA DEL INFORME (2026-08-31): `POST /retorno/import` sube el Excel de ACA
+VALORES desde la propia tab y es **admin-only** (`require_admin`) — antes la
+única vía era correr un script en una consola. Reemplaza por PERÍODO igual que
+la CLI porque es literalmente la misma función de service.
+
 Thin HTTP plumbing: la lógica vive en api/services/mesa_dinero.py.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email
+from api.auth import get_user_email, require_admin
 from api.services import acavalores_retorno as _svc_ret
 from api.services import mesa_dinero as _svc
 
@@ -94,8 +99,40 @@ def opciones(actor: str = Depends(get_user_email)) -> dict:
 
 @router.get("/retorno", dependencies=[Depends(require_vista_completa)])
 def retorno(periodo: str | None = Query(None, description="'YYYY-MM'; default = más reciente")) -> dict:
-    """ACA VALORES RETORNO TOTAL — Σ Valor Nominal por operación / agente / papel."""
+    """ACA VALORES RETORNO TOTAL — filas del período (el front agrega por CASH)."""
     return _svc_ret.panel(periodo=periodo)
+
+
+@router.post("/retorno/import", dependencies=[Depends(require_admin)])
+async def importar_retorno(
+    archivo: UploadFile = File(..., description="informe 'OP Aca Valores FCI' (.xls)"),
+    dry_run: bool = Query(False, description="preview: parsea y resume SIN escribir"),
+    actor: str = Depends(get_user_email),
+) -> dict:
+    """Sube el informe Excel y reemplaza los períodos que trae. ADMIN-ONLY.
+
+    Gate `require_admin` y NO `require_vista_completa`: es estrictamente más
+    fuerte (admin siempre tiene alcance completo — ver mesa_dinero.alcance) y
+    deja el permiso donde el user lo pidió, sin abrir una allowlist nueva que
+    después haya que mantener. Sumar los dos gates no agregaría seguridad y sí
+    rompería el test que congela cuáles rutas llevan `require_vista_completa`.
+
+    Es la MISMA función que corre la CLI (`scripts/import_acavalores_retorno`),
+    así que la idempotencia por período vale igual: importar agosto reemplaza
+    agosto y no toca ningún otro mes.
+    """
+    contenido = await archivo.read()
+    if not contenido:
+        raise HTTPException(400, "El archivo llegó vacío.")
+    if len(contenido) > _svc_ret.MAX_BYTES:
+        raise HTTPException(
+            413, f"El archivo pesa {len(contenido) / 1e6:.1f} MB; el tope es "
+                 f"{_svc_ret.MAX_BYTES // (1024 * 1024)} MB.")
+    try:
+        return _svc_ret.importar(contenido, archivo=archivo.filename or "sin_nombre",
+                                 actor=actor, dry_run=dry_run)
+    except ValueError as e:      # no es el informe / sin períodos → error del usuario
+        raise HTTPException(400, str(e)) from e
 
 
 # ── Escritura (allowlist + admin) ────────────────────────────────────────────

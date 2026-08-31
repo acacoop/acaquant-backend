@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **514 endpoints** montados en `api.main.app`, en **32 routers**.
-- **188 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
+- **515 endpoints** montados en `api.main.app`, en **32 routers**.
+- **189 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -63,7 +63,7 @@
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 139 | 68 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 9 | 4 | — · 8 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 54 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
@@ -88,7 +88,7 @@
 - `/api/cotizaciones` (33 de 34 rutas sin gate de módulo)
 - `/api/derivados` (13 de 18 rutas sin gate de módulo)
 - `/api/market` (2 de 2 rutas sin gate de módulo)
-- `/api/mesa-dinero` (9 de 9 rutas sin gate de módulo)
+- `/api/mesa-dinero` (10 de 10 rutas sin gate de módulo)
 - `/api/news` (3 de 3 rutas sin gate de módulo)
 - `/api/titulos` (declara `portfolios`, no lo aplica)
 
@@ -2056,11 +2056,12 @@ audit}` · cron `50 2 * * 2-6` UTC (= 23:50 ART) → `jobs.tesoreria_snapshot` (
 |---|---|---|---|---|
 | **OPERACIONES** (def.) | 55/45. Izq: tabla de ops (fecha·trader·activo·VN/PX compra·VN/PX venta·montos·resultado·%·cliente·observación) + formulario de alta/edición. Der: arriba tabla RESULTADO diario (Σ resultado + TC + USD + acumulado), abajo barras por fecha | `/ops`, `/resumen`, `/resultados`, `/opciones` | **mes** (`input type=month`, persistido → `desde`/`hasta`), **trader** (Todos + catálogo), **moneda ARS/USD del gráfico** | `POST /ops`, `PATCH /ops/{id}`, `DELETE /ops/{id}` (con confirm), **`PUT /tc`** (TC del día editable desde la tabla RESULTADO) |
 | **RESULTADOS** | Agregados del período POR CLIENTE y POR COMERCIAL en ARS y USD, con `n`, `desde_operadores_ars/usd` y `dias_sin_tc`. **Única tab que ve el grupo de acceso parcial** (ahí las otras dos ni se dibujan) | `/resultados` | mismos mes/trader | Ninguna |
-| **ACA VALORES RETORNO TOTAL** | Filas crudas del informe Excel del fondo ACA R.TOTAL, agregadas en el cliente por OPERACIÓN / AGENTE / PAPEL / DÍA, con **cross-filter** interactivo | `/retorno` | `periodo` (`YYYY-MM`, persistido, def el más reciente) — **independiente del selector de mes**; cross-filter client-side | Ninguna — la tabla la carga **EXCLUSIVAMENTE `scripts/import_acavalores_retorno.py`** (idempotente por `periodo`) |
+| **ACA VALORES RETORNO TOTAL** | Filas crudas del informe Excel del fondo ACA R.TOTAL, agregadas en el cliente por OPERACIÓN / AGENTE / PAPEL / DÍA, con **cross-filter** interactivo | `/retorno` | `periodo` (`YYYY-MM`, persistido, def el más reciente) — **independiente del selector de mes**; cross-filter client-side | **`POST /retorno/import`** — subir el Excel del informe, **ADMIN-ONLY** (`require_admin`; el botón sale de `opciones.es_admin`). Dos pasos: preview (`?dry_run=true`, no escribe) → confirmar. Reemplaza por `periodo`. La CLI `scripts/import_acavalores_retorno.py` sigue existiendo y llama a la MISMA función de service |
 
-**Endpoints (9)**: `GET /ops` (`desde`, `hasta`, `trader` exacto; orden `fecha DESC, id DESC`) ·
+**Endpoints (10)**: `GET /ops` (`desde`, `hasta`, `trader` exacto; orden `fecha DESC, id DESC`) ·
 `GET /resumen` (`SUM(resultado) GROUP BY fecha` + TC manual + USD + acumulados) · `GET /resultados` ·
-`GET /opciones` (traders + observaciones + clientes usados + `puede_escribir` + **`alcance`**) · `GET /retorno` ·
+`GET /opciones` (traders + observaciones + clientes usados + `puede_escribir` + **`alcance`** + **`es_admin`**) ·
+`GET /retorno` · **`POST /retorno/import`** (multipart, ADMIN) ·
 **`POST /ops`** · **`PATCH /ops/{id}`** · **`DELETE /ops/{id}`** · **`PUT /tc`** (`{fecha, tc>0}`).
 
 **`_OpPayload`**: `fecha` (obligatorio), `trader` (obligatorio, **debe estar en
@@ -2075,6 +2076,9 @@ para registros SIN patas), `cliente` (libre), `observacion` (**debe ser `"Mesa"`
 - El lado comercial lista **todo el catálogo** aunque estén en cero, como la planilla.
 - El USD se calcula **op por op** con el TC del día; `dias_sin_tc` avisa que el USD está incompleto.
 - ACA VALORES RETORNO TOTAL: la métrica es el **CASH** (`bruto`, "Moneda de Concertación Bruto") y el front lo toma en **valor absoluto** (no distingue compra/venta).
+- **La carga es ADMIN, no ESCRITOR de la mesa** — es la única escritura de la vista que no pasa por `mesa_dinero_escritores`. Motivo: importar no agrega una fila, **reemplaza el mes entero** del fondo (`DELETE ... WHERE periodo = ANY(...)` + insert), así que el radio de daño de un archivo equivocado es de otro orden que el de cargar una operación.
+- **Un archivo puede traer más de un período** y la importación reemplaza TODOS los que trae. Por eso el flujo tiene preview obligatorio: `dry_run` devuelve, por período, cuántas filas trae el archivo y **cuántas hay hoy en la base** (lo que se pisa). Un Excel con 3 filas que borra un mes de 287 se ve ANTES, no después.
+- Filas sin fecha de concertación se **descartan** (no tienen `periodo`, que es la clave del reemplazo) y se cuentan en `sin_fecha`.
 
 **Fuentes**: `operaciones.mesa_dinero`, `mesa_dinero_tc` (PK fecha), `mesa_dinero_traders`,
 `mesa_dinero_escritores`, `mesa_dinero_lectores`, `mesa_dinero_lectores_resultados`,

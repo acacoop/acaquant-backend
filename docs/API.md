@@ -502,13 +502,16 @@ La data la pobla `jobs/negocio_movimientos.py` cada hora 12-22 ART L-V (escritur
 
 ### 7.5b Mesa de Dinero (`/api/mesa-dinero/*`) · op
 
-Carga manual de operaciones de la mesa (cada registro = pata compra + pata venta). Lectura con módulo `operaciones`; **escritura solo para emails en `operaciones.mesa_dinero_escritores`** (admin siempre puede) — allowlist gestionada desde Manager → MESA. `monto = vn × px / 100`, `resultado = monto_venta − monto_compra` y `pct = resultado / monto_compra` se derivan server-side (`resultado` manual solo si faltan patas, ej. "Pase OPS"). Todo cambio queda auditado en `operaciones.mesa_dinero_audit`.
+Carga manual de operaciones de la mesa (cada registro = pata compra + pata venta). **Lectura por allowlist per-usuario, NO por el módulo `operaciones`** (cambio 2026-08-11): `mesa_dinero_lectores` ∪ `mesa_dinero_escritores` ven todo; `mesa_dinero_lectores_resultados` entra solo a la tab RESULTADOS (`/ops`, `/resumen` y `/retorno` llevan `require_vista_completa`). **Escritura solo para emails en `operaciones.mesa_dinero_escritores`** (admin siempre puede) — allowlist gestionada desde Manager → MESA. `monto = vn × px / 100`, `resultado = monto_venta − monto_compra` y `pct = resultado / monto_compra` se derivan server-side (`resultado` manual solo si faltan patas, ej. "Pase OPS"). Todo cambio queda auditado en `operaciones.mesa_dinero_audit`.
 
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/ops` | Operaciones del rango `desde`/`hasta` (YYYY-MM-DD) |
 | GET | `/resumen` | Resultado diario: `resultado_ars`, `tc` (manual), `resultado_usd`, acumulados y totales |
-| GET | `/opciones` | Catálogos para el form: traders, observaciones (`Mesa` + operadores de `clientes.operadores`) y `puede_escribir` del actor |
+| GET | `/resultados` | Agregado del período por CLIENTE y por COMERCIAL (ARS/USD). Única ruta que ve el alcance parcial |
+| GET | `/opciones` | Catálogos para el form: traders, observaciones (`Mesa` + operadores de `clientes.operadores`), `puede_escribir`, `alcance` y `es_admin` del actor |
+| GET | `/retorno` | ACA VALORES RETORNO TOTAL: filas crudas del `periodo` (default = el más reciente). La métrica que agrega el front es el CASH (`bruto`) |
+| POST | `/retorno/import` | **ADMIN-ONLY** (`require_admin`). `multipart/form-data` con `archivo` = el Excel "OP Aca Valores FCI". `?dry_run=true` parsea y devuelve el resumen SIN escribir (el preview del botón). Sin `dry_run` **reemplaza los períodos que trae el archivo** (`DELETE` + insert, idempotente por `periodo`). 400 si no es el informe o si ninguna fila tiene fecha; 413 si pesa más de 15 MB. Misma función que la CLI `scripts/import_acavalores_retorno.py` |
 | POST | `/ops` | Alta (write-gated) |
 | PATCH | `/ops/{id}` | Edición (write-gated) |
 | DELETE | `/ops/{id}` | Baja (write-gated) |

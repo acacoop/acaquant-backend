@@ -196,7 +196,8 @@ def opciones(email: str = "") -> dict:
     """Opciones del formulario: traders válidos + observaciones válidas +
     clientes ya usados (sugerencias, no restrictivo) + si el usuario actual
     puede escribir (el front esconde la edición sin esto, pero el enforcement
-    real es server-side en cada write) + su `alcance` (qué tabs renderizar).
+    real es server-side en cada write) + su `alcance` (qué tabs renderizar) +
+    `es_admin` (dibuja el botón de importar el Excel de ACA VALORES).
 
     Con alcance SOLO RESULTADOS se devuelven únicamente los traders (los usa el
     filtro de la barra, que aplica a la tab RESULTADOS) — el resto son catálogos
@@ -204,14 +205,24 @@ def opciones(email: str = "") -> dict:
     al = alcance(email=email)
     if al == ALCANCE_RESULTADOS:
         return {"traders": _traders_validos(), "observaciones": [], "clientes": [],
-                "puede_escribir": False, "alcance": al}
+                "puede_escribir": False, "alcance": al, "es_admin": False}
     return {
         "traders": _traders_validos(),
         "observaciones": _observaciones_validas(),
         "clientes": _clientes_usados(),
         "puede_escribir": puede_escribir(email),
         "alcance": al,
+        # Solo para que la tab ACA VALORES RETORNO dibuje (o no) el botón de
+        # importar el Excel. El permiso REAL es `require_admin` en el endpoint:
+        # esto viaja para no hacer que el front consulte el rol por su cuenta y
+        # termine con DOS criterios de "es admin" que se pueden contradecir.
+        "es_admin": _es_admin(email),
     }
+
+
+def _es_admin(email: str) -> bool:
+    from core.roles import get_user_role
+    return get_user_role((email or "").lower().strip()) == "admin"
 
 
 def _traders_validos() -> list[str]:

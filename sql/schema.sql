@@ -664,11 +664,19 @@ CREATE INDEX IF NOT EXISTS ix_mesa_dinero_audit_ts ON operaciones.mesa_dinero_au
 
 -- ACA VALORES RETORNO TOTAL — operaciones bursátiles del fondo "ACA R.TOTAL".
 -- Se cargan EXCLUSIVAMENTE desde el Excel "OP Aca Valores FCI - <mes>.xls"
--- (informe de operaciones, NO diario) vía scripts/import_acavalores_retorno.py.
+-- (informe de operaciones, NO diario) — se sube desde la propia tab (admin) o
+-- por CLI (scripts/import_acavalores_retorno.py).
 -- Cada fila = una operación del archivo. La carga es idempotente por `periodo`
 -- (YYYY-MM del archivo): re-importar un mes borra y reinserta ese mes. Alimenta
--- la tab "ACA VALORES RETORNO TOTAL" de Mesa de Dinero (Σ Valor Nominal por
--- operación / agente / papel). Lectura: módulo `operaciones` (solo lectura).
+-- la tab "ACA VALORES RETORNO TOTAL" de Mesa de Dinero.
+-- ⚠️ La MÉTRICA que suma la tab es el CASH (`bruto`, "Moneda de Concertación
+-- Bruto"), en valor absoluto — NO `valor_nominal`. Este comentario decía "Σ Valor
+-- Nominal" y el código nunca sumó eso: quien leyera el schema para armar un
+-- reporte nuevo habría sumado la columna equivocada y el número le habría dado
+-- plausible (REGLA #9 aplicada a la documentación).
+-- Lectura: allowlist de Mesa de Dinero con alcance COMPLETO (require_vista_completa).
+-- Carga: POST /api/mesa-dinero/retorno/import (ADMIN) o la CLI; las dos llaman a
+-- la MISMA función `api/services/acavalores_retorno.py::importar`.
 CREATE TABLE IF NOT EXISTS operaciones.acavalores_retorno (
     id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     periodo            text NOT NULL,        -- 'YYYY-MM' (de fecha_concertacion) — clave de re-import
@@ -680,10 +688,10 @@ CREATE TABLE IF NOT EXISTS operaciones.acavalores_retorno (
     papel_numero       text,
     papel_descripcion  text,                 -- Papel Descripción (FCI…, Especies Varias, GOB…)
     depositario        text,
-    valor_nominal      numeric,              -- Valor Nominal (la métrica que se suma)
+    valor_nominal      numeric,              -- Valor Nominal (informativo — NO es lo que suma la tab)
     moneda_simbolo     text,                 -- Moneda de Concertación Símbolo ($)
     precio             numeric,              -- Moneda de Concertación Precio
-    bruto              numeric,              -- Moneda de Concertación Bruto
+    bruto              numeric,              -- Moneda de Concertación Bruto = el CASH (LA métrica de la tab)
     gastos_total       numeric,              -- Gastos Total
     isin               text,                 -- Papel ISIN Code
     agente_descripcion text,                 -- Agente Descripción (broker/ALyC)
@@ -694,8 +702,10 @@ CREATE TABLE IF NOT EXISTS operaciones.acavalores_retorno (
     fondo_neto         numeric,              -- Moneda del Fondo Neto
     tipo_especie       text,                 -- Tipo de Especie Descripción
     archivo            text,                 -- nombre del .xls de origen (trazabilidad)
-    importado_en       timestamptz
+    importado_en       timestamptz,
+    importado_por      text                  -- email del admin que lo subió ('cli' desde la CLI)
 );
+ALTER TABLE operaciones.acavalores_retorno ADD COLUMN IF NOT EXISTS importado_por text;
 CREATE INDEX IF NOT EXISTS ix_acaret_periodo ON operaciones.acavalores_retorno (periodo);
 CREATE INDEX IF NOT EXISTS ix_acaret_operacion ON operaciones.acavalores_retorno (operacion);
 CREATE INDEX IF NOT EXISTS ix_acaret_agente ON operaciones.acavalores_retorno (agente_descripcion);

@@ -417,11 +417,14 @@ def altas_historico(*, granularidad: str | None = None, solo_activas: bool = Fal
         advertencias.append(
             f"{sin_alta} cuenta(s) del scope NO tienen fecha de alta de legajo: no entran "
             f"en ninguna barra ni en el acumulado")
-    advertencias.append(
-        "cuenta TODAS las comitentes del scope, cerradas incluidas — un alta de 2019 sigue "
-        "siendo un alta de 2019" if not solo_activas else
-        "⚠️ SOLO cuentas hoy Activas: el pasado se ve más chico de lo que fue, porque las "
-        "que se cerraron desde entonces no figuran")
+    # Solo se avisa el caso RIESGOSO. Contar todas las comitentes es el default y es
+    # lo correcto; decirlo en cada pantalla era una línea que se lee una vez y después
+    # solo ocupa lugar. Que el pasado se achique cuando se filtra por estado, en cambio,
+    # es una distorsión que hay que ver justo cuando pasa.
+    if solo_activas:
+        advertencias.append(
+            "SOLO cuentas hoy Activas: el pasado se ve más chico de lo que fue, porque las "
+            "que se cerraron desde entonces no figuran")
     return {
         "granularidad": gran, "solo_activas": bool(solo_activas),
         "filas": filas, "total": total, "sin_alta": sin_alta,

@@ -1,5 +1,0 @@
-# Environments exportados de Postman CON credenciales adentro.
-# El único environment versionado es interbanking.postman_environment.json,
-# que va vacío de secretos a propósito. Si exportás uno con valores, guardalo
-# con sufijo .local.json y queda fuera del repo.
-*.local.json

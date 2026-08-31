@@ -1,3 +1,0 @@
-Análisis de sensibilidad de retorno total para los bonos soberanos: para cada escenario de TIR a N días responde "si el bono cotiza a TIR X, ¿cuál es el retorno total?" = (precio_objetivo proyectado por descuento de flujos futuros + cupones/amortizaciones cobrados hasta el horizonte) / precio_actual − 1. Default: upside instantáneo sin pull-to-par. Cacheado.
-
-Conecta con: lee precios de `Trading.MarketSnapshot` y los flujos del prospecto de `Trading.Curvas`; reusa `fecha_flujo`/`monto_flujo_soberano` de `engines.curvas`. Alimenta la tab "Análisis Sensibilidad" de /retorno en acaquant-web y la tool MCP.

@@ -1,2 +1,0 @@
-Route handler que proxea las cotizaciones de watchlists (equity + forex) al backend (/api/market/quotes), pasando el querystring. Sin cache.
-- Conecta con: backend /api/market/quotes (api.routers.market, alimentado por jobs.market_quotes); usado por los widgets de cotizaciones del frontend.

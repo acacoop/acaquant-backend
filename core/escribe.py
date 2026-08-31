@@ -7,12 +7,11 @@ LO QUE ESTO ARREGLA
 
 La primera medición de cobertura (§0.ap) puso a `tabla_quieta · sin_escribir` como
 **la pared más cara: 8 casos**, y los tres ejemplos que imprimió fueron
-`ia.trazas`, `manager.role_audit` y `manager.salud_eventos`.
+`ia.trazas` y `manager.role_audit`.
 
 Mirando quién las escribe, ninguna tiene un job atrás:
 
     manager.role_audit    ← `core/roles.py`, cuando alguien CAMBIA un rol
-    manager.salud_eventos ← cuando un chequeo TRANSICIONA
 
 **Están quietas porque no pasó nada, no porque algo esté roto.** Y no hay nada
 que relanzar: no existe el job. Ponerle un botón «relanzar» a esa pared habría

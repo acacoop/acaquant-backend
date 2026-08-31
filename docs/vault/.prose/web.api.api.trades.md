@@ -1,2 +1,0 @@
-Route handler que proxea el time & sales intradía de un instrumento: recibe ?instrumento, valida y pega a /api/cotizaciones/historico/trades. Sin cache — el panel del libro hace polling propio cada 5s.
-- Conecta con: backend /api/cotizaciones/historico/trades (api.routers.cotizaciones, sobre Trading.TimeSales); usado por el LibroPanel del frontend.

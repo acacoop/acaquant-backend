@@ -1,2 +1,0 @@
-Route handler que proxea el reader-mode de un artículo: recibe ?url, valida y pega a /api/news/article del backend para traer el texto limpio. maxDuration 30s por el scraping, sin cache.
-- Conecta con: backend /api/news/article (api.routers.news); usado al abrir una noticia en modo lectura.

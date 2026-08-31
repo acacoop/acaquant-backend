@@ -1,3 +1,0 @@
-Fuente única de las reglas de exclusión del AuM: define qué posiciones NO se contabilizan como patrimonio bajo administración. Cinco reglas: cash USDL, patrones OTC/CDC, cuentas de fondos por `id_cuenta` (leídas de `CuentasAPI.ContrapartesAPI`), nombres de contraparte por palabra completa (leídos de `CashFlow.Contrapartes`) y el cash ARS de las cuentas propias [100]/[101]. Expone `is_excluded()` (fila a fila) y `mongo_match_excluded()` (filtro `$or` para borrados masivos).
-
-Conecta con: lee `CuentasAPI.ContrapartesAPI` y `CashFlow.Contrapartes`; lo usan `jobs.aum` (al persistir) y `scripts/cleanup_aum_excluidos.py` (limpieza retroactiva), garantizando criterio idéntico.

@@ -1,2 +1,0 @@
-Proxy catch-all (GET/POST/DELETE) hacia /api/operativa/* del backend — wrappers operativos sobre órdenes (ej. operativa MEP). Reenvía body, auth de service token e identidad del usuario para el audit.
-- Conecta con: backend /api/operativa/* (api.routers.operativa); usado por los botones de operativa rápida del frontend.

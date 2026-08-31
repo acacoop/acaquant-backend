@@ -1,2 +1,0 @@
-Route handler que proxea la performance mensual (XIRR) de una cuenta a /api/valuaciones/{id_cuenta}/mensual. force-dynamic + no-store.
-- Conecta con: backend /api/valuaciones/{id}/mensual (api.routers.valuaciones / api.services.valuaciones); usado por la vista de rendimiento mensual por cuenta.

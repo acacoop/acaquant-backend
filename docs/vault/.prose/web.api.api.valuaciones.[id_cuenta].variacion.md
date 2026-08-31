@@ -1,2 +1,0 @@
-Route handler que proxea la variación de una cuenta para una fecha (?fecha requerido) a /api/valuaciones/{id_cuenta}/variacion. force-dynamic + no-store.
-- Conecta con: backend /api/valuaciones/{id}/variacion (api.routers.valuaciones); usado para mostrar la variación diaria del patrimonio.

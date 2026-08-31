@@ -1,2 +1,0 @@
-Route handler que proxea los titulares de noticias al backend (/api/news), reenviando el querystring. Sin cache.
-- Conecta con: backend /api/news (api.routers.news, lee News.Headlines); consumido por la vista de noticias del frontend.

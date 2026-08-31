@@ -1,2 +1,0 @@
-Route handler liviano que proxea el calendario económico global al backend (/api/market/calendar/economic), reenviando el querystring tal cual. Sin cache (revalidate 0).
-- Conecta con: backend /api/market/calendar/economic (api.routers.market); consumido por la vista de calendario económico del frontend.

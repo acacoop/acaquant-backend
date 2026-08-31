@@ -1,3 +1,0 @@
-Motor de opciones agro de Rosario (Trigo/Maíz/Soja). Descubre las opciones sobre futuros Rosario filtrando por cficode (OCAFXS=call, OPAFXS=put) y parseando strike/vencimiento del symbol; las suscribe por WS con depth=1 y persiste un doc por ticker con bid/offer/last + strike + días a vto. Re-discovery cada 5 min.
-
-Conecta con: escribe a `Trading.AgroOpcionesSnapshot` (ReplaceOne cada 5s); usa `core.rofex_session` + `core.websocket`. Lo invoca systemd `motor_agro_opciones.service` (L-V 13-20 UTC). Lo consume la vista de estrategias agro vía `api.services.derivados_agro`. No escribe TimeSales ni histórico de cierre.

@@ -1,6 +1,6 @@
 """gen_mapa_app.py — mantiene `docs/MAPA_APP.md` sincronizado con el código.
 
-Mismo contrato que `gen_sistema` y `gen_obsidian`: los bloques entre marcadores
+Mismo contrato que `gen_sistema`: los bloques entre marcadores
 `<!-- AUTOGEN:x --> ... <!-- /AUTOGEN:x -->` se regeneran desde la FUENTE REAL
 (la app FastAPI montada) y NO se editan a mano. La narrativa del doc (qué hace
 cada vista, sus tabs, sus filtros, las rarezas) se mantiene a mano: eso cambia

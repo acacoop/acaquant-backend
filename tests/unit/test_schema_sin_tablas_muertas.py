@@ -45,7 +45,20 @@ CARPETAS = ("api", "agente", "jobs", "core", "engines", "quant", "scripts")
 
 # Declaraciones sin uso que se aceptan igual. Vacío a propósito: agregar una es
 # una decisión consciente y lleva el motivo al lado, no un olvido que pasa.
-SIN_USO_JUSTIFICADO: dict[str, str] = {}
+SIN_USO_JUSTIFICADO: dict[str, str] = {
+    # 2026-08-30 — La pantalla SALUD se dio de baja: el AV AGENT la reemplazó.
+    # De `api/services/salud.py` sobrevive el MOTOR (`evaluar` + `CONTRATOS`,
+    # que usan `agente/detectores/sistema.py` y `agente/tablas.py`); lo que se
+    # borró es la capa de PERSISTENCIA de la pantalla, o sea el único escritor
+    # que tenían estas tres.
+    #
+    # ⚠️ Quedan declaradas y NO se dropean acá porque `salud_eventos` tiene el
+    # HISTORIAL de transiciones (verde→rojo→verde) y borrar datos no se revierte.
+    # PENDIENTE del user: decidir el DROP de las tres.
+    "manager.salud_eventos": "pantalla SALUD dada de baja 2026-08-30 — DROP pendiente (tiene historial)",
+    "manager.salud_config":  "pantalla SALUD dada de baja 2026-08-30 — DROP pendiente",
+    "manager.salud_vistos":  "pantalla SALUD dada de baja 2026-08-30 — DROP pendiente",
+}
 
 _RE_CREA = re.compile(
     r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)

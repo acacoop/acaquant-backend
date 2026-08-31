@@ -1,3 +1,0 @@
-Provider OAuth 2.1 + PKCE del servidor MCP, con el login delegado a Cloudflare Access. Implementa el flujo: registro dinámico de cliente (`/oauth/register`, DCR), `/oauth/authorize` (CF Access desafía al user, leemos su email del JWT y emitimos un authorization code) y `/oauth/token` (intercambia el code por un access_token JWT firmado por nosotros). También valida tokens (`verify_access_token`).
-
-Conecta con: persiste clients/codes/tokens en la DB Mongo `MCP` (TTL automático en codes 10min, tokens 1h); usa `api.auth.get_user_email` para sacar la identidad de CF; emite los tokens que valida `api.mcp.auth`.

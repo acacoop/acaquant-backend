@@ -1,2 +1,0 @@
-Proxy catch-all read-only (solo GET) hacia /api/operaciones/* del backend. Adjunta auth de service token y propaga la identidad del usuario para el RBAC/scoping. force-dynamic + no-store.
-- Conecta con: backend /api/operaciones/* (api.routers.operaciones, sobre CashFlow.NegocioMovimientos/Operaciones); consumido por la vista Operaciones / Negocio.

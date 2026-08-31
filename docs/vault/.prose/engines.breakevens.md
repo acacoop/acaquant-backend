@@ -1,3 +1,0 @@
-Motor de breakevens de inflación CER/Lecap en tiempo real. Cada 30s empareja cada bono tasa fija (Lecap/Boncap) con el bono CER de vencimiento más cercano y calcula la inflación mensual implícita que pricea el mercado entre hoy y ese vto. Cada par trae el `mes_inflacion` (IPC al que refiere, por el rezago del CER).
-
-Conecta con: lee TEM de Lecap y paridad de CER vía `engines._curvas_loader` (`Trading.Curvas`) + el calendario de liquidación CER que reusa de `engines.curvas`; escribe `Trading.BreakevensLive` (live) y `Trading.BreakevensHistorico` (1 doc por fecha). Lo invoca systemd `motor_breakevens.service`. Lo consume `api.services.derivados`; backfill histórico por `jobs.backfill_breakevens`.

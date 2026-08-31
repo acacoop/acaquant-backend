@@ -1,3 +1,0 @@
-Paquete `/api/manager` — `__init__.py` arma el `APIRouter` raíz del panel Manager y monta todos los sub-routers (status, checks, jobs, options, logs, users, roles, grupos, aunesa, assets, valuaciones, operaciones, comercial, clientes, compliance) cada uno con su gate RBAC propio. Las tabs admin van detrás del módulo `manager` (admin-only); `comercial`/`clientes`/`compliance` usan gates OR finos para que `asistente_comercial` entre solo a sus tabs sin abrirle el resto.
-
-Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::verify_api_key` para los gates; importa y monta los 15 sub-routers de `api/routers/manager/`. Se monta en `api.main`. Lo consume la manager-view de acaquant-web.

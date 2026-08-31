@@ -1,3 +1,0 @@
-Estadística de series de precios: convierte precios a retornos aritméticos y calcula volatilidad realizada anualizada (√252), correlación de Pearson, z-score del último retorno y la regresión OLS asset-vs-benchmark (beta, alpha anualizado, R²). Funciones puras sobre listas de floats en memoria; la lectura de la serie histórica la hace el caller.
-
-Conecta con: lo importan `api/services/rv_motor.py` (Mesa de Estrategia RV) y `api/services/scanner.py` (Scanner CEDEARs), que le pasan series leídas de `Trading.PreciosAcciones`/feeds y reciben beta/alpha/vol/correlación para sus tablas. No toca Mongo.

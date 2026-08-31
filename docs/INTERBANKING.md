@@ -158,7 +158,6 @@ proveedor.
 `diag_interbanking` hace el smoke de las 5 APIs y cruza el listado de cuentas
 contra `operaciones.tesoreria_cuentas`.
 
-También hay una colección de Postman en `docs/postman/`.
 
 ## Límites
 
@@ -1383,8 +1382,8 @@ Respeta el filtro por banco de la vista.
   próxima corrida re-pide el último día hábil y levanta lo que hubiera quedado sin
   ingerir. También se actualizó el estado del doc, que decía que faltaba la tab del
   front (existe) y que el maestro de cuentas eran 2 llamadas (son 4).
-- **2026-08-14** — Alta de la aplicación en el portal. Colección de Postman
-  (`docs/postman/`), `core/interbanking.py`, `scripts/diag_interbanking_auth.py`,
+- **2026-08-14** — Alta de la aplicación en el portal. `core/interbanking.py`,
+  `scripts/diag_interbanking_auth.py`,
   `scripts/diag_interbanking.py` y `scripts/diag_interbanking_raw.py`. Detectado
   que el `tokenUrl` de los YAML del proveedor no es el endpoint real. **Auth
   resuelta y 26 cuentas leídas** contra producción.

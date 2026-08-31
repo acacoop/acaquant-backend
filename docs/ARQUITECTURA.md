@@ -10,8 +10,7 @@
 > `MOTOR_VALUACIONES.md` (PnL), `SECRETS.md` +
 > `SECURITY.md` (seguridad),
 > `GRUPOS.md`, `SEGMENTACION_PATRIMONIAL.md`, `HERRAMIENTAS.md` (auto-gen).
-> El plano vivo de servicios/crons: `deploy/SISTEMA.md`. El grafo navegable:
-> `docs/vault/`.
+> El plano vivo de servicios/crons: `deploy/SISTEMA.md`.
 
 Última actualización: 2026-08-30.
 

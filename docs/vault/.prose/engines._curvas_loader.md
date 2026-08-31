@@ -1,3 +1,0 @@
-Loader común que centraliza la lectura de `Trading.Curvas` (definición estática de instrumentos) para todos los motores de renta fija. Unifica lo que antes eran 4 funciones de carga casi idénticas: expone `cargar_todos`, `cargar_por_curva` (agrupado por campo `curva`), `cargar_indexado_por_ticker` y `cargar_tickers_ordenados`. Usa el singleton de Mongo directamente (los motores ya lo tienen inicializado).
-
-Conecta con: lee `Trading.Curvas` vía `core.mongo`. Lo consumen `engines.curvas` (indexado por ticker), `engines.forwards` y `engines.breakevens` (agrupado por curva) y `engines.valores` (tickers ordenados).

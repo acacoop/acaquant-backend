@@ -1,2 +1,0 @@
-Route handler de Next que proxea al backend la serie histórica de una curva de bonos (precio, TEA, TEM, duration, paridad por fecha). Recibe ?curva, valida que venga, y pega a /api/cotizaciones/historico/curva en el FastAPI. Marcado force-dynamic + no-store porque la última fecha disponible cambia con el live fallback del backend.
-- Conecta con: backend FastAPI /api/cotizaciones/historico/curva (api.routers.cotizaciones); consumido por la vista de curvas en acaquant-web.

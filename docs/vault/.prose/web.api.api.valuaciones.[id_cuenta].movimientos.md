@@ -1,2 +1,0 @@
-Route handler que proxea los movimientos de una cuenta para una fecha dada (?fecha requerido) a /api/valuaciones/{id_cuenta}/movimientos. force-dynamic + no-store.
-- Conecta con: backend /api/valuaciones/{id}/movimientos (api.routers.valuaciones); usado al expandir el detalle de un día en la vista de valuaciones.

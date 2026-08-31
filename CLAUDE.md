@@ -202,7 +202,7 @@ incidente 2026-06-03. Si dudás del volumen, NO lo corras: medí primero.
   scratch y todo lo superseded **se borran o se consolidan**. La arquitectura/
   datos/estrategia/roadmap viven en **UN doc madre: `docs/ARQUITECTURA.md`** — no
   esparcidos en N archivos. El resto de `docs/` es referencia operativa viva (API,
-  RUNBOOK, seguridad, etc.) + el `vault/` auto-generado.
+  RUNBOOK, seguridad, etc.).
 - Ante la duda, preguntar "¿lo borro?" — no acumular por las dudas.
 
 ## ⚠️ REGLA #6 — Credencial/acceso faltante: se pide UNA vez, no se insiste
@@ -340,7 +340,7 @@ tests/       # pytest — unit/ + integration/ (marker `integration`, excluido p
 sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # documentación (ver "Mapa de docs" abajo) + vault/ (cerebro Obsidian, auto-generado)
+docs/        # documentación (ver "Mapa de docs" abajo)
 ```
 
 ## Mapa de docs — cuál leer ANTES de tocar cada dominio
@@ -373,7 +373,7 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | API HTTP (contratos) | `API.md` |
 | **API EXTERNA para accionistas** (`/ext`) | `API_EXTERNA.md` **[VIVO]** — ⚠️ superficie hacia AFUERA: el permiso es un dato (`ext.cuentas_autorizadas`), el scope es fail-closed y **no se reusa `verify_api_key` ni `cuentas_visibles`** |
 
-Auto-generados (NO editar a mano): `HERRAMIENTAS.md`, `vault/`, `deploy/SISTEMA.md`.
+Auto-generados (NO editar a mano): `HERRAMIENTAS.md`, `deploy/SISTEMA.md`.
 
 ## Mapa de la app — `docs/MAPA_APP.md` (LEER al empezar una sesión)
 
@@ -430,23 +430,6 @@ El inventario (servicios/motores/crons) es auto-generado desde la fuente
 real → no puede mentir. La narrativa (topología, flujo de datos, bases) se
 mantiene a mano. Si cambió cómo se conectan los servicios, actualizá esa
 parte también. Skill: `/sistema`.
-
-## Cerebro Obsidian — `docs/vault/`
-
-Grafo navegable de TODO el sistema (módulos, componentes, rutas, crons,
-colecciones, vistas, services, libs) como vault de Obsidian. El generador
-`scripts/gen_obsidian.py` es **determinista**: parsea el código y reconstruye
-archivos, links y backlinks de cada nota. La sección _Qué hace_ se completa con
-una pasada de enriquecimiento con IA; el resto NO se edita a mano.
-
-```bash
-python -m scripts.gen_obsidian          # regenera las notas
-python -m scripts.gen_obsidian --check  # CI: falla si el vault quedó stale
-```
-
-Mismo contrato que `gen_sistema`: tras un cambio estructural (router/cron/
-colección/componente nuevo) el vault queda desincronizado → regenerar en el
-mismo cambio. Cómo abrirlo: `docs/vault/README.md`.
 
 ## Comandos
 

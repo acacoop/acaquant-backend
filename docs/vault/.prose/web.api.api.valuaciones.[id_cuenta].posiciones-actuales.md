@@ -1,2 +1,0 @@
-Route handler que proxea las posiciones actuales de una cuenta a una fecha (?fecha opcional) a /api/valuaciones/{id_cuenta}/posiciones-actuales. force-dynamic + no-store.
-- Conecta con: backend /api/valuaciones/{id}/posiciones-actuales (api.routers.valuaciones); usado por la vista de tenencia puntual por cuenta.

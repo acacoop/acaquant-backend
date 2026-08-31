@@ -1,2 +1,0 @@
-Route handler que trae la lista de operadores para el filtro madre de la vista AuM, desde /api/portfolio/operadores. force-dynamic + no-store.
-- Conecta con: backend /api/portfolio/operadores (api.routers.carteras); consumido por el filtro de operador de la vista AuM.

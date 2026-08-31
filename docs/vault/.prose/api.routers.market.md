@@ -1,3 +1,0 @@
-Router de datos de mercado global para watchlists y gráficos. Expone `/api/market/quotes` (últimas cotizaciones de equities/forex con retornos 7d/MTD/YTD/1Y calculados on-the-fly desde anchors), `/calendar/economic` (calendario económico filtrable por país/importancia), `/candle` (OHLC histórico vía Yahoo Finance) y `/profile` (perfil de empresa vía Finnhub).
-
-Conecta con: lee `Market.Quotes` (poblada por `jobs.market_quotes`) y `Market.EconomicCalendar`; pega a Yahoo (`core.yahoo`) y Finnhub (`core.finnhub`) en vivo; lo consume el frontend de la home/watchlist.

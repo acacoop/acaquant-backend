@@ -1,3 +1,0 @@
-Helper read-only que arma el universo dinámico de tickers para `motor_portfolio_snapshot`: el set de symbols pyRofex (`MERV - XMEV - X - 24hs`) a suscribir para tener last_price live. Combina los instrumentos con tenencia hoy (último snapshot de AuM, qty≠0) con los tickers operados hoy, y valida cada candidato contra la lista canónica de instrumentos.
-
-Conecta con: lee `Valuaciones.AuM`, `Valuaciones.Assets`, `CashFlow.NegocioMovimientos` y valida contra `Manager.PyRofexInstruments` (todo vía `core.mongo` read-only). Su única función `tickers_de_tenencia()` la consume `engines.portfolio_snapshot`.

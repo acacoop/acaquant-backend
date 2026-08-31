@@ -708,22 +708,25 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"FROM comitentes WHERE {where} GROUP BY COALESCE(nivel_1, '(sin segmentar)') "
         f"ORDER BY n DESC", p)]
 
-    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en el MES CALENDARIO
-    # del HASTA [1º de ese mes, corte] (mismo criterio que CTAS OPS del ranking). Independiente
-    # del `desde`.
+    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 boleto) en el MES
+    # CALENDARIO del HASTA [1º de ese mes, corte]. Independiente del `desde`.
+    #
+    # Va contra `operaciones` con `_act_where`, el MISMO predicado que CTAS OPS del
+    # ranking y que DÍAS SIN OPERAR. Leía `negocio_movimientos` por categoría, que
+    # es de donde las cuentas OTC están excluidas EN LA INGESTA — y las dos mitades
+    # de la misma pantalla contaban distinto sin que nada fallara.
     mes_ini = date(anio, mes, 1).isoformat()
-    p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_ini, "corte": corte}
-    w_op = ("nm.categoria = ANY(%(cats)s) AND nm.unidad IS DISTINCT FROM 'USDL' "
-            "AND nm.anulado_en IS NULL "
-            "AND nm.fecha >= %(mes)s AND nm.fecha <= %(corte)s")
+    p2: dict = {"mes": mes_ini, "corte": corte}
+    w_op = (f"{_act_where('o')} "
+            f"AND o.concertacion >= %(mes)s AND o.concertacion <= %(corte)s")
     if operador:
         w_op += " AND c.operador_email = %(op)s"
         p2["op"] = operador
     w_op = _append_niveles(w_op, p2, "c", nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
     ops_map = {r["segmento"]: int(r["n"]) for r in _q(
         f"SELECT COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
-        f"count(DISTINCT nm.id_cuenta) AS n "
-        f"FROM negocio_movimientos nm JOIN comitentes c ON c.id_cuenta = nm.id_cuenta "
+        f"count(DISTINCT o.id_cuenta) AS n "
+        f"FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
         f"AND c.estado = 'Activa' WHERE {w_op} "
         f"GROUP BY COALESCE(c.nivel_1, '(sin segmentar)')", p2)}
     for s in segmentos:
@@ -744,12 +747,16 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
 def _rollup_por_cuenta(scope: str | None, p: dict,
                        desde: str | None = None,
                        hasta: str | None = None) -> dict[str, dict]:
-    """{id_cuenta: {vol_total, vol_mes, n_ops, n_ops_mes, ar_total, ar_mes}} en vivo.
+    """{id_cuenta: {vol_total, vol_mes, n_ops, ar_total, ar_mes, opero_mes}} en vivo.
     vol/n_ops de negocio_movimientos (cats), arancel de operaciones.
     TOTAL (vol_total/ar_total/n_ops) = período elegido [desde, hasta]: sin `desde` no hay
-    límite inferior (histórico), sin `hasta` corre hasta hoy. MES (vol_mes/ar_mes/n_ops_mes)
+    límite inferior (histórico), sin `hasta` corre hasta hoy. MES (vol_mes/ar_mes)
     = el MES CALENDARIO del HASTA [1º de ese mes, hasta] (si no hay hasta, mes actual);
-    independiente del `desde`. Ej: hasta=30/06 → MES = junio; hasta=31/05 → MES = mayo."""
+    independiente del `desde`. Ej: hasta=30/06 → MES = junio; hasta=31/05 → MES = mayo.
+
+    ⚠️ `opero_mes` (= CTAS OPS del informe) NO sale de `negocio_movimientos` como el
+    resto: sale de `operaciones.operaciones` con `_ULT_OP_WHERE`, el MISMO predicado
+    que DÍAS SIN OPERAR. El porqué, en el bloque QUIÉN OPERÓ EN EL MES de abajo."""
     p["cats"] = list(_CATS_VOLUMEN)
     corte = date.fromisoformat(hasta) if hasta else _hoy_art()
     mes_ini = corte.replace(day=1).isoformat()
@@ -787,8 +794,7 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
         f"WITH vol AS (SELECT id_cuenta, "
         f"  SUM(CASE WHEN {lb_vol} THEN {_PESIF} ELSE 0 END) AS vol_total, "
         f"  SUM(CASE WHEN fecha >= %(mes_ini)s THEN {_PESIF} ELSE 0 END) AS vol_mes, "
-        f"  SUM(CASE WHEN {lb_vol} THEN 1 ELSE 0 END) AS n_ops, "
-        f"  SUM(CASE WHEN fecha >= %(mes_ini)s THEN 1 ELSE 0 END) AS n_ops_mes "
+        f"  SUM(CASE WHEN {lb_vol} THEN 1 ELSE 0 END) AS n_ops "
         f"  FROM negocio_movimientos WHERE {w_vol} GROUP BY id_cuenta), "
         f"ar AS (SELECT id_cuenta, "
         f"  SUM(CASE WHEN {lb_ar} THEN arancel ELSE 0 END) AS ar_total, "
@@ -796,10 +802,40 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
         f"  FROM operaciones WHERE {w_ar} GROUP BY id_cuenta) "
         f"SELECT COALESCE(v.id_cuenta, a.id_cuenta) AS id_cuenta, "
         f"  COALESCE(v.vol_total,0) AS vol_total, COALESCE(v.vol_mes,0) AS vol_mes, "
-        f"  COALESCE(v.n_ops,0) AS n_ops, COALESCE(v.n_ops_mes,0) AS n_ops_mes, "
+        f"  COALESCE(v.n_ops,0) AS n_ops, "
         f"  COALESCE(a.ar_total,0) AS ar_total, COALESCE(a.ar_mes,0) AS ar_mes "
         f"FROM vol v FULL OUTER JOIN ar a ON v.id_cuenta = a.id_cuenta", p)
-    return {r["id_cuenta"]: r for r in rows if r["id_cuenta"]}
+    out = {r["id_cuenta"]: r for r in rows if r["id_cuenta"]}
+
+    # ── QUIÉN OPERÓ EN EL MES (= CTAS OPS) ────────────────────────────────────
+    #
+    # Query aparte y contra OTRA tabla, a propósito. `vol` sale de
+    # `negocio_movimientos`, y ahí las cuentas OTC NO EXISTEN: la ingesta las tira
+    # por substring en el nombre (`aunesa_negocio._excluir`). Contar "cuentas que
+    # operaron" sobre esa tabla dejaba al informe contradiciéndose SOLO consigo
+    # mismo: la misma fila mostraba arancel cobrado y 0 cuentas operativas, porque
+    # el arancel sí sale de `operaciones`. Y si le cobramos arancel, operó — el
+    # arancel ES la comisión de un boleto.
+    #
+    # Predicado: `_ULT_OP_WHERE` (cualquier boleto no anulado), el mismo de DÍAS
+    # SIN OPERAR y de la columna ACTIVOS de PROFUNDIDAD. Así queda UNA sola
+    # definición de "cuenta operativa" en toda la app, congelada por test.
+    #
+    # Scopeada al MES (`>= mes_ini`, `<= hasta`) → cae en `ix_ops_concertacion`.
+    # No se mete en la CTE `ar` porque esa no acota por abajo cuando no hay
+    # `desde`: ensancharle el WHERE la volvería un scan histórico.
+    w_act = f"concertacion >= %(mes_ini)s{ub_ar} AND {_ULT_OP_WHERE} AND id_cuenta IS NOT NULL"
+    if scope:
+        w_act += f" AND {scope}"
+    vacio = {"vol_total": 0, "vol_mes": 0, "n_ops": 0, "ar_total": 0, "ar_mes": 0}
+    for r in _q(f"SELECT DISTINCT id_cuenta FROM operaciones WHERE {w_act}", p):
+        idc = r["id_cuenta"]
+        # Una cuenta puede haber operado sin volumen NI arancel (boleto con arancel
+        # 0). Igual operó: entra al dict, con los importes en cero.
+        out.setdefault(idc, {"id_cuenta": idc, **vacio})["opero_mes"] = True
+    for fila in out.values():
+        fila.setdefault("opero_mes", False)
+    return out
 
 
 def _ticket(vol: float, n: int) -> float:
@@ -850,9 +886,12 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
         for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
             o[k] += _f(agg[k])
         o["n_ops"] += int(agg["n_ops"] or 0)
-        # Ctas Ops = cuentas DISTINTAS que operaron en el mes del corte (≥1 op en la
-        # ventana [día 1 del mes, corte]). Cada cuenta cuenta como 1, opere 1 vez o mil.
-        if int(agg.get("n_ops_mes") or 0) > 0:
+        # Ctas Ops = cuentas DISTINTAS que operaron en el mes del corte (≥1 boleto en
+        # la ventana [día 1 del mes, corte]). Cada cuenta cuenta como 1, opere 1 vez
+        # o mil. El flag lo calcula `_rollup_por_cuenta` sobre `operaciones` — leerlo
+        # de `n_ops_mes` (negocio_movimientos) dejaba afuera a las cuentas OTC, que
+        # esta MISMA fila muestra cobrando arancel.
+        if agg.get("opero_mes"):
             o["ctas_ops"] += 1
 
         seg = info.get("nivel_1") or "(sin segmentar)"

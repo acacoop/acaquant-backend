@@ -1239,6 +1239,8 @@ previa, se auto-selecciona a sí mismo. `GET /api/me` también trae `control_com
 Cobros Futuros y en Profundidad de Clientes). Semántica: columnas **TOTAL** = `[Desde, Hasta]`; columnas **MES + CTAS OPS** = el **mes
 calendario del HASTA** (hasta=30/06 → junio completo, sin importar el Desde); **AuM = foto al HASTA**.
 
+⚠️ **CTAS OPS (y el modo `operativas` de Q1) NO salen de la misma tabla que el volumen.** El volumen sale de `operaciones.negocio_movimientos` filtrando por las 6 categorías de `comercial._CATS_VOLUMEN`, y ahí las cuentas **OTC no existen**: la ingesta las tira por substring en el nombre (`aunesa_negocio._excluir`). Contar cuentas operativas sobre esa tabla hacía que **la misma fila mostrara arancel cobrado y 0 cuentas operativas** — el arancel sí sale de `operaciones.operaciones`, y si le cobramos arancel, operó. Desde 2026-08-31 las dos cuentan con `comercial_sql._act_where` (cualquier boleto no anulado de `operaciones.operaciones`), el **mismo predicado** que DÍAS SIN OPERAR y que la columna ACTIVOS de Profundidad → hay **una sola** definición de «cuenta operativa» en la app, congelada por `tests/unit/test_comercial.py`. Efecto lateral esperado: CTAS OPS también incluye ahora rescates de FCI y futuros DLR, que el volumen sigue excluyendo a propósito.
+
 **KPIs del header** (salvo en Informe y en Profundidad de Clientes — ahí se calcularían al corte,
 que en esa tab está oculto): AUM · CLIENTES · VOL. MTD · VOL. YTD.
 

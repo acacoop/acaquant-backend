@@ -716,21 +716,35 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
     # es de donde las cuentas OTC están excluidas EN LA INGESTA — y las dos mitades
     # de la misma pantalla contaban distinto sin que nada fallara.
     mes_ini = date(anio, mes, 1).isoformat()
-    p2: dict = {"mes": mes_ini, "corte": corte}
+    ano_ini = date(anio, 1, 1).isoformat()
+    p2: dict = {"mes": mes_ini, "ano": ano_ini, "corte": corte}
     w_op = (f"{_act_where('o')} "
-            f"AND o.concertacion >= %(mes)s AND o.concertacion <= %(corte)s")
+            f"AND o.concertacion >= %(ano)s AND o.concertacion <= %(corte)s")
     if operador:
         w_op += " AND c.operador_email = %(op)s"
         p2["op"] = operador
     w_op = _append_niveles(w_op, p2, "c", nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
-    ops_map = {r["segmento"]: int(r["n"]) for r in _q(
+    # DOS ventanas en UNA pasada: el MES del corte y el AÑO hasta el corte.
+    #
+    # El año hacía falta y no existía en ningún lado. Las pills de ANÁLISIS COMERCIAL
+    # (ACTIVA/ENFRIÁNDOSE/DORMIDA) miden DÍAS DESDE LA ÚLTIMA OP, que es otra pregunta:
+    # una cuenta que operó en marzo y paró figura DORMIDA y sin embargo operó este año.
+    # Y la única pill anual era la NEGATIVA ("sin operar en el año"), o sea había que
+    # dar vuelta el número a mano y no estaba abierta por segmento.
+    #
+    # Se scanea el año y el mes sale por FILTER: el mes está contenido en el año, así
+    # que pedirlo aparte sería recorrer dos veces lo mismo.
+    ops_map = {r["segmento"]: r for r in _q(
         f"SELECT COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
-        f"count(DISTINCT o.id_cuenta) AS n "
+        f"count(DISTINCT o.id_cuenta) FILTER (WHERE o.concertacion >= %(mes)s) AS n_mes, "
+        f"count(DISTINCT o.id_cuenta) AS n_ano "
         f"FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
         f"AND c.estado = 'Activa' WHERE {w_op} "
         f"GROUP BY COALESCE(c.nivel_1, '(sin segmentar)')", p2)}
     for s in segmentos:
-        s["ctas_ops"] = ops_map.get(s["segmento"], 0)
+        r = ops_map.get(s["segmento"])
+        s["ctas_ops"] = int((r or {}).get("n_mes") or 0)
+        s["ctas_ops_ano"] = int((r or {}).get("n_ano") or 0)
 
     fa = _q("SELECT min(fecha_alta_legajo) AS f FROM comitentes "
             "WHERE fecha_alta_legajo IS NOT NULL")[0]["f"]
@@ -740,6 +754,8 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         "mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
         "total": sum(s["n"] for s in segmentos),
         "total_ctas_ops": sum(s["ctas_ops"] for s in segmentos),
+        "total_ctas_ops_ano": sum(s["ctas_ops_ano"] for s in segmentos),
+        "ano": anio,
         "segmentos": segmentos,
     }
 
@@ -1075,8 +1091,8 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
         f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)}
     ids = list(detalle)
     if not ids:
-        return {"segmento": segmento or "todos", "n_clientes": 0, "n_operativas": 0,
-                "clientes": []}
+        return {"segmento": segmento or "todos", "n_clientes": 0,
+                "n_operativas": 0, "n_operativas_ano": 0, "clientes": []}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
     ub = ""                                    # tope superior = HASTA (aplica a todo)
@@ -1097,10 +1113,16 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     # exactamente las cuentas que ese número cuenta, o la pantalla se contradice.
     # Viaja como FLAG por fila y no como una lista aparte: así el front filtra sin
     # pedir de nuevo y no puede quedar desfasado del dato que ya dibujó.
-    operativas = {r["id_cuenta"] for r in _q(
-        f"SELECT DISTINCT id_cuenta FROM operaciones "
-        f"WHERE id_cuenta = ANY(%(ids)s) AND concertacion >= %(mes_ini)s{ub} "
-        f"AND {_ULT_OP_WHERE}", pa)}
+    # DOS ventanas: el MES del corte y el AÑO hasta el corte. El mes está contenido en
+    # el año → se scanea el año una vez y el mes sale por FILTER.
+    pa["ano_ini"] = date(corte.year, 1, 1)
+    op_win = {r["id_cuenta"]: r for r in _q(
+        f"SELECT id_cuenta, bool_or(concertacion >= %(mes_ini)s) AS en_mes "
+        f"FROM operaciones "
+        f"WHERE id_cuenta = ANY(%(ids)s) AND concertacion >= %(ano_ini)s{ub} "
+        f"AND {_ULT_OP_WHERE} GROUP BY id_cuenta", pa)}
+    operativas_ano = set(op_win)
+    operativas = {i for i, r in op_win.items() if r["en_mes"]}
 
     clientes = []
     for r in _q(f"SELECT id_cuenta, "
@@ -1115,6 +1137,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
             "arancel_total": _cv(_f(r["ar_total"]), factor),
             "arancel_mes": _cv(_f(r["ar_mes"]), factor),
             "opero_mes": idc in operativas,
+            "opero_ano": idc in operativas_ano,
         })
     # Las que OPERARON y no dejaron un peso de arancel en la ventana. Entran igual,
     # con el arancel en cero.
@@ -1126,10 +1149,11 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     # calculado: el que mira no tiene cómo saber cuál creer. Y son justo las filas
     # más interesantes de la tabla — operó y no facturó.
     vistos = {c["id_cuenta"] for c in clientes}
-    for idc in sorted(operativas - vistos):
+    for idc in sorted(operativas_ano - vistos):
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
-            "arancel_total": 0.0, "arancel_mes": 0.0, "opero_mes": True,
+            "arancel_total": 0.0, "arancel_mes": 0.0,
+            "opero_mes": idc in operativas, "opero_ano": True,
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
@@ -1145,4 +1169,5 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     # dejarla habría sido pagar el viaje más caro del endpoint para nadie.
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
             "n_operativas": sum(1 for c in clientes if c["opero_mes"]),
+            "n_operativas_ano": sum(1 for c in clientes if c["opero_ano"]),
             "clientes": clientes}

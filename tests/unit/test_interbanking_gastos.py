@@ -18,9 +18,11 @@ import pytest
 from api.services.bancos import (
     CAMPOS_REGLA,
     RESTO,
+    _movimiento_publico,
     clasificar,
     desglosar,
     semilla_catalogo,
+    valor_campo,
 )
 
 # El catálogo con el que se prueba el desglose. Desde el 2026-08-18 los baldes
@@ -206,6 +208,90 @@ def test_las_claves_son_unicas():
     claves = [b["clave"] for b in BALDES]
     assert len(claves) == len(set(claves))
     assert RESTO not in claves
+
+
+# --------------------------------------------------------------------------- #
+# DESCRIPCIÓN: lo que la pantalla MUESTRA es lo que la regla MATCHEA
+# --------------------------------------------------------------------------- #
+# El bug de 2026-09-01, que es el modo de falla de la REGLA #9 en estado puro.
+#
+# La columna DESCRIPCIÓN de la vista NO es `descripcion_banco`: es
+# `descripcion_banco` y, cuando el banco no manda la suya, el CONCEPTO. Mientras
+# la regla miraba la columna cruda, las dos mitades decían cosas distintas SIN
+# FALLAR: el back office leía `NOTA DB` bajo DESCRIPCIÓN, cargaba esa grafía
+# sobre DESCRIPCIÓN, y el motor la comparaba contra un string vacío. No matcheaba
+# nunca y el movimiento se quedaba en RESTO teniendo su columna cargada.
+#
+# Lo que estos tests congelan no es «el fallback existe» sino **que la pantalla y
+# la regla no se puedan volver a separar**.
+
+# El movimiento real que lo destapó: Credicoop, ARS 1.300, `descripcion_banco`
+# vacío y el texto en el concepto.
+NOTA_DB = {
+    "mov_hash": "nd", "cuenta_id": 1, "importe": 1300.0, "tipo": "D",
+    "codigo_operacion_ib": "854", "codigo_operacion_banco": "07290",
+    "descripcion_banco": "", "descripcion_ib": "NOTA DB",
+}
+
+
+def test_la_pantalla_y_la_regla_leen_EL_MISMO_texto():
+    """⚠️ EL test. `_movimiento_publico` es lo que se DIBUJA y `valor_campo` lo
+    que se MATCHEA: si vuelven a divergir, no falla nada — simplemente una grafía
+    cargada desde la vista deja de agarrar y nadie tiene con qué darse cuenta."""
+    for mov in (NOTA_DB, MOV, _m(concepto="IVA"), _m(descripcion="SELLOS")):
+        completo = {"fecha": date(2026, 8, 28), **mov}
+        assert (_movimiento_publico(completo)["descripcion"]
+                == valor_campo(completo, "descripcion_banco")), (
+            f"la pantalla y la regla leen distinto para {mov!r}")
+
+
+def test_una_grafia_de_DESCRIPCION_agarra_lo_que_se_ve_en_DESCRIPCION():
+    """El caso NOTA DB: el balde tiene la grafía cargada sobre DESCRIPCIÓN y el
+    texto llega en el concepto porque el banco no manda descripción."""
+    baldes = [{"clave": "iibbpercep", "matchers": [
+        {"campo": "descripcion_banco", "operador": "contiene", "valor": "NOTA DB"}]}]
+    assert desglosar(NOTA_DB, baldes) == "iibbpercep"
+
+
+def test_lo_mismo_para_la_marca_de_GASTO():
+    """Las dos mitades del criterio usan la MISMA puerta. Si `DESCRIPCIÓN`
+    significara una cosa en las reglas y otra en el desglose, el equipo no tendría
+    cómo saber cuál está usando — y el que se equivoca no ve un error, ve otro
+    número."""
+    r = _regla(campo="descripcion_banco", operador="igual", valor="NOTA DB")
+    assert clasificar([NOTA_DB], [r], {})["nd"]["es_gasto"] is True
+
+
+def test_con_descripcion_del_banco_el_concepto_NO_se_mira():
+    """El fallback es **estrictamente aditivo**: donde el banco SÍ manda su
+    descripción, ni se consulta. Sin esto, una grafía de DESCRIPCIÓN empezaría a
+    agarrar por el concepto y movimientos que hoy están bien cambiarían de balde."""
+    mov = _m(concepto="NOTA DB", descripcion="IMPUESTO A LOS SELLOS")
+    assert valor_campo(mov, "descripcion_banco") == "IMPUESTO A LOS SELLOS"
+    r = _regla(campo="descripcion_banco", operador="contiene", valor="NOTA DB")
+    assert clasificar([{"mov_hash": "x", **mov}], [r], {})["x"]["es_gasto"] is False
+
+
+def test_NO_hay_fallback_al_reves():
+    """La columna CONCEPTO de la pantalla muestra `descripcion_ib` crudo y un «—»
+    cuando está vacío. Espejar la pantalla es la regla; inventar un segundo
+    derivado que nadie ve sería el mismo error otra vez."""
+    mov = _m(concepto="", descripcion="IMPUESTO A LOS SELLOS")
+    assert valor_campo(mov, "descripcion_ib") == ""
+    r = _regla(campo="descripcion_ib", operador="contiene", valor="SELLOS")
+    assert clasificar([{"mov_hash": "x", **mov}], [r], {})["x"]["es_gasto"] is False
+
+
+def test_los_codigos_no_tienen_fallback():
+    """Solo DESCRIPCIÓN es un campo derivado. Un COD OP vacío es vacío."""
+    mov = {"codigo_operacion_ib": "", "codigo_operacion_banco": "07290",
+           "descripcion_banco": "", "descripcion_ib": "NOTA DB"}
+    assert valor_campo(mov, "codigo_ib") == ""
+
+
+def test_un_campo_inventado_no_lee_nada():
+    """`campo` lo escribe un usuario y nunca viaja a un WHERE."""
+    assert valor_campo(NOTA_DB, "importe; DROP TABLE bancos.movimientos") == ""
 
 
 # --------------------------------------------------------------------------- #

@@ -167,6 +167,20 @@ def test_direccion_del_catalogo():
         assert _direccion(x) is None
 
 
+def test_direccion_respaldo_por_tipo_operacion():
+    """Caso TTCBO (2026-09-01): el catálogo no definía la punta de la venta
+    SENEBI y el boleto quedaba afuera del cálculo teniéndolo a la vista.
+    Cuando el enrich no resuelve, la punta se lee del descriptor de Aunesa —
+    salvo cauciones/futuros/opciones, que nunca mueven nominales de títulos."""
+    from api.services.contabilidad_sql import _direccion
+    assert _direccion("otro", "SENEBI Contado - Venta") == "venta"
+    assert _direccion(None, "Concurrencia Contado - Venta") == "venta"
+    assert _direccion("otro", "SENEBI Contado - Compra") == "compra"
+    assert _direccion("otro", "Caución Colocadora - Venta") is None
+    assert _direccion("otro", "Futuros - Compra") is None
+    assert _direccion("venta", "lo que sea") == "venta"  # el catálogo manda si resuelve
+
+
 def test_boleto_sin_direccion_no_mueve_nada():
     """Un boleto con categoria None (caución/futuro/otro) no toca compras,
     ventas ni el cuadre — se declara en `ignorados`, no se suma."""
@@ -207,6 +221,19 @@ def test_ledger_fifo_venta_sin_lote_se_marca():
     # cubierta = 100/200 → ingresa 1.500, costo 1.000 → +500
     assert movs[-1]["pnl_acum"] == pytest.approx(500)
     assert movs[-1]["nominales_acum"] == pytest.approx(-100)
+
+
+def test_ledger_arranca_de_la_posicion_inicial():
+    """El libro del mes: la POSICIÓN INICIAL (nominales + valuación del cierre
+    anterior) entra como primer lote sin generar PnL, y vender el 100% realiza
+    `venta − valuación inicial` — la intermediación de la fila del resumen."""
+    movs = [_mov("saldo_inicial", 58_900, 93_745_240),
+            _mov("venta", 58_900, 94_289_476)]
+    stats = ledger_fifo(movs)
+    assert movs[0]["pnl_acum"] == 0 and movs[0]["nominales_acum"] == 58_900
+    assert movs[1]["pnl_acum"] == pytest.approx(94_289_476 - 93_745_240)
+    assert movs[1]["nominales_acum"] == 0
+    assert stats["sin_costo"] == 0
 
 
 def test_ledger_fifo_rentas_y_otros():

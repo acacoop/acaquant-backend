@@ -193,6 +193,25 @@ def test_cadena_rxt_contra_la_planilla_real():
     assert f["variacion_rxt"] == pytest.approx(0.019242, abs=1e-5)   # 1,92%
 
 
+def test_cadena_rxt_planilla_real_con_nominales_distintos():
+    """La fila que DESEMPATA (TX26, junio → julio). Acá los nominales cambian —
+    suben de 19,8M a 34,2M — y `misma tenencia mantenida` copia **19.853.273**:
+    el MENOR de los dos, no el mayor. Es lo que fija que H = min(C, E).
+
+    Importa porque los 14.390.000 que se sumaron en el mes NO devengan
+    tenencia: su resultado, si lo hay, es intermediación. Contarlos en las dos
+    columnas sería contarlos dos veces."""
+    (f,) = _calc([_t("[5925] TX26", 19_853_273.00, 139_985_427.923)],
+                 [_t("[5925] TX26", 34_243_273.00, 246_209_132.87)], [],
+                 u2m={}, m2d={})
+    assert f["no_entran_rxt"] == pytest.approx(14_390_000.00)
+    assert f["tenencia_mantenida"] == pytest.approx(19_853_273.00)   # el MENOR
+    assert f["monto_rxt_ini"] == pytest.approx(139_985_427.923, abs=0.01)
+    assert f["monto_rxt_fin"] == pytest.approx(142_745_032.87, abs=0.01)
+    assert f["rxt"] == pytest.approx(2_759_604.947, abs=0.01)
+    assert f["variacion_rxt"] == pytest.approx(0.0197, abs=1e-4)
+
+
 def test_la_cadena_del_rxt_cierra_sola():
     """K = J − I y H sale de min(C,E), tambien cuando la posicion se mueve: el
     numero del informe no puede contradecir a sus propios pasos."""

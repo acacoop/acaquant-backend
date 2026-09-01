@@ -85,6 +85,10 @@ HERRAMIENTAS: dict[str, str] = {
     "diag_primary_catalogo": "pone la FOTO de Primary (`manager.pyrofex_instruments`, la que filtra el WS "
                              "y el agente) al lado de Primary EN VIVO (lo que mira OPERAR): un bono licitado "
                              "después del último discovery es «inexistente» para una mitad y cotiza en la otra.",
+    "diag_duales_pata_fija": "por qué TTD26/TTS26 salen en -- en TASA FIJA teniendo TAMAR completo: sigue "
+                             "la cadena hasta el punto exacto donde se corta (2026-08-31, abierto).",
+    "diag_1816_grafias":     "con qué grafía publica 1816 la pata fija que `tamar_1816` pide con dos "
+                             "grafías y no obtiene; primero el catálogo (gratis), después la API (cuesta).",
     "diag_saldo_cierre":     "los DOS saldos que informa Interbanking (extracto vs. API de Saldos) puestos "
                              "uno al lado del otro, con la verificación aritmética del extracto. Es lo único "
                              "que distingue «el banco se contradice» de «estoy comparando el cierre contra el "

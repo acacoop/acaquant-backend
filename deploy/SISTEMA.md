@@ -125,6 +125,7 @@
 |---|---|
 | 11:00 · L-V | `systemctl restart tenencia_live.service` |
 | 11:00 · L-V | `systemctl restart control_saldos.service` |
+| 12:15 · L-V | `deploy/run_job.sh discovery_pyrofex 10m 'cd /root/TradingAV && venv/bin/python -m scripts.discovery_pyrofex'` |
 | 13:20 · L-V | `systemctl restart motor_rofex.service` |
 | 13:20 · L-V | `systemctl restart motor_options.service` |
 | 13:20 · L-V | `systemctl restart motor_curvas.service` |

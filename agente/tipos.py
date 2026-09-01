@@ -19,7 +19,12 @@ IGNORADO = "ignorado"    # una persona dijo «no me interesa» — reversible
 REINCIDIO = "reincidio"  # estaba resuelto POR ACCIÓN y volvió
 
 ESTADOS = (NUEVO, EN_CURSO, RESUELTO, IGNORADO, REINCIDIO)
-ABIERTOS = (NUEVO, EN_CURSO)
+# ⚠️ `reincidio` ES abierto (2026-09-01, §0.cy). Sin él acá, un hallazgo que
+# volvió no lo cerraba nadie (`_cerrar_ausentes` mira ABIERTOS), no lo actualizaba
+# nadie (`_ver` también) —así que la próxima vez que se lo viera nacía OTRA fila
+# en `reincidencias`— y no aparecía en ENCONTRÓ. M31G6 quedó así desde el 28/08:
+# «abierto» para siempre y visible en ninguna pantalla.
+ABIERTOS = (NUEVO, EN_CURSO, REINCIDIO)
 
 # ── CÓMO SE CERRÓ. Son DOS y NO significan lo mismo ────────────────────────
 #

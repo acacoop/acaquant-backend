@@ -55,6 +55,8 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
     mios = {_tk(d.get("ticker_corto")) for d in docs} - {""}
     cartera = fuentes.en_cartera() or set()
     tickers_primary = fuentes.tickers_en_primary()
+    foto_de = fuentes.primary_fecha()
+    foto_txt = foto_de.strftime("%d/%m %H:%M UTC") if foto_de else "sin fecha"
 
     # ⚠️⚠️ **LO QUE ESTAMOS SACANDO NO ES UN FALTANTE.** `jobs/cleanup_curvas`
     # borra del master todo lo que vence a menos de 2 días hábiles, y sin esto
@@ -92,13 +94,38 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
             por_vencer += 1
             continue
         lo_tenemos = tk in cartera
-        # ⚠️ **NO COTIZA EN PRIMARY → NO ES UN FALTANTE.** Si no se le puede
-        # poner precio, el bono no vale nada y reportarlo cada corrida es ruido
-        # permanente que empuja hacia abajo a los que sí importan.
+        # ⚠️ **NO COTIZA EN PRIMARY → NO ES UN ALTA, PERO SE DICE.** Si no se le
+        # puede poner precio, darlo de alta no sirve: no entra a ENCONTRÓ.
         # La EXCEPCIÓN es la cartera: ahí el problema es más grave, no menor.
+        #
+        # ⚠️⚠️ **Y NO SE DESCARTA EN SILENCIO (§0.cy).** La primera versión hacía
+        # `continue` con un log.info, y «Primary» acá es una FOTO
+        # (`manager.pyrofex_instruments`) que el 2026-09-01 tenía 17 días: todo
+        # bono licitado después caía en este `continue`, y la habilidad decía
+        # «miré y guardé lo que vi» con 4 corridas y 1 hallazgo. El user, con
+        # razón: *«no detectó otros bonos nuevos que se licitaron, y encima dice
+        # que chequeó»*. Un descarte que no deja rastro es indistinguible de un
+        # detector que dejó de mirar — así que va como AVISO (sin arreglo: vive
+        # en AHORA, no en ENCONTRÓ), con la fecha de la foto en la mano.
         if (not lo_tenemos and tickers_primary is not None
                 and tk not in tickers_primary):
             sin_primary.append(tk)
+            out.append(Hallazgo(
+                sujeto=tk, regla="no_cotiza_en_primary", severidad="baja",
+                problema=(f"1816 lo publica en «{curva}» y Primary no lo lista "
+                          f"(foto del catálogo: {foto_txt}): sin símbolo no hay "
+                          "precio, así que no se pide el alta."),
+                que_hacer=("Nada que cargar por ahora: cuando cotice, el agente lo "
+                           "va a pedir como alta. Si OPERAR ya lo encuentra, la "
+                           "foto de Primary está vieja — corre sola a las 12:15 "
+                           "UTC L-V, o a mano: `python -m scripts.discovery_pyrofex`."),
+                evidencia={
+                    "curva_1816": curva, "ticker_1816": ticker,
+                    "denominacion": inst.get("denominacion"),
+                    "vencimiento_1816": inst.get("fechaVencimiento"),
+                    "simbolo_buscado": f"MERV - XMEV - {tk} - 24hs",
+                    "foto_primary_de": foto_de.isoformat() if foto_de else None,
+                    "fuente_universo": univ["fuente"]}))
             continue
         out.append(Hallazgo(
             sujeto=tk, regla="no_esta_en_curvas",

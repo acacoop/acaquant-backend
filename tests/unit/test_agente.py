@@ -213,7 +213,7 @@ def test_ahora_es_de_hoy_sin_leer_y_sin_resolver():
     i = sql.index("CREATE OR REPLACE VIEW agente.v_ahora")
     v = sql[i:i + 1200]
     assert "leido_at IS NULL" in v
-    assert "estado IN ('nuevo','en_curso')" in v
+    assert "estado IN ('nuevo','en_curso','reincidio')" in v
     # El día es ART: el día UTC arranca a las 21:00 de acá y mezclaría dos días.
     assert "America/Argentina/Buenos_Aires" in v
 
@@ -1983,3 +1983,122 @@ def test_el_fin_de_semana_entero_no_cuenta_como_atraso():
         ahora = datetime(2026, 8, 31, h, 26, tzinfo=UTC)
         r = tablas.frescura(perfil, ahora=ahora, declarado=declarado)
         assert r["estado"] == "ok", f"{h}:26 UTC → {r}"
+
+
+# ── LA FOTO DE PRIMARY (§0.cy) ─────────────────────────────────────────────
+
+def test_reincidio_es_abierto_en_el_codigo_y_en_las_vistas():
+    """M31G6 quedó `reincidio` desde el 28/08: ninguna corrida lo cerraba
+    (`_cerrar_ausentes` mira ABIERTOS), ninguna lo actualizaba (`_ver` también,
+    así que verlo de nuevo creaba OTRA fila en `reincidencias`) y ninguna
+    pantalla lo mostraba. Un problema que volvió es trabajo, no historia."""
+    assert tipos.REINCIDIO in tipos.ABIERTOS
+    schema = (RAIZ / "sql" / "schema.sql").read_text(encoding="utf-8")
+    for vista in ("agente.v_ahora", "agente.v_encontro", "agente.v_habilidades"):
+        i = schema.index(f"CREATE OR REPLACE VIEW {vista}")
+        cuerpo = schema[i:i + 1500]
+        assert "'reincidio'" in cuerpo, f"{vista} no cuenta `reincidio` como abierto"
+
+
+def _universo_1816(*tickers: str) -> dict:
+    return {"fuente": "1816", "instrumentos": {
+        t: {"_curva": "Soberanos ARS tasa fija", "fechaVencimiento": "2027-01-29",
+            "denominacion": f"Letra {t}"} for t in tickers}}
+
+
+def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
+    """S29E7 (2026-09-01): la habilidad corrió 4 veces, guardó 1 hallazgo y el
+    resto de los licitados nuevos cayó en un `continue` con log.info porque la
+    FOTO de Primary tenía 17 días. «Miré y guardé lo que vi» sobre un descarte
+    invisible es un detector que dejó de mirar. El descarte se canta como AVISO,
+    con la fecha de la foto — y el que está en cartera sigue pidiendo el alta."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from agente import fuentes
+    from core import curvas_ejes, curvas_sql
+
+    monkeypatch.setattr(fuentes, "universo_1816",
+                        lambda: _universo_1816("S29E7", "X29E7", "T30E7"))
+    monkeypatch.setattr(fuentes, "master", lambda: [{"ticker_corto": "AL30"}])
+    monkeypatch.setattr(fuentes, "en_cartera", lambda: {"S29E7"})
+    monkeypatch.setattr(fuentes, "tickers_en_primary", lambda: {"X29E7", "AL30"})
+    monkeypatch.setattr(fuentes, "primary_fecha",
+                        lambda: datetime(2026, 8, 15, 19, 23, tzinfo=UTC))
+    monkeypatch.setattr(curvas_ejes, "desde_1816",
+                        lambda c: SimpleNamespace(emisor_tipo="soberano", moneda="ARS"))
+    monkeypatch.setattr(curvas_sql, "calendario_habil", lambda: set())
+    monkeypatch.setattr(curvas_sql, "sale_del_master", lambda *a, **k: False)
+
+    por = {h.sujeto: h for h in mercado.soberanos_faltantes({})}
+    assert por["S29E7"].regla == "no_esta_en_curvas", "en cartera → pide el alta"
+    assert por["X29E7"].regla == "no_esta_en_curvas", "cotiza → pide el alta"
+    assert por["T30E7"].regla == "no_cotiza_en_primary", "no cotiza → AVISO, no silencio"
+    assert por["T30E7"].severidad == "baja"
+    assert "15/08" in por["T30E7"].problema, "la fecha de la foto va en el texto"
+    assert por["T30E7"].evidencia["foto_primary_de"].startswith("2026-08-15")
+    # Sin arreglo declarado → aviso: vive en AHORA, nunca en ENCONTRÓ.
+    assert catalogo.HABILIDADES["soberanos_faltantes"].arreglo_de("no_cotiza_en_primary") == ""
+
+
+def test_la_foto_de_primary_tiene_cron_y_quien_la_vigile():
+    """La foto la escribía un script manual que nadie corría. Ahora: un cron en
+    el repo (antes del cleanup y de los motores), un detector que lee ESE cron
+    —no una copia del horario— y canta si un día no corrió, y un script que se
+    niega a pisar la foto con una respuesta parcial de Primary."""
+    from agente import crontab
+    cron = sistema._cron_discovery(crontab.del_repo())
+    assert cron is not None, "deploy/crontab.txt no corre scripts.discovery_pyrofex"
+    hora, minuto = cron
+    assert (hora, minuto) < (12, 30), "tiene que correr ANTES del cleanup (12:30 UTC)"
+    h = catalogo.HABILIDADES["foto_primary"]
+    assert h.dominio == "SISTEMA" and not h.arreglos
+    disc = (RAIZ / "scripts" / "discovery_pyrofex.py").read_text(encoding="utf-8")
+    assert "MINIMO_VS_ANTERIOR" in disc and "sys.exit(main())" in disc
+
+
+def test_foto_primary_juzga_contra_la_ultima_corrida_esperada(monkeypatch):
+    from datetime import datetime
+
+    from agente import crontab, fuentes, reloj
+    monkeypatch.setattr(crontab, "del_repo", lambda: {
+        "15 12 * * 1-5 run_job.sh discovery_pyrofex 10m 'python -m scripts.discovery_pyrofex'"})
+    # Lunes 11:00 UTC: la última esperada es la del VIERNES (no hay cron el finde).
+    lunes = datetime(2026, 8, 31, 11, 0, tzinfo=UTC)
+    assert sistema._ultima_esperada(lunes, 12, 15, 60) == datetime(2026, 8, 28, 12, 15, tzinfo=UTC)
+    # Martes 13:00 UTC: la de hoy todavía está en gracia → sigue valiendo la de ayer.
+    assert sistema._ultima_esperada(datetime(2026, 9, 1, 13, 0, tzinfo=UTC), 12, 15, 60) \
+        == datetime(2026, 8, 31, 12, 15, tzinfo=UTC)
+    assert sistema._ultima_esperada(datetime(2026, 9, 1, 13, 30, tzinfo=UTC), 12, 15, 60) \
+        == datetime(2026, 9, 1, 12, 15, tzinfo=UTC)
+
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 1, 14, 0, tzinfo=UTC))
+    # Foto de hoy 12:20 → nada.
+    monkeypatch.setattr(fuentes, "primary_fecha", lambda: datetime(2026, 9, 1, 12, 20, tzinfo=UTC))
+    assert sistema.foto_primary({"gracia_min": 60}) == []
+    # Foto del 15/08 (el caso real) → alta, con las dos fechas en la evidencia.
+    monkeypatch.setattr(fuentes, "primary_fecha", lambda: datetime(2026, 8, 15, 19, 23, tzinfo=UTC))
+    (h,) = sistema.foto_primary({"gracia_min": 60})
+    assert h.regla == "foto_vieja" and h.severidad == "alta"
+    assert h.evidencia["esperada"].startswith("2026-09-01T12:15")
+    # Nunca corrió → se dice, no se calla.
+    monkeypatch.setattr(fuentes, "primary_fecha", lambda: None)
+    (h,) = sistema.foto_primary({"gracia_min": 60})
+    assert h.regla == "nunca_corrio"
+    # Sin cron declarado NO se afirma nada: SinDatos, que el motor traduce.
+    monkeypatch.setattr(crontab, "del_repo", lambda: set())
+    with pytest.raises(tipos.SinDatos):
+        sistema.foto_primary({})
+
+
+def test_el_alta_pregunta_en_vivo_antes_de_decir_que_primary_no_lo_lista():
+    """El pre-flight decía «⚠ Primary NO lista este símbolo» y BLOQUEABA el alta
+    de S29E7 mientras OPERAR lo encontraba: leía la FOTO y afirmaba sobre
+    Primary. Antes de afirmarlo pregunta en vivo (la misma llamada que OPERAR) y
+    dice de cuándo es la foto. En vivo sí / foto no → INFO, no BLOQUEA."""
+    from agente import alta
+    src = inspect.getsource(alta._estado_simbolo)
+    assert "simbolos_live" in src and "primary_fecha" in src
+    assert "foto_vieja" in src
+    pre = inspect.getsource(alta)
+    assert "(INFO if foto_vieja else OK) if con is True" in pre

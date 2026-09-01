@@ -166,6 +166,35 @@ del `.env`. Reiniciar la API tras corregir: `systemctl restart api.service`.
 
 ---
 
+### 🟠 Di de baja un motor/cron y el servidor lo sigue corriendo
+
+**El síntoma es un proceso que falla en silencio.** `git pull` borra archivos del
+repo; **no apaga un proceso ni edita el crontab vivo**. Las units de systemd se
+COPIAN a `/etc/systemd/system/` (no son symlinks al repo), y el crontab real es un
+archivo del sistema, no `deploy/crontab.txt` — ese es la *fuente de verdad*, no el
+que corre.
+
+Y si el mismo deploy corrió `apply_schema` con un `DROP` adentro, el proceso que
+quedó vivo escribe contra tablas que ya no existen: **falla cada ciclo y nadie se
+entera**, porque la pieza de diagnóstico que lo vigilaba se borró en el mismo
+commit.
+
+Baja completa = **tres pasos, y el `git pull` es solo el primero**:
+
+1. `git pull` + `bash deploy/deploy.sh` (código y schema).
+2. `systemctl stop` + `disable` + borrar la unit de `/etc/systemd/system/` +
+   `daemon-reload`.
+3. Aplicar `deploy/crontab.txt` al crontab vivo (**con backup** — `crontab archivo`
+   reemplaza el crontab entero: si alguien editó a mano en el servidor y eso nunca
+   volvió al repo, se pierde. Por eso primero se mira el `diff`).
+
+Caso resuelto — **ESTRATEGIA QUANT (2026-09-01)**: `bash deploy/baja_estrategia.sh`
+hace los pasos 2 y 3 (idempotente; el cron solo con `--con-cron`, tras ver el diff).
+Sirve de plantilla para la próxima baja, junto con `deploy/install_tenencia_live.sh`
+que es el mismo patrón al revés.
+
+---
+
 ### Rutina (no es incidente, es prevención)
 
 - **Revisión de accesos (trimestral):** `/manager → USUARIOS`. La tabla muestra

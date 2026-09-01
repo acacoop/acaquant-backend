@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import acreencias as svc_acr
+from api.services import contabilidad_sql as svc_conta
 from api.services import tenencia_hd as svc_ten
 from api.services import tesoreria as svc_tes
 from api.services import titulos_negativos as svc_negativos
@@ -896,3 +897,57 @@ def tenencia_hd_portfolio_alquiler_nominal(
     Es la fuente del filtro SIN ALQUILER de Tenencia Valorizada."""
     return svc_ten.set_portfolio_alquiler_nominal(
         unidad=unidad, id_cuenta=id_cuenta, fecha=fecha, cantidad=cantidad, email=email)
+
+
+# ── CONTABILIDAD (resultado mensual por título de las cuentas propias) ────────
+# Identidad rectora: total = ΔValuación + ventas − compras + rentas; el split
+# TENENCIA / INTERMEDIACIÓN / RENTAS y el cuadre viven en el service
+# (api/services/contabilidad_sql.py). Lectura = módulo back-office; escritura
+# del ABM de cuentas = allowlist de Tesorería + admin (mismo gate que
+# Interbanking), como dependency para que audit_rbac la vea.
+
+_RE_MES = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+@router.get("/contabilidad/cuentas")
+def contabilidad_cuentas(email: str = Depends(get_user_email)):
+    """Cuentas propias del proceso (las que eligió el equipo desde la vista)."""
+    return {"cuentas": svc_conta.cuentas()}
+
+
+@router.post("/contabilidad/cuentas")
+def contabilidad_cuenta_alta(
+    id_cuenta: str = Body(..., embed=True),
+    etiqueta: str | None = Body(None, embed=True),
+    actor: str = Depends(require_escritura_tesoreria),
+):
+    """Suma una cuenta al proceso (o le cambia la etiqueta si ya estaba)."""
+    return svc_conta.agregar_cuenta(actor, id_cuenta, etiqueta)
+
+
+@router.delete("/contabilidad/cuentas/{id_cuenta}")
+def contabilidad_cuenta_baja(id_cuenta: str, actor: str = Depends(require_escritura_tesoreria)):
+    """Saca una cuenta del proceso (no borra ningún dato de tenencia/boletos)."""
+    return svc_conta.borrar_cuenta(actor, id_cuenta)
+
+
+@router.get("/contabilidad/resumen")
+def contabilidad_resumen(
+    id_cuenta: str = Query(...),
+    mes: str = Query(..., pattern=_RE_MES, description="YYYY-MM del mes a contabilizar"),
+    email: str = Depends(get_user_email),
+):
+    """El informe del mes: una fila por título con RxT / intermediación / rentas /
+    total + cuadre de nominales, y los totales sumados en el backend."""
+    return svc_conta.resumen(id_cuenta=id_cuenta, mes=mes)
+
+
+@router.get("/contabilidad/detalle")
+def contabilidad_detalle(
+    id_cuenta: str = Query(...),
+    mes: str = Query(..., pattern=_RE_MES),
+    key: str = Query(..., description="key de la fila del resumen (ticker/CAFCI)"),
+    email: str = Depends(get_user_email),
+):
+    """Drill-down auditable: los boletos del mes que componen la fila."""
+    return svc_conta.detalle(id_cuenta=id_cuenta, mes=mes, key=key)

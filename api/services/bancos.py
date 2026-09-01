@@ -48,6 +48,57 @@ CAMPOS_REGLA = {
 }
 OPERADORES_REGLA = ("igual", "contiene")
 
+# ⚠️ **UN CAMPO QUE LA PANTALLA DERIVA, LA REGLA LO TIENE QUE DERIVAR IGUAL.**
+#
+# La columna DESCRIPCIÓN de la vista NO es la columna `descripcion_banco`: es
+# `descripcion_banco` y, **si el banco no mandó la suya, el CONCEPTO**. Lo decide
+# `_movimiento_publico`, y existe porque una fila sin ningún texto es ilegible.
+#
+# Mientras la regla miraba la columna cruda, las dos mitades decían cosas
+# distintas **sin fallar**: el operador leía `NOTA DB` bajo DESCRIPCIÓN, cargaba
+# esa grafía sobre DESCRIPCIÓN —el campo que además viene elegido por defecto en
+# el ABM— y el motor la comparaba contra un string VACÍO. No matcheaba nunca, no
+# saltaba ninguna excepción, y el movimiento se quedaba en MOVIMIENTOS RESTANTES
+# teniendo su columna cargada. Medido el 2026-09-01 sobre las 3 fechas de la
+# base: 2 movimientos `NOTA DB` de Credicoop con `descripcion_banco` vacío y el
+# texto en `descripcion_ib`, y **dos grafías cargadas a mano que no agarraban
+# absolutamente nada**.
+#
+# El arreglo es que la regla lea LO MISMO que se dibuja. Es **estrictamente
+# aditivo**: donde `descripcion_banco` trae texto, el fallback ni se consulta y
+# el comportamiento es idéntico al de antes. Medido sobre esas mismas fechas:
+# 1 movimiento cambia de balde (presentación) y **0 cambian de ser o no gasto**
+# — el arreglo no mueve un peso del total.
+#
+# ⚠️ NO hay fallback al revés: la columna CONCEPTO de la pantalla muestra
+# `descripcion_ib` crudo y un «—» cuando está vacío. Espejar la pantalla es la
+# regla; inventar un segundo derivado que nadie ve sería el mismo error otra vez.
+_FALLBACK_CAMPO = {"descripcion_banco": "descripcion_ib"}
+
+
+def valor_campo(mov: dict, campo: str) -> str:
+    """El texto que una regla compara para `campo`. **La única puerta**: la usan
+    `_matchea` (¿es gasto?) y `desglosar` (¿en qué balde cae?).
+
+    Que sea una sola función es el punto. Son las dos mitades del mismo criterio
+    y la vista ofrece los MISMOS cuatro campos para las dos: si `DESCRIPCIÓN`
+    quisiera decir una cosa en las reglas y otra en el desglose, el equipo no
+    tendría cómo saber cuál está usando — y el que se equivoca no ve un error,
+    ve otro número.
+
+    Devuelve `""` para un campo no declarado: un `campo` lo escribe un usuario y
+    nunca viaja a un `WHERE`.
+    """
+    col = CAMPOS_REGLA.get(campo)
+    if not col:
+        return ""
+    valor = str(mov.get(col) or "").strip()
+    if valor:
+        return valor
+    alt = _FALLBACK_CAMPO.get(campo)
+    return str(mov.get(CAMPOS_REGLA[alt]) or "").strip() if alt else ""
+
+
 # ── DESGLOSE de los gastos ───────────────────────────────────────────────────
 #
 # El total de gastos bancarios no alcanza: el back office necesita ver CUÁNTO de
@@ -141,10 +192,7 @@ def desglosar(mov: dict, baldes: list[dict]) -> str:
     """
     for balde in baldes:
         for m in balde.get("matchers") or []:
-            col = CAMPOS_REGLA.get(m["campo"])
-            if not col:
-                continue
-            dato = str(mov.get(col) or "").strip().casefold()
+            dato = valor_campo(mov, m["campo"]).casefold()
             v = str(m["valor"]).strip().casefold()
             if not dato or not v:
                 continue
@@ -198,13 +246,12 @@ def _matchea(mov: dict, regla: dict) -> bool:
     `'00108 '` y `'CREDITO POR DATANET'`, y nadie va a escribir una regla
     replicando esos espacios.
     """
-    col = CAMPOS_REGLA.get(str(regla.get("campo") or ""))
-    if not col:
-        return False
     valor = str(regla.get("valor") or "").strip().casefold()
     if not valor:
         return False
-    dato = str(mov.get(col) or "").strip().casefold()
+    # El texto sale de `valor_campo`, la MISMA puerta que usa el desglose: un
+    # campo significa lo mismo en las dos mitades del criterio. Ver su docstring.
+    dato = valor_campo(mov, str(regla.get("campo") or "")).casefold()
     if not dato:
         return False
     return dato == valor if regla.get("operador") == "igual" else valor in dato

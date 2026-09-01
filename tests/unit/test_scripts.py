@@ -82,9 +82,10 @@ HERRAMIENTAS: dict[str, str] = {
     # ⏳ TEMPORAL — se borra (script + este renglón) en el mismo commit que aplique
     #    la decisión, según REGLA #5. Está declarado y no escondido justamente
     #    para que su borrado sea una tarea visible y no un olvido.
-    "diag_desglose_texto":   "contesta por qué una grafía cargada en el DESGLOSE de INTERBANKING no agarra "
-                             "nada: dónde vive el texto de verdad (`repr`, con los espacios y los acentos rotos "
-                             "a la vista) y cuánto movería el arreglo propuesto. Sin esto se toca por corazonada.",
+    "diag_desglose_texto":   "«¿mi grafía del DESGLOSE agarró algo?» — una que no agarra deja la columna "
+                             "en cero y el total dando bien, así que la pantalla no la distingue de «hoy no "
+                             "hubo ese impuesto». Muestra el catálogo con `repr` (espacios y acentos rotos), "
+                             "dónde vive un texto de verdad y qué gastos caen en RESTO.",
     "diag_ctas_ops":         "mide cuánto cambia CTAS OPS del INFORME si el número pasa a salir de "
                              "operaciones.operaciones (para que las cuentas OTC cuenten como operativas). Sin este número la decisión se toma a ciegas.",
 }

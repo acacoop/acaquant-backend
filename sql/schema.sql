@@ -619,6 +619,19 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_traders (
     creado_at  timestamptz
 );
 
+-- CONTABILIDAD (Back Office, 2026-09-01): las cuentas propias cuyo resultado
+-- mensual por título (tenencia / intermediación / rentas) muestra la tab
+-- CONTABILIDAD. ABM desde la propia vista; escritura = allowlist de Tesorería
+-- + admin (mismo gate que Interbanking). El cálculo NO se persiste: sale en
+-- vivo de portafolio.tenencia (cierres de mes) + operaciones.negocio_movimientos
+-- (boletos), ver api/services/contabilidad_sql.py.
+CREATE TABLE IF NOT EXISTS operaciones.contabilidad_cuentas (
+    id_cuenta    text PRIMARY KEY,
+    etiqueta     text,                       -- nombre visible; default: cuenta de la tenencia
+    agregada_por text,
+    agregada_en  timestamptz DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_escritores (
     email        text PRIMARY KEY,           -- usuario de la app con permiso de ESCRITURA
     agregado_por text,

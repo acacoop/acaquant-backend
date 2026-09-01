@@ -237,14 +237,16 @@ def _direccion(operacion: str | None, tipo_operacion: str | None = None) -> str 
     negativa teniendo el boleto A LA VISTA. Guarda: cauciones/futuros/opciones
     jamás — mueven plata, no nominales de títulos."""
     op = (operacion or "").strip().lower()
-    if op == "compra" or "suscri" in op:
+    if op == "compra" or "suscri" in op or "licita" in op:
         return "compra"
     if op == "venta" or "rescate" in op:
         return "venta"
     t = (tipo_operacion or "").strip().lower()
     if "cauci" in t or "futuro" in t or "opcion" in t or "opción" in t:
         return None
-    if "suscri" in t or "compra" in t:
+    # «Licitación» del primario = adjudicación de títulos nuevos = COMPRA
+    # (misma regla que el motor de PnL; caso real: «COLP - Licitación»).
+    if "suscri" in t or "compra" in t or "licita" in t:
         return "compra"
     if "rescate" in t or "venta" in t:
         return "venta"

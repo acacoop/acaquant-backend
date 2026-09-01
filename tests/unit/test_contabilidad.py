@@ -176,6 +176,8 @@ def test_direccion_respaldo_por_tipo_operacion():
     assert _direccion("otro", "SENEBI Contado - Venta") == "venta"
     assert _direccion(None, "Concurrencia Contado - Venta") == "venta"
     assert _direccion("otro", "SENEBI Contado - Compra") == "compra"
+    assert _direccion("otro", "COLP - Licitación") == "compra"  # primario = compra
+    assert _direccion("licitacion", None) == "compra"
     assert _direccion("otro", "Caución Colocadora - Venta") is None
     assert _direccion("otro", "Futuros - Compra") is None
     assert _direccion("venta", "lo que sea") == "venta"  # el catálogo manda si resuelve

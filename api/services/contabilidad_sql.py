@@ -5,9 +5,9 @@ CALCULADO de verdad, y el total es su SUMA:
 
     resultado_total = TENENCIA + INTERMEDIACIÓN + RENTAS
 
-  · TENENCIA (RxT)   — lo que rindió lo que YA se tenía: los nominales del saldo
-                       INICIAL que SOBREVIVIERON al FIFO, valuados al precio
-                       implícito (valuación ÷ nominales) de cada cierre.
+  · TENENCIA (RxT)   — lo que rindió la posición que estuvo presente TODO el mes:
+                       `min(nominales_ini, nominales_fin)` × Δ precio implícito
+                       (valuación ÷ nominales de cada cierre).
   · INTERMEDIACIÓN   — lo que se ganó comprando y vendiendo: el REALIZADO del
                        costeo FIFO (venta − costo del lote consumido).
   · RENTAS           — cupones / dividendos / amortizaciones (categoría `acreencia`
@@ -36,11 +36,21 @@ contra 1.171.799, sin árbitro (REGLA #9). Hoy hay **un solo motor**: `libro()`
 arma la posición inicial + los boletos y corre el FIFO UNA vez; la fila del
 resumen y su modal leen de ahí. Congelado por `tests/unit/test_contabilidad.py`.
 
-La `min(nominales_ini, nominales_fin)` de la planilla histórica también se fue:
-con 1.000 iniciales, 400 vendidos y 200 comprados el mes cierra en 800, y esa
-fórmula valuaba 800 nominales a precio de inicio de mes — le daba rendimiento de
-mes completo a 200 que se compraron a mitad de mes, justo lo que la regla de
-arriba prohíbe. Sobrevivientes del lote inicial: 600.
+LA BASE DEL RxT ES LA DE LA PLANILLA, y su columna se muestra. El back office
+la calcula en dos pasos, y hay que leerlos juntos para entenderla:
+
+    NO ENTRAN EN RxT  =  nominales_fin − nominales_ini          (columna G)
+    base              =  SI(G=0; C; SI(G<0; C; E))              (elige el MAYOR)
+    RxT               =  base − |G|                             (deja el MENOR)
+
+o sea `min(nominales_ini, nominales_fin)`: los nominales que estuvieron
+presentes todo el mes. Se intentó afinarlo con los SOBREVIVIENTES del lote
+inicial según FIFO y NO sirve: si se vende toda la posición inicial y se
+recompra más (1.000 → 1.200), del lote inicial no sobrevive nada y la tenencia
+daba **0** teniendo más nominales al cierre que al principio. Con `min` da
+1.000, que es lo correcto. El precio que paga `min`: de los nominales que
+cuenta, los comprados a mitad de mes devengan rendimiento de mes completo — es
+la imprecisión que la planilla acepta a cambio de no tener ceros absurdos.
 
 Fuentes (todo existe, nada nuevo se persiste):
   · Valuaciones  → `portafolio.tenencia` al último día hábil de cada mes (la misma
@@ -188,10 +198,17 @@ def calcular_titulos(
         px_fin = vf / qf if qf else None
         _, st = libro(key=key, qty_ini=qi, v_ini=vi, fecha_ini=fecha_ini,
                       boletos=d["boletos"])
-        # TENENCIA: SOLO los nominales del saldo inicial que sobrevivieron al
-        # FIFO, topeados por la foto del cierre (no puede quedar vivo más de lo
-        # que la tenencia dice que hay).
-        q_rxt = min(st["inicial_restante"], qf)
+        # NO ENTRAN EN RxT — la columna de la planilla del back office:
+        # nominales del mes en curso − nominales iniciales. Es la parte de la
+        # posición que NO devenga tenencia (lo que se sumó, o lo que se fue).
+        no_entran_rxt = qf - qi
+        # Y la BASE del RxT sale de ella, con la cuenta que hace la planilla:
+        #     base = SI(G=0; C; SI(G<0; C; E))   → elige el MAYOR de los dos
+        #     RxT  = base − |G|                  → restarle la diferencia deja el MENOR
+        # (si bajó: C − (C−E) = E; si subió: E − (E−C) = C). O sea `min`, en
+        # dos pasos. Escrito de una: los nominales que estuvieron presentes
+        # TODO el mes.
+        q_rxt = min(qi, qf)
         rxt = (q_rxt * (px_fin - px_ini)
                if q_rxt > _TOL_NOMINALES and px_ini is not None and px_fin is not None
                else 0.0)
@@ -211,6 +228,7 @@ def calcular_titulos(
                        "baja" if qi != 0 and qf == 0 else
                        "sin_operar" if d["n_boletos"] == 0 else "operado"),
             "n_boletos": d["n_boletos"],
+            "no_entran_rxt": no_entran_rxt,
             "cuadre_nominales": residual,
             "cuadra": abs(residual) < _TOL_NOMINALES,
             "mep_faltantes": d["mep_faltantes"],
@@ -420,9 +438,9 @@ def ledger_fifo(boletos: list[dict]) -> dict:
 
     Devuelve lo que necesitan LOS DOS canales del resumen:
       realizado         → la INTERMEDIACIÓN del mes.
-      inicial_restante  → los nominales del saldo inicial que NUNCA se vendieron,
-                          o sea sobre los que corresponde la TENENCIA. Lo que se
-                          compró en el mes y sigue vivo NO cuenta acá.
+      inicial_restante  → los nominales del saldo inicial que NUNCA se vendieron.
+                          Informativo: la TENENCIA la decide la planilla del back
+                          office (`min` de nominales), no la identidad de los lotes.
       rentas / sin_costo.
     """
     # lote = [cantidad_restante, costo_restante, es_del_saldo_inicial]

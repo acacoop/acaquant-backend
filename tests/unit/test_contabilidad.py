@@ -3,9 +3,10 @@
 Congelan las tres reglas del módulo (redefinidas por el back office 2026-09-01):
   1. LO QUE SE COMPRA Y NO SE VENDE NO ES RESULTADO DEL MES. Su valuación final
      no entra en ningún canal — es el saldo inicial del mes que viene.
-  2. DOS canales calculados, no un residuo: TENENCIA = los nominales del saldo
-     inicial que SOBREVIVIERON al FIFO × Δ precio implícito; INTERMEDIACIÓN =
-     el realizado del FIFO. El total es la SUMA de los dos (+ rentas).
+  2. DOS canales calculados, no un residuo: TENENCIA = `min(nominales_ini,
+     nominales_fin)` × Δ precio implícito (la base de la planilla del back
+     office, con su columna NO ENTRAN EN RxT); INTERMEDIACIÓN = el realizado
+     del FIFO. El total es la SUMA de los dos (+ rentas).
   3. UN SOLO MOTOR: la fila del resumen y su modal salen de la misma pasada de
      `libro()`, así no pueden dar números distintos (REGLA #9).
 """
@@ -54,10 +55,10 @@ def test_venta_parcial_parte_en_dos():
         [_t("[100] AL30 - GD", 1_000_000, 600_000)],     # px implícito 0.60
         [_b("venta", "AL30", -1_000_000, 580_000)])      # signo crudo NO confiable
     (f,) = filas
+    assert f["no_entran_rxt"] == pytest.approx(-1_000_000)   # se fue 1M
     assert f["rxt"] == pytest.approx(1_000_000 * (0.60 - 0.50))
-    # identidad: ΔV + ventas = (600k − 1M) + 580k = 180k
-    assert f["total"] == pytest.approx(180_000)
-    assert f["intermediacion"] == pytest.approx(180_000 - 100_000)
+    assert f["intermediacion"] == pytest.approx(580_000 - 500_000)  # FIFO
+    assert f["total"] == pytest.approx(100_000 + 80_000)
     assert f["cuadra"]  # qf − qi = −1M y la venta explica −1M
 
 
@@ -133,9 +134,7 @@ def test_fci_agrupa_por_cafci_las_dos_unidades():
 
 def test_total_es_la_suma_de_los_canales():
     """Mes revuelto (compra + venta + renta): el total es la SUMA de los canales
-    calculados, no una identidad repartida. Y la TENENCIA va sobre los
-    nominales del saldo INICIAL que sobrevivieron al FIFO — no sobre
-    `min(ini, fin)` de la planilla vieja."""
+    calculados, no una identidad repartida."""
     filas = _calc(
         [_t("[100] AL30 - GD", 3_000_000, 1_500_000)],   # px 0,50
         [_t("[100] AL30 - GD", 2_500_000, 1_400_000)],   # px 0,56
@@ -143,17 +142,48 @@ def test_total_es_la_suma_de_los_canales():
          _b("venta", "AL30", 1_000_000, 545_000),
          _b("acreencia", "AL30", 0, 30_000)])
     (f,) = filas
-    # Del saldo inicial (3M) el FIFO vendió 1M → sobreviven 2M, NO los 2,5M que
-    # daría min(3M, 2,5M): los otros 500k se compraron a mitad de mes y no
-    # pueden devengar el rendimiento del mes completo.
-    assert f["rxt"] == pytest.approx(2_000_000 * (0.56 - 0.50))    # 120.000
-    assert f["rxt"] != pytest.approx(2_500_000 * (0.56 - 0.50))    # la planilla vieja
+    # Base del RxT = min(3M, 2,5M) = 2,5M: los nominales presentes todo el mes.
+    assert f["no_entran_rxt"] == pytest.approx(-500_000)            # 2,5M − 3M
+    assert f["rxt"] == pytest.approx(2_500_000 * (0.56 - 0.50))     # 150.000
     # Realizado FIFO: 545.000 − costo del millón más viejo (1,5M × 1/3)
     assert f["intermediacion"] == pytest.approx(545_000 - 500_000)  # 45.000
     assert f["rentas"] == pytest.approx(30_000)
-    assert f["total"] == pytest.approx(120_000 + 45_000 + 30_000)   # 195.000
+    assert f["total"] == pytest.approx(150_000 + 45_000 + 30_000)   # 225.000
     assert f["rxt"] + f["intermediacion"] + f["rentas"] == pytest.approx(f["total"])
     assert f["cuadra"]  # −500k = +500k − 1M
+
+
+def test_vender_todo_y_recomprar_mas_igual_tiene_tenencia():
+    """Si hay nominales al INICIO y al CIERRE, SÍ O SÍ hay resultado por
+    tenencia — y eso no impide que además haya intermediación (regla del back
+    office). Se empieza con 1.000, se vende TODO y se recompran 1.200: del lote
+    inicial no sobrevive nada, así que costear la tenencia por identidad de
+    lotes FIFO daba **0** teniendo MÁS nominales al cierre que al principio.
+    La base de la planilla, `min(1.000, 1.200)`, da los 1.000 correctos."""
+    filas = _calc(
+        [_t("[100] AL30 - GD", 1_000, 1_000)],    # px 1,00
+        [_t("[100] AL30 - GD", 1_200, 1_320)],    # px 1,10
+        [_b("venta", "AL30", 1_000, 1_080),
+         _b("compra", "AL30", 1_200, -1_260)])
+    (f,) = filas
+    assert f["no_entran_rxt"] == pytest.approx(200)          # 1.200 − 1.000
+    assert f["rxt"] == pytest.approx(1_000 * (1.10 - 1.00))  # 100 — NO cero
+    assert f["intermediacion"] == pytest.approx(1_080 - 1_000)
+    assert f["total"] == pytest.approx(100 + 80)
+    assert f["cuadra"]
+
+
+def test_no_entran_en_rxt_es_fin_menos_ini():
+    """La columna de la planilla, literal: nominales del mes en curso menos
+    nominales iniciales. Firmada — dice si la posición creció o se achicó."""
+    (alta,) = _calc([], [_t("[100] AL30 - GD", 500, 500)], [])
+    assert alta["no_entran_rxt"] == pytest.approx(500)
+    (baja,) = _calc([_t("[100] AL30 - GD", 500, 500)], [], [])
+    assert baja["no_entran_rxt"] == pytest.approx(-500)
+    (quieto,) = _calc([_t("[100] AL30 - GD", 500, 500)],
+                      [_t("[100] AL30 - GD", 500, 600)], [])
+    assert quieto["no_entran_rxt"] == 0
+    assert quieto["rxt"] == pytest.approx(100)   # todo el bloque devenga
 
 
 def test_ao29_la_valuacion_nueva_no_es_ganancia():

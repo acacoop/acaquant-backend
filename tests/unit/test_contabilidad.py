@@ -173,6 +173,39 @@ def test_vender_todo_y_recomprar_mas_igual_tiene_tenencia():
     assert f["cuadra"]
 
 
+def test_cadena_rxt_contra_la_planilla_real():
+    """La fila REAL de la planilla del back office (Toronto Trust Balanceado -
+    Clase B, junio → julio). Congela los CINCO pasos, no solo el resultado:
+
+        G no entran en RxT = E − C          H misma tenencia mantenida = min(C,E)
+        I monto mes ant.   = H × (D/C)      J monto mes actual         = H × (F/E)
+        K RxT              = J − I          L variación               = K / I
+    """
+    q = 61_481_010.022326
+    (f,) = _calc([_t("[4135] CAFCI1389-4135", q, 241_799_955.418016)],
+                 [_t("[4135] CAFCI1389-4135", q, 246_452_715.294486)], [],
+                 u2m={}, m2d={})
+    assert f["no_entran_rxt"] == 0
+    assert f["tenencia_mantenida"] == pytest.approx(q)
+    assert f["monto_rxt_ini"] == pytest.approx(241_799_955.418016, abs=0.01)
+    assert f["monto_rxt_fin"] == pytest.approx(246_452_715.294486, abs=0.01)
+    assert f["rxt"] == pytest.approx(4_652_759.8764696, abs=0.01)
+    assert f["variacion_rxt"] == pytest.approx(0.019242, abs=1e-5)   # 1,92%
+
+
+def test_la_cadena_del_rxt_cierra_sola():
+    """K = J − I y H sale de min(C,E), tambien cuando la posicion se mueve: el
+    numero del informe no puede contradecir a sus propios pasos."""
+    (f,) = _calc([_t("[100] AL30 - GD", 1_000, 1_000)],     # px 1,00
+                 [_t("[100] AL30 - GD", 800, 880)], [],     # px 1,10
+                 u2m={}, m2d={})
+    assert f["no_entran_rxt"] == pytest.approx(-200)
+    assert f["tenencia_mantenida"] == pytest.approx(800)
+    assert f["monto_rxt_ini"] == pytest.approx(800 * 1.00)
+    assert f["monto_rxt_fin"] == pytest.approx(800 * 1.10)
+    assert f["rxt"] == pytest.approx(f["monto_rxt_fin"] - f["monto_rxt_ini"])
+
+
 def test_no_entran_en_rxt_es_fin_menos_ini():
     """La columna de la planilla, literal: nominales del mes en curso menos
     nominales iniciales. Firmada — dice si la posición creció o se achicó."""

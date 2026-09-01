@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.services.contabilidad_sql import calcular_titulos, separar_altas
+from api.services.contabilidad_sql import calcular_titulos, ledger_fifo, separar_altas
 
 _U2M = {"[100] AL30 - GD": "AL30", "[200] FCI X": "CAFCI99", "[201] FCI X CLASE B": "CAFCI99"}
 _M2D = {"AL30": "AL30", "CAFCI99": "FCI X"}
@@ -177,6 +177,47 @@ def test_boleto_sin_direccion_no_mueve_nada():
     assert f["compras"] == 0 and f["ventas"] == 0
     assert f["rxt"] == pytest.approx(10)
     assert f["cuadra"] and f["n_boletos"] == 0
+
+
+def _mov(categoria, cantidad, importe_ars):
+    return {"categoria": categoria, "cantidad": cantidad, "importe_ars": importe_ars}
+
+
+def test_ledger_fifo_realiza_por_lotes_viejos():
+    """Dos compras a precio distinto, venta parcial: el costo sale del lote MÁS
+    VIEJO (FIFO), y los acumulados van fila por fila."""
+    movs = [_mov("compra", 100, 1_000),   # lote 1: 10 $/nominal
+            _mov("compra", 100, 2_000),   # lote 2: 20 $/nominal
+            _mov("venta", 150, 2_400)]    # 16 $/nominal vendido
+    stats = ledger_fifo(movs)
+    assert [m["nominales_acum"] for m in movs] == [100, 200, 50]
+    # costo FIFO: 100 del lote 1 (1.000) + 50 del lote 2 (1.000) = 2.000
+    assert movs[-1]["pnl_acum"] == pytest.approx(2_400 - 2_000)
+    assert stats["sin_costo"] == 0
+
+
+def test_ledger_fifo_venta_sin_lote_se_marca():
+    """Venta que excede lo comprado en el libro (posición pre-data): solo la
+    parte con lote realiza PnL y la fila queda marcada `sin_costo`."""
+    movs = [_mov("compra", 100, 1_000),
+            _mov("venta", 200, 3_000)]    # 15 $/nominal, la mitad sin costo
+    stats = ledger_fifo(movs)
+    assert movs[-1].get("sin_costo") is True
+    assert stats["sin_costo"] == 1
+    # cubierta = 100/200 → ingresa 1.500, costo 1.000 → +500
+    assert movs[-1]["pnl_acum"] == pytest.approx(500)
+    assert movs[-1]["nominales_acum"] == pytest.approx(-100)
+
+
+def test_ledger_fifo_rentas_y_otros():
+    """La renta suma con signo al acumulado sin tocar nominales; un boleto sin
+    dirección (caución/futuro) no toca nada pero muestra el acumulado vigente."""
+    movs = [_mov("compra", 100, 1_000),
+            _mov("acreencia", 0, 250),
+            _mov(None, 999, 99_999)]
+    ledger_fifo(movs)
+    assert movs[1]["nominales_acum"] == 100 and movs[1]["pnl_acum"] == 250
+    assert movs[2]["nominales_acum"] == 100 and movs[2]["pnl_acum"] == 250
 
 
 def test_orden_por_impacto():

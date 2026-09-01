@@ -225,14 +225,28 @@ def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
             "filas": filas}
 
 
-def _direccion(operacion: str | None) -> str | None:
-    """Enrich `operacion` del catálogo → compra / venta / None (no mueve posición).
-    Suscripción/rescate de FCI cuentan como compra/venta. Cauciones, futuros y
-    `otro` devuelven None: no tocan nominales de títulos."""
+def _direccion(operacion: str | None, tipo_operacion: str | None = None) -> str | None:
+    """Punta del boleto → compra / venta / None (no mueve posición de títulos).
+
+    Primero manda el enrich `operacion` del catálogo (suscripción/rescate de FCI
+    cuentan como compra/venta). Si el catálogo no define la punta (`otro`/vacío),
+    RESPALDO: se lee del descriptor de Aunesa (`tipo_operacion`), que la trae en
+    el texto («SENEBI Contado - Venta», «Concurrencia Contado - Venta»). Caso
+    real 2026-09-01: la venta SENEBI del 100% de TTCBO venía sin punta del
+    catálogo → VENTAS daba 0, el cuadre chillaba y la intermediación salía toda
+    negativa teniendo el boleto A LA VISTA. Guarda: cauciones/futuros/opciones
+    jamás — mueven plata, no nominales de títulos."""
     op = (operacion or "").strip().lower()
     if op == "compra" or "suscri" in op:
         return "compra"
     if op == "venta" or "rescate" in op:
+        return "venta"
+    t = (tipo_operacion or "").strip().lower()
+    if "cauci" in t or "futuro" in t or "opcion" in t or "opción" in t:
+        return None
+    if "suscri" in t or "compra" in t:
+        return "compra"
+    if "rescate" in t or "venta" in t:
         return "venta"
     return None
 
@@ -256,7 +270,7 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
     boletos: list[dict] = []
     for r in ops:
         unidad = r.get("instrumento") or ""
-        dir_ = _direccion(r.get("operacion"))
+        dir_ = _direccion(r.get("operacion"), r.get("tipo_operacion"))
         cat = {"compra": "compra", "venta": "venta"}.get(dir_ or "")
         boletos.append({
             "fecha": r["fecha"], "categoria": cat, "op": r.get("tipo_operacion"),
@@ -319,10 +333,12 @@ def ledger_fifo(boletos: list[dict]) -> dict:
 
     FIFO: cada compra entra como un lote (cantidad, costo); cada venta consume
     los lotes MÁS VIEJOS primero y realiza `ingreso − costo de esos lotes`.
-    Una venta que excede lo comprado en el libro (posición anterior al primer
-    boleto disponible) se marca `sin_costo`: solo la parte con lote genera PnL
-    — mismo criterio que el motor de PnL con los wash trades. Devuelve
-    {"sin_costo": n} para que la vista declare que el acumulado es parcial."""
+    La fila sintética `saldo_inicial` (la posición al cierre del mes anterior,
+    a su valuación de ese cierre) entra como PRIMER lote sin generar PnL — es el
+    reset mensual del módulo: vender el 100% realiza `venta − valuación inicial`.
+    Una venta que excede saldo inicial + compras se marca `sin_costo`: solo la
+    parte con lote genera PnL — mismo criterio que el motor de PnL con los wash
+    trades. Devuelve {"sin_costo": n} para que la vista declare el parcial."""
     lotes: list[list[float]] = []  # [cantidad_restante, costo_restante], viejo primero
     nominales = 0.0
     pnl = 0.0
@@ -331,7 +347,7 @@ def ledger_fifo(boletos: list[dict]) -> dict:
         cat = b.get("categoria")
         q = abs(b.get("cantidad") or 0.0)
         imp = abs(b.get("importe_ars") or 0.0)
-        if cat in _CATS_COMPRA:
+        if cat in _CATS_COMPRA or cat == "saldo_inicial":
             lotes.append([q, imp])
             nominales += q
         elif cat in _CATS_VENTA:
@@ -360,12 +376,23 @@ def ledger_fifo(boletos: list[dict]) -> dict:
 
 
 def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
-    """El LIBRO COMPLETO del título para la cuenta: TODOS los boletos desde el
-    primer movimiento (no solo el mes), cada uno con nominales acumulados y PnL
-    acumulado (FIFO + rentas). `mes` viaja solo para marcar qué filas caen en el
-    mes que se está mirando."""
+    """El LIBRO del título en el MES elegido (pedido del user 2026-09-01: los
+    boletos son del período, no de todo el año). Arranca con una fila sintética
+    de POSICIÓN INICIAL — los nominales y la valuación del cierre del mes
+    anterior, que entran como primer lote FIFO — y sigue con los boletos del
+    mes, cada uno con nominales acumulados y PnL acumulado (FIFO + rentas).
+    Así vender el 100% muestra `venta − valuación inicial` = la intermediación
+    de la fila del resumen."""
     from api.services.pnl_sql import _mapas_assets
-    boletos = [b for b in _boletos_mes(id_cuenta, None, _mapas_assets()["unidad_to_match"])
+    u2m = _mapas_assets()["unidad_to_match"]
+    anio, m = int(mes[:4]), int(mes[5:7])
+    a0, m0 = _mes_anterior(anio, m)
+    ini = _cierre_mes(id_cuenta, a0, m0)
+    qty_ini = sum((r.get("cantidad") or 0.0) for r in ini["filas"]
+                  if u2m.get(r.get("unidad") or "", r.get("unidad")) == key)
+    v_ini = sum((r.get("valuacion") or 0.0) for r in ini["filas"]
+                if u2m.get(r.get("unidad") or "", r.get("unidad")) == key)
+    boletos = [b for b in _boletos_mes(id_cuenta, mes, u2m)
                if (b.get("ticker") or "").strip() == key]
     for b in boletos:
         b["importe_ars"], b["sin_mep"] = _pesificar(b)
@@ -373,7 +400,14 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
         b["direccion"] = ("compra" if cat in _CATS_COMPRA else
                           "venta" if cat in _CATS_VENTA else
                           "renta" if cat in _CATS_RENTA else "otro")
-        b["en_mes"] = (b.get("fecha") or "").startswith(mes)
+    if qty_ini or v_ini:
+        boletos.insert(0, {
+            "fecha": ini["fecha_usada"] or ini["fecha_objetivo"],
+            "categoria": "saldo_inicial", "op": "POSICIÓN INICIAL (cierre anterior)",
+            "ticker": key, "cantidad": qty_ini, "importe": None, "moneda": None,
+            "mep": None, "comprobante": "—", "importe_ars": v_ini, "sin_mep": False,
+            "direccion": "otro",
+        })
     stats = ledger_fifo(boletos)
     return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": boletos,
             "sin_costo": stats["sin_costo"]}

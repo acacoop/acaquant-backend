@@ -237,17 +237,19 @@ def _direccion(operacion: str | None) -> str | None:
     return None
 
 
-def _boletos_mes(id_cuenta: str, mes_str: str, u2m: dict[str, str]) -> list[dict]:
-    """Boletos del mes traducidos al shape que consume `calcular_titulos`:
-    compras/ventas desde `operaciones.operaciones` (importe = bruto, título por
-    `instrumento` = unidad → clave del mapping) + rentas (`acreencia`) desde
-    `negocio_movimientos`. Los boletos sin dirección viajan con categoria=None:
-    no suman, pero el detalle y el contador `ignorados` los muestran."""
+def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> list[dict]:
+    """Boletos traducidos al shape que consume `calcular_titulos`: compras/ventas
+    desde `operaciones.operaciones` (importe = bruto, título por `instrumento` =
+    unidad → clave del mapping) + rentas (`acreencia`) desde `negocio_movimientos`.
+    `mes_str=None` = TODO el histórico (lo usa el libro del detalle). Los boletos
+    sin dirección viajan con categoria=None: no suman, pero el detalle y el
+    contador `ignorados` los muestran."""
+    w_mes = "AND to_char(concertacion,'YYYY-MM') = %(m)s " if mes_str else ""
     ops = _q(
         "SELECT to_char(concertacion,'YYYY-MM-DD') AS fecha, instrumento, operacion, "
         "tipo_operacion, cantidad, bruto, moneda, mep, boleto "
         "FROM operaciones.operaciones "
-        "WHERE id_cuenta = %(c)s AND to_char(concertacion,'YYYY-MM') = %(m)s "
+        f"WHERE id_cuenta = %(c)s {w_mes}"
         "AND anulado_en IS NULL AND etapa IS DISTINCT FROM 'solicitud' "
         "AND COALESCE(es_cierre, false) = false "
         "ORDER BY concertacion, boleto", {"c": id_cuenta, "m": mes_str})
@@ -310,11 +312,60 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
             "n_boletos": sum(1 for b in boletos if b.get("categoria"))}
 
 
+def ledger_fifo(boletos: list[dict]) -> dict:
+    """El LIBRO del título: recorre los boletos EN ORDEN y anota en cada fila
+    `nominales_acum` (posición corrida) y `pnl_acum` (realizado por costeo FIFO
+    + rentas, corrido). Espera filas ya pesificadas (`importe_ars`).
+
+    FIFO: cada compra entra como un lote (cantidad, costo); cada venta consume
+    los lotes MÁS VIEJOS primero y realiza `ingreso − costo de esos lotes`.
+    Una venta que excede lo comprado en el libro (posición anterior al primer
+    boleto disponible) se marca `sin_costo`: solo la parte con lote genera PnL
+    — mismo criterio que el motor de PnL con los wash trades. Devuelve
+    {"sin_costo": n} para que la vista declare que el acumulado es parcial."""
+    lotes: list[list[float]] = []  # [cantidad_restante, costo_restante], viejo primero
+    nominales = 0.0
+    pnl = 0.0
+    sin_costo = 0
+    for b in boletos:
+        cat = b.get("categoria")
+        q = abs(b.get("cantidad") or 0.0)
+        imp = abs(b.get("importe_ars") or 0.0)
+        if cat in _CATS_COMPRA:
+            lotes.append([q, imp])
+            nominales += q
+        elif cat in _CATS_VENTA:
+            restante, costo = q, 0.0
+            while restante > _TOL_NOMINALES and lotes:
+                lote = lotes[0]
+                usa = min(lote[0], restante)
+                parte = lote[1] * (usa / lote[0])
+                costo += parte
+                lote[1] -= parte
+                lote[0] -= usa
+                restante -= usa
+                if lote[0] <= _TOL_NOMINALES:
+                    lotes.pop(0)
+            cubierta = (q - restante) / q if q else 0.0
+            pnl += imp * cubierta - costo
+            if restante > _TOL_NOMINALES:
+                b["sin_costo"] = True
+                sin_costo += 1
+            nominales -= q
+        elif cat in _CATS_RENTA:
+            pnl += b.get("importe_ars") or 0.0  # con signo
+        b["nominales_acum"] = round(nominales, 2)
+        b["pnl_acum"] = round(pnl, 2)
+    return {"sin_costo": sin_costo}
+
+
 def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
-    """Los boletos del mes que componen la fila `key` (el drill-down auditable:
-    el mismo insumo del resumen, no otra query con otro criterio)."""
+    """El LIBRO COMPLETO del título para la cuenta: TODOS los boletos desde el
+    primer movimiento (no solo el mes), cada uno con nominales acumulados y PnL
+    acumulado (FIFO + rentas). `mes` viaja solo para marcar qué filas caen en el
+    mes que se está mirando."""
     from api.services.pnl_sql import _mapas_assets
-    boletos = [b for b in _boletos_mes(id_cuenta, mes, _mapas_assets()["unidad_to_match"])
+    boletos = [b for b in _boletos_mes(id_cuenta, None, _mapas_assets()["unidad_to_match"])
                if (b.get("ticker") or "").strip() == key]
     for b in boletos:
         b["importe_ars"], b["sin_mep"] = _pesificar(b)
@@ -322,7 +373,10 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
         b["direccion"] = ("compra" if cat in _CATS_COMPRA else
                           "venta" if cat in _CATS_VENTA else
                           "renta" if cat in _CATS_RENTA else "otro")
-    return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": boletos}
+        b["en_mes"] = (b.get("fecha") or "").startswith(mes)
+    stats = ledger_fifo(boletos)
+    return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": boletos,
+            "sin_costo": stats["sin_costo"]}
 
 
 # ── ABM de cuentas del proceso ───────────────────────────────────────────────

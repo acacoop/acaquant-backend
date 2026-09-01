@@ -177,5 +177,14 @@ def ficha_incompleta(u: dict) -> list[Hallazgo]:
                        "fecha_tenencia": str(fecha),
                        # La MUESTRA, no la lista: ver §MUESTRA arriba.
                        "muestra": muestra,
-                       "rompe": c["rompe"]}))
+                       "rompe": c["rompe"],
+                       # ⚠️ **`items` NO es para la pantalla: es la IDENTIDAD
+                       # (§0.cz).** El sujeto es el CAMPO, así que para el
+                       # registro «CARTERA sin_cartera» de hoy y el de hace un
+                       # mes son el mismo problema — y un título NUEVO sin
+                       # cartera reincidía sobre un arreglo que escribió OTROS
+                       # títulos. Con la lista, `registro._ver` sólo declara
+                       # reincidencia si alguno de estos lo escribió la acción
+                       # que cerró el anterior. Son unidades, no fichas.
+                       "items": [f["unidad"] for f in filas]}))
     return out

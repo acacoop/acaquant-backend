@@ -43,8 +43,9 @@ def intraday(ticker: str):
 @router.get("/pivot-radar")
 def pivot_radar():
     """Radar de proximidad a pivote de TODO el universo de CEDEARs. Cada item:
-    {ticker, last, nivel, nivel_precio, dist_pct}. Ordenado por |dist_pct| asc;
-    el frontend filtra por el umbral elegido."""
+    {ticker, last, nivel, nivel_precio, dist_pct, cash}. Ordenado por |dist_pct|
+    asc; el frontend filtra por el umbral elegido. `cash` = plata operada hoy
+    (`total_money`), el MISMO campo que ranquea la tab VOLUMENES."""
     return svc.pivot_radar()
 
 

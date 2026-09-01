@@ -56,7 +56,14 @@ def _ohlc_ultima_rueda(tabla: str, tickers: list[str]) -> dict[str, dict]:
 
 
 def _cedears_live(tickers: set[str]) -> dict[str, dict]:
-    """{ticker_corto: {last, vwap}} live de cada CEDEAR desde el scanner (1 llamada, @cached)."""
+    """{ticker_corto: {last, vwap, cash}} live de cada CEDEAR desde el scanner
+    (1 llamada, @cached ttl=2).
+
+    `cash` = `total_money` del snapshot: la PLATA operada en la rueda
+    (TRADE_EFFECTIVE_VOLUME), no el nominal. Es el mismo campo que ranquea la tab
+    VOLUMENES del radar, y se lee ACÁ —el único lugar de este service que toca el
+    scanner— para que las dos tabs no puedan decir números distintos del mismo
+    papel (REGLA #9). `None` cuando el papel no operó."""
     try:
         universo = scanner_svc.get_cedears_scanner()
     except Exception as e:
@@ -66,7 +73,8 @@ def _cedears_live(tickers: set[str]) -> dict[str, dict]:
     for r in universo:
         tk = str(r.get("ticker_corto", "")).upper()
         if tk in tickers:
-            out[tk] = {"last": r.get("last"), "vwap": r.get("vwap")}
+            out[tk] = {"last": r.get("last"), "vwap": r.get("vwap"),
+                       "cash": r.get("total_money")}
     return out
 
 
@@ -146,10 +154,11 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
     out: list[dict] = []
     for tk in tks:
         info = live.get(tk) or {}
-        last, vwap = info.get("last"), info.get("vwap")
+        last, vwap, cash = info.get("last"), info.get("vwap"), info.get("cash")
         row = ohlc.get(tk)
         if not row:
-            out.append({"ticker": tk, "last": last, "vwap": vwap, "sin_datos": True})
+            out.append({"ticker": tk, "last": last, "vwap": vwap, "cash": cash,
+                        "sin_datos": True})
             continue
         h, l, c = float(row["high"]), float(row["low"]), float(row["close"])
         niveles = calcular(high=h, low=l, close=c)
@@ -160,6 +169,7 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
             "high": h, "low": l, "close": c,
             "last": last,
             "vwap": vwap,
+            "cash": cash,  # plata operada hoy (None en bonos y en lo que no operó)
             "pivots": dict(niveles),  # pp, r1, r2, r3, s1, s2, s3
         })
     return out
@@ -210,7 +220,12 @@ def pivot_radar() -> list[dict]:
     filtra por el umbral elegido (el selector no re-pega al backend).
 
     Cada item: {ticker, last, nivel ('PP'|'R1'..'S3'), nivel_precio,
-    dist_pct (signed: + = last por encima del nivel)}.
+    dist_pct (signed: + = last por encima del nivel), cash}.
+
+    `cash` es la plata operada hoy por ese papel y sale de la MISMA fila de
+    `get_pivots` (no se vuelve a leer el scanner): un papel pegado a un pivote no
+    sirve de nada si no lo opera nadie, y hasta ahora había que cambiar de tab
+    para saberlo.
     """
     universo = [
         str(u.get("ticker_corto", "")).upper()
@@ -239,6 +254,7 @@ def pivot_radar() -> list[dict]:
             "nivel": best_key.upper(),        # pp/r1/… → PP/R1/…
             "nivel_precio": best_val,
             "dist_pct": best_dist,
+            "cash": r.get("cash"),
         })
     out.sort(key=lambda d: abs(d["dist_pct"]))
     return out

@@ -205,11 +205,44 @@ def calcular_titulos(
         tenencia_mantenida = min(qi, qf)
         monto_rxt_ini = tenencia_mantenida * px_ini if px_ini is not None else 0.0
         monto_rxt_fin = tenencia_mantenida * px_fin if px_fin is not None else 0.0
-        rxt = monto_rxt_fin - monto_rxt_ini
-        variacion_rxt = (rxt / monto_rxt_ini) if monto_rxt_ini else None
-        # INTERMEDIACIÓN: la sumatoria de los boletos — ventas menos compras.
+        rxt_mantenida = monto_rxt_fin - monto_rxt_ini
+        variacion_rxt = (rxt_mantenida / monto_rxt_ini) if monto_rxt_ini else None
+
+        # ── Los nominales que ENTRARON y quedaron en cartera ───────────────
+        # Su resultado es de TENENCIA, no de intermediación (regla del back
+        # office): el valor al cierre menos lo que costaron. La valuación del
+        # cierre es la foto final y no se toca — ya lo tiene todo implícito.
+        # Solo se reclasifica lo que los boletos explican EN NETO
+        # (`qty_compras − qty_ventas`), no lo que se compró en bruto: AO29
+        # 08/26 compró y vendió 1.255.011 nominales —neto CERO— y cerró con
+        # 955.084 que ningún boleto explica; topeando contra las compras
+        # brutas se le acreditaba esa posición entera como tenencia nueva y
+        # el mes volvía a los 1.325 millones de la fórmula vieja. Ante un
+        # descuadre, no se valúa: se marca (`cuadra`) y se deja pasar.
+        neto_boletos = ag["qty_compras"] - ag["qty_ventas"]
+        entraron = min(max(0.0, qf - qi), max(0.0, neto_boletos))
+        px_compra = (ag["compras"] / ag["qty_compras"]) if ag["qty_compras"] else 0.0
+        costo_nuevo = entraron * px_compra
+        rxt_nueva = (entraron * px_fin if px_fin is not None else 0.0) - costo_nuevo
+        rxt = rxt_mantenida + rxt_nueva
+
+        # ── Los nominales que SE FUERON, a su valor del cierre anterior ────
+        # La venta entra por su importe, pero el activo que salió también tiene
+        # que salir: si no, vender algo que YA se tenía se cuenta como ganancia
+        # entera (AO29 inflaba 2.218.620 = 1.545 × 1.436; una venta SENEBI
+        # llegó a mostrar 6.465 millones de PnL). Mismo criterio: solo se
+        # costea lo que las VENTAS explican en neto.
+        salieron = min(max(0.0, qi - qf), max(0.0, -neto_boletos))
+        costo_salida = salieron * px_ini if px_ini is not None else 0.0
+        # INTERMEDIACIÓN: la sumatoria de los boletos, menos el activo que
+        # salió, y sin el costo de lo que quedó en cartera (ese se lo llevó la
+        # tenencia). Con estos dos términos, TENENCIA + INTERMEDIACIÓN + RENTAS
+        # da la plata real del mes (`v_fin − v_ini + ventas − compras`) en TODOS
+        # los casos — quieta, intradía, alta, baja, achicó, agrandó, rotó, y
+        # vendió-todo-y-recompró. Congelado por tests.
         rxt = _r2(rxt)
-        intermediacion, rentas = _r2(ag["intermediacion"]), _r2(ag["rentas"])
+        intermediacion = _r2(ag["intermediacion"] - costo_salida + costo_nuevo)
+        rentas = _r2(ag["rentas"])
         residual = qf - qi - ag["qty_compras"] + ag["qty_ventas"]
         out.append({
             "titulo": d["titulo"], "key": key, "unidades": d["unidades"],
@@ -225,6 +258,13 @@ def calcular_titulos(
             "n_boletos": ag["n_boletos"],
             "no_entran_rxt": no_entran_rxt,
             "tenencia_mantenida": tenencia_mantenida,
+            "rxt_mantenida": _r2(rxt_mantenida), "rxt_nueva": _r2(rxt_nueva),
+            "qty_entraron": entraron, "qty_salieron": salieron,
+            "costo_nuevo": _r2(costo_nuevo), "costo_salida": _r2(costo_salida),
+            # Ya calculados acá para que la vista no derive NADA: el valor al
+            # cierre de lo que entró, y el neto crudo de los boletos.
+            "valor_nuevo": _r2(entraron * px_fin if px_fin is not None else 0.0),
+            "neto_boletos": _r2(ag["intermediacion"]),
             "monto_rxt_ini": _r2(monto_rxt_ini), "monto_rxt_fin": _r2(monto_rxt_fin),
             "variacion_rxt": variacion_rxt,
             "cuadre_nominales": residual,

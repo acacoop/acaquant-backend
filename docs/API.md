@@ -116,7 +116,7 @@ Identity tells us **who is calling**; RBAC tells us **what they can see**. Backe
 **Modules** (canonical list in `core/roles.py::MODULES`):
 
 ```
-home · renta-fija · derivados · estrategia · operar · operaciones · portfolios · asistente · mm · manager
+home · renta-fija · derivados · operar · operaciones · portfolios · asistente · mm · manager
 ```
 
 > **`operar` vs `operaciones`** — son módulos distintos. `operar` cubre **acciones del trading desk** (mandar/cancelar órdenes, MEP, riesgo de cuenta) y lo tienen `admin + trader + sales`. `operaciones` cubre la **mesa de flujo** (boletos, cash movements, contrapartes) y lo tienen `admin + trader` solamente — sales NO.
@@ -126,8 +126,8 @@ home · renta-fija · derivados · estrategia · operar · operaciones · portfo
 | Role | Modules |
 |---|---|
 | `admin` | all 10 |
-| `trader` | home, renta-fija, derivados, estrategia, **operar**, operaciones, portfolios, asistente |
-| `sales` | home, renta-fija, derivados, estrategia, **operar** |
+| `trader` | home, renta-fija, derivados, **operar**, operaciones, portfolios, asistente |
+| `sales` | home, renta-fija, derivados, **operar** |
 
 Enforcement:
 
@@ -139,7 +139,7 @@ Enforcement:
   /api/mesa-dinero                          → operaciones  (admin + trader)
   /api/manager                              → manager
   ```
-- `home / renta-fija / derivados / estrategia` paths use `_PUBLIC` (auth + bearer, no module gate).
+- `home / renta-fija / derivados` paths use `_PUBLIC` (auth + bearer, no module gate).
 - `/api/me` and `/api/simulaciones/*` have no module gate; ownership is enforced inside the service (`user_email` filter).
 - `/api/derivados/agro` está bajo `_PUBLIC` para el routing pero el handler aplica un check inline `role == "admin"` (el resto de `/derivados` sigue público para todos los roles con módulo `derivados`).
 
@@ -920,4 +920,5 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-08-27 | **wipe(controles):** el auto-control de calidad de datos se dio de baja. Sus 16 controles eran de dos clases: 7 duplicaban un detector del AV AGENT (que además trae el botón) y los otros 9 se dieron de baja o se mudaron a la habilidad `ficha_incompleta`. Se va también `manager.controles_datos`. |
 | 2026-08-28 | **wipe(MCP):** borrado del MCP server — `api/mcp/` (FastMCP + provider OAuth 2.1 + discovery), sus 13 tools, el schema `mcp` y `docs/MCP.md` / `docs/MCP_TOOLS.md`. No lo consumía nadie y no era gratis: con `MCP_JWT_SECRET` seteada quedaba expuesto el provider OAuth entero, y `/oauth/register` y `/oauth/token` estaban en la allowlist de BYPASS de Cloudflare Access, o sea alcanzables **sin autenticar** — cada request disparaba `CREATE SCHEMA/TABLE` + 2 `DELETE` sobre el pool web que sirve a la mesa. La secuencia fue **apagar y después borrar**: primero se sacaron las env vars y se verificó `/mcp` → 404 con `/api/health` → 200. Sobrevive `rv_motor.get_correlation_matrix()`, que no era MCP-only. |
 | 2026-08-30 | **wipe(código muerto):** barrido de los dos repos. Se borran 13 endpoints sin consumidor (`/market/candle`, `/market/profile`, 2 checks del manager, 2 gemelos de scanner, `/portfolio/aum`, 2 alias de assets, `/trading/trades`, `/trading/renta-fija`, `/mails/buscar`, `/rem/debug`) + `require_manager` (cero `Depends()`) y sus espejos en `superficie.py`; 4 modules y 26 símbolos de `api/services`, `core/`, `quant/` y `engines/`; la cascada de 4 services que quedaron sin caller; 15 scripts one-shot cumplidos; y del lado del front 5 componentes, 3 proxies de `/api/valuaciones` y 6 símbolos. `mercado.precios_extremos_hist` estaba declarada dos veces en el schema. **530 → 517 endpoints.** |
+| 2026-09-01 | **refactor(trading):** se borra el router **`/api/estrategia`** ENTERO (`/live`, `/track-record`, `/senales`, `/contexto`) junto con su motor, resolver, service, quant, config, systemd, crons y el schema SQL `estrategia` (`DROP SCHEMA … CASCADE` en `sql/schema.sql`): la tab que lo consumía se sacó de `/trading` y de los 4 endpoints solo uno tenía consumidor. En `/api/trading` se van `GET /adr-zonas` (chart ZONAS ADR), y con él `trading_pivots.get_adr_zonas()`/`_velas_adr()`; también los ya-huérfanos `get_renta_fija_radar()` y `get_trades()`. **Los pivots USD del subyacente NO se tocan**: siguen en `GET /api/scanner/pivot-points` (panel MÉTRICAS de `/renta-variable`). |
 | 2026-08-30 | **feat(renta-fija) + wipe(estrategia):** nace `GET /api/analitica/simular-inversion` (modal SIMULAR INVERSIÓN de `/renta-fija`: motor con precio inyectado + cronograma escalado al importe) y se elimina la vista ESTRATEGIA (`/retorno`): fuera `/analitica/{comparar,comparar/bonos,descomposicion-retorno,rolldown-esperado}` y sus services (`comparar_inversion.py`, `descomposicion_retorno.py`); el módulo `estrategia` sale de `core/roles.py`. ANÁLISIS SENSIBILIDAD se muda tal cual a RESEARCH (mismo endpoint `/analitica/sensibilidad-retorno`). |

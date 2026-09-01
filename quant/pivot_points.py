@@ -251,7 +251,7 @@ def obtener_4_timeframes(ticker: str) -> dict:
     # UNA query cubre los 4 timeframes + el last close: el rango anual previo
     # arranca antes que todos y el tope abierto (mañana) incluye la última vela.
     # Antes eran 5 queries por ticker — y esto se llama en loop por ticker
-    # (scanner, motor estrategia).
+    # (scanner).
     manana = _hoy_utc_00() + timedelta(days=1)
     docs = _sql_docs_en_rango(ticker, anual_desde, manana)
 

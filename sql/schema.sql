@@ -3106,69 +3106,19 @@ CREATE INDEX IF NOT EXISTS ix_ia_research_fts ON ia.research
     USING gin (to_tsvector('spanish', cuerpo));
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Schema ESTRATEGIA — modelo de señal intradía con trazabilidad
--- (docs/ESTRATEGIA_QUANT.md, vista TRADING → tab ESTRATEGIA, 2026-07-29).
--- Ciclo: engines/estrategia.py EMITE (ledger inmutable) → jobs/estrategia_resolver.py
--- RESUELVE resultados INTRADÍA (el tape cedears_time_sales se VACÍA al cierre —
--- si el resolver espera a la noche, la evidencia ya no existe) → la vista mide
--- el edge → con data suficiente se CALIBRAN pesos (nueva versión en modelo_pesos).
--- ─────────────────────────────────────────────────────────────────────────────
-CREATE SCHEMA IF NOT EXISTS estrategia;
-
--- Ledger de señales — APPEND-ONLY, INMUTABLE. Cada fila = una llamada del modelo
--- con el valor crudo de cada factor (auditable factor por factor). NUNCA se
--- edita: el resultado va en estrategia.resultados (join por senal_id).
-CREATE TABLE IF NOT EXISTS estrategia.senales (
-    id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ts             timestamptz NOT NULL DEFAULT now(),
-    ticker         text NOT NULL,           -- ticker_corto del CEDEAR
-    indice_ref     text NOT NULL,           -- QQQ | SPY (mayor |corr| del papel)
-    direccion      text NOT NULL,           -- LONG | SHORT
-    score          numeric NOT NULL,        -- -100..100 (signo = dirección)
-    precio         numeric,                 -- last ARS al momento de la señal
-    pesos_version  text NOT NULL,           -- versión de estrategia.modelo_pesos usada
-    factores       jsonb NOT NULL           -- {recorrido_indice, alineacion, nafta,
-                                            --  confluencia, inputs:{...crudos}}
-);
-CREATE INDEX IF NOT EXISTS ix_estrategia_senales_ts ON estrategia.senales (ts DESC);
-CREATE INDEX IF NOT EXISTS ix_estrategia_senales_tk_ts ON estrategia.senales (ticker, ts DESC);
-
--- Resultado de cada señal a cada horizonte (15/30/60 min) — lo escribe el
--- resolver DURANTE la rueda. ret_pct con signo de la DIRECCIÓN de la señal
--- (positivo = la señal ganó). mfe/mae = máxima excursión a favor / en contra.
-CREATE TABLE IF NOT EXISTS estrategia.resultados (
-    senal_id       bigint NOT NULL REFERENCES estrategia.senales(id),
-    horizonte_min  int NOT NULL,            -- 15 | 30 | 60
-    ret_pct        numeric,                 -- retorno direccional al horizonte
-    mfe_pct        numeric,                 -- max favorable excursion (≥0)
-    mae_pct        numeric,                 -- max adverse excursion (≤0)
-    toco_objetivo  boolean,                 -- tocó +objetivo antes que -stop
-    gano           boolean,                 -- ret_pct > 0
-    parcial        boolean DEFAULT false,   -- resuelto con menos minutos (cierre)
-    resuelto_at    timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (senal_id, horizonte_min)
-);
-
--- Pesos del modelo, VERSIONADOS: cada señal guarda su pesos_version →
--- reproducibilidad total (se puede comparar modelo v1 vs v2). El engine usa la
--- fila con activo=true (única). v1 = pesos manuales (hipótesis); las siguientes
--- salen de calibrar contra estrategia.resultados.
-CREATE TABLE IF NOT EXISTS estrategia.modelo_pesos (
-    version     text PRIMARY KEY,           -- 'v1-manual', 'v2-cal-2026-09', ...
-    pesos       jsonb NOT NULL,             -- {recorrido_indice, alineacion, nafta, confluencia}
-    activo      boolean NOT NULL DEFAULT false,
-    notas       text,
-    created_at  timestamptz NOT NULL DEFAULT now()
-);
-
--- Última evaluación live por ticker (UPSERT del engine cada ciclo, se emita o no
--- señal al ledger) — la lee GET /api/estrategia/live para la zona LIVE de la
--- vista. Efímera por naturaleza (solo vale la fila de hoy).
-CREATE TABLE IF NOT EXISTS estrategia.eval_live (
-    ticker      text PRIMARY KEY,
-    ts          timestamptz NOT NULL,
-    data        jsonb NOT NULL              -- score, direccion, factores, inputs
-);
+-- Schema ESTRATEGIA — DADO DE BAJA (2026-09-01).
+--
+-- Era la señal intradía con trazabilidad de la vista TRADING (tab ESTRATEGIA):
+-- engines/estrategia.py emitía al ledger, jobs/estrategia_resolver.py resolvía
+-- los horizontes y la vista medía el edge. Se borró ENTERO —motor, resolver,
+-- router, service, quant, config, systemd y cron— porque la única pantalla que
+-- lo consumía usaba SOLO /contexto: el ledger, el track-record y las señales
+-- nunca llegaron a tener consumidor (ya estaba anotado en MAPA_APP.md §huecos).
+--
+-- Las 4 tablas (senales, resultados, modelo_pesos, eval_live) se van con el
+-- schema: sin emisor ni lector, dejarlas solo hace que el próximo que las vea
+-- crea que hay un modelo corriendo.
+DROP SCHEMA IF EXISTS estrategia CASCADE;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- VEPs (tab VEPS de Tesorería) — agenda de vencimientos, TODOS egresos.

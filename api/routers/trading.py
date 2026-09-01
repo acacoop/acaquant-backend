@@ -1,8 +1,12 @@
 """Router /api/trading — vista TRADING (módulo `trading`, admin-only).
 
-Por ahora: pivots Floor Trader sobre el CEDEAR (ARS) + el catálogo de CEDEARs
-para el selector de instrumento de las cards. Lógica pura en
-api/services/trading_pivots.py. Ver [[project_vista_trading]].
+Pivots Floor Trader sobre el CEDEAR (ARS), la serie intradía del chart LIVE, el
+radar de proximidad a pivote y el catálogo para el selector de las cards.
+Lógica pura en api/services/trading_pivots.py. Ver [[project_vista_trading]].
+
+Refactor 2026-09-01: se fue `/adr-zonas` (el chart ZONAS ADR salió de la vista;
+los mismos niveles siguen en `/api/scanner/pivot-points`, panel MÉTRICAS de
+Renta Variable) y el router `/api/estrategia` completo (tab ESTRATEGIA).
 """
 from __future__ import annotations
 
@@ -42,22 +46,6 @@ def pivot_radar():
     {ticker, last, nivel, nivel_precio, dist_pct}. Ordenado por |dist_pct| asc;
     el frontend filtra por el umbral elegido."""
     return svc.pivot_radar()
-
-
-@router.get("/adr-zonas")
-def adr_zonas(ticker: str, dias: int = 180):
-    """Velas DIARIAS del ADR/subyacente USD + los 4 timeframes de pivots
-    (diario/semanal/mensual/anual) para el chart ZONAS de TRADING. Mismos
-    niveles que el panel MÉTRICAS de Renta Variable, pero graficables.
-
-    Vive acá (y no en /api/scanner) porque TRADING es su propio módulo RBAC:
-    un usuario con `trading` y sin `renta-variable` igual tiene que verlo.
-
-    Shape: {ticker, underlying, last, last_source, velas:[{t,o,h,l,c}],
-    frames:{semanal:{label,fecha_desde,fecha_hasta,h,l,c,levels}, ...}}
-    o {sin_datos: true} si el ticker no tiene serie USD (ej. un bono).
-    """
-    return svc.get_adr_zonas(ticker=ticker, dias=dias)
 
 
 @router.get("/universo")

@@ -274,7 +274,7 @@ def get_user_email(
 # ─────────────────────────────────────────────────────────────
 # Mapeo de prefijo de path → módulo. Se usa para inferir qué módulo
 # cubre un endpoint dado. Solo listamos los módulos que RESTRINGEN:
-# home / renta-fija / derivados / estrategia los tienen todos los roles,
+# home / renta-fija / derivados los tienen todos los roles,
 # así que no hace falta gatearlos (sale más barato un `_PUBLIC` sin
 # require_module).
 ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (

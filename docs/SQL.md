@@ -60,7 +60,6 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `bancos` | Interbanking (`docs/INTERBANKING.md`): cuentas, saldos, movimientos, movimientos_manuales, movimientos_ignorados, extracto_dia, cierres_diarios, conciliacion_pendientes, mayor_movimientos, mayor_sync_log, presencia, sync_log, audit_lecturas + los 5 de gastos_* |
 | `ap5` | Postrade A3/ACyRSA (`docs/POSTRADE.md`): cuentas, contratos, portfolio, margenes, activo_integrado |
 | `aca` | Vista `/aca` (`docs/ACA.md`): activos, series, historico, periodos, clase_destacada, emisor_destacado, moneda_regla, audit |
-| `estrategia` | Estrategia Quant (`docs/ESTRATEGIA_QUANT.md`): senales, resultados, modelo_pesos, eval_live |
 | `ext` | **API EXTERNA para accionistas** (`docs/API_EXTERNA.md`) — superficie hacia AFUERA: api_keys, clientes, cuentas_autorizadas, requests_log |
 | `ia` | Gateway LLM: config, trazas, research (el mail diario de 1816) |
 

@@ -39,7 +39,6 @@ from api.routers import (
     cuentas,
     derivados_agro,
     derivados_sinteticos,
-    estrategia,
     ia,
     ingest,
     interbanking,
@@ -269,7 +268,7 @@ _IA           = [Depends(verify_api_key), Depends(require_module("ia"))]
 # `manager_comercial` y `manager_clientes`). El gate vive POR sub-router en
 # `api/routers/manager/__init__.py`; acá abajo va solo la base fail-closed.
 
-# Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
+# Públicos (todos los roles tienen home/renta-fija/derivados):
 app.include_router(me.router)                                      # /api/me — sin gate (identidad propia)
 # /api/avisos — sin gate de módulo A PROPÓSITO (2026-08-19). El AV AGENT es
 # admin-only, pero lo que el agente MANDA le tiene que llegar a cualquiera: un
@@ -294,7 +293,6 @@ app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA 
 app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos Internacionales / FRED (gate módulo `research` en el router) — docs/RESEARCH.md
 app.include_router(research_docs.router,      dependencies=_PUBLIC)  # documentos manuales de REPORTES FINANCIEROS (gate módulo `research` en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
-app.include_router(estrategia.router,          dependencies=_TRADING)  # TRADING → tab ESTRATEGIA (docs/ESTRATEGIA_QUANT.md)
 app.include_router(ia.router,                 dependencies=_IA)       # IA — observabilidad + briefing (gate módulo `ia`)
 # EL AV AGENT (`docs/AGENT.md`). Mismo gate de módulo que /api/ia, y
 # ADEMÁS `require_admin` en cada ruta del router: el agente habla del

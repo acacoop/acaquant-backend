@@ -68,8 +68,8 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 | **precios_acciones** | `mercado` | Cierres EOD del subyacente US (+ SPY/QQQ) | scanner (returns/quant/pivot), rv_motor | **`jobs/precios_acciones_daily.py`** (post-cierre US, Yahoo) |
 | **adr_snapshot** | `mercado` | ADR live (cada ~15 min en hs US) | scanner (pivot, adr) | `jobs/adr_live.py` (Finnhub) ⚠️ *job a confirmar* |
 | **day_trading_stats** | `mercado` | "Costumbre" de vueltas (~20 ruedas) | day_trading | `jobs/day_trading_stats.py` ⚠️ *a confirmar* |
-| **cedears_ohlc_daily** | `mercado` | OHLC diario ARS del CEDEAR (ventana 60 ruedas) + `atr` (ATR-20 en ARS) | pivots ARS, estrategia | `jobs/cedears_ohlc_daily.py` (post-cierre 20:15, calcula el ATR) |
-| **cedears_bars_1m** | `mercado` | Archivo permanente de barras 1-min ARS (OHLCV) — fuente del Efficiency Ratio intradía | `core/bars_sql.py` | `jobs/cedears_bars_1m.py` (20:20, resamplea el tape antes del cleanup) |
+| **cedears_ohlc_daily** | `mercado` | OHLC diario ARS del CEDEAR (ventana 60 ruedas) + `atr` (ATR-20 en ARS) | pivots ARS de `/trading` | `jobs/cedears_ohlc_daily.py` (post-cierre 20:15, calcula el ATR) |
+| **cedears_bars_1m** | `mercado` | Archivo permanente de barras 1-min ARS (OHLCV) | ⚠️ **NADIE hoy** — su único lector era `core/bars_sql.py` (Efficiency Ratio de la tab ESTRATEGIA, borrada 2026-09-01). El job sigue archivando porque el tape se vacía al cierre y esta historia no se reconstruye; pendiente decidir si se le da consumidor o se da de baja | `jobs/cedears_bars_1m.py` (20:20, resamplea el tape antes del cleanup) |
 | **dolar_snapshot / dolar** | `valuaciones` | CCL live / cierre | scanner (`/ccl`) | motores dólares (`engines/dolares.py` / `dolar_mep`) |
 
 ---
@@ -307,6 +307,18 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 - Workspace abierto y logueado (Desktop Session; sin la app no hay datos).
 
 ### 8. Changelog
+
+- **2026-09-01 — TRADING se sacó todo lo que era ADR; Renta Variable NO cambió.**
+  El refactor de `/trading` borró de esa vista el chart ZONAS ADR (endpoint
+  `/api/trading/adr-zonas` + `trading_pivots.get_adr_zonas()`/`_velas_adr()`), la
+  vista ADR de la tabla del radar y los KPIs `SPY ADR` / `QQQ ADR` del toolbar.
+  **Acá no se tocó una línea**: los pivots USD del subyacente siguen sirviéndose
+  por `GET /api/scanner/pivot-points` (`scanner_sql.get_pivot_points`, panel
+  MÉTRICAS → ZONAS), el switch CEDEAR/ADR del Scanner sigue entero (en TRADING se
+  apaga con el prop nuevo `soloCedear`) y `mercado.precios_acciones` sigue con sus
+  mismos consumidores. Lo único que quedó huérfano es `mercado.cedears_bars_1m`
+  (ver tabla de fuentes): su único lector era el Efficiency Ratio de la tab
+  ESTRATEGIA, borrada en el mismo cambio.
 
 - **2026-08-07 — v6: emprolijada del screener con el universo REAL (184 empresas).**
   Con los datos cargados aparecieron tres cosas que con 28 papeles no se veían.

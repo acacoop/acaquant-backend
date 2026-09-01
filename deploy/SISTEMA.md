@@ -43,7 +43,6 @@
 | `motor_cedears` | ?–20:05 L-V | `engines.motor_cedears` | Motor CEDEARs - TradingAV |
 | `motor_curvas` | ?–20:05 L-V | `engines.curvas` | Motor Curvas - Enriquecimiento TEA/Duration TimeSales |
 | `motor_dolares` | ?–20:05 L-V | `engines.dolares` | Motor Dolares - MEP/CCL/canje en tiempo real (WS) |
-| `motor_estrategia` | ?–20:05 L-V | `engines.estrategia` | Motor Estrategia Quant - TradingAV |
 | `motor_forwards` | ?–20:05 L-V | `engines.forwards` | Motor Forwards - Tasas forward en tiempo real |
 | `motor_futuros_dlr` | ?–20:05 L-V | `engines.futuros_dlr` | Motor Futuros DLR - Curva outright Dolar A3500 con tasa implicita |
 | `motor_options` | ?–20:05 L-V | `engines.options` | Motor Opciones GGAL - TradingAV |
@@ -69,7 +68,6 @@
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral` + `jobs.ops_tasa_mav'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
-| cada 5min · 13-20h · L-V | `jobs.estrategia_resolver'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |
@@ -91,7 +89,6 @@
 | 23:00 · L-V | `jobs.validar_instrumentos'` |
 | cada hora · 13-19h · L-V | `jobs.tamar_1816'` |
 | cada hora · 16-17h · L-V | `jobs.mayor_sync'` |
-| 20:10 · L-V | `jobs.estrategia_resolver` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
@@ -140,7 +137,6 @@
 | 13:20 · L-V | `systemctl restart motor_agro.service` |
 | 13:20 · L-V | `systemctl restart motor_agro_opciones.service` |
 | 13:20 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
-| 13:20 · L-V | `systemctl restart motor_estrategia.service` |
 | 13:30 · L-V | `systemctl restart motor_ordenes.service` |
 <!-- /AUTOGEN:otros -->
 

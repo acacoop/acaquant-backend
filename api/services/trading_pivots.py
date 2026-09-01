@@ -165,33 +165,9 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
     return out
 
 
-def get_trades(*, ticker: str, limite: int = 200) -> list[dict]:
-    """Time & Sales (tape) del activo, resolviendo la fuente por clase — MISMO
-    criterio que get_pivots (CEDEAR vs bono por el master de renta fija):
-      • CEDEAR → mercado.cedears_time_sales (tape inferido por motor_cedears).
-      • Bono   → mercado.timesales (trades del día del motor de curvas, la misma
-        fuente que el tape de la vista Renta Fija).
-    Shape unificado (el que espera el panel): [{timestamp, price, size, side,
-    money}] desc por ts. `ticker` = ticker_corto (ej 'AL30' / 'NVDA')."""
-    tk = (ticker or "").strip().upper()
-    if not tk:
-        return []
-    if tk in _bonos_corto_a_largo():
-        # Bono: el tape vive en mercado.timesales (RF). get_historico_trades
-        # resuelve el ticker_corto → largo ROFEX y filtra al día de hoy.
-        from api.services import renta_fija_sql
-        filas = renta_fija_sql.get_historico_trades(instrumento=tk) or []
-        return [
-            {"timestamp": r.get("timestamp"), "price": r.get("price"),
-             "size": r.get("size"), "side": r.get("side"), "money": r.get("money")}
-            for r in filas[:limite]
-        ]
-    return scanner_svc.get_cedears_trades(ticker=tk, limite=limite)
-
-
 def get_intraday(*, ticker: str) -> list[dict]:
     """Serie intradía por minuto (OHLC) del activo para el chart LIVE, resolviendo
-    la fuente por clase igual que get_pivots/get_trades:
+    la fuente por clase igual que get_pivots:
       • CEDEAR → mercado.cedears_time_sales (scanner).
       • Bono   → agrega los trades de HOY de mercado.timesales por minuto (el
         chart solo usa t + close; se arma OHLC para el mismo shape).
@@ -222,36 +198,6 @@ def get_intraday(*, ticker: str) -> list[dict]:
             b["c"] = px
             b["vol"] = (b["vol"] or 0.0) + sz
     return [por_min[k] for k in sorted(por_min)]
-
-
-@cached(ttl=4)
-def get_renta_fija_radar() -> list[dict]:
-    """Radar de RENTA FIJA (vista TRADING): bonos en PESOS suscriptos (tasa fija
-    + CER) con last, TNA y volumen del día, ordenados por volumen desc — para el
-    tab RENTA FIJA del panel de movers (click → carga la card). Reusa
-    renta_fija_sql.listar_curva (el MISMO ensamblado live de la vista RF). TNA =
-    TEM × 12 (nominal anual). Incluye todos los suscriptos; los que no operaron
-    quedan al fondo (volumen 0) y muestran '—' donde no hay dato."""
-    from api.services import renta_fija_sql
-
-    out: list[dict] = []
-    vistos: set[str] = set()
-    for curva in ("tasa_fija", "cer"):
-        for b in renta_fija_sql.listar_curva(curva=curva, ordenar_por="volumen_dia"):
-            tk = b.get("ticker_corto")
-            if not tk or tk in vistos:
-                continue
-            vistos.add(tk)
-            tem = b.get("tem")
-            out.append({
-                "ticker_corto": tk,
-                "last": b.get("ultimo_precio"),
-                "tea": b.get("tea"),  # los CER cotizan en TEA (no tienen TNA)
-                "tna": tem * 12 if tem is not None else None,
-                "volumen": b.get("total_nominals_dia"),
-            })
-    out.sort(key=lambda x: -(x.get("volumen") or 0))
-    return out
 
 
 @cached(ttl=2)
@@ -296,60 +242,3 @@ def pivot_radar() -> list[dict]:
         })
     out.sort(key=lambda d: abs(d["dist_pct"]))
     return out
-
-
-# ── Zonas del ADR (velas diarias USD + pivots de los 4 timeframes) ────────────
-@cached(ttl=900)
-def _velas_adr(underlying: str, dias: int) -> list[dict]:
-    """Velas EOD del subyacente USD (mercado.precios_acciones) de los últimos
-    `dias` corridos, asc. `fecha` como 'YYYY-MM-DD' (el chart usa día, no tz)."""
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """SELECT fecha, open, high, low, close
-               FROM mercado.precios_acciones
-               WHERE ticker = %s AND fecha >= (CURRENT_DATE - %s::int)
-                 AND close IS NOT NULL
-               ORDER BY fecha""",
-            (underlying.upper(), dias),
-        )
-        rows = cur.fetchall()
-    velas = []
-    for r in rows:
-        c = float(r["close"])
-        velas.append({
-            "t": r["fecha"].isoformat(),
-            "o": float(r["open"]) if r["open"] is not None else c,
-            "h": float(r["high"]) if r["high"] is not None else c,
-            "l": float(r["low"]) if r["low"] is not None else c,
-            "c": c,
-        })
-    return velas
-
-
-def get_adr_zonas(*, ticker: str, dias: int = 180) -> dict:
-    """Velas diarias del ADR/subyacente USD + los 4 timeframes de pivots, para
-    el chart ZONAS de la vista TRADING.
-
-    Los niveles son EXACTAMENTE los del panel MÉTRICAS de Renta Variable
-    (`scanner_sql.get_pivot_points` → `quant.pivot_points`, calculados sobre el
-    subyacente USD con el `last` pisado por el live del ADR). Acá se le suman
-    las velas para poder dibujarlos en vez de tabularlos.
-
-    Un ticker sin serie en `mercado.precios_acciones` (típico: un bono de la
-    card, que no tiene ADR) devuelve `sin_datos: true`.
-    """
-    underlying = scanner_svc.resolve_underlying(ticker)
-    velas = _velas_adr(underlying, max(30, min(dias, 1825)))
-    if not velas:
-        return {"ticker": ticker.upper(), "underlying": underlying, "sin_datos": True,
-                "velas": [], "frames": {}}
-    piv = scanner_svc.get_pivot_points(ticker=ticker)
-    return {
-        "ticker": ticker.upper(),
-        "underlying": underlying,
-        "last": piv.get("last"),
-        "last_source": piv.get("last_source"),
-        "last_fecha": piv.get("last_fecha"),
-        "velas": velas,
-        "frames": piv.get("frames") or {},
-    }

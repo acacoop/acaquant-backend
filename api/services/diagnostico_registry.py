@@ -208,12 +208,6 @@ PIEZAS: list[Pieza] = [
           cadencia="live", ventana="rueda", umbral_s=180,
           tabla="options_snapshot"),
 
-    Pieza("MERCADOS", "motor", "motor_estrategia (señal intradía)", grupo="ESTRATEGIA",
-          unidad="motor_estrategia", cadencia="live", ventana="rueda", umbral_s=300,
-          tabla="estrategia.eval_live", ts_expr="ts"),
-    Pieza("MERCADOS", "job", "estrategia_resolver (horizontes)", grupo="ESTRATEGIA",
-          unidad="jobs.estrategia_resolver", cadencia="cada 5m · 13-20 UTC L-V",
-          ventana="rueda", umbral_s=15 * 60, run_tipo="estrategia_resolver"),
     Pieza("MERCADOS", "job", "cedears_bars_1m (velas 1m)", grupo="RENTA VARIABLE",
           unidad="jobs.cedears_bars_1m", cadencia="20:20 UTC L-V", ventana="diario",
           umbral_s=int(3 * _D), run_tipo="cedears_bars_1m"),

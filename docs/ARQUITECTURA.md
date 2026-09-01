@@ -58,7 +58,7 @@ Tres principios:
 ## 3. Estado de los datos (post-decomiso Mongo, 2026-06-29)
 
 **Base única: Postgres/Supabase**, **17** schemas de dominio: `aca`, `agente`,
-`ap5`, `bancos`, `clientes`, `estrategia`, `ext`, `home`, `ia`, `macro`,
+`ap5`, `bancos`, `clientes`, `ext`, `home`, `ia`, `macro`,
 `manager`, `mercado`, `operaciones`, `partner`, `portafolio`, `research`,
 `valuaciones`. (Decía «10» y listaba 8.)
 Modelo completo + inventario de tablas: `docs/SQL.md`. Schema fuente:

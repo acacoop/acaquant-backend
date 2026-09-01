@@ -42,7 +42,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las **73** rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base — recontado 2026-08-31; el número queda viejo solo, ya pasó de 20 a 40 a 73), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
+TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO **nyc1**, Nueva York — verificado 2026-08-13), venv en `/root/TradingAV/venv`. Vercel corre las Functions en **iad1** (Washington DC): las funciones de Next son un PROXY (las **72** rutas de `src/app/api` pegan a `api.acaquant.com` y el front NO tiene cliente de base — recontado 2026-09-01 tras la baja del proxy `/api/estrategia`; el número queda viejo solo, ya pasó de 20 a 40 a 73), asi que la pata que paga Vercel es Vercel→Droplet, ~330km de distancia. Mover la region de Vercel NO toca el viaje Droplet→Supabase.
 
 > **MONGO DECOMISADO (2026-06-29).** El sistema es 100% Postgres/Supabase: motores,
 > jobs y API leen y escriben SQL. NO queda una sola referencia a
@@ -354,8 +354,9 @@ docs/        # documentación (ver "Mapa de docs" abajo)
 
 ## Mapa de docs — cuál leer ANTES de tocar cada dominio
 
-**19 docs, uno por dominio.** Eran 32 el 2026-08-30. La regla que los mantiene en
-19: **un dominio = un doc**. Si dos archivos explican el mismo tema, el que lee
+**18 docs, uno por dominio.** Eran 32 el 2026-08-30 y 19 hasta el borrado de la
+ESTRATEGIA QUANT (2026-09-01). La regla que los mantiene así: **un dominio = un
+doc**. Si dos archivos explican el mismo tema, el que lee
 abre uno de los dos y no sabe cuál manda — es la REGLA #9 aplicada a la
 documentación, y ya pasó (el agente tenía DOS docs, la vista `/research` TRES).
 
@@ -375,7 +376,6 @@ actualizaste su doc en el mismo commit, el trabajo está incompleto.
 | Renta variable: scanner local **+ feed Reuters/Eikon** | `RENTA_VARIABLE.md` **[VIVO]** |
 | Vista `/research` — las 6 tabs (1816, BCRA, FRED, sensibilidad, reportes) | `RESEARCH.md` **[VIVO]** |
 | Derivados: futuros · sintéticos · agro | `DERIVADOS.md` |
-| Estrategia Quant (señal intradía, tab ESTRATEGIA de Trading) | `ESTRATEGIA_QUANT.md` **[VIVO]** |
 | Valuaciones / PnL | `MOTOR_VALUACIONES.md` |
 | Clientes: grupos · segmentación patrimonial · tablero comercial | `CLIENTES.md` |
 | Vista `/aca` (resumen ejecutivo de la cartera propia) | `ACA.md` **[VIVO]** |

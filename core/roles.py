@@ -50,11 +50,10 @@ MODULES: tuple[str, ...] = (
     "sinteticos",     # /sinteticos (long ROFEX + LECAP, short ROFEX + DLK)
     "renta-variable", # /renta-variable + smart money 13F/Form 4 sobre CEDEARs
     "trading",        # /trading (panel intradía de CEDEARs — 5 sistemas, admin-only)
-    # "estrategia" se eliminó el 2026-08-30 junto con la vista /retorno: el
-    # análisis de sensibilidad se mudó a /research (módulo `research`) y el
-    # resto de la vista (comparar, descomposición) se dio de baja. Si el
-    # string sigue apareciendo en manager.role_matrix es residual — no
-    # gatea nada.
+    # "estrategia" se eliminó el 2026-08-30 junto con la vista /retorno; la
+    # ESTRATEGIA QUANT (que era una TAB de /trading, no un módulo) se borró
+    # entera el 2026-09-01. Si el string sigue apareciendo en
+    # manager.role_matrix es residual — no gatea nada.
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos

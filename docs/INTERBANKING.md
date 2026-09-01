@@ -1101,6 +1101,36 @@ Respeta el filtro por banco de la vista.
 
 ## Changelog
 
+- **2026-09-01 (2)** — ⚠️ **El badge ≠ del SALDO AL CIERRE comparaba el cierre
+  contra el saldo OPERATIVO.** El back office encontró una cuenta donde «el
+  extracto cierra en X y el saldo informado dice Y», y la pregunta fue por qué la
+  pantalla se queda con el del extracto «a diferencia de todas las demás».
+  · **No era un trato distinto.** La precedencia (extracto si lo hay, si no el
+    informado) vive en `_saldos_banco()` y es la misma para todas las cuentas: en
+    las otras los dos números COINCIDEN, así que no se nota cuál ganó. El extracto
+    va primero porque es el único **auditable** — viene con apertura, créditos y
+    débitos, y se le chequea `apertura + créditos − débitos = cierre`.
+  · **Lo que sí estaba mal es contra QUÉ se comparaba.** El lado «informado» se
+    armaba con `coalesce(saldo_operativo, saldo_dia)`, y `saldo_operativo` es
+    `current_operating_balance`: **lo disponible AHORA**, no el cierre contable de
+    una fecha. Como solo existe en la fila del `row_date`, le ganaba justo en el
+    día que la pantalla muestra. El ≠ cantaba como contradicción del banco lo que
+    era una diferencia de definición.
+  · **Manda `saldo_dia`** (`historical_balances[].day_balance`), que es lo
+    homogéneo con un cierre. El `coalesce` se conserva **al revés**: una cuenta
+    QUIETA no tiene fila en `historical_balances` y su único saldo es el operativo
+    de la foto — sin el fallback volvería a mostrar «—», que es el agujero que la
+    API de Saldos vino a tapar.
+  · ⚠️ **La expresión estaba COPIADA en tres queries** (el cierre, el consolidado
+    y DIFERENCIAS). Tres copias de una regla sin árbitro es la REGLA #9: se
+    corrige una y las otras dos siguen diciendo lo de antes, sin fallar, en otra
+    pantalla. Ahora se declara una sola vez en `bancos._SALDO_INFORMADO` y hay un
+    test que **falla si aparece un `coalesce` de saldos escrito a mano**.
+  · Queda `scripts/diag_saldo_cierre.py`: los dos lados enteros con la
+    verificación aritmética del extracto — es lo único que distingue «el banco se
+    contradice» de «estoy comparando dos cosas distintas», que en pantalla se ven
+    igual: un badge ≠.
+
 - **2026-09-01** — ⚠️ **La DESCRIPCIÓN que se ve y la que se matchea eran datos
   distintos.** El back office cargó `NOTA DB` en el balde IIBBPERCEP sobre el
   campo DESCRIPCIÓN, el movimiento ya estaba contado como gasto, y el desglose lo

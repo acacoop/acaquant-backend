@@ -1302,6 +1302,37 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # camino alternativo (`conciliar()`), que además sirve para una cuenta que todavía
 # no esté mapeada.
 
+# ⚠️ **CUÁL DE LOS DOS SALDOS DE LA API DE SALDOS ES «EL SALDO DEL DÍA».**
+#
+# `bancos.saldos` guarda dos números que el banco manda por bloques distintos y
+# que NO son lo mismo:
+#
+#   · `saldo_dia`       ← `historical_balances[].day_balance`. Una fila POR DÍA:
+#                          cuánto quedó ese día. Es lo homogéneo con un cierre.
+#   · `saldo_operativo` ← `balances.current_operating_balance`. La foto de HOY,
+#                          estampada solo en la fila del `row_date` (`es_foto`).
+#                          Es el saldo OPERATIVO —lo disponible ahora—, no el
+#                          cierre contable de una fecha.
+#
+# **Manda `saldo_dia`** (decisión del back office, 2026-09-01). Hasta esa fecha el
+# orden estaba al revés y el operativo le ganaba cuando existía, o sea justo en el
+# día que la pantalla muestra. Consecuencia: el badge ≠ del CONSOLIDADO comparaba
+# el cierre del extracto contra el saldo OPERATIVO y cantaba como contradicción
+# del banco lo que era una diferencia de definición.
+#
+# El `coalesce` se conserva —al revés— y no es un detalle: una cuenta QUIETA no
+# tiene fila en `historical_balances`, así que su único saldo es el operativo de
+# la foto. Sin el fallback esa cuenta volvería a mostrar «—», que es exactamente
+# el agujero que esta API vino a tapar.
+#
+# ⚠️ Se declara ACÁ y lo usan las TRES pantallas que lo necesitan (el cierre, el
+# consolidado y DIFERENCIAS). Estaba copiado en las tres, y tres copias de una
+# regla sin árbitro es la REGLA #9: el día que alguien corrija una, las otras dos
+# siguen diciendo lo de antes y ninguna falla — muestran otro número.
+# Requiere que la tabla `bancos.saldos` venga aliaseada como `s`.
+_SALDO_INFORMADO = "coalesce(s.saldo_dia, s.saldo_operativo)"
+
+
 def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
     """{cuenta_id: {"valor", "fuente", "ajuste"}} — **EL SALDO AL CIERRE**.
 
@@ -1339,7 +1370,7 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
     signo = "CASE WHEN tipo = 'C' THEN abs(importe) ELSE -abs(importe) END"
     sql = f"""
         SELECT c.id AS cuenta_id, c.origen, e.saldo_cierre,
-               coalesce(s.saldo_operativo, s.saldo_dia) AS informado,
+               {_SALDO_INFORMADO} AS informado,
                coalesce(m.ajuste, 0) AS ajuste,
                coalesce(m.acumulado, 0) AS acumulado
           FROM bancos.cuentas c
@@ -2147,9 +2178,8 @@ def diferencias(email: str, fecha: date) -> dict:
         """SELECT cuenta_id, fecha, saldo_apertura, saldo_cierre, cierra
              FROM bancos.extracto_dia WHERE fecha IN (%s, %s)""", (fecha, previa))}
     sal = {(r["cuenta_id"], r["fecha"]): _f(r["saldo"]) for r in _q(
-        """SELECT cuenta_id, fecha,
-                  coalesce(saldo_operativo, saldo_dia) AS saldo
-             FROM bancos.saldos WHERE fecha IN (%s, %s)""", (fecha, previa))}
+        f"""SELECT s.cuenta_id, s.fecha, {_SALDO_INFORMADO} AS saldo
+             FROM bancos.saldos s WHERE s.fecha IN (%s, %s)""", (fecha, previa))}
 
     movs = {r["cuenta_id"]: (_f(r["neto"]) or 0.0, r["n"]) for r in _q(
         """SELECT cuenta_id,
@@ -2238,10 +2268,10 @@ def consolidado(email: str, fecha: date) -> dict:
     navegable la lista, pero cada fila se lee sola.
     """
     filas = _q(
-        """SELECT c.id, c.bank_number, c.bank_name, c.account_number,
+        f"""SELECT c.id, c.bank_number, c.bank_name, c.account_number,
                   c.account_type, c.currency, c.account_label, c.activa, c.origen,
                   e.saldo_apertura, e.saldo_cierre, e.total_movimientos,
-                  coalesce(s.saldo_operativo, s.saldo_dia) AS saldo_banco
+                  {_SALDO_INFORMADO} AS saldo_banco
              FROM bancos.cuentas c
              LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
              LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s

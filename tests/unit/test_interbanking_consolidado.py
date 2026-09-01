@@ -12,6 +12,7 @@ haya movido o no.
 """
 from __future__ import annotations
 
+import pathlib
 from datetime import date
 
 import pytest
@@ -375,3 +376,47 @@ def test_si_el_dia_no_esta_sellado_se_sella_al_vuelo(monkeypatch):
     assert any("cierres_diarios" in " ".join(str(e).split()) for e in escrituras), \
         "tiene que haber sellado"
     assert c["saldo_inicio"] == 500.0
+
+
+# --------------------------------------------------------------------------- #
+# CUÁL de los dos saldos de la API de Saldos es «el saldo del día»
+# --------------------------------------------------------------------------- #
+# `bancos.saldos` guarda dos números que el banco manda por bloques distintos:
+#   · `saldo_dia`       — una fila POR DÍA (`historical_balances`). Cuánto quedó
+#                         ese día: lo homogéneo con un cierre.
+#   · `saldo_operativo` — la foto de HOY (`balances.current_operating_balance`).
+#                         Lo DISPONIBLE ahora, no el cierre contable de una fecha.
+#
+# Hasta el 2026-09-01 el operativo le ganaba al del día cuando existía, o sea
+# justo en la fecha que la pantalla muestra: el badge ≠ del consolidado comparaba
+# el cierre del extracto contra el operativo y cantaba como contradicción del
+# banco lo que era una diferencia de definición.
+
+def test_manda_el_SALDO_DEL_DIA_y_no_el_operativo():
+    """La decisión, congelada. Si se invierte, no falla nada: la columna muestra
+    otro número y el ≠ aparece o desaparece sin que nadie lo pida."""
+    assert bancos._SALDO_INFORMADO == "coalesce(s.saldo_dia, s.saldo_operativo)"
+
+
+def test_el_operativo_SIGUE_siendo_el_respaldo():
+    """El `coalesce` se conserva —al revés— y no es un detalle: una cuenta QUIETA
+    no tiene fila en `historical_balances`, así que su único saldo es el operativo
+    de la foto. Sin el fallback esa cuenta volvería a mostrar «—», que es
+    exactamente el agujero que la API de Saldos vino a tapar."""
+    assert "saldo_operativo" in bancos._SALDO_INFORMADO
+
+
+def test_la_regla_se_declara_UNA_sola_vez():
+    """⚠️ Estaba copiada en TRES queries (el cierre, el consolidado y
+    DIFERENCIAS). Tres copias de una regla sin árbitro es la REGLA #9: el día que
+    alguien corrija una, las otras dos siguen diciendo lo de antes y ninguna
+    falla — muestran otro número en otra pantalla."""
+    src = pathlib.Path(bancos.__file__).read_text(encoding="utf-8")
+    sueltas = [ln for ln in src.split("\n")
+               if "saldo_operativo" in ln and "saldo_dia" in ln
+               and "_SALDO_INFORMADO =" not in ln]
+    assert not sueltas, (
+        "hay un coalesce de saldos escrito a mano en vez de usar "
+        "`_SALDO_INFORMADO`:\n  " + "\n  ".join(s.strip() for s in sueltas))
+    # la declaración + sus tres usos
+    assert src.count("_SALDO_INFORMADO") >= 4

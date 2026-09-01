@@ -3789,6 +3789,9 @@ CREATE TABLE IF NOT EXISTS bancos.saldos (
     cuenta_id           bigint NOT NULL REFERENCES bancos.cuentas(id),
     fecha               date NOT NULL,
     -- Del bloque `historical_balances[]`: una fila por día.
+    -- ⚠️ **ESTE es «el saldo del día»**, y el que MANDA cuando hay que informar
+    -- un cierre (`bancos._SALDO_INFORMADO`, decisión del back office 2026-09-01).
+    -- Es lo homogéneo con el `saldo_cierre` del extracto; `saldo_operativo` no.
     saldo_dia           numeric,
     creditos_dia        numeric,
     debitos_dia         numeric,
@@ -3796,6 +3799,11 @@ CREATE TABLE IF NOT EXISTS bancos.saldos (
     -- en la fila del `row_date` que declara la respuesta; en los días anteriores
     -- queda NULL, que es lo correcto — el banco no informa el proyectado de ayer.
     saldo_contable      numeric,
+    -- ⚠️ El saldo OPERATIVO (`current_operating_balance`) es lo DISPONIBLE ahora,
+    -- no el cierre contable de una fecha. Es el RESPALDO de `saldo_dia`, no su
+    -- reemplazo: la cuenta QUIETA no tiene fila en `historical_balances` y este
+    -- es su único saldo. Preferirlo hacía que el badge ≠ del consolidado
+    -- comparara el cierre del extracto contra otro concepto.
     saldo_operativo     numeric,
     saldo_operativo_ini numeric,
     proyectado_24hs     numeric,

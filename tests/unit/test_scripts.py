@@ -86,9 +86,6 @@ HERRAMIENTAS: dict[str, str] = {
     # ⏳ TEMPORAL — se borra (script + este renglón) en el mismo commit que aplique
     #    la decisión, según REGLA #5. Está declarado y no escondido justamente
     #    para que su borrado sea una tarea visible y no un olvido.
-    "diag_primary_catalogo": "pone la FOTO de Primary (`manager.pyrofex_instruments`, la que filtra el WS "
-                             "y el agente) al lado de Primary EN VIVO (lo que mira OPERAR): un bono licitado "
-                             "después del último discovery es «inexistente» para una mitad y cotiza en la otra.",
     "diag_duales_pata_fija": "por qué TTD26/TTS26 salen en -- en TASA FIJA teniendo TAMAR completo: sigue "
                              "la cadena hasta el punto exacto donde se corta (2026-08-31, abierto).",
     "diag_1816_grafias":     "con qué grafía publica 1816 la pata fija que `tamar_1816` pide con dos "

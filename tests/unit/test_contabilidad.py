@@ -155,6 +155,30 @@ def test_alta_pura_se_separa_del_informe():
     assert [t["titulo"] for t in con_resultado] == ["FCI X"]  # alta que vendió → queda
 
 
+def test_direccion_del_catalogo():
+    """El enrich `operacion` de operaciones.operaciones → compra/venta/None.
+    Cauciones, futuros y `otro` no mueven posición de títulos."""
+    from api.services.contabilidad_sql import _direccion
+    assert _direccion("compra") == "compra"
+    assert _direccion("Venta") == "venta"
+    assert _direccion("suscripción FCI") == "compra"
+    assert _direccion("rescate FCI") == "venta"
+    for x in ("caución tomadora", "caución colocadora", "futuros", "otro", "", None):
+        assert _direccion(x) is None
+
+
+def test_boleto_sin_direccion_no_mueve_nada():
+    """Un boleto con categoria None (caución/futuro/otro) no toca compras,
+    ventas ni el cuadre — se declara en `ignorados`, no se suma."""
+    filas = _calc([_t("[100] AL30 - GD", 1_000, 500)],
+                  [_t("[100] AL30 - GD", 1_000, 510)],
+                  [_b(None, "AL30", 999, 12_345)])
+    (f,) = filas
+    assert f["compras"] == 0 and f["ventas"] == 0
+    assert f["rxt"] == pytest.approx(10)
+    assert f["cuadra"] and f["n_boletos"] == 0
+
+
 def test_orden_por_impacto():
     filas = _calc(
         [_t("[100] AL30 - GD", 1_000, 1_000), _t("[200] FCI X", 100, 1_000, cartera="FCI")],

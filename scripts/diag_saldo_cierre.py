@@ -27,18 +27,24 @@ LO QUE ESTE DIAG VIENE A MEDIR
 Que difieran puede ser dos cosas MUY distintas, y no se puede decidir sin ver los
 números:
 
-  (a) **No son el mismo concepto.** El lado «informado» se arma con
-      `coalesce(saldo_operativo, saldo_dia)`, y `saldo_operativo` es
-      `current_operating_balance` — el saldo OPERATIVO, la foto de HOY, que no es
-      el cierre contable de un día. Si el ≠ sale de comparar el cierre del
-      extracto contra el operativo, la diferencia es de definición y el badge
-      está gritando por algo que no es un error.
+  (a) **No son el mismo concepto.** Hasta el 2026-09-01 el lado «informado» se
+      armaba con `coalesce(saldo_operativo, saldo_dia)` y el operativo —la foto de
+      HOY, lo disponible ahora— le ganaba al saldo del día. Hoy manda `saldo_dia`;
+      el diag igual imprime los dos, porque descartar esta causa vale tanto como
+      confirmarla.
   (b) **El extracto no cierra.** Si `apertura + créditos − débitos ≠ cierre`, el
-      sospechoso es el extracto y ahí el ≠ está bien puesto.
+      sospechoso es la aritmética del extracto.
+  (c) **Una CABECERA no coincide con su propio DETALLE.** Los dos números de
+      arriba son cabeceras: totales que el banco declara. El detalle —los
+      movimientos, uno por uno— es la **tercera fuente, y la única independiente
+      de las dos**. Si la cabecera del extracto dice créditos por X y sus propios
+      movimientos suman Y, la cabecera está describiendo otra cosa (otro período,
+      otro extracto, un acumulado) y ahí no hay nada que comparar: hay que
+      arreglar la ingesta.
 
-Por cada cuenta y fecha imprime los DOS lados enteros, la verificación aritmética
-del extracto, qué eligió `_saldos_banco()` y qué diferencia daría comparando
-contra `saldo_dia` (el saldo del día) en vez de contra el operativo.
+Por eso imprime **tres bloques por fila**, no dos: cabecera del extracto,
+cabecera de saldos, y el detalle guardado con su propia aritmética. Y dice quién
+no coincide con quién, que es la pregunta que la pantalla no puede contestar.
 
 Uso:
     python -m scripts.diag_saldo_cierre
@@ -80,16 +86,31 @@ def _filas(cuenta: int | None) -> list[dict]:
             SELECT c.id, c.bank_name, c.account_number, c.currency, c.origen,
                    d.fecha,
                    e.saldo_apertura, e.saldo_cierre, e.total_creditos,
-                   e.total_debitos, e.total_movimientos, e.cierra, e.diferencia,
-                   s.saldo_dia, s.saldo_contable, s.saldo_operativo,
-                   s.saldo_operativo_ini, s.proyectado_24hs, s.proyectado_48hs,
-                   s.es_foto, s.raw
+                   e.total_debitos, e.total_movimientos, e.numero_extracto,
+                   e.cierra, e.diferencia,
+                   s.saldo_dia, s.creditos_dia, s.debitos_dia, s.saldo_contable,
+                   s.saldo_operativo, s.saldo_operativo_ini, s.proyectado_24hs,
+                   s.proyectado_48hs, s.es_foto, s.raw,
+                   -- LA TERCERA FUENTE: el detalle que de verdad guardamos. Es
+                   -- lo único independiente de las dos cabeceras — si el header
+                   -- del extracto no coincide con sus propios movimientos, el
+                   -- sospechoso deja de ser un misterio.
+                   d2.n_movs, d2.cr_movs, d2.db_movs, d2.extractos
               FROM dias d
               JOIN bancos.cuentas   c ON c.id = d.cuenta_id
               LEFT JOIN bancos.extracto_dia e
                      ON e.cuenta_id = d.cuenta_id AND e.fecha = d.fecha
               LEFT JOIN bancos.saldos       s
                      ON s.cuenta_id = d.cuenta_id AND s.fecha = d.fecha
+              LEFT JOIN (SELECT cuenta_id, fecha, count(*) AS n_movs,
+                                sum(CASE WHEN tipo = 'C' THEN abs(importe) ELSE 0 END)
+                                  AS cr_movs,
+                                sum(CASE WHEN tipo = 'D' THEN abs(importe) ELSE 0 END)
+                                  AS db_movs,
+                                count(DISTINCT numero_extracto) AS extractos
+                           FROM bancos.movimientos
+                          GROUP BY cuenta_id, fecha) d2
+                     ON d2.cuenta_id = d.cuenta_id AND d2.fecha = d.fecha
              WHERE {where}
              ORDER BY c.bank_name, c.account_number, d.fecha""",
         args)
@@ -143,11 +164,13 @@ def main() -> None:
               f"   {fecha}   origen={r['origen'] or 'interbanking'}"
               + ("   ← ≠ EN PANTALLA" if hay_dif else ""))
 
-        print("  EXTRACTO (API Extractos — solo días CON movimientos)")
+        print("  ① EXTRACTO — la CABECERA (API Extractos; solo días CON movimientos)")
         print(f"    apertura            {_p(_n(r['saldo_apertura']))}")
         print(f"    + créditos          {_p(_n(r['total_creditos']))}")
         print(f"    − débitos           {_p(_n(r['total_debitos']))}")
-        print(f"    = CIERRE            {_p(cierre)}   ({r['total_movimientos']} movs)")
+        print(f"    = CIERRE            {_p(cierre)}")
+        print(f"    movs que DECLARA    {r['total_movimientos']}"
+              f"      extracto Nº {r['numero_extracto']}")
         if r["cierra"] is None:
             print("    verificación: el banco no mandó todo lo necesario para chequearla")
         elif r["cierra"]:
@@ -156,8 +179,10 @@ def main() -> None:
             print(f"    verificación: ✗ NO CIERRA por {_n(r['diferencia']):,.2f} "
                   "← acá el sospechoso ES el extracto")
 
-        print("  SALDOS (API Saldos — responde se haya movido o no)")
+        print("  ② SALDOS — la otra CABECERA (API Saldos; responde se haya movido o no)")
         print(f"    saldo_dia           {_p(dia)}   ← el saldo DEL DÍA (historical_balances)")
+        print(f"    créditos del día    {_p(_n(r['creditos_dia']))}")
+        print(f"    débitos del día     {_p(_n(r['debitos_dia']))}")
         print(f"    saldo_contable      {_p(_n(r['saldo_contable']))}")
         print(f"    saldo_operativo     {_p(operativo)}   ← foto de HOY, NO el cierre de un día")
         print(f"    saldo_operativo_ini {_p(_n(r['saldo_operativo_ini']))}")
@@ -165,7 +190,40 @@ def main() -> None:
               f"{_p(_n(r['proyectado_48hs']))}")
         print(f"    es_foto             {r['es_foto']}")
 
-        print("  COMPARACIÓN")
+        # ③ El DETALLE. Es la única fuente independiente de las dos cabeceras:
+        #    los movimientos que el banco mandó uno por uno y nosotros guardamos.
+        n_movs = r["n_movs"] or 0
+        cr_movs, db_movs = _n(r["cr_movs"]) or 0.0, _n(r["db_movs"]) or 0.0
+        neto_movs = round(cr_movs - db_movs, 2)
+        apertura = _n(r["saldo_apertura"])
+        print(f"  ③ DETALLE — los movimientos GUARDADOS ({n_movs}, "
+              f"{r['extractos'] or 0} extracto/s distintos)")
+        print(f"    Σ créditos          {_p(round(cr_movs, 2))}")
+        print(f"    Σ débitos           {_p(round(db_movs, 2))}")
+        print(f"    neto                {_p(neto_movs)}")
+        if apertura is not None:
+            print(f"    apertura + neto     {_p(round(apertura + neto_movs, 2))}"
+                  "   ← el cierre que sale del detalle")
+
+        print("  ¿QUIÉN NO COINCIDE CON QUIÉN?")
+        cabecera_vs_detalle = (
+            None if r["total_creditos"] is None
+            else round((_n(r["total_creditos"]) or 0.0) - cr_movs, 2))
+        if r["total_movimientos"] is not None and r["total_movimientos"] != n_movs:
+            print(f"    ⚠️ el extracto DECLARA {r['total_movimientos']} movimientos y hay "
+                  f"{n_movs} guardados — faltan páginas o el banco declara otra cosa")
+        if cabecera_vs_detalle is not None and abs(cabecera_vs_detalle) >= 0.01:
+            print(f"    ⚠️ los CRÉDITOS de la cabecera no dan la suma de sus propios "
+                  f"movimientos: {_p(cabecera_vs_detalle).strip()} de más")
+            print("       → el sospechoso es LA CABECERA DEL EXTRACTO, no el saldo informado")
+        elif cabecera_vs_detalle is not None:
+            print("    ✓ la cabecera del extracto coincide con sus propios movimientos")
+        if r["creditos_dia"] is not None:
+            d_cr = round((_n(r["creditos_dia"]) or 0.0) - cr_movs, 2)
+            print(f"    créditos de la API de Saldos vs. el detalle: "
+                  f"{_p(d_cr).strip()} de diferencia")
+
+        print("  COMPARACIÓN DE SALDOS")
         print(f"    lo que compara la pantalla   cierre − {'operativo' if operativo is not None else 'saldo_dia'}"
               f"  = {_p(dif)}")
         print(f"    contra el SALDO DEL DÍA      cierre − saldo_dia   = {_p(dif_dia)}")

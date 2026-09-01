@@ -3653,7 +3653,7 @@ nuevos no aparecían por ningún lado.
 
 **Lo que era.** El agente no le pregunta a Primary: le pregunta a una FOTO,
 `manager.pyrofex_instruments`, que escribe `scripts/discovery_pyrofex` — un
-script **manual**, sin cron. Medido con `scripts/diag_primary_catalogo`: la foto
+script **manual**, sin cron. Medido con `scripts/diag_primary_catalogo` (borrado al cerrar el tema, REGLA #5; git lo conserva): la foto
 era del **15/08 19:23 UTC**, 17 días; S29E7 cotizaba en vivo en 24hs y CI y no
 estaba en ella; **966 símbolos** en vivo no estaban en la foto y **1.070** de la
 foto ya no existían. OPERAR pregunta en vivo (`get_detailed_instruments`), así

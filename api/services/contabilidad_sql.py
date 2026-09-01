@@ -176,6 +176,21 @@ def calcular_titulos(
     return out
 
 
+def separar_altas(titulos: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(con_resultado, altas_puras). ALTA PURA = no había nominales al cierre
+    anterior y en el mes solo se COMPRÓ (sin ventas ni rentas): se compró para
+    dejar en cartera, y por definición del proceso su resultado recién entra al
+    RxT del mes que viene — mostrarla entre los resultados es ruido. Una alta
+    que además vendió o cobró renta SÍ tiene resultado del mes y se queda."""
+    con_resultado, altas = [], []
+    for t in titulos:
+        if t["estado"] == "alta" and t["ventas"] == 0 and t["rentas"] == 0:
+            altas.append(t)
+        else:
+            con_resultado.append(t)
+    return con_resultado, altas
+
+
 # ── Lectura SQL ──────────────────────────────────────────────────────────────
 
 def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
@@ -219,21 +234,25 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
     fin = _cierre_mes(id_cuenta, anio, m)
     boletos = _boletos_mes(id_cuenta, mes)
     mapas = _mapas_assets()
-    titulos = calcular_titulos(
+    todos = calcular_titulos(
         filas_ini=ini["filas"], filas_fin=fin["filas"], boletos=boletos,
         unidad_to_match=mapas["unidad_to_match"],
         match_to_display=mapas["match_to_display"])
-    tot = {k: sum(t[k] for t in titulos)
+    # Las ALTAS PURAS (comprado para dejar en cartera) no son resultado de ESTE
+    # mes: van en su bloque aparte y NO suman a los totales del informe.
+    titulos, altas = separar_altas(todos)
+    tot = {k: round(sum(t[k] for t in titulos), 2)
            for k in ("v_ini", "v_fin", "compras", "ventas", "rentas",
                      "rxt", "intermediacion", "total")}
-    tot["descuadres"] = sum(1 for t in titulos if not t["cuadra"])
-    tot["mep_faltantes"] = sum(t["mep_faltantes"] for t in titulos)
+    tot["descuadres"] = sum(1 for t in todos if not t["cuadra"])
+    tot["mep_faltantes"] = sum(t["mep_faltantes"] for t in todos)
     return {"id_cuenta": id_cuenta, "mes": mes,
             "cierre_ini": {"fecha_objetivo": ini["fecha_objetivo"],
                            "fecha_usada": ini["fecha_usada"]},
             "cierre_fin": {"fecha_objetivo": fin["fecha_objetivo"],
                            "fecha_usada": fin["fecha_usada"]},
-            "titulos": titulos, "totales": tot, "n_boletos": len(boletos)}
+            "titulos": titulos, "altas": altas, "totales": tot,
+            "n_boletos": len(boletos)}
 
 
 def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:

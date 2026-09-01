@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.services.contabilidad_sql import calcular_titulos
+from api.services.contabilidad_sql import calcular_titulos, separar_altas
 
 _U2M = {"[100] AL30 - GD": "AL30", "[200] FCI X": "CAFCI99", "[201] FCI X CLASE B": "CAFCI99"}
 _M2D = {"AL30": "AL30", "CAFCI99": "FCI X"}
@@ -137,6 +137,22 @@ def test_split_siempre_suma_el_total():
     # identidad explícita: ΔV + ventas − compras + rentas
     assert f["total"] == pytest.approx((1_400_000 - 1_500_000) + 545_000 - 260_000 + 30_000)
     assert f["cuadra"]  # −500k = +500k − 1M
+
+
+def test_alta_pura_se_separa_del_informe():
+    """Comprado para dejar en cartera (0 → X, solo compras): no es resultado de
+    ESTE mes — va al bloque ALTAS y no ensucia los totales. Una alta que además
+    VENDIÓ en el mes sí tiene resultado y se queda en el informe."""
+    filas = _calc(
+        [],
+        [_t("[100] AL30 - GD", 1_000_000, 620_000),
+         _t("[200] FCI X", 500, 5_100, cartera="FCI")],
+        [_b("compra", "AL30", 1_000_000, -600_000),
+         _b("compra", "CAFCI99", 1_000, -10_000),
+         _b("rescate_fci", "CAFCI99", 500, 5_050)])
+    con_resultado, altas = separar_altas(filas)
+    assert [t["titulo"] for t in altas] == ["AL30"]          # alta pura → afuera
+    assert [t["titulo"] for t in con_resultado] == ["FCI X"]  # alta que vendió → queda
 
 
 def test_orden_por_impacto():

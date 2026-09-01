@@ -4941,12 +4941,18 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
  WHERE f.leido_at IS NULL
-   AND f.estado IN ('nuevo','en_curso')
+   AND f.estado IN ('nuevo','en_curso','reincidio')
    AND (f.detectado_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
        = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
  ORDER BY f.detectado_at DESC;
 
 -- ENCONTRÓ: lo abierto que TIENE ARREGLO. Un aviso no entra acá.
+-- ⚠️ `reincidio` es ABIERTO (agente/tipos.ABIERTOS, 2026-09-01): un hallazgo que
+-- volvió tras un arreglo es trabajo pendiente, no historia. Antes ninguna vista
+-- lo mostraba y ninguna corrida lo cerraba. El índice único `hallazgos_abierto_unico`
+-- no lo cubre a propósito: ampliar su predicado fallaría si ya hubiera dos filas
+-- `reincidio` del mismo trío, y la puerta (`registro._ver`) ya actualiza en vez
+-- de insertar.
 DROP VIEW IF EXISTS agente.v_encontro;
 CREATE OR REPLACE VIEW agente.v_encontro AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
@@ -4954,7 +4960,7 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.visto_ultima_vez, f.veces, f.estado, hab.dominio
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
- WHERE f.estado IN ('nuevo','en_curso')
+ WHERE f.estado IN ('nuevo','en_curso','reincidio')
    AND f.arreglo <> ''
  ORDER BY CASE f.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
           f.detectado_at DESC;
@@ -4976,7 +4982,7 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
   FROM agente.habilidades h
   LEFT JOIN LATERAL (
         SELECT count(*) AS total,
-               count(*) FILTER (WHERE estado IN ('nuevo','en_curso')) AS abiertos,
+               count(*) FILTER (WHERE estado IN ('nuevo','en_curso','reincidio')) AS abiertos,
                max(detectado_at) AS ultimo_hallazgo_at
           FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
   LEFT JOIN LATERAL (

@@ -118,6 +118,16 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=30 * _M, ventana="siempre",
         correr=sistema.tabla_quieta),
 
+    # La FOTO de Primary es lo que filtra el WS y el alta; la refresca un cron
+    # (12:15 UTC L-V) y esto canta si un día no corrió. Sin arreglo a propósito:
+    # sacar la foto necesita sesión pyRofex, y el daemon no la tiene. §0.cy.
+    Habilidad(
+        nombre="foto_primary", tipo="detector", dominio="SISTEMA",
+        que_mira="que la foto del catálogo de Primary (la que filtra el WS y el alta) no quede vieja",
+        cada_segundos=1 * _H, ventana="siempre",
+        correr=sistema.foto_primary,
+        umbrales={"gracia_min": 60}),
+
     Habilidad(
         nombre="cron_desalineado", tipo="detector", dominio="SISTEMA",
         que_mira="el crontab del repo contra el de la máquina, en las dos direcciones",

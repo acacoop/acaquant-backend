@@ -35,9 +35,10 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# El catálogo lo refresca el discovery una vez por día; los motores rearman su
-# universo cada hora. 10 minutos es de sobra y evita una query por cada lote de
-# suscripción (que llegan de a 50).
+# El catálogo lo refresca `scripts/discovery_pyrofex` a las 12:15 UTC L-V (cron
+# desde 2026-09-01 — antes era manual y la foto llegó a tener 17 días); los
+# motores rearman su universo cada hora. 10 minutos es de sobra y evita una
+# query por cada lote de suscripción (que llegan de a 50).
 _TTL_S = 600.0
 # Piso de sanidad. Primary publica ~12.900 símbolos: un catálogo de 30 filas está
 # a medio escribir, y usarlo descartaría casi todo. Se prefiere no filtrar.

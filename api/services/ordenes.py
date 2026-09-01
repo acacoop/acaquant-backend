@@ -406,9 +406,9 @@ def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
 # cacheado 5 min y compartido con el buscador de FCI.
 #
 # Antes leía `manager.pyrofex_instruments` (SQL). Esa tabla la escribe UN SOLO
-# writer, `scripts/discovery_pyrofex.py`, que es un one-shot MANUAL: no está en
-# `deploy/crontab.txt` ni lo dispara ningún job. O sea: si nadie lo corre a mano,
-# la tabla se queda como quedó la última vez — y si nunca se corrió, VACÍA. Con
+# writer, `scripts/discovery_pyrofex.py`, que hasta el 2026-09-01 era un one-shot
+# MANUAL (hoy corre por cron a las 12:15 UTC L-V, pero sigue siendo una FOTO):
+# si nadie lo corría, la tabla quedaba como la última vez — y si nunca, VACÍA. Con
 # la tabla vacía la query matcheaba 0 filas y el combobox devolvía "sin
 # resultados" para CUALQUIER ticker, sin un solo error: ni 500, ni log, ni
 # síntoma. La cuenta y los saldos de la misma pantalla seguían andando porque
@@ -622,6 +622,20 @@ def _instruments_live() -> list[dict[str, Any]]:
     _universo_cache["instruments"] = instruments
     _universo_cache["ts"] = now
     return instruments
+
+
+def simbolos_live() -> set[str] | None:
+    """Los símbolos que Primary publica AHORA, o `None` si no se pudo preguntar.
+
+    Es la contracara de `core/instrumentos_validos.validos()`, que lee la FOTO
+    (`manager.pyrofex_instruments`). El alta del AV Agent usa las dos: la foto
+    decide (es lo que aplica el WS) y esta dice si la foto quedó vieja. `None`
+    NO es vacío: sin sesión pyRofex no se afirma nada.
+    """
+    universo = _instruments_live()
+    if not universo:
+        return None
+    return {t for t in (_inst_ticker(i) for i in universo) if t}
 
 
 def _fci_universe() -> dict[str, dict[str, Any]]:

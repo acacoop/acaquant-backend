@@ -559,6 +559,88 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
 #     después, que es exactamente lo que no se quiere silenciar;
 #   · `veces` contaba vueltas de la bolsa, no de cada cron;
 #   · arreglar uno no cerraba nada: solo bajaba el número.
+# ═══ foto_primary ══════════════════════════════════════════════════════════
+_SUJETO_FOTO = "manager.pyrofex_instruments"
+
+
+def _cron_discovery(lineas: set[str]) -> tuple[int, int] | None:
+    """(hora, minuto) UTC del cron de `discovery_pyrofex`, leído del crontab del
+    repo. **Se lee, no se copia**: si el horario viviera también acá, el día que
+    alguien mueva el cron el detector juzgaría con el viejo (REGLA #9 B)."""
+    for linea in lineas:
+        if "scripts.discovery_pyrofex" not in linea:
+            continue
+        partes = linea.split()
+        try:
+            return int(partes[1]), int(partes[0])
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
+def _ultima_esperada(ahora, hora: int, minuto: int, gracia_min: int):
+    """El último día HÁBIL (L-V) cuya corrida ya debería haber terminado."""
+    from datetime import timedelta
+    limite = ahora - timedelta(minutes=gracia_min)
+    d = limite
+    for _ in range(8):
+        candidata = d.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+        if d.weekday() < 5 and candidata <= limite:
+            return candidata
+        d = d - timedelta(days=1)
+    return None
+
+
+def foto_primary(u: dict) -> list[Hallazgo]:
+    """La FOTO de Primary (`manager.pyrofex_instruments`) no quedó vieja.
+
+    Es lo que filtra el WS de TODOS los motores, el alta del agente y
+    `validar_instrumentos`. Hasta el 2026-09-01 la escribía un script manual y
+    nadie: 17 días de foto, y S29E7 «inexistente» mientras OPERAR lo veía. Ahora
+    la refresca un cron, y este detector es lo que hace que un cron que dejó de
+    correr no vuelva a pasar 17 días sin que nadie se entere (§0.cy).
+    """
+    from agente import crontab, fuentes
+
+    cron = _cron_discovery(crontab.del_repo())
+    if cron is None:
+        raise SinDatos("no encuentro el cron de `scripts.discovery_pyrofex` en "
+                       "deploy/crontab.txt: no sé cuándo debería refrescarse")
+    hora, minuto = cron
+    ahora = reloj.ahora_utc()
+    esperada = _ultima_esperada(ahora, hora, minuto, int(u.get("gracia_min", 60)))
+    if esperada is None:
+        raise SinDatos("no pude calcular la última corrida esperada")
+
+    fecha = fuentes.primary_fecha()
+    que_hacer = ("Correrlo ahora: `python -m scripts.discovery_pyrofex` (y mirar "
+                 "logs/discovery_pyrofex.log si el cron no lo corrió). Hasta "
+                 "entonces, todo bono nuevo es «inexistente» para el WS y el alta.")
+    if fecha is None:
+        return [Hallazgo(
+            sujeto=_SUJETO_FOTO, regla="nunca_corrio", severidad="alta",
+            problema="nunca se sacó la foto del catálogo de Primary: sin ella "
+                     "`core/instrumentos_validos` no filtra nada.",
+            que_hacer=que_hacer,
+            evidencia={"cron_utc": f"{hora:02d}:{minuto:02d}"})]
+    if fecha >= esperada:
+        return []
+    atraso_h = (ahora - fecha).total_seconds() / 3600
+    return [Hallazgo(
+        sujeto=_SUJETO_FOTO, regla="foto_vieja",
+        severidad="alta" if atraso_h > 72 else "media",
+        problema=(f"la foto de Primary es del {fecha:%d/%m %H:%M} UTC y el cron "
+                  f"debió refrescarla el {esperada:%d/%m} a las "
+                  f"{hora:02d}:{minuto:02d} UTC ({_humano(atraso_h * 3600)} de "
+                  "atraso). Todo bono licitado después no existe para el WS, "
+                  "el alta ni `validar_instrumentos`."),
+        que_hacer=que_hacer,
+        detalle=f"generated_at={fecha.isoformat()} · esperada={esperada.isoformat()}",
+        evidencia={"foto_de": fecha.isoformat(), "esperada": esperada.isoformat(),
+                   "atraso_horas": round(atraso_h, 1),
+                   "cron_utc": f"{hora:02d}:{minuto:02d}"})]
+
+
 def cron_desalineado(u: dict) -> list[Hallazgo]:
     """El crontab del repo contra el de la máquina, **en las dos direcciones**.
 

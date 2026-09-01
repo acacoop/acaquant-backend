@@ -1,4 +1,12 @@
-"""Discovery one-shot de pyRofex.get_detailed_instruments() — SQL-NATIVE.
+"""Discovery de pyRofex.get_detailed_instruments() — SQL-NATIVE. **Corre por cron.**
+
+⚠️ Hasta el 2026-09-01 era un one-shot MANUAL y nadie lo corría: la foto tenía
+17 días, y como `core/instrumentos_validos` (el WS de todos los motores), el
+alta del AV Agent y `jobs/validar_instrumentos` la leen como «lo que Primary
+lista», todo bono licitado después era inexistente para ellos mientras OPERAR
+—que pregunta en vivo— lo encontraba. Ahora corre en `deploy/crontab.txt` a
+las 12:15 UTC L-V, antes del cleanup y de los motores, y la habilidad
+`foto_primary` del agente canta si un día no corrió. Ver `docs/AGENT.md` §0.cy.
 
 Lista TODOS los instruments que ROFEX expone (futures, options, spreads,
 ETFs, todo) y los agrupa por CFI code. Para cada CFI persiste:
@@ -24,13 +32,18 @@ Antes escribía Mongo `Manager.PyRofexInstruments` / `Manager.PyRofexDiscovery`
 (ELIMINADAS). Read-only sobre pyRofex; el único write es a SQL.
 
 Uso:
-    python -m scripts.discovery_pyrofex
+    python -m scripts.discovery_pyrofex        # también a mano, si hace falta ahora
+
+Guarda: si Primary devuelve menos de la MITAD de instrumentos que la foto
+anterior, NO se pisa nada y sale con error. Una respuesta parcial del broker
+convertida en foto dejaría a los motores sin la mitad de las suscripciones.
 
 Requiere sesión pyRofex (lee `config.Config` user/pass/account).
 """
 from __future__ import annotations
 
 import logging
+import sys
 from collections import defaultdict
 from datetime import UTC, datetime
 
@@ -41,6 +54,10 @@ from core.rofex_session import inicializar_sesion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("DiscoveryPyRofex")
+
+# Por debajo de esta fracción de la foto anterior, la respuesta se considera
+# parcial y no se persiste.
+MINIMO_VS_ANTERIOR = 0.5
 
 # 20 samples por CFI para el resumen (pyrofex_discovery, vista principal del
 # panel). El detalle completo (todos los instruments) va a pyrofex_instruments.
@@ -55,22 +72,44 @@ def _ticker_de(inst: dict) -> str:
     return iid.get("symbol") if isinstance(iid.get("symbol"), str) else "?"
 
 
-def main() -> None:
+def _total_anterior() -> int | None:
+    """Cuántos instrumentos tenía la foto anterior (None si nunca hubo)."""
+    from core.postgres import get_pool
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT total_instruments FROM manager.pyrofex_discovery "
+                        "WHERE id = 'current'")
+            r = cur.fetchone()
+        return int(r[0]) if r and r[0] else None
+    except Exception as e:
+        logger.warning("no pude leer la foto anterior (%s) — sigo sin la guarda", e)
+        return None
+
+
+def main() -> int:
     if not inicializar_sesion():
         logger.error("No pude iniciar sesión pyRofex — abortando.")
-        return
+        return 1
 
     res = pyRofex.get_detailed_instruments()
     if not res or res.get("status") != "OK":
         logger.error("get_detailed_instruments() falló: %s", res)
-        return
+        return 1
 
     instruments = res.get("instruments") or []
     total = len(instruments)
     logger.info("Total instruments recibidos: %d", total)
     if total == 0:
         logger.error("0 instruments recibidos — NO toco SQL (evito vaciar las tablas).")
-        return
+        return 1
+    anterior = _total_anterior()
+    if anterior and total < anterior * MINIMO_VS_ANTERIOR:
+        # Un TRUNCATE+INSERT con una respuesta parcial deja a los motores sin
+        # suscribir la mitad del mercado — peor que una foto de ayer.
+        logger.error("Primary devolvió %d instrumentos y la foto anterior tenía %d "
+                     "(< %.0f%%): respuesta parcial, NO toco SQL.",
+                     total, anterior, MINIMO_VS_ANTERIOR * 100)
+        return 1
 
     by_cfi: dict[str, dict] = defaultdict(
         lambda: {"count": 0, "underlyings": set(), "samples": [], "all": []}
@@ -159,7 +198,8 @@ def main() -> None:
         if len(g["underlyings"]) > 4:
             unders_str += f", … (+{len(g['underlyings']) - 4})"
         print(f"{g['cficode']:<10} {g['count']:>6}  {unders_str}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

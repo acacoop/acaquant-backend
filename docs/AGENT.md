@@ -228,7 +228,7 @@ Cinco, y cada uno se atiende distinto:
 | `en_curso` | se apretó el arreglo y falta la respuesta (el mercado, un job) |
 | `resuelto` | ya no está — **siempre con `cerrado_como`: acción o ausencia** |
 | `ignorado` | una persona dijo "no me interesa" — reversible |
-| `reincidio` | estaba resuelto por acción y volvió |
+| `reincidio` | estaba resuelto por acción y volvió — **sigue ABIERTO**: se actualiza, se cierra y se muestra igual que `nuevo` (§0.cy) |
 
 Se eliminó `visto` del modelo viejo: "alguien lo miró y no hizo nada" no se
 atiende distinto de `nuevo`, y un estado de más es una rama de más en cada
@@ -524,7 +524,7 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia,
   FROM agente.habilidades h
   LEFT JOIN LATERAL (
         SELECT count(*) AS total,
-               count(*) FILTER (WHERE estado IN ('nuevo','en_curso')) AS abiertos,
+               count(*) FILTER (WHERE estado IN ('nuevo','en_curso','reincidio')) AS abiertos,
                max(detectado_at) AS ultimo_hallazgo_at
           FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
   LEFT JOIN LATERAL (
@@ -550,7 +550,7 @@ CREATE OR REPLACE VIEW agente.v_abiertos AS
 SELECT f.*, hab.dominio, hab.tipo, hab.que_mira
   FROM agente.hallazgos f
   JOIN agente.habilidades hab ON hab.nombre = f.habilidad
- WHERE f.estado IN ('nuevo','en_curso')
+ WHERE f.estado IN ('nuevo','en_curso','reincidio')
  ORDER BY CASE f.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
           f.detectado_at DESC;
 ```
@@ -880,7 +880,7 @@ que el user viene escapando.
 > AHORA, no en ENCONTRÓ.»* — user, 2026-08-24.
 
 ```
-ENCONTRÓ = hallazgos WHERE estado IN ('nuevo','en_curso')
+ENCONTRÓ = hallazgos WHERE estado IN ('nuevo','en_curso','reincidio')
                        AND arreglo <> ''
 ```
 
@@ -3637,3 +3637,70 @@ hora, sumando al contador de la tab.
   esos mensajes están en el REGISTRO.
 
 ---
+
+---
+
+### 0.cy LA FOTO DE PRIMARY TENÍA 17 DÍAS — y «no cotiza» era «no está en la foto» (2026-09-01)
+
+> *«Es mentira esto... sí que está el ticker. Y encima hay una habilidad que
+> corrió 4× hoy, que NO detectó esto ni tampoco detectó otros bonos nuevos que
+> se licitaron. Y encima dice que sí chequeó.»*
+
+**Lo que se vio.** El arreglo de `S29E7` decía «⚠ Primary NO lista este
+símbolo» y bloqueaba el alta; el buscador de OPERAR lo encontraba en el acto.
+`soberanos_faltantes` mostraba 4 corridas `ok` y 1 hallazgo, y los licitados
+nuevos no aparecían por ningún lado.
+
+**Lo que era.** El agente no le pregunta a Primary: le pregunta a una FOTO,
+`manager.pyrofex_instruments`, que escribe `scripts/discovery_pyrofex` — un
+script **manual**, sin cron. Medido con `scripts/diag_primary_catalogo`: la foto
+era del **15/08 19:23 UTC**, 17 días; S29E7 cotizaba en vivo en 24hs y CI y no
+estaba en ella; **966 símbolos** en vivo no estaban en la foto y **1.070** de la
+foto ya no existían. OPERAR pregunta en vivo (`get_detailed_instruments`), así
+que las dos mitades se contradecían sin que nada fallara: la REGLA #9 (B) del
+repo, dos copias sin árbitro.
+
+Y la misma foto la usan **el WS de todos los motores**
+(`core/instrumentos_validos`, aplicado en `agregar_suscripciones`) y
+`jobs/validar_instrumentos`, que borra especies que no estén en ella: un bono
+nuevo dado de alta no recibía precio, y su especie sembrada se borraba esa noche.
+
+**El segundo agujero.** El detector descartaba «lo que no cotiza» con un
+`continue` y un `log.info`. Con la foto vieja, TODO lo licitado después caía
+ahí, y la habilidad sellaba `ok`. Un descarte que no deja rastro es
+indistinguible de un detector que dejó de mirar — el invariante #1, violado por
+dentro.
+
+**Lo que queda, cinco cosas:**
+
+1. **La foto se refresca sola**: cron `discovery_pyrofex` a las 12:15 UTC L-V,
+   antes del cleanup (12:30) y de los motores (13:20). El script se niega a
+   pisar la foto si Primary devuelve menos de la mitad que la vez anterior, y
+   sale con error para que `run_job.sh` lo registre.
+2. **Alguien vigila que corra**: habilidad `foto_primary` (SISTEMA, cada hora).
+   Lee el horario **del crontab del repo**, no de una copia, calcula la última
+   corrida esperada (L-V) y canta `foto_vieja` o `nunca_corrio`. Sin arreglo a
+   propósito: sacar la foto necesita sesión pyRofex y el daemon no la tiene.
+3. **El descarte se canta**: regla `no_cotiza_en_primary`, AVISO de severidad
+   baja (vive en AHORA, no en ENCONTRÓ), con la fecha de la foto en el texto y
+   en la evidencia. Lo que está en cartera sigue pidiendo el alta.
+4. **El pre-flight distingue foto de vivo**: `_estado_simbolo` pregunta a
+   Primary en vivo (`ordenes.simbolos_live`, la misma llamada que OPERAR) antes
+   de afirmar que no lo lista. En vivo sí / foto no → INFO con la fecha de la
+   foto, no BLOQUEA: el alta se aplica y el precio llega cuando el discovery la
+   refresque y el motor rearme. Ni en vivo → BLOQUEA, ahora con razón. No pude
+   preguntar → NO_SE.
+5. **`reincidio` es ABIERTO** (`tipos.ABIERTOS`, y las tres vistas). Apareció
+   en el mismo diag: M31G6 en `reincidio` desde el 28/08, «visto 1×», sin
+   cerrar. `_cerrar_ausentes` y `_ver` solo miran ABIERTOS, así que un hallazgo
+   que volvió no lo cerraba nadie, no lo actualizaba nadie (verlo de nuevo
+   insertaba OTRA fila en `reincidencias`) y no lo mostraba ninguna pantalla.
+   El índice único `hallazgos_abierto_unico` no se amplió a propósito: fallaría
+   si ya hubiera dos filas `reincidio` del mismo trío, y la puerta ya actualiza
+   en vez de insertar.
+
+**Pendiente, medido y no resuelto acá**: `research.mkt_1816_instrumentos` (el
+catálogo persistido de 1816, que llena `mercado_1816_discovery --apply
+--catalogo`) también es manual y tampoco tiene a S29E7 — `ficha_1816` y
+`tamar_1816` leen de ahí. El detector no lo sufre porque censa 1816 en vivo
+(~29 créditos por corrida, 4 corridas por día en rueda).

@@ -131,6 +131,20 @@ def primary() -> set[str] | None:
     return _una_vez("primary", _leer)
 
 
+def primary_fecha():
+    """Cuándo se sacó la foto de Primary (`manager.pyrofex_discovery.generated_at`),
+    o `None` si nunca. **La foto tiene fecha y la fecha se muestra**: un «no
+    cotiza» sin decir de cuándo es la foto es lo que hizo que S29E7 saliera como
+    inexistente 17 días después de licitarse (§0.cy)."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT generated_at FROM manager.pyrofex_discovery "
+                        "WHERE id = 'current'")
+            r = cur.fetchone()
+        return r[0] if r else None
+    return _una_vez("primary_fecha", _leer)
+
+
 def tickers_en_primary() -> set[str] | None:
     """Los tickers que Primary lista, sacados del símbolo tal cual.
 

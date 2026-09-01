@@ -334,11 +334,43 @@ def _estado_simbolo(simbolo: str) -> dict:
         return {"conocido": True,
                 "nota": "Primary lo lista: al reiniciar los motores va a recibir "
                         "precio y el motor de curvas va a calcular su TEA"}
-    return {"conocido": False,
-            "nota": "⚠ Primary NO lista este símbolo: el bono se puede dar de alta, "
-                    "pero NO va a recibir precio y su TEA va a quedar vacía. Puede "
-                    "ser que cotice con otro plazo/sufijo — revisar en "
-                    "mercado.especies antes de esperar la tasa."}
+
+    # ⚠️⚠️ **«NO ESTÁ EN LA FOTO» NO ES «PRIMARY NO LO LISTA» (§0.cy).** `validos()`
+    # lee `manager.pyrofex_instruments`, una FOTO que el 2026-09-01 tenía 17
+    # días. Este paso decía «⚠ Primary NO lista este símbolo» sobre S29E7 mientras
+    # el buscador de OPERAR lo encontraba en el acto — y BLOQUEABA el alta. Antes
+    # de afirmar lo segundo se le pregunta a Primary EN VIVO (la misma llamada
+    # que OPERAR). La foto sigue mandando sobre el WS, así que si en vivo está y
+    # en la foto no, el alta se puede aplicar pero el precio llega recién cuando
+    # el discovery (12:15 UTC L-V) la refresque y el motor rearme.
+    from agente import fuentes
+    foto_de = fuentes.primary_fecha()
+    foto_txt = foto_de.strftime("%d/%m %H:%M UTC") if foto_de else "sin fecha"
+    try:
+        from api.services.ordenes import simbolos_live
+        live = simbolos_live()
+    except Exception as e:
+        logger.warning("alta: no pude preguntar a Primary en vivo (%s)", e)
+        live = None
+    if live is None:
+        return {"conocido": None, "foto_de": foto_txt,
+                "nota": f"no está en la foto de Primary (del {foto_txt}) y no pude "
+                        "preguntar en vivo: no se puede afirmar si existe. Si "
+                        "OPERAR lo encuentra, la foto está vieja — "
+                        "`python -m scripts.discovery_pyrofex`."}
+    if simbolo in live:
+        return {"conocido": True, "foto_vieja": True, "foto_de": foto_txt,
+                "nota": f"Primary lo lista EN VIVO pero la foto del catálogo (del "
+                        f"{foto_txt}) no lo tiene: el WS filtra por la foto, así "
+                        "que el precio llega cuando el discovery la refresque "
+                        "(12:15 UTC L-V, o ahora: `python -m "
+                        "scripts.discovery_pyrofex`) y el motor rearme."}
+    return {"conocido": False, "foto_de": foto_txt,
+            "nota": "⚠ Primary NO lista este símbolo, ni en la foto ni en vivo: el "
+                    "bono se puede dar de alta, pero NO va a recibir precio y su "
+                    "TEA va a quedar vacía. Puede ser que cotice con otro "
+                    "plazo/sufijo — revisar en mercado.especies antes de esperar "
+                    "la tasa."}
 
 
 # ── PRE-FLIGHT: la cadena completa, paso por paso ────────────────────────────
@@ -990,15 +1022,22 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
 
     # 6 — el gate REAL de la suscripción.
     con = estado_simbolo.get("conocido")
+    foto_vieja = bool(estado_simbolo.get("foto_vieja"))
+    # En vivo sí, en la foto no → NO bloquea (el bono existe) pero tampoco es un
+    # verde limpio: se aplica sabiendo que el precio espera al discovery.
     ps.append(_paso(
         "primary", "Primary lista ese símbolo (si no, el WS lo filtra)",
-        OK if con is True else (BLOQUEA if con is False else NO_SE),
+        (INFO if foto_vieja else OK) if con is True
+        else (BLOQUEA if con is False else NO_SE),
         f"«{simbolo}» ({'de especies' if origen_simbolo == 'especies' else 'armado'}) — "
         + estado_simbolo.get("nota", ""),
         tabla="manager.pyrofex_instruments · core/instrumentos_validos",
-        accion="" if con is not False else
-               "verificar la grafía real en Primary — `core/websocket."
-               "agregar_suscripciones` descarta lo que no está en el catálogo"))
+        accion=("refrescar la foto: `python -m scripts.discovery_pyrofex` (o "
+                "esperar las 12:15 UTC) y reiniciar los motores fuera de rueda"
+                if foto_vieja else
+                "" if con is not False else
+                "verificar la grafía real en Primary — `core/websocket."
+                "agregar_suscripciones` descarta lo que no está en el catálogo")))
 
     # 7 — el motor arma su universo AL ARRANCAR. Este paso NUNCA es verde solo:
     #     es un paso MANUAL, y decirlo es la mitad del valor del pre-flight.

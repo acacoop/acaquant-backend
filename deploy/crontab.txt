@@ -21,6 +21,15 @@
 # python -m jobs.cleanup_retencion --dry-run
 20 3 * * * /root/TradingAV/deploy/run_job.sh cleanup_retencion 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_retencion'
 
+# ─── Foto del catálogo de Primary (12:15 UTC = 09:15 ART, L-V, ANTES del cleanup y de los motores)
+# `manager.pyrofex_instruments` es la foto que filtra core/instrumentos_validos —o
+# sea el WS de TODOS los motores—, el alta del AV Agent y validar_instrumentos.
+# Era un one-shot MANUAL: el 2026-09-01 la foto tenía 17 días y S29E7 (licitado
+# después) era «inexistente» para el agente mientras OPERAR lo veía en vivo.
+# El script se niega a pisar la foto si Primary devuelve menos de la mitad de la
+# vez anterior. Lo vigila la habilidad `foto_primary` del agente. AGENT.md §0.cy.
+15 12 * * 1-5 /root/TradingAV/deploy/run_job.sh discovery_pyrofex 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m scripts.discovery_pyrofex'
+
 # ─── Limpieza de instrumentos vencidos (12:30 UTC = 09:30 ART, L-V, antes de abrir motores)
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_curvas 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas'
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_futuros_dlr 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr'

@@ -1,17 +1,19 @@
 """Tests del cálculo puro de CONTABILIDAD (api/services/contabilidad_sql.py).
 
-Congelan las dos reglas del módulo:
-  1. La IDENTIDAD: total = ΔValuación + ventas − compras + rentas, y el split
-     rxt + intermediación + rentas == total SIEMPRE (el residuo no puede
-     descuadrar por construcción — acá se verifica que de verdad no).
-  2. La fórmula de RxT de la planilla del back office: posición mantenida
-     (min de nominales) × Δ precio implícito (valuación ÷ nominales).
+Congelan las tres reglas del módulo (redefinidas por el back office 2026-09-01):
+  1. LO QUE SE COMPRA Y NO SE VENDE NO ES RESULTADO DEL MES. Su valuación final
+     no entra en ningún canal — es el saldo inicial del mes que viene.
+  2. DOS canales calculados, no un residuo: TENENCIA = los nominales del saldo
+     inicial que SOBREVIVIERON al FIFO × Δ precio implícito; INTERMEDIACIÓN =
+     el realizado del FIFO. El total es la SUMA de los dos (+ rentas).
+  3. UN SOLO MOTOR: la fila del resumen y su modal salen de la misma pasada de
+     `libro()`, así no pueden dar números distintos (REGLA #9).
 """
 from __future__ import annotations
 
 import pytest
 
-from api.services.contabilidad_sql import calcular_titulos, ledger_fifo, separar_altas
+from api.services.contabilidad_sql import calcular_titulos, ledger_fifo, libro, separar_altas
 
 _U2M = {"[100] AL30 - GD": "AL30", "[200] FCI X": "CAFCI99", "[201] FCI X CLASE B": "CAFCI99"}
 _M2D = {"AL30": "AL30", "CAFCI99": "FCI X"}
@@ -71,14 +73,18 @@ def test_baja_del_periodo_tiene_numero():
     assert f["cuadra"]
 
 
-def test_alta_del_periodo_tiene_numero():
+def test_comprado_y_no_vendido_no_es_resultado():
+    """LA REGLA (back office, 2026-09-01). Se compró a 600k y al cierre vale
+    620k: esos 20k NO son resultado de este mes — no se realizó nada y no había
+    posición al inicio. El modelo viejo los cantaba como intermediación."""
     filas = _calc([], [_t("[100] AL30 - GD", 1_000_000, 620_000)],
                   [_b("compra", "AL30", 1_000_000, -600_000)])
     (f,) = filas
     assert f["estado"] == "alta"
-    assert f["rxt"] == 0
-    assert f["total"] == pytest.approx(20_000)
-    assert f["intermediacion"] == pytest.approx(20_000)
+    assert f["rxt"] == 0             # no había nada al inicio
+    assert f["intermediacion"] == 0  # no se vendió nada
+    assert f["total"] == 0
+    assert f["compras"] == pytest.approx(600_000)  # la compra igual se informa
     assert f["cuadra"]
 
 
@@ -104,11 +110,13 @@ def test_cuadre_detecta_boleto_faltante():
 
 
 def test_boleto_usd_pesifica_con_su_mep():
+    """La compra en USD se pesifica con el mep del boleto. Y como no se vendió,
+    la valuación final (1,4M contra 1,3M invertidos) no genera resultado."""
     filas = _calc([], [_t("[100] AL30 - GD", 1_000, 1_400_000)],
                   [_b("compra", "AL30", 1_000, -1_000, moneda="USD", mep=1_300.0)])
     (f,) = filas
     assert f["compras"] == pytest.approx(1_300_000)
-    assert f["total"] == pytest.approx(100_000)
+    assert f["total"] == 0
 
 
 def test_fci_agrupa_por_cafci_las_dos_unidades():
@@ -123,20 +131,70 @@ def test_fci_agrupa_por_cafci_las_dos_unidades():
     assert f["rxt"] == pytest.approx(100)  # misma cantidad → todo tenencia
 
 
-def test_split_siempre_suma_el_total():
-    """La identidad no es opinable: rxt + intermediación + rentas == total,
-    también en un mes revuelto (compra + venta + renta + cantidad distinta)."""
+def test_total_es_la_suma_de_los_canales():
+    """Mes revuelto (compra + venta + renta): el total es la SUMA de los canales
+    calculados, no una identidad repartida. Y la TENENCIA va sobre los
+    nominales del saldo INICIAL que sobrevivieron al FIFO — no sobre
+    `min(ini, fin)` de la planilla vieja."""
     filas = _calc(
-        [_t("[100] AL30 - GD", 3_000_000, 1_500_000)],
-        [_t("[100] AL30 - GD", 2_500_000, 1_400_000)],
+        [_t("[100] AL30 - GD", 3_000_000, 1_500_000)],   # px 0,50
+        [_t("[100] AL30 - GD", 2_500_000, 1_400_000)],   # px 0,56
         [_b("compra", "AL30", 500_000, -260_000),
          _b("venta", "AL30", 1_000_000, 545_000),
          _b("acreencia", "AL30", 0, 30_000)])
     (f,) = filas
+    # Del saldo inicial (3M) el FIFO vendió 1M → sobreviven 2M, NO los 2,5M que
+    # daría min(3M, 2,5M): los otros 500k se compraron a mitad de mes y no
+    # pueden devengar el rendimiento del mes completo.
+    assert f["rxt"] == pytest.approx(2_000_000 * (0.56 - 0.50))    # 120.000
+    assert f["rxt"] != pytest.approx(2_500_000 * (0.56 - 0.50))    # la planilla vieja
+    # Realizado FIFO: 545.000 − costo del millón más viejo (1,5M × 1/3)
+    assert f["intermediacion"] == pytest.approx(545_000 - 500_000)  # 45.000
+    assert f["rentas"] == pytest.approx(30_000)
+    assert f["total"] == pytest.approx(120_000 + 45_000 + 30_000)   # 195.000
     assert f["rxt"] + f["intermediacion"] + f["rentas"] == pytest.approx(f["total"])
-    # identidad explícita: ΔV + ventas − compras + rentas
-    assert f["total"] == pytest.approx((1_400_000 - 1_500_000) + 545_000 - 260_000 + 30_000)
     assert f["cuadra"]  # −500k = +500k − 1M
+
+
+def test_ao29_la_valuacion_nueva_no_es_ganancia():
+    """REGRESIÓN del caso que rompió el módulo (cuenta propia, AO29, 08/26).
+
+    Arrancó SIN el título, compró 815.604 y los vendió, después vendió 439.407
+    sin tenerlos y los recompró. Realizado FIFO: 1.171.799. Pero la foto del
+    cierre trae 955.084 nominales valuados en 1.324.988.033 que NINGÚN boleto
+    explica — y el modelo viejo (total = ΔValuación + ventas − compras) los
+    cantaba como intermediación: **1.325.814.415**, mil veces el resultado real.
+    """
+    bol = [_b("compra", "AL30", q, -i) for q, i in
+           ((34_404, 49_541_760), (49_535, 71_256_098), (56_412, 81_148_662),
+            (631_597, 908_552_285), (43_656, 62_799_156))]
+    bol += [_b("venta", "AL30", 815_604, 1_174_469_760),
+            _b("venta", "AL30", 439_407, 615_000_145),
+            _b("compra", "AL30", 439_407, -615_345_563)]
+    (f,) = _calc([], [_t("[100] AL30 - GD", 955_084, 1_324_988_033)], bol)
+    assert f["rxt"] == 0                                    # no había nada al inicio
+    assert f["intermediacion"] == pytest.approx(1_171_799, abs=1)
+    assert f["total"] == pytest.approx(1_171_799, abs=1)
+    # La identidad vieja daba esto, y la valuación final NO puede aparecer:
+    assert f["total"] != pytest.approx(1_325_814_415, abs=1)
+    assert not f["cuadra"] and f["cuadre_nominales"] == pytest.approx(955_084)
+    assert f["sin_costo"] == 1   # la venta de 439.407 sin lote queda declarada
+
+
+def test_el_modal_y_la_fila_dan_lo_mismo():
+    """REGLA #9: un solo motor. `libro()` es el que corre en las dos puntas, así
+    que el `pnl_acum` de la última fila del modal == intermediación + rentas de
+    la fila del resumen. Hasta 2026-09-01 eran cálculos distintos y para AO29
+    daban 1.325.814.415 contra 1.171.799 sin que nada los comparara."""
+    bol = [_b("compra", "AL30", 500_000, -260_000),
+           _b("venta", "AL30", 1_000_000, 545_000),
+           _b("acreencia", "AL30", 0, 30_000)]
+    (f,) = _calc([_t("[100] AL30 - GD", 3_000_000, 1_500_000)],
+                 [_t("[100] AL30 - GD", 2_500_000, 1_400_000)], bol)
+    filas, _ = libro(key="AL30", qty_ini=3_000_000, v_ini=1_500_000,
+                     fecha_ini="2026-07-31", boletos=bol)
+    assert filas[0]["categoria"] == "saldo_inicial"      # la posición inicial primero
+    assert filas[-1]["pnl_acum"] == pytest.approx(f["intermediacion"] + f["rentas"])
 
 
 def test_alta_pura_se_separa_del_informe():

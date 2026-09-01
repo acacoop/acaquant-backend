@@ -251,22 +251,59 @@ def _direccion(operacion: str | None, tipo_operacion: str | None = None) -> str 
     return None
 
 
+def _es_24hs(condiciones: str | None) -> bool:
+    return "24" in (condiciones or "")
+
+
+def pertenece_al_mes(fecha: str, condiciones: str | None, *,
+                     mes: str, borde_prev: str, borde_fin: str) -> bool:
+    """¿El boleto es de este MES CONTABLE? La tenencia es una foto LIQUIDADA y
+    `operaciones.operaciones` registra por CONCERTACIÓN (detección del user,
+    2026-09-01): un boleto del último hábil del mes anterior en 24hs liquida el
+    1º hábil de este mes — la foto del cierre anterior NO lo tiene, así que
+    cuenta ACÁ. Simétrico en la otra punta: el del último hábil de ESTE mes en
+    24hs no está en la foto del cierre y pasa al mes siguiente. Contado
+    inmediato liquida el mismo día y se queda donde concertó."""
+    if fecha < mes:  # mes anterior: entra solo el borde que liquida acá
+        return fecha >= borde_prev and _es_24hs(condiciones)
+    if fecha >= borde_fin:  # borde final: en 24hs liquida el mes que viene
+        return not _es_24hs(condiciones)
+    return True
+
+
 def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> list[dict]:
-    """Boletos traducidos al shape que consume `calcular_titulos`: compras/ventas
-    desde `operaciones.operaciones` (importe = bruto, título por `instrumento` =
-    unidad → clave del mapping) + rentas (`acreencia`) desde `negocio_movimientos`.
-    `mes_str=None` = TODO el histórico (lo usa el libro del detalle). Los boletos
-    sin dirección viajan con categoria=None: no suman, pero el detalle y el
+    """Boletos del MES CONTABLE traducidos al shape que consume
+    `calcular_titulos`: compras/ventas desde `operaciones.operaciones`
+    (importe = bruto, título por `instrumento` = unidad → clave del mapping)
+    + rentas (`acreencia`) desde `negocio_movimientos`. El corte de mes es por
+    LIQUIDACIÓN, no por concertación — ver `pertenece_al_mes`. Los boletos sin
+    dirección viajan con categoria=None: no suman, pero el detalle y el
     contador `ignorados` los muestran."""
-    w_mes = "AND to_char(concertacion,'YYYY-MM') = %(m)s " if mes_str else ""
+    p: dict = {"c": id_cuenta}
+    if mes_str:
+        from core.calendario import ultimo_habil_del_mes
+        anio, m = int(mes_str[:4]), int(mes_str[5:7])
+        a0, m0 = _mes_anterior(anio, m)
+        borde_prev = ultimo_habil_del_mes(a0, m0).isoformat()
+        borde_fin = ultimo_habil_del_mes(anio, m).isoformat()
+        # Rango ampliado: desde el borde del mes anterior hasta fin de mes; el
+        # corte fino por liquidación lo hace `pertenece_al_mes`.
+        w_mes = "AND concertacion >= %(desde)s AND to_char(concertacion,'YYYY-MM') <= %(m)s "
+        p |= {"desde": borde_prev, "m": mes_str}
+    else:
+        w_mes, borde_prev, borde_fin = "", "", ""
     ops = _q(
         "SELECT to_char(concertacion,'YYYY-MM-DD') AS fecha, instrumento, operacion, "
-        "tipo_operacion, cantidad, bruto, moneda, mep, boleto "
+        "tipo_operacion, condiciones, cantidad, bruto, moneda, mep, boleto "
         "FROM operaciones.operaciones "
         f"WHERE id_cuenta = %(c)s {w_mes}"
         "AND anulado_en IS NULL AND etapa IS DISTINCT FROM 'solicitud' "
         "AND COALESCE(es_cierre, false) = false "
-        "ORDER BY concertacion, boleto", {"c": id_cuenta, "m": mes_str})
+        "ORDER BY concertacion, boleto", p)
+    if mes_str:
+        ops = [r for r in ops
+               if pertenece_al_mes(r["fecha"], r.get("condiciones"),
+                                   mes=mes_str, borde_prev=borde_prev, borde_fin=borde_fin)]
     boletos: list[dict] = []
     for r in ops:
         unidad = r.get("instrumento") or ""
@@ -277,7 +314,7 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
             "ticker": u2m.get(unidad, unidad), "unidad": unidad,
             "cantidad": _f(r.get("cantidad")), "importe": _f(r.get("bruto")),
             "moneda": r.get("moneda"), "mep": _f(r.get("mep")),
-            "comprobante": r.get("boleto"),
+            "comprobante": r.get("boleto"), "condiciones": r.get("condiciones"),
         })
     rentas = negocio_movimientos_rows(
         fields=_CAMPOS_BOLETO, id_cuenta=id_cuenta, fecha_prefix=mes_str,

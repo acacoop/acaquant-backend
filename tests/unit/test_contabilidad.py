@@ -247,6 +247,25 @@ def test_ledger_fifo_rentas_y_otros():
     assert movs[2]["nominales_acum"] == 100 and movs[2]["pnl_acum"] == 250
 
 
+def test_mes_contable_por_liquidacion():
+    """Detección del user 2026-09-01: la tenencia es una foto LIQUIDADA y los
+    boletos van por CONCERTACIÓN. Un 24hs del último hábil del mes anterior
+    liquida en ESTE mes (entra); un 24hs del último hábil de ESTE mes liquida
+    el mes que viene (sale). Contado inmediato queda donde concertó."""
+    from api.services.contabilidad_sql import pertenece_al_mes
+    kw = {"mes": "2026-08", "borde_prev": "2026-07-31", "borde_fin": "2026-08-31"}
+    # borde del mes anterior
+    assert pertenece_al_mes("2026-07-31", "24hs", **kw)          # liquida 1/8 → agosto
+    assert not pertenece_al_mes("2026-07-31", "Contado Inmediato", **kw)
+    assert not pertenece_al_mes("2026-07-30", "24hs", **kw)      # liquida 31/7 → julio
+    # adentro del mes
+    assert pertenece_al_mes("2026-08-14", "24hs", **kw)
+    assert pertenece_al_mes("2026-08-14", "Contado Inmediato", **kw)
+    # borde de este mes
+    assert not pertenece_al_mes("2026-08-31", "24hs", **kw)      # liquida 1/9 → septiembre
+    assert pertenece_al_mes("2026-08-31", "Contado Inmediato", **kw)
+
+
 def test_orden_por_impacto():
     filas = _calc(
         [_t("[100] AL30 - GD", 1_000, 1_000), _t("[200] FCI X", 100, 1_000, cartera="FCI")],

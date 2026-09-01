@@ -299,6 +299,18 @@ Una regla es `campo` + `operador` + `valor`:
   descripción — con esto se arranca cuando todavía no se sabe qué códigos usa
   cada banco)
 
+⚠️ **`descripcion_banco` significa lo que la pantalla MUESTRA bajo DESCRIPCIÓN**,
+que no es la columna cruda: es `descripcion_banco` y, **cuando el banco no manda
+la suya, el CONCEPTO** (lo decide `_movimiento_publico`, y existe porque una fila
+sin ningún texto es ilegible). Las dos mitades del criterio —¿es gasto? y ¿en qué
+balde cae?— leen por **`bancos.valor_campo()`**, la única puerta, para que un
+campo no pueda significar una cosa en las reglas y otra en el desglose.
+
+**No hay fallback al revés**: la columna CONCEPTO muestra `descripcion_ib` crudo y
+un «—» cuando está vacío, así que una regla de CONCEPTO tampoco mira otra cosa.
+Espejar la pantalla es la regla; inventar un derivado que nadie ve sería el mismo
+error otra vez (ver el changelog del 2026-09-01).
+
 ⚠️ El `campo` lo escribe un usuario y **nunca viaja a un `WHERE`**: se traduce
 contra `CAMPOS_REGLA`, un dict del módulo. Un campo que no esté ahí no matchea.
 La clasificación es una función **pura** (`clasificar`) con tests propios: decide
@@ -1088,6 +1100,34 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-09-01** — ⚠️ **La DESCRIPCIÓN que se ve y la que se matchea eran datos
+  distintos.** El back office cargó `NOTA DB` en el balde IIBBPERCEP sobre el
+  campo DESCRIPCIÓN, el movimiento ya estaba contado como gasto, y el desglose lo
+  seguía dejando en MOVIMIENTOS RESTANTES.
+  · **La causa**: la columna DESCRIPCIÓN de la pantalla es
+    `descripcion_banco OR descripcion_ib` (`_movimiento_publico`), y el matcher
+    miraba `descripcion_banco` **a secas**. Cuando el banco no manda su
+    descripción —Credicoop con los `NOTA DB`, código `854`— la vista dibuja el
+    CONCEPTO ahí, el operador lee `NOTA DB` bajo DESCRIPCIÓN, carga esa grafía
+    sobre DESCRIPCIÓN (**el campo que además viene elegido por defecto en el
+    ABM**) y el motor la compara contra un string **vacío**.
+  · **Por qué no se veía**: no falla nada. Las dos mitades son coherentes consigo
+    mismas, el total de gastos sigue dando bien, y la única evidencia es una
+    columna en cero — indistinguible de «hoy no hubo ese impuesto». Es la
+    **REGLA #9** (identidad ≠ nombre, dos copias sin árbitro) aplicada a un campo
+    derivado: si la pantalla DERIVA, el motor tiene que derivar igual.
+  · **El arreglo**: `bancos.valor_campo()`, la **única puerta** por la que
+    `_matchea` (¿es gasto?) y `desglosar` (¿qué balde?) leen un campo. Es
+    **estrictamente aditivo** — donde `descripcion_banco` trae texto, el fallback
+    ni se consulta. Medido antes de aplicarlo sobre las 3 fechas de la base:
+    **1 movimiento cambia de balde** (presentación) y **0 cambian de ser o no
+    gasto** — no mueve un peso del total.
+  · **Congelado por test** (`test_interbanking_gastos.py`): el más importante no
+    prueba el fallback sino que **`_movimiento_publico` y `valor_campo` no se
+    puedan volver a separar**. Los tres nuevos fallan si se saca el fallback.
+  · Queda `scripts/diag_desglose_texto.py`: contesta «¿mi grafía agarró algo?»,
+    que ninguna pantalla contesta, y lista las que no agarran nada.
 
 - **2026-08-19 (8)** — **Se reparte la barra.** Siete controles en un renglón y
   cada píxel compite con el siguiente: se saca el título «Consolidado Bancos»

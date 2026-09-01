@@ -65,12 +65,30 @@ def sin_base(monkeypatch):
     return _instalar
 
 
-def test_con_extracto_manda_el_extracto(sin_base):
+def test_manda_el_SALDO_INFORMADO(sin_base):
+    """La precedencia se invirtió el 2026-09-01: manda el saldo informado."""
     sin_base([_cuenta(saldo_apertura=100, saldo_cierre=150, saldo_banco=150)])
+    c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
+    assert c["fuente"] == "saldo"
+    assert c["saldo_cierre"] == 150
+    # ⚠️ `variacion` solo se calcula cuando el cierre sale del EXTRACTO: restar
+    # una apertura de extracto contra un saldo de otra fuente mezclaría dos cosas
+    # que el banco informa por separado. Con la precedencia nueva queda casi
+    # siempre en None — y no se ve en ningún lado: el CONSOLIDADO perdió esa
+    # columna el 2026-08-18 y la VARIACIÓN que se dibuja es la de DIFERENCIAS,
+    # que resta dos cierres calculados con esta misma función.
+    assert c["variacion"] is None
+
+
+def test_sin_saldo_informado_cae_al_extracto(sin_base):
+    """El respaldo, y no es opcional: la API de Saldos puede no contestar por una
+    cuenta o por un día. Sin el fallback la cuenta mostraría «—» teniendo el
+    cierre del extracto."""
+    sin_base([_cuenta(saldo_apertura=100, saldo_cierre=150)])
     c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
     assert c["fuente"] == "extracto"
     assert c["saldo_cierre"] == 150
-    assert c["variacion"] == 50
+    assert c["variacion"] == 50, "acá SÍ: apertura y cierre son los dos del extracto"
 
 
 def test_la_cuenta_QUIETA_sale_del_saldo_y_no_con_guion(sin_base):
@@ -103,11 +121,15 @@ def test_sin_ninguna_fuente_sigue_en_guion_y_cuenta_como_sin_datos(sin_base):
 
 def test_si_las_dos_fuentes_no_coinciden_se_publica_la_diferencia(sin_base):
     """Las dos las informa el banco. Elegir una y tapar la otra sería esconder un
-    hallazgo de conciliación, que es justamente para lo que existe esta vista."""
+    hallazgo de conciliación, que es justamente para lo que existe esta vista.
+
+    ⚠️ La columna muestra el SALDO INFORMADO y el ≠ sigue avisando: elegir uno no
+    es tapar al otro."""
     sin_base([_cuenta(saldo_apertura=100, saldo_cierre=150, saldo_banco=140)])
     c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
     assert c["discrepancia"] == 10
-    assert c["fuente"] == "extracto", "el extracto sigue mandando; la diferencia se avisa"
+    assert c["fuente"] == "saldo"
+    assert c["saldo_cierre"] == 140, "la columna muestra el informado, no el extracto"
 
 
 def test_coincidiendo_no_hay_discrepancia(sin_base):

@@ -1101,6 +1101,34 @@ Respeta el filtro por banco de la vista.
 
 ## Changelog
 
+- **2026-09-01 (3)** — ⚠️ **MANDA EL SALDO INFORMADO, no el cierre del extracto**
+  (decisión del back office). Era al revés desde el principio.
+  · **Por qué**: la pantalla ya venía detectando que hay dos números y avisando
+    con el ≠. Sabiendo eso, la columna tiene que mostrar el que el back office
+    reconoce como el saldo — el resto es diagnóstico, y el diagnóstico ya está
+    en el badge.
+  · El extracto queda de **RESPALDO**, y el fallback no es opcional: la API de
+    Saldos puede no contestar por una cuenta o por un día, y ahí el cierre del
+    extracto es lo único que hay. Sin él la cuenta mostraría «—» teniendo el dato.
+  · **Elegir uno no es tapar al otro**: la `discrepancia` se sigue publicando y
+    el ≠ sigue apareciendo. Lo que cambia es qué número se lee en la columna.
+  · La prioridad estaba escrita en DOS lugares (`_saldos_banco` y el `_cierre` de
+    DIFERENCIAS). Se invirtieron las dos: si eligieran distinto, las dos pantallas
+    mostrarían dos cierres para el mismo día.
+  · ⚠️ **Se propaga al día siguiente**: ese cierre es el que se sella y mañana se
+    lee como SALDO INICIO.
+  · `variacion` del CONSOLIDADO queda casi siempre en `None` — solo se calcula
+    cuando el cierre sale del extracto, porque restar una apertura de extracto
+    contra un saldo de otra fuente mezcla dos cosas que el banco informa por
+    separado. **No se ve en ningún lado**: el consolidado perdió esa columna el
+    2026-08-18 y la VARIACIÓN que se dibuja es la de DIFERENCIAS, que resta dos
+    cierres calculados con la misma función.
+  · **El tooltip del ≠** decía «el extracto cierra en X» usando `saldo_cierre`,
+    que es NUESTRO saldo (fuente que manda + ajuste manual) — o sea que las tres
+    cifras del mensaje no daban la resta en ninguna cuenta con un manual cargado,
+    y con la precedencia nueva mostraba directamente el otro número. El backend
+    publica `saldo_extracto` (el crudo, sin ajuste) y el tooltip lo usa.
+
 - **2026-09-01 (2)** — ⚠️ **El badge ≠ del SALDO AL CIERRE comparaba el cierre
   contra el saldo OPERATIVO.** El back office encontró una cuenta donde «el
   extracto cierra en X y el saldo informado dice Y», y la pregunta fue por qué la

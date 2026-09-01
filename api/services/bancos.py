@@ -1410,11 +1410,24 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
 
         # El resto: el saldo lo informa Interbanking y ya trae adentro los
         # movimientos de días anteriores, así que solo se suma el manual DEL DÍA.
+        #
+        # ⚠️ **MANDA EL SALDO INFORMADO, no el cierre del extracto** (decisión del
+        # back office, 2026-09-01). Hasta esa fecha era al revés.
+        #
+        # El extracto queda de RESPALDO, y el fallback no es opcional: la API de
+        # Saldos puede no contestar por una cuenta o por un día, y ahí el cierre
+        # del extracto es lo único que hay. Sin él la cuenta mostraría «—»
+        # teniendo el dato.
+        #
+        # Cuando existen los dos y NO coinciden, la diferencia se sigue
+        # publicando (`discrepancia` → el badge ≠ del consolidado). Elegir uno no
+        # es tapar al otro: es dejar de mostrar en la columna un número que el
+        # back office no reconoce, sin perder el hallazgo.
         ajuste = _f(r["ajuste"]) or 0.0
-        if r["saldo_cierre"] is not None:
-            base, fuente = _f(r["saldo_cierre"]), "extracto"
-        elif r["informado"] is not None:
+        if r["informado"] is not None:
             base, fuente = _f(r["informado"]), "saldo"
+        elif r["saldo_cierre"] is not None:
+            base, fuente = _f(r["saldo_cierre"]), "extracto"
         elif ajuste:
             base, fuente = 0.0, "manual"
         else:
@@ -2171,9 +2184,9 @@ def diferencias(email: str, fecha: date) -> dict:
             ORDER BY bank_name, currency, account_type, account_number""")
 
     # Los dos días en UNA query, y las dos fuentes de saldo en otra: el cierre
-    # sale del extracto si lo hay y si no de `bancos.saldos`, el mismo orden que
-    # usa el consolidado. Si acá eligiera distinto, dos pantallas dirían dos
-    # saldos para el mismo día.
+    # sale del SALDO INFORMADO si lo hay y si no del extracto, la misma prioridad
+    # que usa el consolidado (ver `_cierre` acá abajo y `_saldos_banco`). Si acá
+    # eligiera distinto, dos pantallas dirían dos saldos para el mismo día.
     ext = {(r["cuenta_id"], r["fecha"]): r for r in _q(
         """SELECT cuenta_id, fecha, saldo_apertura, saldo_cierre, cierra
              FROM bancos.extracto_dia WHERE fecha IN (%s, %s)""", (fecha, previa))}
@@ -2193,10 +2206,14 @@ def diferencias(email: str, fecha: date) -> dict:
     manuales = _ajuste_manual(fecha)
 
     def _cierre(cid: int, f: date) -> float | None:
+        """La MISMA prioridad que `_saldos_banco`: manda el saldo informado y el
+        extracto es el respaldo. Si acá eligiera distinto, esta pantalla y el
+        consolidado mostrarían dos cierres para el mismo día."""
+        informado = sal.get((cid, f))
+        if informado is not None:
+            return informado
         e = ext.get((cid, f))
-        if e is not None and e.get("saldo_cierre") is not None:
-            return _f(e["saldo_cierre"])
-        return sal.get((cid, f))
+        return None if e is None else _f(e.get("saldo_cierre"))
 
     filas: list[dict] = []
     for c in cuentas:
@@ -2333,6 +2350,15 @@ def consolidado(email: str, fecha: date) -> dict:
             "saldo_cierre": fin,
             "fuente": fuente,
             "saldo_banco": del_banco,
+            # ⚠️ El cierre CRUDO del extracto, sin el ajuste manual. Viaja aparte
+            # porque `saldo_cierre` es NUESTRO saldo —la fuente que manda, más lo
+            # que cargó una persona— y `discrepancia` compara las dos cosas que
+            # informa EL BANCO. Sin este campo el tooltip del ≠ tenía que usar
+            # `saldo_cierre` y decía «el extracto cierra en …» mostrando otro
+            # número: con la precedencia nueva, directamente el informado; y con
+            # un movimiento manual cargado, el cierre ya ajustado. Las tres
+            # cifras del mensaje no daban la resta.
+            "saldo_extracto": _f(r.get("saldo_cierre")),
             "discrepancia": discrepancia,
             # None mientras la regla no esté definida — «no sabemos» no es 0.
             "gastos_bancarios": (gastos.get(r["id"]) or {}).get("total"),

@@ -290,11 +290,13 @@ def test_saldos_banco_no_toca_la_fuente_sin_ajuste(monkeypatch):
     assert s["ajuste"] == 0.0
 
 
-def test_saldos_banco_gana_el_extracto_sobre_el_informado(monkeypatch):
-    """Precedencia intacta: el extracto es el cierre DECLARADO por el banco y
-    viene con el detalle que lo explica. Las dos fuentes no se suman."""
+def test_saldos_banco_gana_el_SALDO_INFORMADO_sobre_el_extracto(monkeypatch):
+    """La precedencia se INVIRTIÓ el 2026-09-01 (decisión del back office): manda
+    el saldo informado y el extracto queda de respaldo. Las dos fuentes no se
+    suman, y cuando difieren la diferencia se publica igual (`discrepancia`)."""
     s, _, _ = _saldos(monkeypatch, {"saldo_cierre": 1_000_000, "informado": 999_999})
-    assert s["valor"] == 1_000_000.0
+    assert s["valor"] == 999_999.0
+    assert s["fuente"] == "saldo"
 
 
 def test_saldos_banco_la_cuenta_100_por_ciento_MANUAL_tiene_saldo(monkeypatch):

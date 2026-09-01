@@ -6,7 +6,8 @@ Congelan las tres reglas del módulo (redefinidas por el back office 2026-09-01)
   2. DOS canales calculados, no un residuo: TENENCIA = `min(nominales_ini,
      nominales_fin)` × Δ precio implícito (la base de la planilla del back
      office, con su columna NO ENTRAN EN RxT); INTERMEDIACIÓN = el realizado
-     del FIFO. El total es la SUMA de los dos (+ rentas).
+     la SUMATORIA de los boletos (compra negativa, venta positiva) =
+     `ventas − compras`. El total es la SUMA de los dos (+ rentas).
   3. UN SOLO MOTOR: la fila del resumen y su modal salen de la misma pasada de
      `libro()`, así no pueden dar números distintos (REGLA #9).
 """
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.services.contabilidad_sql import calcular_titulos, ledger_fifo, libro, separar_altas
+from api.services.contabilidad_sql import calcular_titulos, ledger, libro, separar_altas
 
 _U2M = {"[100] AL30 - GD": "AL30", "[200] FCI X": "CAFCI99", "[201] FCI X CLASE B": "CAFCI99"}
 _M2D = {"AL30": "AL30", "CAFCI99": "FCI X"}
@@ -57,8 +58,8 @@ def test_venta_parcial_parte_en_dos():
     (f,) = filas
     assert f["no_entran_rxt"] == pytest.approx(-1_000_000)   # se fue 1M
     assert f["rxt"] == pytest.approx(1_000_000 * (0.60 - 0.50))
-    assert f["intermediacion"] == pytest.approx(580_000 - 500_000)  # FIFO
-    assert f["total"] == pytest.approx(100_000 + 80_000)
+    assert f["intermediacion"] == pytest.approx(580_000)   # ventas − compras
+    assert f["total"] == pytest.approx(100_000 + 580_000)
     assert f["cuadra"]  # qf − qi = −1M y la venta explica −1M
 
 
@@ -68,9 +69,9 @@ def test_baja_del_periodo_tiene_numero():
                   [_b("venta", "AL30", 1_000_000, 540_000)])
     (f,) = filas
     assert f["estado"] == "baja"
-    assert f["rxt"] == 0
-    assert f["total"] == pytest.approx(540_000 - 500_000)
-    assert f["intermediacion"] == pytest.approx(40_000)
+    assert f["rxt"] == 0                                   # nada mantenido
+    assert f["intermediacion"] == pytest.approx(540_000)   # ventas − compras
+    assert f["total"] == pytest.approx(540_000)
     assert f["cuadra"]
 
 
@@ -82,10 +83,14 @@ def test_comprado_y_no_vendido_no_es_resultado():
                   [_b("compra", "AL30", 1_000_000, -600_000)])
     (f,) = filas
     assert f["estado"] == "alta"
-    assert f["rxt"] == 0             # no había nada al inicio
-    assert f["intermediacion"] == 0  # no se vendió nada
-    assert f["total"] == 0
-    assert f["compras"] == pytest.approx(600_000)  # la compra igual se informa
+    assert f["rxt"] == 0                                    # no había nada al inicio
+    assert f["intermediacion"] == pytest.approx(-600_000)   # la compra RESTA
+    assert f["compras"] == pytest.approx(600_000)
+    # La VALUACIÓN final (620.000) no aparece: no es resultado del mes.
+    assert f["total"] == pytest.approx(-600_000)
+    # Y como alta PURA no entra al informe, ese −600.000 no ensucia los totales.
+    con_resultado, altas = separar_altas([f])
+    assert con_resultado == [] and altas == [f]
     assert f["cuadra"]
 
 
@@ -117,7 +122,7 @@ def test_boleto_usd_pesifica_con_su_mep():
                   [_b("compra", "AL30", 1_000, -1_000, moneda="USD", mep=1_300.0)])
     (f,) = filas
     assert f["compras"] == pytest.approx(1_300_000)
-    assert f["total"] == 0
+    assert f["total"] == pytest.approx(-1_300_000)   # solo la compra, sin ventas
 
 
 def test_fci_agrupa_por_cafci_las_dos_unidades():
@@ -145,10 +150,10 @@ def test_total_es_la_suma_de_los_canales():
     # Base del RxT = min(3M, 2,5M) = 2,5M: los nominales presentes todo el mes.
     assert f["no_entran_rxt"] == pytest.approx(-500_000)            # 2,5M − 3M
     assert f["rxt"] == pytest.approx(2_500_000 * (0.56 - 0.50))     # 150.000
-    # Realizado FIFO: 545.000 − costo del millón más viejo (1,5M × 1/3)
-    assert f["intermediacion"] == pytest.approx(545_000 - 500_000)  # 45.000
+    # Intermediación = sumatoria de boletos: ventas − compras.
+    assert f["intermediacion"] == pytest.approx(545_000 - 260_000)  # 285.000
     assert f["rentas"] == pytest.approx(30_000)
-    assert f["total"] == pytest.approx(150_000 + 45_000 + 30_000)   # 225.000
+    assert f["total"] == pytest.approx(150_000 + 285_000 + 30_000)  # 465.000
     assert f["rxt"] + f["intermediacion"] + f["rentas"] == pytest.approx(f["total"])
     assert f["cuadra"]  # −500k = +500k − 1M
 
@@ -158,7 +163,7 @@ def test_vender_todo_y_recomprar_mas_igual_tiene_tenencia():
     tenencia — y eso no impide que además haya intermediación (regla del back
     office). Se empieza con 1.000, se vende TODO y se recompran 1.200: del lote
     inicial no sobrevive nada, así que costear la tenencia por identidad de
-    lotes FIFO daba **0** teniendo MÁS nominales al cierre que al principio.
+    lotes daba **0** teniendo MÁS nominales al cierre que al principio.
     La base de la planilla, `min(1.000, 1.200)`, da los 1.000 correctos."""
     filas = _calc(
         [_t("[100] AL30 - GD", 1_000, 1_000)],    # px 1,00
@@ -168,8 +173,8 @@ def test_vender_todo_y_recomprar_mas_igual_tiene_tenencia():
     (f,) = filas
     assert f["no_entran_rxt"] == pytest.approx(200)          # 1.200 − 1.000
     assert f["rxt"] == pytest.approx(1_000 * (1.10 - 1.00))  # 100 — NO cero
-    assert f["intermediacion"] == pytest.approx(1_080 - 1_000)
-    assert f["total"] == pytest.approx(100 + 80)
+    assert f["intermediacion"] == pytest.approx(1_080 - 1_260)   # compró más de lo que vendió
+    assert f["total"] == pytest.approx(100 - 180)
     assert f["cuadra"]
 
 
@@ -241,9 +246,8 @@ def test_no_entran_en_rxt_es_fin_menos_ini():
 def test_ao29_la_valuacion_nueva_no_es_ganancia():
     """REGRESIÓN del caso que rompió el módulo (cuenta propia, AO29, 08/26).
 
-    Arrancó SIN el título, compró 815.604 y los vendió, después vendió 439.407
-    sin tenerlos y los recompró. Realizado FIFO: 1.171.799. Pero la foto del
-    cierre trae 955.084 nominales valuados en 1.324.988.033 que NINGÚN boleto
+    Arrancó SIN el título y operó: compró por 1.788.643.523 y vendió por
+    1.789.469.905 — neto **826.382**. Pero la foto del cierre trae 955.084 nominales valuados en 1.324.988.033 que NINGÚN boleto
     explica — y el modelo viejo (total = ΔValuación + ventas − compras) los
     cantaba como intermediación: **1.325.814.415**, mil veces el resultado real.
     """
@@ -255,19 +259,18 @@ def test_ao29_la_valuacion_nueva_no_es_ganancia():
             _b("compra", "AL30", 439_407, -615_345_563)]
     (f,) = _calc([], [_t("[100] AL30 - GD", 955_084, 1_324_988_033)], bol)
     assert f["rxt"] == 0                                    # no había nada al inicio
-    assert f["intermediacion"] == pytest.approx(1_171_799, abs=1)
-    assert f["total"] == pytest.approx(1_171_799, abs=1)
+    assert f["intermediacion"] == pytest.approx(826_381, abs=2)
+    assert f["total"] == pytest.approx(826_381, abs=2)
     # La identidad vieja daba esto, y la valuación final NO puede aparecer:
     assert f["total"] != pytest.approx(1_325_814_415, abs=1)
     assert not f["cuadra"] and f["cuadre_nominales"] == pytest.approx(955_084)
-    assert f["sin_costo"] == 1   # la venta de 439.407 sin lote queda declarada
 
 
 def test_el_modal_y_la_fila_dan_lo_mismo():
     """REGLA #9: un solo motor. `libro()` es el que corre en las dos puntas, así
     que el `pnl_acum` de la última fila del modal == intermediación + rentas de
     la fila del resumen. Hasta 2026-09-01 eran cálculos distintos y para AO29
-    daban 1.325.814.415 contra 1.171.799 sin que nada los comparara."""
+    daban números distintos sin que nada los comparara."""
     bol = [_b("compra", "AL30", 500_000, -260_000),
            _b("venta", "AL30", 1_000_000, 545_000),
            _b("acreencia", "AL30", 0, 30_000)]
@@ -339,54 +342,58 @@ def _mov(categoria, cantidad, importe_ars):
     return {"categoria": categoria, "cantidad": cantidad, "importe_ars": importe_ars}
 
 
-def test_ledger_fifo_realiza_por_lotes_viejos():
-    """Dos compras a precio distinto, venta parcial: el costo sale del lote MÁS
-    VIEJO (FIFO), y los acumulados van fila por fila."""
-    movs = [_mov("compra", 100, 1_000),   # lote 1: 10 $/nominal
-            _mov("compra", 100, 2_000),   # lote 2: 20 $/nominal
-            _mov("venta", 150, 2_400)]    # 16 $/nominal vendido
-    stats = ledger_fifo(movs)
-    assert [m["nominales_acum"] for m in movs] == [100, 200, 50]
-    # costo FIFO: 100 del lote 1 (1.000) + 50 del lote 2 (1.000) = 2.000
-    assert movs[-1]["pnl_acum"] == pytest.approx(2_400 - 2_000)
-    assert stats["sin_costo"] == 0
-
-
-def test_ledger_fifo_venta_sin_lote_se_marca():
-    """Venta que excede lo comprado en el libro (posición pre-data): solo la
-    parte con lote realiza PnL y la fila queda marcada `sin_costo`."""
+def test_ledger_suma_los_importes_con_signo():
+    """LA definición del back office: compra NEGATIVA, venta POSITIVA, ir
+    sumando los importes. Los acumulados van fila por fila."""
     movs = [_mov("compra", 100, 1_000),
-            _mov("venta", 200, 3_000)]    # 15 $/nominal, la mitad sin costo
-    stats = ledger_fifo(movs)
-    assert movs[-1].get("sin_costo") is True
-    assert stats["sin_costo"] == 1
-    # cubierta = 100/200 → ingresa 1.500, costo 1.000 → +500
-    assert movs[-1]["pnl_acum"] == pytest.approx(500)
-    assert movs[-1]["nominales_acum"] == pytest.approx(-100)
+            _mov("compra", 100, 2_000),
+            _mov("venta", 150, 2_400)]
+    ag = ledger(movs)
+    assert [m["nominales_acum"] for m in movs] == [100, 200, 50]
+    assert [m["pnl_acum"] for m in movs] == [-1_000, -3_000, -600]
+    assert ag["intermediacion"] == pytest.approx(2_400 - 3_000)
+    assert ag["compras"] == pytest.approx(3_000)
+    assert ag["ventas"] == pytest.approx(2_400)
 
 
-def test_ledger_arranca_de_la_posicion_inicial():
-    """El libro del mes: la POSICIÓN INICIAL (nominales + valuación del cierre
-    anterior) entra como primer lote sin generar PnL, y vender el 100% realiza
-    `venta − valuación inicial` — la intermediación de la fila del resumen."""
+def test_ledger_una_venta_sin_compra_suma_entera():
+    """Vender algo que no se compró en el mes (venía de la posición inicial):
+    la venta suma ENTERA. No hay costeo — la tenencia de esa posición la cobra
+    la columna RxT, no ésta."""
+    movs = [_mov("venta", 200, 3_000)]
+    ag = ledger(movs)
+    assert movs[-1]["pnl_acum"] == pytest.approx(3_000)
+    assert movs[-1]["nominales_acum"] == pytest.approx(-200)
+    assert ag["intermediacion"] == pytest.approx(3_000)
+
+
+def test_ledger_la_posicion_inicial_mueve_nominales_pero_no_plata():
+    """La fila sintética del cierre anterior NO es un boleto: aporta la
+    posición de arranque y cero plata — si sumara su valuación, la
+    intermediación arrancaría con un número que nadie operó."""
     movs = [_mov("saldo_inicial", 58_900, 93_745_240),
             _mov("venta", 58_900, 94_289_476)]
-    stats = ledger_fifo(movs)
+    ag = ledger(movs)
     assert movs[0]["pnl_acum"] == 0 and movs[0]["nominales_acum"] == 58_900
-    assert movs[1]["pnl_acum"] == pytest.approx(94_289_476 - 93_745_240)
+    assert movs[1]["pnl_acum"] == pytest.approx(94_289_476)
     assert movs[1]["nominales_acum"] == 0
-    assert stats["sin_costo"] == 0
+    assert ag["intermediacion"] == pytest.approx(94_289_476)
+    assert ag["compras"] == 0   # el saldo inicial NO es una compra
 
 
-def test_ledger_fifo_rentas_y_otros():
+def test_ledger_rentas_y_otros():
     """La renta suma con signo al acumulado sin tocar nominales; un boleto sin
-    dirección (caución/futuro) no toca nada pero muestra el acumulado vigente."""
+    dirección (caución/futuro) no toca nada pero muestra el acumulado vigente.
+    Ojo: la renta entra al acumulado del MODAL, pero es su propio canal en el
+    resumen — `intermediacion` son solo compras y ventas."""
     movs = [_mov("compra", 100, 1_000),
             _mov("acreencia", 0, 250),
             _mov(None, 999, 99_999)]
-    ledger_fifo(movs)
-    assert movs[1]["nominales_acum"] == 100 and movs[1]["pnl_acum"] == 250
-    assert movs[2]["nominales_acum"] == 100 and movs[2]["pnl_acum"] == 250
+    ag = ledger(movs)
+    assert movs[1]["nominales_acum"] == 100 and movs[1]["pnl_acum"] == -750
+    assert movs[2]["nominales_acum"] == 100 and movs[2]["pnl_acum"] == -750
+    assert ag["rentas"] == pytest.approx(250)
+    assert ag["intermediacion"] == pytest.approx(-1_000)   # sin la renta
 
 
 def test_mes_contable_por_liquidacion():

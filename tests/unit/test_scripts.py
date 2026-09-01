@@ -58,6 +58,10 @@ HERRAMIENTAS: dict[str, str] = {
                              "deja el panel vacío EN SILENCIO. Tiene --strict; debería estar en CI.",
     "diag_entorno":          "instalado vs. pineado en requirements.txt. Un drift acá no falla: cambia el "
                              "comportamiento y nadie lo ve.",
+    "diag_contabilidad_cierre": "contesta «¿por qué el informe de CONTABILIDAD no ve una tenencia que SÍ "
+                             "está en la tabla?». Mide las tres puertas por las que una fila se cae "
+                             "(la fecha del cierre, el filtro de cartera, el cruce unidad→key) en vez "
+                             "de que haya que adivinar cuál fue.",
     # monitoreo de integraciones vivas
     "healthcheck_sql":       "ejecuta el reader REAL de cada dominio contra Postgres. Es el smoke de después "
                              "de un deploy grande o un cambio de schema.",

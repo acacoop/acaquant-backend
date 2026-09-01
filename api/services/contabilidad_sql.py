@@ -9,8 +9,9 @@ CALCULADO de verdad, y el total es su SUMA:
                        cierres, valuada al precio implícito de cada uno. Es la
                        cadena de la planilla del back office (ver abajo) y viaja
                        ENTERA en la respuesta para que sea auditable paso a paso.
-  · INTERMEDIACIÓN   — lo que se ganó comprando y vendiendo: el REALIZADO del
-                       costeo FIFO (venta − costo del lote consumido).
+  · INTERMEDIACIÓN   — la SUMATORIA de los boletos del mes: compra NEGATIVA,
+                       venta POSITIVA, ir sumando los importes. O sea
+                       `ventas − compras`, el neto de caja del período.
   · RENTAS           — cupones / dividendos / amortizaciones (categoría `acreencia`
                        de los boletos), con signo tal cual viene.
 
@@ -23,8 +24,9 @@ Hasta 2026-09-01 el total lo definía la IDENTIDAD `ΔValuación + ventas − co
 RESIDUO (`total − rxt − rentas`). Dos fallas, las dos medidas sobre AO29 08/26:
 
   1. **La ganancia NO REALIZADA de lo comprado en el mes entraba como resultado.**
-     La cuenta arrancó sin AO29, compró y vendió (realizado 1.171.799) y quedó
-     con 955.084 nominales valuados en 1.324.988.033 → el informe cantaba
+     La cuenta arrancó sin AO29, compró por 1.788.643.523 y vendió por
+     1.789.469.905 (neto **826.382**) y quedó con 955.084 nominales valuados
+     en 1.324.988.033 → el informe cantaba
      **1.325.814.415 de intermediación**: la valuación de una posición nueva,
      sumada como si fuera plata ganada.
   2. **Ser el residuo hacía que la intermediación absorbiera cualquier error de
@@ -34,8 +36,9 @@ RESIDUO (`total − rxt − rentas`). Dos fallas, las dos medidas sobre AO29 08/
 Y el resumen se contradecía con su propio modal: la fila derivaba la
 intermediación de la identidad y el modal la costeaba por FIFO — 1.325.814.415
 contra 1.171.799, sin árbitro (REGLA #9). Hoy hay **un solo motor**: `libro()`
-arma la posición inicial + los boletos y corre el FIFO UNA vez; la fila del
-resumen y su modal leen de ahí. Congelado por `tests/unit/test_contabilidad.py`.
+arma la posición inicial + los boletos y `ledger()` los suma UNA vez; la fila
+del resumen y su modal leen de ahí. Congelado por
+`tests/unit/test_contabilidad.py`.
 
 LA CADENA DEL RxT ES LA DE LA PLANILLA, columna por columna. Con C/D =
 nominales y monto del cierre ANTERIOR y E/F = los del cierre ACTUAL:
@@ -159,9 +162,7 @@ def calcular_titulos(
         return por_key.setdefault(key, {
             "titulo": match_to_display.get(key, key), "unidades": [],
             "qty_ini": 0.0, "qty_fin": 0.0, "v_ini": 0.0, "v_fin": 0.0,
-            "compras": 0.0, "ventas": 0.0,
-            "qty_compras": 0.0, "qty_ventas": 0.0, "n_boletos": 0,
-            "mep_faltantes": 0, "boletos": [],
+            "boletos": [],
         })
 
     for filas, ql, vl in ((filas_ini, "qty_ini", "v_ini"), (filas_fin, "qty_fin", "v_fin")):
@@ -174,28 +175,14 @@ def calcular_titulos(
             if unidad not in d["unidades"]:
                 d["unidades"].append(unidad)
 
+    # Los boletos solo se AGRUPAN acá: sumarlos es trabajo del ledger, y de
+    # una sola pasada — la fila del resumen y el modal leen de la misma.
+    # También viajan los que no mueven posición (caución/futuros): el modal
+    # los muestra y el ledger no los toca.
     for b in boletos:
         key = (b.get("ticker") or "").strip()
-        if not key:
-            continue
-        d = _fila(key)
-        # TODOS los boletos del título viajan al libro — también los que no
-        # mueven posición: el modal los muestra y el FIFO no los toca.
-        d["boletos"].append(b)
-        cat = b.get("categoria")
-        if cat not in _CATS_TODAS:
-            continue
-        importe_ars, sin_mep = _pesificar(b)
-        b["importe_ars"], b["sin_mep"] = importe_ars, sin_mep
-        d["mep_faltantes"] += 1 if sin_mep else 0
-        d["n_boletos"] += 1
-        cantidad = abs(b.get("cantidad") or 0.0)
-        if cat in _CATS_COMPRA:
-            d["compras"] += abs(importe_ars)
-            d["qty_compras"] += cantidad
-        elif cat in _CATS_VENTA:
-            d["ventas"] += abs(importe_ars)
-            d["qty_ventas"] += cantidad
+        if key:
+            _fila(key)["boletos"].append(b)
 
     def _r2(x: float) -> float:  # plata a 2 decimales, sin −0.0 de ruido float
         return round(x, 2) + 0.0
@@ -205,7 +192,7 @@ def calcular_titulos(
         qi, qf, vi, vf = d["qty_ini"], d["qty_fin"], d["v_ini"], d["v_fin"]
         px_ini = vi / qi if qi else None   # D/C de la planilla
         px_fin = vf / qf if qf else None   # F/E de la planilla
-        _, st = libro(key=key, qty_ini=qi, v_ini=vi, fecha_ini=fecha_ini,
+        _, ag = libro(key=key, qty_ini=qi, v_ini=vi, fecha_ini=fecha_ini,
                       boletos=d["boletos"])
         # ── La CADENA del RxT, tal cual la planilla del back office ────────
         # G  no entran en RxT       = nominales mes actual − mes anterior
@@ -220,32 +207,29 @@ def calcular_titulos(
         monto_rxt_fin = tenencia_mantenida * px_fin if px_fin is not None else 0.0
         rxt = monto_rxt_fin - monto_rxt_ini
         variacion_rxt = (rxt / monto_rxt_ini) if monto_rxt_ini else None
-        # INTERMEDIACIÓN: el realizado del FIFO. Ya NO es un residuo — lo que
-        # se compró y sigue en cartera no aporta nada acá.
-        rxt, intermediacion, rentas = _r2(rxt), _r2(st["realizado"]), _r2(st["rentas"])
-        residual = qf - qi - d["qty_compras"] + d["qty_ventas"]
+        # INTERMEDIACIÓN: la sumatoria de los boletos — ventas menos compras.
+        rxt = _r2(rxt)
+        intermediacion, rentas = _r2(ag["intermediacion"]), _r2(ag["rentas"])
+        residual = qf - qi - ag["qty_compras"] + ag["qty_ventas"]
         out.append({
             "titulo": d["titulo"], "key": key, "unidades": d["unidades"],
             "qty_ini": qi, "qty_fin": qf, "v_ini": _r2(vi), "v_fin": _r2(vf),
             "px_ini": px_ini, "px_fin": px_fin,
-            "compras": _r2(d["compras"]), "ventas": _r2(d["ventas"]),
+            "compras": _r2(ag["compras"]), "ventas": _r2(ag["ventas"]),
             "rentas": rentas,
             "rxt": rxt, "intermediacion": intermediacion,
             "total": _r2(rxt + intermediacion + rentas),
             "estado": ("alta" if qi == 0 and qf != 0 else
                        "baja" if qi != 0 and qf == 0 else
-                       "sin_operar" if d["n_boletos"] == 0 else "operado"),
-            "n_boletos": d["n_boletos"],
+                       "sin_operar" if ag["n_boletos"] == 0 else "operado"),
+            "n_boletos": ag["n_boletos"],
             "no_entran_rxt": no_entran_rxt,
             "tenencia_mantenida": tenencia_mantenida,
             "monto_rxt_ini": _r2(monto_rxt_ini), "monto_rxt_fin": _r2(monto_rxt_fin),
             "variacion_rxt": variacion_rxt,
             "cuadre_nominales": residual,
             "cuadra": abs(residual) < _TOL_NOMINALES,
-            "mep_faltantes": d["mep_faltantes"],
-            # Ventas que el FIFO no pudo costear (no había lote): su
-            # intermediación está INCOMPLETA y la fila lo declara.
-            "sin_costo": st["sin_costo"],
+            "mep_faltantes": ag["mep_faltantes"],
         })
     out.sort(key=lambda r: abs(r["total"]), reverse=True)
     return out
@@ -275,7 +259,12 @@ def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
     objetivo = ultimo_habil_del_mes(anio, mes)
     sel = ("SELECT unidad, ticker, cartera, cantidad, valuacion "
            "FROM portafolio.tenencia "
-           "WHERE id_cuenta = %(c)s AND fecha = %(f)s AND cartera <> 'MONEDAS'")
+           "WHERE id_cuenta = %(c)s AND fecha = %(f)s "
+           # `cartera` es NULLABLE y `NULL <> 'MONEDAS'` NO es TRUE: es NULL.
+           # Con `<>` toda fila sin cartera se caía en SILENCIO — la tenencia
+           # del 31/07 existía y el informe la leía vacía, así que el mes
+           # arrancaba en 0 y todo el resultado salía mal sin un solo error.
+           "AND cartera IS DISTINCT FROM 'MONEDAS'")
     filas = _q(sel, {"c": id_cuenta, "f": objetivo})
     usada = objetivo
     if not filas:
@@ -415,7 +404,6 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
            for k in ("v_ini", "v_fin", "compras", "ventas", "rentas",
                      "rxt", "intermediacion", "total")}
     tot["descuadres"] = sum(1 for t in todos if not t["cuadra"])
-    tot["sin_costo"] = sum(t["sin_costo"] for t in todos)
     tot["mep_faltantes"] = sum(t["mep_faltantes"] for t in todos)
     # Boletos que NO mueven posición (cauciones, futuros, `otro` del catálogo):
     # se declaran en vez de desaparecer — si el enrich usara otra grafía para
@@ -434,61 +422,54 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
             "n_boletos": sum(1 for b in boletos if b.get("categoria"))}
 
 
-def ledger_fifo(boletos: list[dict]) -> dict:
-    """Recorre los boletos EN ORDEN y anota en cada fila `nominales_acum`
-    (posición corrida) y `pnl_acum` (realizado FIFO + rentas, corrido). Espera
-    filas ya pesificadas (`importe_ars`).
+def ledger(boletos: list[dict]) -> dict:
+    """Recorre los boletos EN ORDEN y anota en cada fila `nominales_acum` (la
+    posición corrida) y `pnl_acum` (la PLATA corrida).
 
-    FIFO: cada compra entra como un lote (cantidad, costo); cada venta consume
-    los lotes MÁS VIEJOS primero y realiza `ingreso − costo de esos lotes`. La
-    fila sintética `saldo_inicial` (la posición al cierre anterior, a su
-    valuación de ese cierre) entra como PRIMER lote sin generar PnL — es el
-    reset mensual del módulo: vender el 100% realiza `venta − valuación
-    inicial`. Una venta que excede saldo inicial + compras se marca
-    `sin_costo`: solo la parte con lote genera PnL.
+    LA PLATA ES UNA SUMATORIA SIMPLE — definición del back office 2026-09-01:
+    «compra negativo, venta positivo, ir sumando los importes». La fila
+    sintética `saldo_inicial` mueve la POSICIÓN y no la plata: no es un boleto,
+    no hay importe que sumar.
 
-    Devuelve lo que necesitan LOS DOS canales del resumen:
-      realizado         → la INTERMEDIACIÓN del mes.
-      inicial_restante  → los nominales del saldo inicial que NUNCA se vendieron.
-                          Informativo: la TENENCIA la decide la planilla del back
-                          office (`min` de nominales), no la identidad de los lotes.
-      rentas / sin_costo.
+    Antes acá vivía un costeo FIFO por lotes (venta − costo del lote más viejo).
+    Se sacó porque no es lo que el back office llama intermediación: la
+    intermediación es el neto de caja de los boletos del mes, y punto.
+
+    Devuelve TODOS los agregados que necesita la fila del resumen, así el
+    número de la fila y el que muestra el modal salen de LA MISMA pasada
+    (REGLA #9) — no de dos cuentas parecidas que nadie compara.
     """
-    # lote = [cantidad_restante, costo_restante, es_del_saldo_inicial]
-    lotes: list[list] = []
-    nominales = realizado = rentas = 0.0
-    sin_costo = 0
+    nominales = acum = 0.0
+    ag = {"compras": 0.0, "ventas": 0.0, "rentas": 0.0,
+          "qty_compras": 0.0, "qty_ventas": 0.0,
+          "n_boletos": 0, "mep_faltantes": 0}
     for b in boletos:
         cat = b.get("categoria")
         q = abs(b.get("cantidad") or 0.0)
         imp = abs(b.get("importe_ars") or 0.0)
-        if cat in _CATS_COMPRA or cat == "saldo_inicial":
-            lotes.append([q, imp, cat == "saldo_inicial"])
+        if cat == "saldo_inicial":
+            nominales += q                      # posición, NO plata
+        elif cat in _CATS_COMPRA:
+            acum -= imp                         # la compra RESTA
             nominales += q
+            ag["compras"] += imp
+            ag["qty_compras"] += q
         elif cat in _CATS_VENTA:
-            restante, costo = q, 0.0
-            while restante > _TOL_NOMINALES and lotes:
-                lote = lotes[0]
-                usa = min(lote[0], restante)
-                parte = lote[1] * (usa / lote[0]) if lote[0] else 0.0
-                costo += parte
-                lote[1] -= parte
-                lote[0] -= usa
-                restante -= usa
-                if lote[0] <= _TOL_NOMINALES:
-                    lotes.pop(0)
-            cubierta = (q - restante) / q if q else 0.0
-            realizado += imp * cubierta - costo
-            if restante > _TOL_NOMINALES:
-                b["sin_costo"] = True
-                sin_costo += 1
+            acum += imp                         # la venta SUMA
             nominales -= q
+            ag["ventas"] += imp
+            ag["qty_ventas"] += q
         elif cat in _CATS_RENTA:
-            rentas += b.get("importe_ars") or 0.0  # con signo
+            acum += b.get("importe_ars") or 0.0  # con su signo
+            ag["rentas"] += b.get("importe_ars") or 0.0
+        if cat in _CATS_TODAS:
+            ag["n_boletos"] += 1
+            ag["mep_faltantes"] += 1 if b.get("sin_mep") else 0
         b["nominales_acum"] = round(nominales, 2)
-        b["pnl_acum"] = round(realizado + rentas, 2)
-    return {"sin_costo": sin_costo, "realizado": realizado, "rentas": rentas,
-            "inicial_restante": sum(lote[0] for lote in lotes if lote[2])}
+        b["pnl_acum"] = round(acum, 2)
+    # INTERMEDIACIÓN = ventas − compras. El neto de caja de los boletos.
+    ag["intermediacion"] = ag["ventas"] - ag["compras"]
+    return ag
 
 
 def libro(*, key: str, qty_ini: float, v_ini: float, fecha_ini: str,
@@ -517,7 +498,7 @@ def libro(*, key: str, qty_ini: float, v_ini: float, fecha_ini: str,
             "comprobante": "—", "importe_ars": v_ini, "sin_mep": False,
             "direccion": "otro",
         })
-    return filas, ledger_fifo(filas)
+    return filas, ledger(filas)
 
 
 def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
@@ -539,13 +520,12 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
     v_ini = sum((r.get("valuacion") or 0.0) for r in propias)
     boletos = [b for b in _boletos_mes(id_cuenta, mes, u2m)
                if (b.get("ticker") or "").strip() == key]
-    filas, st = libro(key=key, qty_ini=qty_ini, v_ini=v_ini,
+    filas, ag = libro(key=key, qty_ini=qty_ini, v_ini=v_ini,
                       fecha_ini=ini["fecha_usada"] or ini["fecha_objetivo"],
                       boletos=boletos)
     return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": filas,
-            "sin_costo": st["sin_costo"],
-            "intermediacion": round(st["realizado"], 2),
-            "rentas": round(st["rentas"], 2)}
+            "intermediacion": round(ag["intermediacion"], 2),
+            "rentas": round(ag["rentas"], 2)}
 
 
 # ── ABM de cuentas del proceso ───────────────────────────────────────────────

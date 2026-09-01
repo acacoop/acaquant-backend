@@ -82,6 +82,10 @@ HERRAMIENTAS: dict[str, str] = {
     # ⏳ TEMPORAL — se borra (script + este renglón) en el mismo commit que aplique
     #    la decisión, según REGLA #5. Está declarado y no escondido justamente
     #    para que su borrado sea una tarea visible y no un olvido.
+    "diag_saldo_cierre":     "los DOS saldos que informa Interbanking (extracto vs. API de Saldos) puestos "
+                             "uno al lado del otro, con la verificación aritmética del extracto. Es lo único "
+                             "que distingue «el banco se contradice» de «estoy comparando el cierre contra el "
+                             "saldo operativo», que se ven igual en pantalla: un badge ≠.",
     "diag_desglose_texto":   "«¿mi grafía del DESGLOSE agarró algo?» — una que no agarra deja la columna "
                              "en cero y el total dando bien, así que la pantalla no la distingue de «hoy no "
                              "hubo ese impuesto». Muestra el catálogo con `repr` (espacios y acentos rotos), "

@@ -3704,3 +3704,38 @@ catálogo persistido de 1816, que llena `mercado_1816_discovery --apply
 --catalogo`) también es manual y tampoco tiene a S29E7 — `ficha_1816` y
 `tamar_1816` leen de ahí. El detector no lo sufre porque censa 1816 en vivo
 (~29 créditos por corrida, 4 corridas por día en rueda).
+
+---
+
+### 0.cz REINCIDE EL ITEM, NO EL GRUPO — y las seis copias de «CARTERA» (2026-09-01)
+
+> *«Mucho son lo mismo, solo que se repite. No tiene en cuenta que no es que
+> reincidió: el aviso en sí sigue. Emisores sin cargar va a haber siempre, eso
+> no es reincidencia. Reincidencia sería que si yo agrego un emisor de un bono,
+> ese bono vuelva a estar sin emisor.»*
+
+Dos bugs encadenados, y §0.cy destapó el segundo al hacer visible `reincidio`.
+
+**1 · La identidad era demasiado gruesa.** En `ficha_incompleta` el sujeto es
+el CAMPO («CARTERA»), a propósito: 224 títulos sin clase son UN trabajo de
+carga, no 224 problemas. Pero la reincidencia se decide por el trío, así que
+completar 4 títulos cerraba «CARTERA sin_cartera» por acción, y el 5.º que
+entraba a cartera al día siguiente «reincidía» — sobre un arreglo que nunca lo
+tocó. Lo que el user describe es la definición correcta: reincide un ITEM que
+la acción escribió y volvió a estar mal. Así que el hallazgo de grupo lleva
+sus `items` (las unidades, en la evidencia — no para la pantalla, para la
+identidad), y `registro._ver` sólo declara reincidencia cuando alguno de esos
+items figura como `sujeto` de una acción `ok` del hallazgo previo. Sin
+intersección, es un problema nuevo con el mismo nombre. Un hallazgo sin
+`items` (el sujeto ES el item, como un bono) sigue igual que antes.
+
+**2 · Y cada corrida hacía una copia.** Hasta §0.cy `reincidio` no estaba en
+`ABIERTOS`, así que `_ver` no encontraba nada abierto, volvía a encontrar el
+previo cerrado por acción, e INSERTABA otra fila `reincidio` — y otra en
+`reincidencias`. Nadie lo vio porque ninguna vista mostraba `reincidio`. Al
+mostrarlo, ENCONTRÓ tenía seis «CARTERA sin_cartera» de distintas horas.
+`sql/schema.sql` lo limpia en un bloque idempotente antes de crear el índice:
+de cada trío con más de una fila abierta queda la más nueva, las
+«reincidencias» de `ficha_incompleta` se borran y sus hallazgos vuelven a
+`nuevo`. Con eso hecho, `hallazgos_abierto_unico` pasa a cubrir `reincidio`:
+la base ya no permite la copia que el código dejó de hacer.

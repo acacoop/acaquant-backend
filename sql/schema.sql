@@ -4764,16 +4764,44 @@ ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS detalle text NOT NULL DEFA
 
 -- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
 -- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
+--
+-- ⚠️ `reincidio` es ABIERTO desde el 2026-09-01 (§0.cy) y el índice lo cubre
+-- (§0.cz). Antes no: como `_ver` sólo actualizaba nuevo/en_curso, cada corrida
+-- que volvía a ver un trío en `reincidio` INSERTABA otra fila `reincidio` (y
+-- otra en `reincidencias`) — medido el 2026-09-01: seis «CARTERA sin_cartera»
+-- abiertos a la vez. El bloque de abajo deja UNA por trío antes de crear el
+-- índice, y devuelve a `nuevo` las «reincidencias» de `ficha_incompleta`, que
+-- eran títulos distintos bajo el mismo campo (no una reincidencia de verdad).
+DO $$
+BEGIN
+    -- (a) de cada trío con más de una fila abierta queda la más nueva
+    UPDATE agente.hallazgos h
+       SET estado = 'resuelto', cerrado_at = now(), cerrado_como = 'ausencia',
+           cerrado_por = 'dedup §0.cz'
+     WHERE h.estado IN ('nuevo','en_curso','reincidio')
+       AND EXISTS (SELECT 1 FROM agente.hallazgos m
+                    WHERE m.habilidad = h.habilidad AND m.sujeto = h.sujeto
+                      AND m.regla = h.regla
+                      AND m.estado IN ('nuevo','en_curso','reincidio')
+                      AND m.id > h.id);
+    -- (b) las reincidencias de un GRUPO (sujeto = campo) no eran reincidencias
+    DELETE FROM agente.reincidencias WHERE habilidad = 'ficha_incompleta';
+    UPDATE agente.hallazgos SET estado = 'nuevo'
+     WHERE habilidad = 'ficha_incompleta' AND estado = 'reincidio';
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;
+DROP INDEX IF EXISTS agente.hallazgos_abierto_unico;
 CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico
     ON agente.hallazgos (habilidad, sujeto, regla)
-    WHERE estado IN ('nuevo','en_curso');
+    WHERE estado IN ('nuevo','en_curso','reincidio');
 CREATE INDEX IF NOT EXISTS hallazgos_problema
     ON agente.hallazgos (habilidad, sujeto, regla, detectado_at DESC);
 CREATE INDEX IF NOT EXISTS hallazgos_abiertos
     ON agente.hallazgos (estado, severidad, detectado_at DESC);
+DROP INDEX IF EXISTS agente.hallazgos_ahora;
 CREATE INDEX IF NOT EXISTS hallazgos_ahora
     ON agente.hallazgos (detectado_at DESC)
-    WHERE leido_at IS NULL AND estado IN ('nuevo','en_curso');
+    WHERE leido_at IS NULL AND estado IN ('nuevo','en_curso','reincidio');
 
 -- ── EL SILENCIO ───────────────────────────────────────────────────────────
 --
@@ -4950,9 +4978,7 @@ SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
 -- ⚠️ `reincidio` es ABIERTO (agente/tipos.ABIERTOS, 2026-09-01): un hallazgo que
 -- volvió tras un arreglo es trabajo pendiente, no historia. Antes ninguna vista
 -- lo mostraba y ninguna corrida lo cerraba. El índice único `hallazgos_abierto_unico`
--- no lo cubre a propósito: ampliar su predicado fallaría si ya hubiera dos filas
--- `reincidio` del mismo trío, y la puerta (`registro._ver`) ya actualiza en vez
--- de insertar.
+-- lo cubre desde §0.cz, con un dedup previo de las filas que el bug dejó.
 DROP VIEW IF EXISTS agente.v_encontro;
 CREATE OR REPLACE VIEW agente.v_encontro AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,

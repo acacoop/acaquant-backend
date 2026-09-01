@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from agente import arreglos, catalogo, registro, rehacer, tipos
+from agente.detectores import catalogo as cat_det
 from agente.detectores import datos, mercado, sistema
 
 
@@ -2102,3 +2103,27 @@ def test_el_alta_pregunta_en_vivo_antes_de_decir_que_primary_no_lo_lista():
     assert "foto_vieja" in src
     pre = inspect.getsource(alta)
     assert "(INFO if foto_vieja else OK) if con is True" in pre
+
+
+# ── REINCIDE EL ITEM, NO EL GRUPO (§0.cz) ──────────────────────────────────
+
+def test_reincide_el_item_no_el_grupo():
+    """User (2026-09-01): *«emisores sin cargar va a haber siempre, eso no es
+    reincidencia. Reincidencia sería que si yo agrego un emisor de un bono, ese
+    bono vuelva a estar sin emisor»*. El sujeto de `ficha_incompleta` es el
+    CAMPO, así que un título nuevo sin cartera «reincidía» sobre un arreglo
+    que escribió otros títulos. La puerta cruza los `items` de hoy contra lo
+    que la acción escribió, y sin intersección no hay reincidencia."""
+    src = inspect.getsource(registro._ver)
+    i = src.index("INSERT INTO agente.reincidencias")
+    antes = src[:i]
+    assert '"items"' in antes and "agente.acciones" in antes
+    assert "previo = None" in antes
+    det = inspect.getsource(cat_det.ficha_incompleta)
+    assert '"items": [f["unidad"] for f in filas]' in det
+    # Y la base deja UNA fila abierta por trío, `reincidio` incluido.
+    schema = (RAIZ / "sql" / "schema.sql").read_text(encoding="utf-8")
+    j = schema.index("CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico")
+    assert "'reincidio'" in schema[j:j + 250]
+    assert "DROP INDEX IF EXISTS agente.hallazgos_abierto_unico" in schema[:j]
+    assert "dedup §0.cz" in schema[:j]

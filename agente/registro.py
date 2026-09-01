@@ -165,6 +165,24 @@ def _ver(conn, habilidad: str, h) -> dict:
             (habilidad, h.sujeto, h.regla, tipos.RESUELTO, tipos.POR_ACCION))
         previo = cur.fetchone()
 
+        # ⚠️⚠️ **REINCIDE EL ITEM, NO EL GRUPO (§0.cz).** Cuando el sujeto es un
+        # CAMPO («CARTERA») y no un título, el trío de hoy y el de hace un mes
+        # son el mismo problema aunque hablen de títulos distintos. Sin esto,
+        # completar 4 títulos cerraba por acción, y el 5.º que entraba nuevo a
+        # cartera «reincidía» — sobre un arreglo que nunca lo tocó. El user:
+        # *«reincidencia sería que si yo agrego un emisor, ese bono vuelva a
+        # estar sin emisor»*. Así que si el hallazgo trae sus `items`, sólo hay
+        # reincidencia cuando alguno de ELLOS fue escrito por la acción que
+        # cerró el anterior. Sin `items` (el sujeto ES el item) no cambia nada.
+        items = (h.evidencia or {}).get("items")
+        if previo is not None and isinstance(items, list):
+            cur.execute(
+                "SELECT DISTINCT sujeto FROM agente.acciones "
+                " WHERE hallazgo_id = %s AND ok", (previo[0],))
+            escritos = {r[0] for r in cur.fetchall()}
+            if not escritos & {str(i) for i in items}:
+                previo = None
+
         cur.execute(
             "INSERT INTO agente.hallazgos "
             " (habilidad, sujeto, regla, nombre, severidad, problema, detalle, "

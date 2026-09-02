@@ -88,6 +88,11 @@ HERRAMIENTAS: dict[str, str] = {
     # ⏳ TEMPORAL — se borra (script + este renglón) en el mismo commit que aplique
     #    la decisión, según REGLA #5. Está declarado y no escondido justamente
     #    para que su borrado sea una tarea visible y no un olvido.
+    "diag_tna":              "contesta «¿la TNA de renta fija está viva o es la misma de siempre?» "
+                             "con la serie de cierre: cuántas ruedas el bono no movió su TNA, qué día "
+                             "saltó y hace cuánto que el motor no la recalcula. La pantalla no puede "
+                             "distinguir una tasa de hace tres semanas de una de hace tres segundos "
+                             "(2026-09-02, abierto).",
     "diag_duales_pata_fija": "por qué TTD26/TTS26 salen en -- en TASA FIJA teniendo TAMAR completo: sigue "
                              "la cadena hasta el punto exacto donde se corta (2026-08-31, abierto).",
     "diag_1816_grafias":     "con qué grafía publica 1816 la pata fija que `tamar_1816` pide con dos "

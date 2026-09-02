@@ -246,8 +246,23 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
             # Se van TODAS las derivadas y no solo la TEA: dejar `mod_duration`
             # del motor al lado de una duration de 1816 mezcla dos cálculos en la
             # misma fila y nadie podría decir cuál de los dos está mal.
+            #
+            # ⚠️ **TODAS incluye `duration` y `paridad`** (2026-09-02). Estaban
+            # fuera de esta lista, y no se notaba porque justo abajo 1816 las
+            # repone — pero SOLO si las trae. Cuando no las trae (el job las
+            # cuenta como `sin_dato`: 8 de los 9 corporativos con pata TAMAR),
+            # la fila salía con la TEA de 1816 al lado de la DURATION y la
+            # PARIDAD del cálculo que esta misma rama acababa de declarar
+            # basura. Medido: TMF27 mostraba TNA 32,8% (1816) con DUR 0,53 y
+            # PARIDAD 99,0 heredadas de su TEA vieja de −25,0%.
+            #
+            # No es solo una columna fea: `tasa_ruido` se decide POR DURATION,
+            # así que una duration ajena podía apagar —o dejar prendida— una
+            # tasa que no le corresponde. Sin dato la celda queda vacía, que es
+            # la misma respuesta que ya se eligió para la TEA.
             if manda_1816 or not es_principal:
-                for k in ("TEA", "TEM", "TNA", "mod_duration", "convexity"):
+                for k in ("TEA", "TEM", "TNA", "mod_duration", "convexity",
+                          "duration", "paridad"):
                     m_pill.pop(k, None)
 
             if manda_1816 and t1816.get("tea") is not None:

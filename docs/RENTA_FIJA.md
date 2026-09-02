@@ -64,6 +64,40 @@ de tocar la vista más usada de la app.
 | 20 | Perf con EMISOR=CORPORATIVO + filtro de TEA + **ficha del bono** (§20) | sí | ✅ **hecho** (2026-08-28) |
 | 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
 
+### Paso 22 (2026-09-02) — auditoría de la TNA: qué se arregló y qué falta medir
+
+Disparador: *«veo bonos con una TNA que se rompió, y en RENTA FIJA la veo SIEMPRE
+IGUAL»*. La auditoría separó dos cosas que en pantalla se ven idénticas.
+
+**(a) ARREGLADO — la fila mezclaba dos cálculos.** `curvas_vista._armar` limpia
+las métricas del motor cuando manda 1816 o cuando la fila es la pata SECUNDARIA,
+y su propio comentario dice «se van TODAS las derivadas». No era cierto:
+`duration` y `paridad` estaban fuera de la lista. No se notaba porque el renglón
+siguiente las repone… **solo si 1816 las trae**, y el job cuenta 8 de los 9
+corporativos con pata TAMAR como `sin_dato`. Ahí la fila salía con la TEA de 1816
+al lado de la DURATION y la PARIDAD del cálculo que esa misma rama acababa de
+declarar basura — reproducido: TMF27 con TNA 32,8% (1816) y DUR 0,53 / PARIDAD
+99,0 heredadas de su TEA vieja de −25,0%.
+
+No es cosmético por dos motivos: `tasa_ruido` **se decide por duration**, así que
+una duration ajena podía apagar (o dejar prendida) una tasa que no le
+corresponde; y el gráfico de curvas usa la duration como eje X (`curvas-chart`
+descarta `duration == null`), o sea que esos bonos estaban **graficados en la
+abscisa equivocada**. Con el fix la celda queda vacía y el punto sale del
+gráfico, que es la misma respuesta que ya se había elegido para la TEA. Congelado
+por `test_si_1816_NO_trae_duration_la_del_motor_NO_se_queda`.
+
+**(b) A MEDIR — «siempre igual» no es un bug hasta que se mida.** El motor
+recalcula **solo cuando cambia el `last_price`** (cache `ultimo_calculado` en
+`engines/curvas.py`), `core.market_snapshot.last_prices` **no filtra por
+frescura** (trae cualquier fila con `last_price > 0`, sea de hoy o de hace
+meses), y la vista **no manda la fecha de la tasa del motor** (`tea_fecha` viaja
+solo para 1816). Las tres juntas hacen que una TNA de hace tres semanas y una de
+hace tres segundos se dibujen exactamente igual. Cuánto de la tabla está en ese
+estado **no está medido**: lo mide `python -m scripts.diag_tna` (serie de
+`snapshots_cierre_hist`: ruedas sin movimiento, saltos con su fecha, y hace
+cuánto que cada número no se recalcula). Sin ese número no se toca el motor.
+
 ### Paso 21 (2026-08-30) — el modal SIMULAR INVERSIÓN (y la baja de la vista ESTRATEGIA)
 
 **La pregunta que contesta**: *"si pongo $X en este bono a este precio, ¿qué tasa

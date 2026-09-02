@@ -336,6 +336,29 @@ def test_un_TAMAR_puro_toma_TODO_de_1816_y_descarta_la_basura_del_motor():
     assert b["tea_fuente"] == "1816" and b["margen"] == 0.0343
 
 
+def test_si_1816_NO_trae_duration_la_del_motor_NO_se_queda():
+    """El caso que faltaba, y es el que se ve en pantalla (2026-09-02).
+
+    El test de arriba pasa 1816 con `duration` y `paridad`, así que las repone y
+    nadie notó que `duration`/`paridad` NO estaban en la lista que se limpia. El
+    job cuenta 8 de 9 corporativos con pata TAMAR como `sin_dato`: ahí 1816 trae
+    la TEA y NADA más, y la fila salía con la DURATION y la PARIDAD del cálculo
+    que esta misma rama acaba de declarar basura.
+
+    No es cosmético: `tasa_ruido` se decide POR DURATION, así que una duration
+    ajena podía apagar o dejar prendida una tasa que no le corresponde."""
+    f = _fila("TMF27", "soberano", "ARS", "tamar", tea=-0.25, duration=0.53)
+    f["tem"], f["mod_duration"], f["paridad"] = -0.0237, 0.70, 99.0
+    t = _t1816(tea=0.3862, tna=0.3277)
+    t["duration"], t["paridad"] = None, None
+    b = _armar([f], fijados=set(), tamar={("TMF27", "tamar"): t})["bonos"][0]
+    assert b["metrics"]["TEA"] == 0.3862 and b["metrics"]["TNA"] == 0.3277
+    # Lo del motor se fue ENTERO: sin dato, la celda queda vacía.
+    assert "duration" not in b["metrics"]
+    assert "paridad" not in b["metrics"]
+    assert "mod_duration" not in b["metrics"] and "TEM" not in b["metrics"]
+
+
 def test_un_CER_puro_conserva_TODO_lo_del_motor_aunque_1816_opine():
     """La contracara: donde el motor calcula, no se le toca nada — ni la TEA ni
     las derivadas. Su número es LIVE."""

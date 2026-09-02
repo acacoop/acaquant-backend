@@ -4721,7 +4721,7 @@ CREATE TABLE IF NOT EXISTS agente.habilidades (
     nombre              text PRIMARY KEY,
     tipo                text NOT NULL,          -- detector | consulta | accion
     que_mira            text NOT NULL,
-    dominio             text NOT NULL,          -- MERCADO | SISTEMA | DATOS | SEGURIDAD | NEGOCIO
+    dominio             text NOT NULL,          -- MERCADO | SISTEMA | DATOS | SEGURIDAD
     usa_ia              boolean NOT NULL DEFAULT false,
 
     cada_segundos       integer NOT NULL,

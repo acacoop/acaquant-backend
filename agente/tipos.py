@@ -42,9 +42,7 @@ CIERRES = (POR_ACCION, POR_AUSENCIA)
 OK, SIN_DATOS, ERROR = "ok", "sin_datos", "error"
 
 SEVERIDADES = ("alta", "media", "baja")
-# NEGOCIO (§0.dk): lo que el back office concilia a mano — bancos, tesorería,
-# boletos, clientes. Hasta el 2026-09-02 el agente no tenía dónde ponerlo.
-DOMINIOS = ("MERCADO", "SISTEMA", "DATOS", "SEGURIDAD", "NEGOCIO")
+DOMINIOS = ("MERCADO", "SISTEMA", "DATOS", "SEGURIDAD")
 # CUÁNDO tiene sentido mirar. El horario vive en `agente/reloj.py` y acá solo
 # se lo nombra: `cierre` es «una vez, con el día cerrado», y es lo que hace que
 # nada le siga pidiendo al mercado después de las 17.

@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 
 from agente.detectores import catalogo as cat
-from agente.detectores import datos, mercado, negocio, sistema
+from agente.detectores import datos, mercado, sistema
 from agente.tipos import Habilidad
 from core.postgres import get_pool
 
@@ -207,19 +207,6 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "sin_clase_activo": "completar_ficha",
                   "sin_emisor": "completar_ficha",
                   "fci_sin_ticker": "completar_ficha"}),
-
-    # ── NEGOCIO ────────────────────────────────────────────────────────────
-    # Lo que el back office concilia a mano y hasta hoy se descubría abriendo
-    # una tab (§0.dk). Lee los MISMOS services que la pantalla. Sin arreglo a
-    # propósito: conciliar es decidir de qué lado falta plata, y eso es de una
-    # persona; lo que el agente pone es que nadie tenga que entrar a mirar.
-    Habilidad(
-        nombre="banco_no_cierra", tipo="detector", dominio="NEGOCIO",
-        que_mira="extractos que no cierran, dos cierres distintos del mismo banco, la "
-                 "conciliación banco↔mayor día por día y lo confirmado que nadie resolvió",
-        cada_segundos=2 * _H, ventana="habil",
-        correr=negocio.banco_no_cierra,
-        umbrales={"pendiente_dias": 5, "arrastre_dias": 3}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────
     # Lo que un job reporta sin escribir, declarado en `agente/reportes.py`

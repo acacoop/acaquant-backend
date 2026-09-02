@@ -3831,3 +3831,25 @@ L-V"`). Ahora lee el horario del crontab por `rehacer.rehacibles()` y lo
 evalúa **el único evaluador cron del repo**, `salud.ultima_ejecucion_esperada`.
 `foto_primary` (§0.cy) también: nació con un evaluador propio y se lo sacó el
 mismo día, porque dos evaluadores de la misma expresión son la REGLA #9 (B).
+
+---
+
+### 0.dc ARBITRAR DOS COPIAS — el SQL declarado al lado del chequeo, con botón (2026-09-02)
+
+`core/duplicados.DUPLICADOS` declaraba `arreglo_sql` en dos de sus cinco
+entradas desde el 2026-08-19 y ningún `Arreglo` lo consumía: «dato partido»
+salía sin botón, y el símbolo columna-vs-blob que dejó dos bonos en `--`
+durante cuatro días se seguía corrigiendo a mano.
+
+- **`arbitrar_copia`** es UNA clase para todos: el preview relee con
+  `duplicados.una()` las filas que difieren y las muestra una por una (la que
+  pierde → la que manda); aplicar relee de nuevo, corre el `arreglo_sql`
+  declarado (scopeado por su propio WHERE) y anota **una línea de libro por
+  fila** con antes y después. Lo que se arregla es exactamente lo que el
+  detector midió, porque el SQL vive al lado del chequeo.
+- `Duplicado.gana` (`"a"`/`"b"`) dice cuál copia manda cuando hay SQL: es lo
+  que permite escribir el libro sin adivinar leyendo la prosa de `arbitro`.
+- **Dos reglas en `dato_partido`**: `copias_que_no_coinciden` (tiene SQL →
+  ENCONTRÓ con botón) y `copias_a_mano` (declara `arreglo_manual` → aviso con
+  la instrucción, en AHORA). Un botón que siempre contesta «esto se hace a
+  mano» es un aviso con forma de trabajo, la misma lección que `salud`.

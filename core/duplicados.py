@@ -76,7 +76,11 @@ class Duplicado:
     # Vacío = no hay arreglo mecánico, y entonces `arreglo_manual` dice qué hacer.
     # Declararlo separado es lo que impide que alguien escriba el UPDATE «obvio».
     arreglo_sql: str = ""
-    arreglo_manual: str = "" 
+    arreglo_manual: str = ""
+    # Cuál de las dos copias es la que MANDA cuando `arreglo_sql` existe: la
+    # que se escribe es la otra. Es lo que deja anotar en el libro «antes →
+    # después» por fila sin adivinar leyendo la prosa de `arbitro`.
+    gana: str = ""
 
 
 # ⚠️ **SE DECLARA, NO SE DESCUBRE.** No hay forma de deducir del esquema que dos
@@ -114,7 +118,8 @@ DUPLICADOS: tuple[Duplicado, ...] = (
             WHERE instrumento IS NOT NULL
               AND coalesce(data->>'ticker', '') <> ''
               AND btrim(instrumento) <> btrim(data->>'ticker')
-        """),
+        """,
+        gana="a"),
     Duplicado(
         id="ticker_curva_vs_assets",
         que="el TICKER del título — la clave que une la tenencia con su curva",
@@ -193,7 +198,8 @@ DUPLICADOS: tuple[Duplicado, ...] = (
                                  to_jsonb(btrim(ticker)))
             WHERE coalesce(data->>'ticker_corto', '') <> ''
               AND upper(btrim(ticker)) <> upper(btrim(data->>'ticker_corto'))
-        """),
+        """,
+        gana="a"),
     Duplicado(
         id="simbolo_master_vs_especies",
         que="qué pata del bono se suscribe",
@@ -247,6 +253,29 @@ DUPLICADOS: tuple[Duplicado, ...] = (
 TOPE_EJEMPLOS = 8
 
 
+def declarado(duplicado_id: str) -> Duplicado | None:
+    return next((x for x in DUPLICADOS if x.id == duplicado_id), None)
+
+
+def arbitrar(duplicado_id: str) -> dict:
+    """Ejecuta el `arreglo_sql` del duplicado (scopeado por su propio WHERE a
+    las filas que difieren). `{"ok", "filas"}` o `{"ok": False, "error"}`.
+    Sin `arreglo_sql` no hace nada y lo dice: esos se arreglan a mano."""
+    d = declarado(duplicado_id)
+    if d is None:
+        return {"ok": False, "error": f"«{duplicado_id}» no está declarado"}
+    if not d.arreglo_sql.strip():
+        return {"ok": False, "error": f"«{d.id}» no se arregla con un UPDATE: "
+                                      f"{d.arreglo_manual or 'ver el árbitro'}"}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(d.arreglo_sql)
+            return {"ok": True, "id": d.id, "filas": cur.rowcount or 0}
+    except Exception as e:
+        logger.warning("duplicados: no pude arbitrar %s (%s)", d.id, e)
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
 def una(duplicado_id: str) -> dict:
     """UN duplicado, con **todas** sus filas divergentes.
 
@@ -297,6 +326,8 @@ def divergencias() -> dict:
         partidos.append({
             "id": d.id, "que": d.que, "a": d.a, "b": d.b,
             "arbitro": d.arbitro, "rompe": d.rompe,
+            "tiene_sql": bool(d.arreglo_sql.strip()),
+            "arreglo_manual": d.arreglo_manual,
             "n": len(filas),
             "ejemplos": [{"sujeto": r[0], "valor_a": r[1], "valor_b": r[2]}
                          for r in filas[:TOPE_EJEMPLOS]],

@@ -2307,3 +2307,62 @@ def test_todavia_no_le_toco_lee_el_crontab_y_no_la_prosa():
     assert not sistema._todavia_no_le_toco({"unidad": "motor_rofex", "cadencia": "13-21 UTC"},
                                            a_las_8_ar)
     assert "re.search" not in inspect.getsource(sistema._todavia_no_le_toco)
+
+
+# ── ARBITRAR DOS COPIAS (§0.dc) ────────────────────────────────────────────
+
+def test_el_duplicado_con_sql_tiene_boton_y_el_manual_es_aviso(monkeypatch):
+    """`core/duplicados` declaraba `arreglo_sql` en dos de cinco y ningún
+    arreglo lo usaba: «dato partido» salía sin botón. Ahora el que tiene SQL
+    se arbitra desde ENCONTRÓ y el manual es un aviso con la instrucción."""
+    from core import duplicados
+    assert catalogo.HABILIDADES["dato_partido"].arreglo_de("copias_que_no_coinciden") \
+        == "arbitrar_copia"
+    assert catalogo.HABILIDADES["dato_partido"].arreglo_de("copias_a_mano") == ""
+    con_sql = [d for d in duplicados.DUPLICADOS if d.arreglo_sql.strip()]
+    assert con_sql and all(d.gana in ("a", "b") for d in con_sql), (
+        "todo duplicado con SQL declara quién gana: es lo que se anota en el libro")
+
+    monkeypatch.setattr(duplicados, "divergencias", lambda: {
+        "partidos": [
+            {"id": "simbolo_columna_vs_blob", "que": "el símbolo", "a": "col", "b": "blob",
+             "arbitro": "la COLUMNA", "rompe": "sin precio", "tiene_sql": True,
+             "arreglo_manual": "", "n": 2,
+             "ejemplos": [{"sujeto": "AO29", "valor_a": "x", "valor_b": "y"}]},
+            {"id": "emisor_curvas_vs_assets", "que": "el emisor", "a": "curvas", "b": "assets",
+             "arbitro": "1816", "rompe": "agrupa mal", "tiene_sql": False,
+             "arreglo_manual": "correr jobs.ficha_1816", "n": 1, "ejemplos": []}],
+        "sin_mirar": [], "revisados": 5})
+    por = {h.sujeto: h for h in datos.dato_partido({})}
+    assert por["simbolo_columna_vs_blob"].regla == "copias_que_no_coinciden"
+    assert por["emisor_curvas_vs_assets"].regla == "copias_a_mano"
+    assert "ficha_1816" in por["emisor_curvas_vs_assets"].que_hacer
+
+
+def test_arbitrar_copia_relee_escribe_y_anota_una_linea_por_fila(monkeypatch):
+    from core import duplicados
+    a = arreglos.ARREGLOS["arbitrar_copia"]
+    filas = [("AO29", "MERV - XMEV - AO29D - 24hs", "MERV - XMEV - AO29 - 24hs"),
+             ("CO32", "MERV - XMEV - CO32D - 24hs", "MERV - XMEV - CO32 - 24hs")]
+    monkeypatch.setattr(duplicados, "una", lambda i: {"ok": True, "id": i, "filas": filas})
+    pv = a.preview("simbolo_columna_vs_blob", {})
+    assert pv["puede_aplicar"] and pv["donde"] == "mercado.curvas"
+    assert len(pv["pasos"]) == 2 and "AO29D" in pv["pasos"][0]["detalle"]
+    # El manual no se puede aplicar, y lo dice sin error.
+    pv2 = a.preview("emisor_curvas_vs_assets", {})
+    assert pv2["ok"] and not pv2["puede_aplicar"]
+
+    escritas, libro_lineas = [], []
+    monkeypatch.setattr(duplicados, "arbitrar",
+                        lambda i: (escritas.append(i) or {"ok": True, "filas": 2}))
+    from agente import libro as _libro
+    monkeypatch.setattr(_libro, "registrar", lambda **kw: libro_lineas.append(kw))
+    r = a.aplicar("simbolo_columna_vs_blob", {}, por="test")
+    assert r.ok and escritas == ["simbolo_columna_vs_blob"]
+    assert [x["objetivo"] for x in libro_lineas] == ["AO29", "CO32"]
+    assert libro_lineas[0]["antes"].endswith("AO29 - 24hs")
+    assert libro_lineas[0]["despues"].endswith("AO29D - 24hs")
+    # Sin filas no se ejecuta nada: ya coinciden.
+    monkeypatch.setattr(duplicados, "una", lambda i: {"ok": True, "id": i, "filas": []})
+    r = a.aplicar("simbolo_columna_vs_blob", {}, por="test")
+    assert r.ok and "coinciden" in r.detalle and escritas == ["simbolo_columna_vs_blob"]

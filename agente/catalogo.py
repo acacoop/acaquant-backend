@@ -201,7 +201,11 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="dato_partido", tipo="detector", dominio="DATOS",
         que_mira="dos copias del mismo dato que dejaron de decir lo mismo",
         cada_segundos=_H, ventana="siempre",
-        correr=datos.dato_partido),
+        correr=datos.dato_partido,
+        # Solo el duplicado que declara `arreglo_sql` tiene botón (§0.dc); el
+        # que declara `arreglo_manual` sale como `copias_a_mano`, un aviso con
+        # la instrucción, y `no_pude_chequear` es un aviso sobre el chequeo.
+        arreglos={"copias_que_no_coinciden": "arbitrar_copia"}),
 
     Habilidad(
         nombre="permiso_flojo", tipo="detector", dominio="SEGURIDAD",

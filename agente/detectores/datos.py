@@ -32,19 +32,33 @@ def dato_partido(u: dict) -> list[Hallazgo]:
         ej = d.get("ejemplos") or []
         muestra = "; ".join(f"{x['sujeto']}: «{x['valor_a']}» ≠ «{x['valor_b']}»"
                             for x in ej[:3])
+        # ⚠️ **DOS REGLAS, porque solo una tiene botón (§0.dc).** El duplicado
+        # que declara `arreglo_sql` se arbitra desde acá (`arbitrar_copia`);
+        # el que declara `arreglo_manual` es un AVISO con la instrucción — un
+        # botón que siempre contesta «esto se hace a mano» es un aviso con
+        # forma de trabajo.
+        con_sql = bool(d.get("tiene_sql"))
         out.append(Hallazgo(
             # `alta` sin dudar: acá no hay «es contexto». Si dos copias
             # difieren, ALGO está leyendo el valor incorrecto ahora mismo — lo
             # único que no sabemos es quién.
-            sujeto=str(d["id"]), regla="copias_que_no_coinciden", severidad="alta",
+            sujeto=str(d["id"]),
+            regla="copias_que_no_coinciden" if con_sql else "copias_a_mano",
+            severidad="alta",
             nombre=str(d.get("que") or d["id"]),
             problema=f"{d['n']} caso(s) donde {d['que']} dice cosas distintas "
                      f"según dónde se lea: {d['a']} vs {d['b']}."
                      + (f" Ejemplos — {muestra}." if muestra else ""),
             detalle=muestra,
-            que_hacer=f"Manda {d['arbitro']}. Qué se rompe si no: {d['rompe']}.",
+            que_hacer=(f"Manda {d['arbitro']}. Aplicar escribe la copia que pierde "
+                       f"con el valor de la que manda, fila por fila. Qué se rompe "
+                       f"si no: {d['rompe']}." if con_sql else
+                       f"Manda {d['arbitro']}. No se arregla con un UPDATE: "
+                       f"{d.get('arreglo_manual') or 'ver el árbitro'}. Qué se "
+                       f"rompe si no: {d['rompe']}."),
             evidencia={"n": d["n"], "a": d["a"], "b": d["b"],
-                       "arbitro": d["arbitro"], "ejemplos": ej}))
+                       "arbitro": d["arbitro"], "ejemplos": ej,
+                       "tiene_sql": con_sql}))
     # **Lo que no se pudo mirar se canta.** Un duplicado sin chequear se leería
     # igual que uno sano, que es la forma de mentir que este detector persigue.
     for x in res.get("sin_mirar") or []:

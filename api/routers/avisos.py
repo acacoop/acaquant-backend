@@ -18,9 +18,13 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from agente import mensajes
-from api.auth import get_user_email, is_guest_portal
+from api.auth import get_user_email, is_guest_portal, require_no_invitado
 
-router = APIRouter(prefix="/api/avisos", tags=["avisos"])
+# Sin módulo, pero NUNCA para el invitado (REGLA #8): la bandeja es negocio
+# de la mesa, y `test_rbac_superficie` exige que toda escritura sin módulo
+# lleve `require_no_invitado`.
+router = APIRouter(prefix="/api/avisos", tags=["avisos"],
+                   dependencies=[Depends(require_no_invitado)])
 
 
 @router.get("")

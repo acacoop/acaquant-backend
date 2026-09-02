@@ -64,6 +64,68 @@ de tocar la vista más usada de la app.
 | 20 | Perf con EMISOR=CORPORATIVO + filtro de TEA + **ficha del bono** (§20) | sí | ✅ **hecho** (2026-08-28) |
 | 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
 
+### Paso 23 (2026-09-02) — la TNA de TASA FIJA pasa a la convención de 1816
+
+**El veredicto de la auditoría, con los 11 bonos de la pill medidos en prod:**
+
+| Qué se comparó | Resultado |
+|---|---|
+| lo guardado vs. recalcular con la función del motor | **0 desfasados** de 11 |
+| precio nuestro vs. el de 1816 (`precioDirty`) | idéntico en **10 de 11** (el que no, 0,05%) |
+| **TEA** nuestra vs. la de 1816 | **≤0,02 pp** en los 11 |
+| duration nuestra vs. la de 1816 | **0** con diferencia >0,05 |
+| **TNA** nuestra vs. la de 1816 | **hasta 2,59 pp**, creciendo ordenado por plazo |
+
+O sea: **no había nada mal valuado**. El motor arranca del mismo precio y llega a
+la misma TEA y a la misma duration que el proveedor contra el que valida la mesa.
+Lo único que difería era la CONVENCIÓN de una columna — que es la clase de error
+que no falla: un número plausible, en el lugar correcto, calculado con otra
+fórmula que la del que lo lee.
+
+**Qué convención.** 1816 lo DECLARA: el campo `convencionTna` (estaba en el enum
+del spec y no se pedía) devuelve **`plazo-rem`** en 11 de 11. Y no hace falta
+creerle: reconstruida desde su propia `tea`, la lineal base 365 reproduce su
+`tna` con **error 0,00 pp** en los 11, mientras que TEM×12 no le pega a ninguno
+(hasta 2,59 pp) y la efectiva tampoco (hasta 2,86 pp).
+
+    TNA = ((1 + TEA)^(dias/365) − 1) × 365/dias      ← `quant.tasas.tna_plazo_remanente`
+
+donde `dias` va de la **liquidación** (T+1 hábil) al vencimiento.
+
+**La firma de que es convención y no bug**: la diferencia crece ORDENADA con el
+plazo — 0,14 pp a 12 días, 2,59 pp a 300. Un error de valuación daría
+diferencias desordenadas.
+
+**Alcance, y por qué es tan chico.**
+
+- **Solo la pill `tasa_fija`.** Las letras son BULLET: un pago al final, así que
+  «plazo remanente» ES el plazo de la plata. En un amortizante el vencimiento
+  final lo sobreestima y qué hace 1816 ahí **no está medido**. Para medirlo:
+  `python -m scripts.diag_tasa_fija --pill cer`.
+- **TAMAR y BADLAR no cambian NADA** (pedido explícito del user). TAMAR conserva
+  la TNA de 1816 donde la hay y la derivada donde no; BADLAR no llega a esta
+  tabla (`curvas_ejes` no le da pill). Congelado por
+  `test_TAMAR_sin_1816_NO_cambia_de_convencion`.
+- **Donde 1816 manda su propia TNA no se pisa**: ya viene en su convención.
+
+**Dos cosas de diseño que salieron de acá:**
+
+1. **La calcula el BACKEND.** El front la derivaba con `Math.pow` — ninguna
+   pantalla deriva números, o mañana hay dos TNAs para el mismo bono según quién
+   la calculó. `bonos-table.tsx` ya prefería `metrics.TNA` cuando venía, así que
+   **no hizo falta deploy simultáneo del front**: el día que llega el campo, la
+   columna cambia sola.
+2. **Cada fila dice en qué convención está** (`tna_convencion`: `plazo-rem` ·
+   `1816` · `mensual`). Mientras convivan dos convenciones en la misma pantalla,
+   esa es la única forma de que la diferencia no sea silenciosa — que es
+   exactamente cómo vivió meses.
+
+**Lo que NO se resolvió**: por qué la planilla de la mesa muestra bajo el rótulo
+TNA un número igual a la TIR (T30A7: 28,89% = su propia TIR, contra 27,64% de la
+lineal con los mismos 239 días y el mismo precio 133,25). Con la TNA en
+`plazo-rem` **los dos números quedan en la misma fila** — el de la planilla es la
+columna TEA de al lado — así que la pantalla ya no obliga a elegir.
+
 ### Paso 22 (2026-09-02) — auditoría de la TNA: qué se arregló y qué falta medir
 
 Disparador: *«veo bonos con una TNA que se rompió, y en RENTA FIJA la veo SIEMPRE

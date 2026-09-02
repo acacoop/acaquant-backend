@@ -152,6 +152,79 @@ def test_un_corporativo_sin_industria_llega_en_null_y_no_como_otros():
     assert out["bonos"][0]["industria"] is None
 
 
+# ── La TNA la calcula el BACKEND, en la convención de 1816 (2026-09-02) ──────
+
+def test_la_TNA_de_TASA_FIJA_sale_en_la_convencion_de_1816():
+    """Medido en prod el 2026-09-02: 1816 declara `convencionTna='plazo-rem'` en
+    11 de 11 bonos de la pill, y la lineal base 365 reproduce su `tna` con error
+    0,00 pp. La que derivaba el front (TEM×12) se apartaba hasta 2,59 pp.
+
+    Caso real: T30A7, TEA 28,92% a 239 días de la liquidación.
+      · 1816 publica          27,64%
+      · lineal 365 da         27,64%   ← la que tiene que salir
+      · TEM×12 daba           25,67%
+    """
+    from datetime import date
+    f = _fila("T30A7", "soberano", "ARS", "fija", tea=0.2892)
+    f["fecha_vencimiento"] = "2027-04-30"
+    b = _armar([f], fijados=set(), liquidacion=date(2026, 9, 3))["bonos"][0]
+    assert round(b["metrics"]["TNA"], 4) == 0.2764
+    assert b["tna_convencion"] == "plazo-rem"
+
+
+def test_sin_calendario_NO_se_inventa_una_TNA():
+    """Si no se pudo resolver el T+1 hábil, la TNA no viaja y el front deriva
+    como siempre. Calcularla contra `hoy` daría un número PARECIDO y mal — que es
+    peor que no darlo: nadie lo notaría."""
+    f = _fila("T30A7", "soberano", "ARS", "fija", tea=0.2892)
+    f["fecha_vencimiento"] = "2027-04-30"
+    b = _armar([f], fijados=set(), liquidacion=None)["bonos"][0]
+    assert "TNA" not in b["metrics"]
+    assert b["tna_convencion"] == "mensual"
+
+
+def test_una_pill_SIN_MEDIR_no_cambia_de_convencion_sola():
+    """Solo TASA FIJA, que es donde se midió. Un CER amortizante no tiene el
+    mismo «plazo remanente» (el vencimiento final sobreestima el plazo real de la
+    plata) y qué hace 1816 ahí NO está medido: se deja como estaba."""
+    from datetime import date
+    f = _fila("TX26", "soberano", "ARS", "cer", tea=0.055)
+    f["fecha_vencimiento"] = "2026-11-09"
+    b = _armar([f], fijados=set(), liquidacion=date(2026, 9, 3))["bonos"][0]
+    assert "TNA" not in b["metrics"]
+
+
+def test_TAMAR_sin_1816_NO_cambia_de_convencion(monkeypatch):
+    """Pedido explícito del user (2026-09-02): **TAMAR y BADLAR no cambian nada**.
+
+    El caso peligroso no es el TAMAR que tiene dato de 1816 (ese ya gana solo):
+    es el que NO lo tiene. Si la convención nueva se colara ahí, un TAMAR sin
+    cobertura cambiaría de número mientras el de al lado —con 1816— se queda
+    igual, y la pill mostraría dos cuentas distintas sin que nada lo diga.
+
+    BADLAR no necesita test propio: `core.curvas_ejes` no le da pill todavía, así
+    que no llega a esta tabla (sale en `sin_clasificar`)."""
+    from datetime import date
+    f = _fila("TMF27", "soberano", "ARS", "tamar", tea=0.31)
+    f["fecha_vencimiento"] = "2027-02-27"
+    b = _armar([f], fijados=set(), liquidacion=date(2026, 9, 3))["bonos"][0]
+    assert "TNA" not in b["metrics"]         # la deriva el front, como siempre
+    assert b["tna_convencion"] == "mensual"
+
+
+def test_la_TNA_que_manda_1816_NO_se_pisa():
+    """Donde el proveedor publica su propia TNA (patas TAMAR), esa gana: ya viene
+    en su convención y recalcularla sería inventar una discrepancia."""
+    from datetime import date
+    f = _fila("TTD26", "soberano", "ARS", "tamar", tea=-0.25)
+    f["fecha_vencimiento"] = "2026-12-15"
+    tamar = {("TTD26", "tamar"): _t1816(tea=0.3037, tna=0.2683)}
+    b = _armar([f], fijados=set(), tamar=tamar,
+               liquidacion=date(2026, 9, 3))["bonos"][0]
+    assert b["metrics"]["TNA"] == 0.2683
+    assert b["tna_convencion"] == "1816"
+
+
 # ── Tasa RUIDO por duration ~0 y TC breakeven (2026-08-16) ───────────────────
 
 def test_una_duration_casi_cero_marca_la_tasa_como_RUIDO():

@@ -50,6 +50,35 @@ def tna_desde_tea(tea: float | None) -> float | None:
     return None if tem is None else tem * 12
 
 
+def tna_plazo_remanente(tea: float | None, dias: int | None) -> float | None:
+    """TNA **lineal base 365 sobre el plazo remanente** — la convención de 1816.
+
+        r_plazo = (1 + TEA)^(dias/365) − 1        ← rendimiento hasta el vto
+        TNA     = r_plazo × 365/dias              ← anualizado SIN capitalizar
+
+    **Por qué existe y por qué es la buena para las letras.** Medido contra 1816
+    el 2026-09-02 sobre los 11 bonos de la pill TASA FIJA: la API declara
+    `convencionTna = 'plazo-rem'` en 11 de 11, y esta fórmula reproduce su `tna`
+    con **error 0,00 pp** en los 11. Las otras dos candidatas no le pegan a
+    ninguno: `tna_desde_tea` (TEM×12) se aparta hasta 2,59 pp y la efectiva
+    (TNA = TEA) hasta 2,86 pp.
+
+    **La diferencia crece con el plazo, y eso es la firma de la convención**: a
+    12 días son 0,14 pp y a 300 días son 2,59 pp. Un error de valuación daría
+    diferencias desordenadas; una escalera ordenada por plazo es otra fórmula.
+
+    ⚠️ `dias` es de la **liquidación** al vencimiento, no de hoy: es el plazo por
+    el que va la plata. Con `dias` desde hoy el número da parecido y mal, que es
+    la peor combinación.
+
+    ⚠️ **No reemplaza a `tna_desde_tea`.** Esa sigue siendo la convención de la
+    casa donde no se midió otra cosa (Agro, sintéticos). Las dos son legítimas;
+    lo que no es legítimo es que una pantalla muestre una y diga la otra.
+    """
+    r = rendimiento_al_plazo(tea, dias)
+    return None if r is None else r * DIAS_ANIO / dias
+
+
 def rendimiento_al_plazo(tea: float | None, dias: int | None) -> float | None:
     """Rendimiento EFECTIVO de colocarse `dias` a esa TEA — capitalizado.
 

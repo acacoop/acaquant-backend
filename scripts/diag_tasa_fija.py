@@ -97,8 +97,18 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 # EL UNIVERSO — lo que la pantalla muestra en TASA FIJA
 # ─────────────────────────────────────────────────────────────────────────────
-def universo() -> list[dict]:
-    """Los bonos de la pill `tasa_fija`, tal como los sirve la vista.
+def universo(pill: str = "tasa_fija") -> list[dict]:
+    """Los bonos de una pill, tal como los sirve la vista.
+
+    `--pill` existe para poder MEDIR antes de extender la convención a otra
+    familia. La TNA `plazo-rem` se aplicó solo a TASA FIJA porque las letras son
+    bullet y ahí «plazo remanente» es el plazo real de la plata; en un
+    amortizante el vencimiento final lo sobreestima y qué hace 1816 ahí no está
+    medido. Esta es la herramienta para medirlo — no se extiende nada sin correr
+    esto primero (REGLA #2).
+
+    ⚠️ TAMAR y BADLAR quedan FUERA por decisión del user (2026-09-02): ahí no
+    cambia nada. Se pueden mirar igual con `--pill tamar` (mirar no es tocar).
 
     Se le pregunta a `curvas_vista` y no se rearma la condición acá: si este
     script definiera "qué es tasa fija" por su cuenta, auditaría un universo que
@@ -106,7 +116,7 @@ def universo() -> list[dict]:
     """
     from api.services.curvas_vista import get_curvas_vista
     v = get_curvas_vista()
-    return [b for b in (v.get("bonos") or []) if b.get("pill") == "tasa_fija"]
+    return [b for b in (v.get("bonos") or []) if b.get("pill") == pill]
 
 
 def snapshot_de(simbolos: list[str]) -> dict[str, dict]:
@@ -548,13 +558,13 @@ def cruzar(filas: list[dict]) -> None:
             r if r.get("tea") is not None else None)
 
 
-def detalle(tk: str) -> int:
+def detalle(tk: str, pill: str = "tasa_fija") -> int:
     print("\n" + "=" * 92)
     print(f"DETALLE — {tk}")
     print("=" * 92)
-    bonos = [b for b in universo() if b["ticker_corto"].upper() == tk.upper()]
+    bonos = [b for b in universo(pill) if b["ticker_corto"].upper() == tk.upper()]
     if not bonos:
-        print(f"  {tk} no está en la pill TASA FIJA de la vista.")
+        print(f"  {tk} no está en la pill {pill.upper()} de la vista.")
         return 1
     b = bonos[0]
     ins = motor_insumos()
@@ -596,19 +606,25 @@ def main() -> int:
     ap.add_argument("--dry", action="store_true",
                     help="universo y costo en créditos, sin pegarle a 1816")
     ap.add_argument("--ticker", help="detalle de UN bono, paso por paso")
+    ap.add_argument("--pill", default="tasa_fija",
+                    help="qué pill auditar (tasa_fija · cer · hard_dolar · "
+                         "dolar_linked · tamar). Para MEDIR antes de extender.")
     ap.add_argument("--cruzado", action="store_true",
                     help="pide la tasa de 1816 sobre NUESTRO precio (elimina la "
                          "variable del precio). Cuesta campos POR TICKER.")
     args = ap.parse_args()
 
     if args.ticker:
-        return detalle(args.ticker)
+        return detalle(args.ticker, args.pill)
 
-    bonos = universo()
+    bonos = universo(args.pill)
     tickers = [b["ticker_corto"] for b in bonos]
+    if not bonos:
+        print(f"\n  La pill {args.pill!r} no tiene bonos en la vista.\n")
+        return 1
     if args.dry:
         g = grafias(tickers)
-        print(f"\n  bonos en TASA FIJA ....... {len(bonos)}")
+        print(f"\n  bonos en {args.pill.upper():<15} . {len(bonos)}")
         print(f"  grafías a pedirle a 1816 . {len(g)}")
         print(f"  campos ................... {len(CAMPOS_1816)} {CAMPOS_1816}")
         print(f"  costo estimado ........... {len(g) * len(CAMPOS_1816)} créditos\n")
@@ -616,7 +632,7 @@ def main() -> int:
             print(f"     {nuestro:<9} → {grafia}")
         return 0
 
-    print(f"\n  Universo: {len(bonos)} bonos en la pill TASA FIJA.")
+    print(f"\n  Universo: {len(bonos)} bonos en la pill {args.pill.upper()}.")
     print("  Cargando los insumos del motor (curvas, CER, días hábiles, MEP)…")
     ins = motor_insumos()
     snaps = snapshot_de([b.get("instrumento") for b in bonos if b.get("instrumento")])

@@ -22,10 +22,13 @@ de curvas refresca cada 5s.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from api.cache import cached
 from api.services._sql import _f, _q
 from api.services.renta_fija_sql import _METRIC_COLS, _tc_breakeven
 from core import curvas_ejes as ce
+from quant.tasas import tna_plazo_remanente
 
 # Duration mínima para publicar TEA/TNA. Debajo de esto la tasa es RUIDO, no un
 # rendimiento: anualizar 3 días amplifica una diferencia de centavos a tres
@@ -64,6 +67,58 @@ def es_tasa_ruido(metrics: dict, emisor_tipo: str | None) -> bool:
         return False
     dur = metrics.get("duration")
     return dur is not None and float(dur) < DUR_MIN_TASA
+
+# ── LA TNA, calculada ACÁ y no en el navegador (2026-09-02) ──────────────────
+#
+# **Qué se arregló.** `bonos-table.tsx` derivaba la TNA con `TEM×12`
+# (`quant.tasas.tna_desde_tea`) y eso NO es lo que mira la mesa. Medido contra
+# 1816 sobre los 11 bonos de la pill: su API declara `convencionTna='plazo-rem'`
+# en 11 de 11, y la lineal base 365 reproduce su `tna` con error **0,00 pp** en
+# los 11 — mientras que TEM×12 se aparta hasta **2,59 pp** en el tramo largo.
+#
+# Lo importante es qué NO estaba roto: mismo precio, misma TEA (≤0,02 pp) y misma
+# duration que 1816. El motor calcula bien. Lo que estaba mal era la CONVENCIÓN
+# de una columna, que es invisible: un número plausible, en el lugar correcto,
+# calculado con otra fórmula que la del que lo lee.
+#
+# **Por qué SOLO tasa fija.** Las letras son BULLET: un pago al final, así que
+# «plazo remanente» ES el plazo de la plata y la cuenta es exacta. En un bono que
+# amortiza en cuotas el vencimiento final sobreestima ese plazo, y qué hace 1816
+# ahí **no está medido** (`scripts/diag_tasa_fija.py --pill` lo mide cuando se
+# quiera extender). Se aplica donde hay medición y en ningún lado más.
+#
+# **Por qué la manda el backend.** Ninguna pantalla deriva números: si el front
+# sigue haciendo su propia cuenta, mañana hay dos TNAs para el mismo bono según
+# quién la calculó. `bonos-table.tsx` YA prefiere `metrics.TNA` cuando viene, así
+# que esto NO necesita un deploy simultáneo del front — el día que llegue el
+# campo, la columna cambia sola.
+def _tna_de(metrics: dict, vencimiento, pill: str,
+            liquidacion: date | None) -> float | None:
+    """La TNA de este bono en la convención de 1816, o `None` si no corresponde.
+
+    `None` es una respuesta: el front vuelve a derivar como siempre, así que una
+    pill sin medir —o un request sin calendario— no cambia de número por
+    accidente.
+
+    ⚠️ `liquidacion` ENTRA como parámetro, igual que `mep` y `tamar`: es el T+1
+    hábil y sale de la base. Resolverlo acá adentro pondría una query POR BONO en
+    el loop (222 × por request) y dejaría de ser una función pura — que es todo
+    el punto de `_armar`.
+    """
+    if pill != "tasa_fija" or metrics.get("TEA") is None or not vencimiento:
+        return None
+    if liquidacion is None:
+        return None
+    try:
+        vto = date.fromisoformat(str(vencimiento)[:10])
+    except (TypeError, ValueError):
+        return None
+    # De la LIQUIDACIÓN al vencimiento — el plazo por el que va la plata, el
+    # mismo T+1 hábil que usa el motor para la TEA. Contra `date.today()` el
+    # número da parecido y mal, que es la peor forma de estar mal.
+    dias = (vto - liquidacion).days
+    return tna_plazo_remanente(float(metrics["TEA"]), dias) if dias > 0 else None
+
 
 # El orden en que se muestran las pills dentro de cada lado.
 _ORDEN = {"tasa_fija": 1, "cer": 2, "tamar": 3, "duales": 4,
@@ -150,7 +205,8 @@ def _fijados_cortos() -> set[str]:
 
 def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
            tamar: dict[tuple[str, str], dict] | None = None,
-           tasas_agente: dict[str, dict] | None = None) -> dict:
+           tasas_agente: dict[str, dict] | None = None,
+           liquidacion: date | None = None) -> dict:
     """Puro: filas crudas → payload de la vista. Testeable sin base.
 
     `mep` y `tamar` entran COMO PARÁMETROS y no se leen acá adentro a propósito:
@@ -298,6 +354,14 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
             if t1816 and t1816.get("spread") is not None:
                 margen = float(t1816["spread"])
 
+            # Donde 1816 manda su propia TNA (patas TAMAR) NO se pisa: ese
+            # número es del proveedor y ya viene en su convención.
+            if m_pill.get("TNA") is None:
+                tna = _tna_de(m_pill, r.get("fecha_vencimiento"), pill,
+                              liquidacion)
+                if tna is not None:
+                    m_pill["TNA"] = round(tna, 6)
+
             bonos.append({
                 "ticker_corto": tc, "instrumento": r.get("ticker"),
                 "pill": pill, "lado": ce.lado_de(pill),
@@ -327,6 +391,14 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
                 # el TAMAR use la otra fuente: una tasa sin procedencia obliga a
                 # adivinar de dónde vino, y ese es el bug que no se ve.
                 "pata": pata,
+                # En QUÉ convención está la TNA de esta fila. `plazo-rem` es la
+                # de 1816 (lineal 365 sobre el plazo remanente) y `mensual` la
+                # que deriva el front (TEM×12). Viaja SIEMPRE: mientras convivan
+                # dos convenciones en la misma tabla, la única forma de que no
+                # sea silencioso es que cada fila lo diga.
+                "tna_convencion": ("plazo-rem" if m_pill.get("TNA") is not None
+                                   and fuente != "1816" else
+                                   "1816" if fuente == "1816" else "mensual"),
                 "tea_fuente": fuente,
                 "tea_fecha": fecha_1816,
                 "margen": margen,
@@ -373,5 +445,11 @@ def get_curvas_vista() -> dict:
     doc = get_ultimo_mep()
     raw = doc.get("mep") if doc else None
     mep = float(raw) if raw and raw > 0 else None
+    # El T+1 hábil se resuelve UNA vez por request (una query, no 222).
+    from core.calendario import proximo_habil
+    try:
+        liq = proximo_habil(date.today())
+    except Exception:                       # sin calendario, el front deriva
+        liq = None
     return _armar(_bonos_crudos(), _fijados_cortos(), mep, _tamar_1816(),
-                  _tasas_agente())
+                  _tasas_agente(), liq)

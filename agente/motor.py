@@ -102,6 +102,7 @@ def correr_una(nombre: str) -> dict:
         return {"ok": False, "error": f"«{nombre}» no está en el catálogo"}
 
     t0 = time.monotonic()
+    traceback_txt = ""
     try:
         hallazgos = list(h.correr(catalogo.umbrales_de(nombre)) or [])
         resultado, error = tipos.OK, ""
@@ -110,13 +111,17 @@ def correr_una(nombre: str) -> dict:
         hallazgos, resultado, error = [], tipos.SIN_DATOS, str(e)[:400]
         logger.info("agente/%s: sin datos — %s", nombre, error)
     except Exception as e:
+        import traceback as _tb
         hallazgos, resultado, error = [], tipos.ERROR, f"{type(e).__name__}: {e}"[:400]
+        # El traceback entero queda en la fila (§0.dh): «KeyError: 'x'» a
+        # secas no dice dónde, y «explicámelo» necesita el dónde.
+        traceback_txt = "\n".join(_tb.format_exc().splitlines()[-40:])
         logger.exception("agente/%s: reventó", nombre)
 
     ms = int((time.monotonic() - t0) * 1000)
     try:
         r = registro.guardar(nombre, hallazgos, resultado=resultado,
-                             error=error, duracion_ms=ms)
+                             error=error, duracion_ms=ms, traceback=traceback_txt)
     except Exception as e:
         logger.exception("agente/%s: no pude escribir lo que encontré", nombre)
         return {"ok": False, "habilidad": nombre, "error": str(e)[:300]}

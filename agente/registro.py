@@ -30,25 +30,26 @@ logger = logging.getLogger(__name__)
 
 
 def sellar_corrida(habilidad: str, *, resultado: str, error: str = "",
-                   duracion_ms: int = 0) -> None:
+                   duracion_ms: int = 0, traceback: str = "") -> None:
     """La fila del catálogo. **Va SIEMPRE**, y es lo que separa «corrí y no
     encontré nada» de «no corrí» — que en el agente viejo se veían iguales."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE agente.habilidades SET "
             "  ultima_corrida_at = now(), ultimo_resultado = %s, "
-            "  ultimo_error = %s, ultima_duracion_ms = %s, "
+            "  ultimo_error = %s, ultimo_traceback = %s, ultima_duracion_ms = %s, "
             # El contador se resetea solo cuando cambia el día: sin la fecha al
             # lado, un contador miente en el primer cambio de día. Sin cron.
             "  corridas_hoy = CASE WHEN corridas_dia = current_date "
             "                      THEN corridas_hoy + 1 ELSE 1 END, "
             "  corridas_dia = current_date "
             "WHERE nombre = %s",
-            (resultado, (error or "")[:500], int(duracion_ms), habilidad))
+            (resultado, (error or "")[:500], (traceback or "")[:6000],
+             int(duracion_ms), habilidad))
 
 
 def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
-            error: str = "", duracion_ms: int = 0) -> dict:
+            error: str = "", duracion_ms: int = 0, traceback: str = "") -> dict:
     """Escribe lo que una corrida vio. **La única puerta.**
 
     ⚠️ **`resultado` es la guarda más importante del subsistema.** Solo una
@@ -59,7 +60,7 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
     el día que está más ciega.
     """
     sellar_corrida(habilidad, resultado=resultado, error=error,
-                   duracion_ms=duracion_ms)
+                   duracion_ms=duracion_ms, traceback=traceback)
     if resultado != tipos.OK:
         return {"ok": False, "resultado": resultado, "abiertos": 0,
                 "nuevos": 0, "cerrados": 0, "reincidencias": 0,

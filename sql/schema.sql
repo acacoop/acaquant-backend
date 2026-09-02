@@ -4985,6 +4985,22 @@ ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS donde text NOT NULL
 ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS por text NOT NULL DEFAULT '';
 ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS interrumpe boolean NOT NULL DEFAULT false;
 
+-- §0.dh: el traceback ENTERO de la última corrida que reventó (el error de
+-- una línea no dice dónde), y lo que la IA explicó de cada error, cacheado
+-- por hash: el mismo error no se paga dos veces y la explicación queda con
+-- quién la pidió y cuándo.
+ALTER TABLE agente.habilidades ADD COLUMN IF NOT EXISTS ultimo_traceback text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS agente.explicaciones (
+    hash        text PRIMARY KEY,
+    habilidad   text NOT NULL,
+    error       text NOT NULL,
+    respuesta   jsonb NOT NULL,
+    fuentes     jsonb NOT NULL DEFAULT '[]'::jsonb,
+    modelo      text NOT NULL DEFAULT '',
+    por         text NOT NULL DEFAULT '',
+    at          timestamptz NOT NULL DEFAULT now()
+);
+
 -- ── LAS VISTAS. Las pantallas LEEN, no derivan. ────────────────────────────
 --
 -- ⚠️ **DROP antes de CREATE, siempre.** `CREATE OR REPLACE VIEW` sólo sabe
@@ -5034,6 +5050,7 @@ CREATE OR REPLACE VIEW agente.v_habilidades AS
 SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
        h.ventana, h.activa, h.umbrales,
        h.ultima_corrida_at, h.ultimo_resultado, h.ultimo_error,
+       (h.ultimo_traceback <> '') AS tiene_traceback,
        h.ultima_duracion_ms,
        CASE WHEN h.corridas_dia = current_date THEN h.corridas_hoy ELSE 0 END
            AS corridas_hoy,

@@ -2511,3 +2511,66 @@ def test_la_api_late_y_el_pulso_tiene_puerta():
     assert "require_no_invitado" in inspect.getsource(pulso)
     from jobs import cleanup_retencion
     assert any(r.tabla == "agente.pulso_cliente" for r in cleanup_retencion.TABLAS)
+
+
+# ── EXPLICÁMELO (§0.dh) ────────────────────────────────────────────────────
+
+def test_explicar_manda_el_repo_y_no_solo_el_error(monkeypatch):
+    """La IA sabe porque se le da el código, las fuentes que lee, el diario que
+    ese código cita y el traceback entero — y cada respuesta viaja con esa
+    lista. Sin contexto, «KeyError: 'x'» se explica adivinando."""
+    from agente import explicar
+    from core import ai, llm
+    ctx = {"habilidad": "soberanos_faltantes", "que_mira": "…", "dominio": "MERCADO",
+           "resultado": "error", "corrida_at": None,
+           "error": "KeyError: 'fechaVencimiento'",
+           "traceback": "Traceback…\n  File agente/detectores/mercado.py, line 90",
+           "fuentes_que_lee": ["universo_1816", "master"], "codigo": "def soberanos…",
+           "diario": "### 0.cy …", "corrida_job": None,
+           "_fuentes": ["código: mercado.py::soberanos_faltantes", "diario: §0.cy"]}
+    monkeypatch.setattr(explicar, "contexto", lambda n: ctx)
+    monkeypatch.setattr(explicar, "_cache", lambda h: None)
+    guardadas = []
+    monkeypatch.setattr(explicar, "_guardar", lambda *a: guardadas.append(a))
+    monkeypatch.setattr(llm, "configurado", lambda p=None: True)
+    monkeypatch.setattr(llm, "modelo", lambda tier, nombre=None: "flash-x")
+    pedidos = []
+    def _completar(tarea, *, system, user, usuario=None, detalle=None):
+        pedidos.append((tarea, user))
+        return ('```json\n{"de_quien": "dato", "explicacion": "1816 mandó un instrumento '
+                'sin vencimiento.", "afecta": "solo esa habilidad", "que_hacer": "saltearlo", '
+                '"test": "", "tarea": {"titulo": "Tolerar instrumento sin vencimiento", '
+                '"prompt": "en agente/detectores/mercado.py …"}}\n```')
+    monkeypatch.setattr(ai, "completar", _completar)
+    r = explicar.explicar("soberanos_faltantes", por="nico@x")
+    assert r["ok"] and r["respuesta"]["de_quien"] == "dato"
+    assert r["fuentes"] == ctx["_fuentes"]
+    tarea, user = pedidos[0]
+    assert tarea == "explicar_error"
+    assert "fechaVencimiento" in user and "### 0.cy" in user and "_fuentes" not in user
+    assert guardadas and guardadas[0][0] == explicar._hash(
+        "soberanos_faltantes", ctx["error"], ctx["traceback"])
+    # Cacheada: el mismo error no se paga dos veces.
+    monkeypatch.setattr(explicar, "_cache", lambda h: {"respuesta": {"explicacion": "ya"},
+                                                        "fuentes": [], "modelo": "m",
+                                                        "por": "a", "at": "t"})
+    pedidos.clear()
+    r = explicar.explicar("soberanos_faltantes", por="otro")
+    assert r["ok"] and r["cacheada"] and not pedidos
+    # Sin IA configurada, se dice; sin error que explicar, también.
+    monkeypatch.setattr(explicar, "_cache", lambda h: None)
+    monkeypatch.setattr(llm, "configurado", lambda p=None: False)
+    assert not explicar.explicar("soberanos_faltantes")["ok"]
+    monkeypatch.setattr(explicar, "contexto", lambda n: {**ctx, "error": "", "traceback": ""})
+    assert "ningún error" in explicar.explicar("soberanos_faltantes")["error"]
+    # La tarea está registrada en el gateway y el motor guarda el traceback.
+    assert "explicar_error" in ai._TAREAS
+    assert "traceback=" in inspect.getsource(registro.guardar)
+    assert "ultimo_traceback" in inspect.getsource(registro.sellar_corrida)
+
+
+def test_parsear_tolera_el_cerco_y_rechaza_lo_que_no_es_la_forma():
+    from agente import explicar
+    assert explicar._parsear('```json\n{"explicacion": "x", "de_quien": "raro"}\n```')["de_quien"] == "no_se"
+    assert explicar._parsear("hola") is None
+    assert explicar._parsear('{"otra": 1}') is None

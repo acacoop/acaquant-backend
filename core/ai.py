@@ -86,6 +86,11 @@ _TAREAS: dict[str, dict] = {
     # tareas que nadie podía llamar, que es la peor clase de código muerto: hace
     # creer que el agente usa IA cuando no la usa.
     "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
+    # Quién la mira: el botón «explicámelo» del panel de HABILIDADES del AV
+    # AGENT (`agente/explicar.py`, §0.dh). Solo a pedido, nunca en una pasada,
+    # y cacheada por hash del error: el mismo error no se paga dos veces.
+    "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
+                       "thinking": "disabled"},
     # ⚠️ `research_destilar` se fue el 2026-08-28 con su job: era la ÚLTIMA tarea
     # productiva del sistema. Se probó cuatro días (14-17/07), se apagó el 17/07
     # y ninguna pantalla llegó a dibujar su salida. Con ella, `smoke` quedó como

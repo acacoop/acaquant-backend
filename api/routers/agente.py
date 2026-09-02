@@ -162,3 +162,17 @@ def correr(body: Correr):
     r = motor.tick()
     motor.latir(r)
     return r
+
+
+class Explicar(BaseModel):
+    habilidad: str = Field(..., min_length=1, max_length=64)
+
+
+@router.post("/explicar")
+def explicar(body: Explicar, email: str = Depends(get_user_email)):
+    """«Explicámelo»: el último error de esa habilidad, contado por la IA con el
+    código, las fuentes y el diario en la mano (`agente/explicar.py`, §0.dh).
+    Solo a pedido, cacheado por error, con la firma de quién lo pidió.
+    """
+    from agente import explicar as ex
+    return ex.explicar(body.habilidad, por=email)

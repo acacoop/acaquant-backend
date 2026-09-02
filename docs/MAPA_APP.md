@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 11 | 5 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 12 | 5 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/back-office` | 64 | 37 | `back-office` · 32 rutas con gate extra | `back-office` |  |

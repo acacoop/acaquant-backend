@@ -3990,3 +3990,33 @@ semana exactamente así.
 Lo que NO cubre todavía: el fallback vacío del SSR (`safeFetch` en cinco
 páginas). Ahí el navegador nunca pidió nada, así que no hay poll que falle:
 es el siguiente paso de esta misma pieza.
+
+---
+
+### 0.dh «EXPLICÁMELO» — el error crudo, contado con el repo en la mano (2026-09-02)
+
+> *«¿Y cómo sabe la IA cómo explicar esto? ¿Y qué haría para no solo
+> explicarlo sino algo más?»*
+
+**Cómo sabe.** El botón del panel de HABILIDADES (`POST /api/agente/explicar`)
+no le manda a la IA el error solo. `agente/explicar.contexto()` arma el
+paquete con lo que ya está en el repo: el traceback entero —que ahora se
+guarda en `habilidades.ultimo_traceback`, porque «KeyError: 'x'» a secas no
+dice dónde—, el código del detector, qué fuentes lee, las entradas del diario
+que ese código cita (cada `§0.x` cuenta por qué las cosas quedaron así) y la
+última corrida del job que aparezca en el error. Con eso el modelo lee, no
+adivina, y **cada respuesta viaja con la lista de lo que se le dio**
+(`fuentes`), igual que la evidencia de un hallazgo.
+
+**Qué hace además de explicar**, en el mismo JSON: `de_quien` (nuestro código,
+un dato roto en origen, el proveedor, o no sé), `afecta` (qué deja de andar y
+qué sigue), `que_hacer` (concreto: un comando, un campo, un job), `test` (el
+pytest que congelaría el caso, para revisar y sumar) y `tarea` (título y
+prompt listos para una sesión de Claude Code). **Lo que no hace**: tocar
+código ni decidir nada. El invariante #12 sigue: es una lectura a pedido de
+una persona, con su firma.
+
+**Mecánica.** Tarea `explicar_error` en `core/ai.py` (flash, a pedido, nunca
+en una pasada). Cacheada por hash del error en `agente.explicaciones`: el
+mismo error no se paga dos veces, y queda con fecha y quién. Si la IA no está
+configurada o el presupuesto se agotó, el botón lo dice con esas palabras.

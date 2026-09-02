@@ -521,6 +521,9 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
         "dias_saldo": 0, "cuentas_sin_saldo": 0,
         # Las listas al lado del número, para el agente (AGENT.md §0.di).
         "dias_incoherentes_lista": [], "cuentas_error_lista": [],
+        # Qué corrida es: una en seco o solo el maestro no mide cuánto trajo el
+        # banco, y `trajo_poco` (§0.dk) la saltea por este campo.
+        "modo": "dry" if dry else ("solo_cuentas" if solo_cuentas else ""),
     }
 
     cuentas = sincronizar_cuentas(dry=dry)

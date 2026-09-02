@@ -256,3 +256,18 @@ def universo_1816() -> dict | None:
             inst[tk] = d
         return {"instrumentos": inst, "fuente": "catalogo_local"}
     return _una_vez("univ1816", _leer)
+
+
+# ── LAS CORRIDAS DE UN JOB (§0.dk) ─────────────────────────────────────────
+def corridas(job: str, n: int = 15) -> list[dict] | None:
+    """Las últimas N corridas de ese job, la más nueva primero:
+    `[{finished_at, status, stats}, …]`. Va por el índice `(tipo, started_at)`."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT finished_at, status, data->'stats' FROM manager.job_runs "
+                        " WHERE tipo = %s AND finished_at IS NOT NULL "
+                        " ORDER BY finished_at DESC LIMIT %s", (job, int(n)))
+            return [{"finished_at": r[0], "status": r[1], "stats": dict(r[2] or {})}
+                    for r in cur.fetchall()]
+    return _una_vez(f"corridas:{job}:{n}", _leer)
+

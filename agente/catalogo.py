@@ -218,6 +218,17 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=1 * _H, ventana="siempre",
         correr=datos.job_reporto),
 
+    # Lo que cada job trae de afuera contra lo que venía trayendo (§0.dk). Un
+    # job que trae la mitad sale en verde: corrió, escribió algo. Cada job
+    # declara su contador y su forma de crecer en `reportes.VOLUMENES`. Sin
+    # arreglo: volver a correr, o mirar al proveedor, lo decide una persona.
+    Habilidad(
+        nombre="trajo_poco", tipo="detector", dominio="DATOS",
+        que_mira="lo que cada job trae de afuera, contra lo que venía trayendo",
+        cada_segundos=1 * _H, ventana="habil",
+        correr=datos.trajo_poco,
+        umbrales={"corte": 0.5, "min_corridas": 5, "minimo_referencia": 20, "ventana": 10}),
+
     Habilidad(
         nombre="dato_partido", tipo="detector", dominio="DATOS",
         que_mira="dos copias del mismo dato que dejaron de decir lo mismo",

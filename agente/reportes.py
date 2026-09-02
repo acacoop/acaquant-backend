@@ -164,6 +164,16 @@ REPORTES: tuple[Reporte, ...] = (
             "Falta el dato en origen: cargar la tasa a mano en Manager → OPERACIONES "
             "o reclamar a Aunesa el campo.",
             severidad="baja", con_lista=False),
+    # El amarillo permanente de precios_acciones_daily (§0.dk): `partial` todos
+    # los días desde el 17/08 por UN ticker que falla siempre. Con la lista, el
+    # color se vuelve un aviso concreto.
+    Reporte("precios_acciones_daily", "errores",
+            "ticker(s) cuyas velas Yahoo no devolvió: el scanner los muestra con el "
+            "precio de ayer",
+            "Si es siempre el mismo ticker, Yahoo cambió su símbolo o lo deslistó: "
+            "corregir el RIC/ticker en Manager → RENTA VARIABLE o sacarlo del universo. "
+            "Mientras tanto el job queda `partial` todos los días.",
+            severidad="baja"),
     Reporte("ops_tasa_mav", "ambiguos",
             "boleto(s) MAV con VARIAS tasas distintas en su información: se dejan sin "
             "tasa a propósito",
@@ -171,3 +181,39 @@ REPORTES: tuple[Reporte, ...] = (
             "adivina entre dos.",
             con_lista=False),
 )
+
+
+# ── LO QUE CADA JOB DE INGESTA TRAE, y de qué forma (§0.dk) ────────────────
+#
+# `trajo_poco` compara el contador de la última corrida contra lo que el job
+# venía trayendo. Hay dos formas de traer, y no se miden igual — salió de
+# medir 12 corridas de cada uno (scripts/diag_ingesta, 2026-09-02):
+#
+#   diario     una corrida por día (o pocas) y el número es estable: se
+#              compara contra la MEDIANA de sus últimas corridas ok.
+#   acumulado  corre varias veces por día y el número CRECE durante el día
+#              (ventana de dos días, Contabilidad cargando, boletos entrando):
+#              se compara contra la corrida ANTERIOR del mismo día. La primera
+#              del día no opina: un lunes trae menos que un viernes a la tarde
+#              y eso es legítimo.
+@dataclass(frozen=True)
+class Volumen:
+    job: str
+    stat: str
+    modo: str           # diario | acumulado
+    que: str            # qué es ese número, en criollo
+
+
+VOLUMENES: tuple[Volumen, ...] = (
+    Volumen("aum", "cuentas_ok", "diario", "cuentas con tenencia que Aunesa contestó"),
+    Volumen("sync_comitentes", "recibidas", "diario", "comitentes que Aunesa devolvió"),
+    Volumen("ap5_portfolio", "filas_crudas", "diario", "posiciones de futuros de la cámara"),
+    Volumen("snapshot_cierre", "docs", "diario", "bonos con cierre"),
+    Volumen("mercado_1816_discovery", "catalogo", "diario", "instrumentos del catálogo de 1816"),
+    Volumen("operaciones_informes", "filas", "acumulado", "boletos de los informes de Aunesa"),
+    Volumen("negocio_movimientos", "boletos", "acumulado", "boletos del consolidado de Aunesa"),
+    Volumen("interbanking_sync", "movimientos", "acumulado", "movimientos de los extractos"),
+    Volumen("mayor_sync", "movimientos_banco", "acumulado", "movimientos del mayor contable"),
+    Volumen("aranceles", "informes_obtenidos", "acumulado", "informes de aranceles de Aunesa"),
+)
+

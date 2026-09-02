@@ -154,11 +154,13 @@ def run(filter_ticker: str | None = None, jr=None) -> None:
 
     total = 0
     errors = 0
+    fallidos: list[str] = []
     for t in tickers:
         n, err = upsert_ticker(t)
         if err:
             logger.warning("%-6s FAIL: %s", t, err)
             errors += 1
+            fallidos.append(t)
             if jr:
                 jr.error(f"{t}: {err}")
         else:
@@ -171,6 +173,9 @@ def run(filter_ticker: str | None = None, jr=None) -> None:
         jr.set_stat("tickers", len(tickers))
         jr.set_stat("velas", total)
         jr.set_stat("errores", errors)
+        # La lista, para el agente (§0.dk): `partial` todos los días por el
+        # mismo ticker era un color, no un dato.
+        jr.set_stat("errores_lista", fallidos)
 
 
 def run_backfill(filter_ticker: str | None = None) -> None:

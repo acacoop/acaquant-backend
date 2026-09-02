@@ -52,7 +52,11 @@ def _num(v):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=12)
+    ap.add_argument("--simular", action="store_true",
+                    help="qué habría dicho `trajo_poco` sobre cada corrida de la ventana")
     args = ap.parse_args()
+    if args.simular:
+        return simular(args.n)
 
     for job, cands in CANDIDATOS.items():
         filas = _corridas(job, args.n)
@@ -83,6 +87,64 @@ def main() -> int:
                 print(f"  {c:<22} última {hoy!s:>8} · mediana({len(hist)} ok) {med:>10.1f}"
                       f" · ratio {ratio if ratio is None else round(ratio, 2)!s:>6}{marca}")
     return 0
+
+
+def simular(n: int) -> int:
+    """Corre las MISMAS reglas de `trajo_poco` sobre cada corrida de la ventana,
+    como si esa corrida hubiera sido la última. Es la prueba del corte con
+    datos reales antes de confiar en el aviso."""
+    from agente.detectores.datos import (
+        _encogido_acumulado,
+        _encogido_diario,
+        _saltear,
+        _valor,
+    )
+    from agente.reportes import VOLUMENES
+    from core.tz import AR_TZ
+
+    corte, min_c, min_ref, ventana = 0.5, 5, 20.0, 10
+    avisos = 0
+    for v in VOLUMENES:
+        filas = _corridas_crudas(v.job, n + ventana)
+        validas = [c for c in filas if c["status"] in ("ok", "partial") and not _saltear(c)]
+        print(f"\n══ {v.job} · {v.stat} · {v.modo} ══")
+        for i, c in enumerate(validas[:n]):
+            hoy = _valor(c, v.stat)
+            if hoy is None:
+                print(f"  {c['cuando']}  sin el stat")
+                continue
+            if v.modo == "diario":
+                hist = [x for x in (_valor(h, v.stat) for h in validas[i + 1:i + 1 + ventana]
+                                    if h["status"] == "ok") if x is not None]
+                r = _encogido_diario(hoy, hist, corte=corte, min_corridas=min_c,
+                                     minimo_referencia=min_ref)
+            else:
+                dia = c["finished_at"].astimezone(AR_TZ).date()
+                ant = next((h for h in validas[i + 1:]
+                            if h["finished_at"].astimezone(AR_TZ).date() == dia), None)
+                r = _encogido_acumulado(hoy, _valor(ant, v.stat) if ant else None,
+                                        corte=corte, minimo_referencia=min_ref)
+            if r is None:
+                print(f"  {c['cuando']}  {hoy!s:>7}  no opina")
+                continue
+            marca = "  ← AVISARÍA" if r["encogido"] else ""
+            avisos += bool(r["encogido"])
+            print(f"  {c['cuando']}  {hoy!s:>7}  ref {r['referencia']:>9.1f}  "
+                  f"ratio {r['ratio']:>5.2f}{marca}")
+    print(f"\n→ {avisos} aviso(s) sobre toda la ventana")
+    return 0
+
+
+def _corridas_crudas(job: str, n: int) -> list[dict]:
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT finished_at, to_char(finished_at AT TIME ZONE "
+            "'America/Argentina/Buenos_Aires', 'DD/MM HH24:MI'), status, data->'stats' "
+            "  FROM manager.job_runs WHERE tipo = %s AND finished_at IS NOT NULL "
+            " ORDER BY finished_at DESC LIMIT %s", (job, n))
+        return [{"finished_at": r[0], "cuando": r[1], "status": r[2], "stats": dict(r[3] or {})}
+                for r in cur.fetchall()]
 
 
 if __name__ == "__main__":

@@ -281,6 +281,8 @@ def main() -> int:
         for k, v in agg.items():
             jr.set_stat(k, v)
         jr.set_stat("anulacion_abortada_lista", abortadas)
+        # Una corrida en seco no mide cuánto trajo Aunesa: `trajo_poco` la saltea.
+        jr.set_stat("modo", "dry" if args.dry else "")
     print(f"\n→ {agg}")
     return 0
 

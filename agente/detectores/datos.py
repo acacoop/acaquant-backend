@@ -243,3 +243,129 @@ def job_reporto(u: dict) -> list[Hallazgo]:
     if fallas and fallas == len({r.job for r in REPORTES}):
         raise SinDatos("no pude leer manager.job_runs: no sé qué reportaron los jobs")
     return out
+
+
+# ═══ trajo_poco ════════════════════════════════════════════════════════════
+def _valor(corrida: dict, stat: str):
+    v = (corrida.get("stats") or {}).get(stat)
+    return v if isinstance(v, int | float) and not isinstance(v, bool) else None
+
+
+def _saltear(corrida: dict) -> bool:
+    """Una corrida en seco o parcial a mano (`modo`/`dry` en sus stats) no es
+    una medida de cuánto trajo el proveedor."""
+    st = corrida.get("stats") or {}
+    return bool(st.get("modo")) or bool(st.get("dry"))
+
+
+def _encogido_diario(hoy: float, historia: list[float], *, corte: float,
+                     min_corridas: int, minimo_referencia: float) -> dict | None:
+    """PURO. `None` = no opina (poca historia o referencia chica); si no, el
+    veredicto con la referencia y el ratio."""
+    import statistics
+    if len(historia) < min_corridas:
+        return None
+    ref = float(statistics.median(historia))
+    if ref < minimo_referencia:
+        return None
+    ratio = hoy / ref if ref else 0.0
+    return {"referencia": ref, "ratio": round(ratio, 3), "encogido": ratio < corte,
+            "corridas": len(historia)}
+
+
+def _encogido_acumulado(hoy: float, anterior: float | None, *, corte: float,
+                        minimo_referencia: float) -> dict | None:
+    """PURO. Sin corrida anterior del mismo día → no opina."""
+    if anterior is None or anterior < minimo_referencia:
+        return None
+    ratio = hoy / anterior if anterior else 0.0
+    return {"referencia": float(anterior), "ratio": round(ratio, 3),
+            "encogido": ratio < corte, "corridas": 1}
+
+
+def trajo_poco(u: dict) -> list[Hallazgo]:
+    """Lo que cada job trae de afuera, contra lo que venía trayendo (§0.dk).
+
+    Un job que trae la mitad de las cuentas sale en verde: corrió, escribió
+    algo, `salud` lo ve ok. Medido el 2026-09-02: `interbanking_sync` trajo 0
+    movimientos a las 17:00 después de 382 a las 15:01, con estado `ok`. Acá
+    cada job declara en `reportes.VOLUMENES` cuál es su número y de qué forma
+    crece, y esto lo compara. Dos reglas:
+
+      · `volumen_encogido` (alta): trajo menos que `corte` × su referencia.
+      · `volumen_sin_dato` (baja): la última corrida no tiene el contador
+        declarado — el job cambió y la declaración quedó vieja.
+
+    Sin arreglo: volver a correr el job, o mirar si el proveedor devuelve
+    parcial, lo decide una persona.
+    """
+    from agente import fuentes
+    from agente.reportes import VOLUMENES
+
+    corte = float(u.get("corte", 0.5))
+    min_corridas = int(u.get("min_corridas", 5))
+    minimo_ref = float(u.get("minimo_referencia", 20))
+    ventana = int(u.get("ventana", 10))
+    out: list[Hallazgo] = []
+    ciegos = 0
+    for v in VOLUMENES:
+        filas = fuentes.corridas(v.job, ventana + 6)
+        if filas is None:
+            ciegos += 1
+            continue
+        validas = [c for c in filas if c.get("status") in ("ok", "partial") and not _saltear(c)]
+        if not validas:
+            continue
+        hoy_c = validas[0]
+        hoy = _valor(hoy_c, v.stat)
+        cuando = hoy_c["finished_at"]
+        cuando_txt = cuando.astimezone(reloj.AR_TZ).strftime("%d/%m %H:%M") if cuando else "?"
+        if hoy is None:
+            out.append(Hallazgo(
+                sujeto=v.job, regla="volumen_sin_dato", severidad="baja",
+                problema=(f"la última corrida de «{v.job}» ({cuando_txt}) no guarda el "
+                          f"contador «{v.stat}» que declara `reportes.VOLUMENES` · "
+                          f"{reloj.hhmm()}"),
+                detalle="stats presentes: " + ", ".join(sorted(hoy_c.get("stats") or {})),
+                que_hacer=(f"El job cambió o la declaración quedó vieja: corregir el stat en "
+                           f"`agente/reportes.py` o volver a guardarlo en `jobs/{v.job}.py`. "
+                           f"Hasta entonces «{v.job}» no se vigila por volumen."),
+                evidencia={"stat": v.stat, "corrida_at": cuando.isoformat() if cuando else None}))
+            continue
+
+        if v.modo == "diario":
+            historia = [x for x in (_valor(c, v.stat) for c in validas[1:ventana + 1]
+                                    if c.get("status") == "ok") if x is not None]
+            r = _encogido_diario(hoy, historia, corte=corte, min_corridas=min_corridas,
+                                 minimo_referencia=minimo_ref)
+            contra = "la mediana de sus últimas corridas"
+        else:
+            dia = cuando.astimezone(reloj.AR_TZ).date() if cuando else None
+            ant = next((c for c in validas[1:]
+                        if c.get("finished_at")
+                        and c["finished_at"].astimezone(reloj.AR_TZ).date() == dia), None)
+            r = _encogido_acumulado(hoy, _valor(ant, v.stat) if ant else None,
+                                    corte=corte, minimo_referencia=minimo_ref)
+            contra = "la corrida anterior del mismo día"
+        if not r or not r["encogido"]:
+            continue
+        out.append(Hallazgo(
+            sujeto=v.job, regla="volumen_encogido", severidad="alta",
+            problema=(f"«{v.job}» trajo {int(hoy)} {v.que} a las {cuando_txt}: "
+                      f"{int(r['ratio'] * 100)}% de {contra} ({int(r['referencia'])}) "
+                      f"· {reloj.hhmm()}"),
+            detalle=f"stat `{v.stat}` · modo {v.modo} · corte {int(corte * 100)}%",
+            que_hacer=(f"Mirar el log de esa corrida (`manager.job_runs`): si el proveedor "
+                       f"contestó parcial o hubo timeouts, volver a correr `jobs.{v.job}` "
+                       f"y confirmar que el número vuelve. Si es real (feriado, día corto), "
+                       f"«leído» y listo."),
+            evidencia={"stat": v.stat, "modo": v.modo, "hoy": hoy, **r,
+                       "corrida_at": cuando.isoformat() if cuando else None,
+                       "status": hoy_c.get("status")}))
+    if ciegos == len(VOLUMENES):
+        raise SinDatos("no pude leer manager.job_runs: no sé cuánto trajo ningún job")
+    if ciegos:
+        logger.warning("trajo_poco: no pude leer %d de %d jobs — esos no cierran nada",
+                       ciegos, len(VOLUMENES))
+    return out
+

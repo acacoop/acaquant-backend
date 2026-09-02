@@ -2389,6 +2389,15 @@ def test_cada_reporte_declarado_existe_en_su_job():
         assert len(r.que_hacer) > 40 and r.severidad in tipos.SEVERIDADES
     assert len({(r.job, r.stat) for r in REPORTES}) == len(REPORTES), "un stat repetido"
     assert not catalogo.HABILIDADES["job_reporto"].arreglos
+    # Lo mismo para los VOLÚMENES (§0.dk): el contador declarado tiene que
+    # existir en el job, o `trajo_poco` vigila un número que nadie escribe.
+    from agente.reportes import VOLUMENES
+    for v in VOLUMENES:
+        archivo = "portafolio_backfill" if v.job == "aum" else v.job
+        src = (RAIZ / "jobs" / f"{archivo}.py").read_text(encoding="utf-8")
+        assert v.stat in src, f"{v.job} no guarda el stat {v.stat!r}"
+        assert v.modo in ("diario", "acumulado")
+    assert len({v.job for v in VOLUMENES}) == len(VOLUMENES), "un job declarado dos veces"
 
 
 def test_job_reporto_convierte_el_contador_en_aviso_con_su_lista(monkeypatch):
@@ -2574,3 +2583,74 @@ def test_parsear_tolera_el_cerco_y_rechaza_lo_que_no_es_la_forma():
     assert explicar._parsear('```json\n{"explicacion": "x", "de_quien": "raro"}\n```')["de_quien"] == "no_se"
     assert explicar._parsear("hola") is None
     assert explicar._parsear('{"otra": 1}') is None
+
+
+# ── TRAJO POCO (§0.dk) ───────────────────────────────────────────────────────
+
+def test_trajo_poco_helpers_con_los_numeros_reales_del_diag():
+    """Los números son los del diag del 2026-09-02, no inventados."""
+    from agente.detectores.datos import _encogido_acumulado, _encogido_diario
+
+    k = {"corte": 0.5, "min_corridas": 5, "minimo_referencia": 20}
+    aum = [1062, 1062, 1057, 1057, 1051, 1049, 1044, 1046, 1046, 1051]
+    assert _encogido_diario(1061, aum, **k)["encogido"] is False
+    assert _encogido_diario(400, aum, **k)["encogido"] is True
+    assert _encogido_diario(1061, aum[:3], **k) is None, "poca historia: no opina"
+    assert _encogido_diario(1, [3, 3, 2, 2, 3, 3], **k) is None, "referencia chica: no opina"
+    # interbanking 01/09: 382 a las 15:01 y 0 a las 17:00, con estado ok
+    k2 = {"corte": 0.5, "minimo_referencia": 20}
+    assert _encogido_acumulado(0, 382, **k2)["encogido"] is True
+    assert _encogido_acumulado(360, 382, **k2)["encogido"] is False
+    assert _encogido_acumulado(2536, None, **k2) is None, "primera del día: no opina"
+
+
+def test_trajo_poco_compara_por_modo_y_saltea_las_corridas_en_seco(monkeypatch):
+    from datetime import datetime, timedelta
+
+    from agente import fuentes, reloj
+    from agente.detectores import datos
+    from agente.reportes import VOLUMENES
+
+    monkeypatch.setattr(reloj, "hhmm", lambda a=None: "12:00")
+    t0 = datetime(2026, 9, 2, 14, 0, tzinfo=UTC)   # 11:00 ART
+
+    def corrida(minutos_atras, status, **stats):
+        return {"finished_at": t0 - timedelta(minutes=minutos_atras), "status": status,
+                "stats": stats}
+
+    series = {
+        # diario: hoy 400 contra una mediana de ~1050 → encogido
+        "aum": [corrida(0, "ok", cuentas_ok=400)]
+               + [corrida(1440 * (i + 1), "ok", cuentas_ok=1050 + i) for i in range(10)],
+        # acumulado: 0 después de 382 el mismo día → encogido; la corrida en seco
+        # del medio se saltea y no tapa la comparación
+        "interbanking_sync": [corrida(0, "ok", movimientos=0),
+                              corrida(30, "ok", movimientos=0, modo="dry"),
+                              corrida(120, "ok", movimientos=382),
+                              corrida(1500, "ok", movimientos=263)],
+        # acumulado: primera corrida del día (la anterior es de ayer) → no opina
+        "negocio_movimientos": [corrida(0, "ok", boletos=1200),
+                                corrida(1000, "ok", boletos=2811)],
+        # el contador declarado no está → volumen_sin_dato
+        "snapshot_cierre": [corrida(0, "ok", otra_cosa=5)],
+    }
+    monkeypatch.setattr(fuentes, "corridas", lambda job, n=15: series.get(job, []))
+
+    por = {(h.sujeto, h.regla): h for h in datos.trajo_poco(
+        {"corte": 0.5, "min_corridas": 5, "minimo_referencia": 20, "ventana": 10})}
+    assert por[("aum", "volumen_encogido")].evidencia["modo"] == "diario"
+    assert por[("interbanking_sync", "volumen_encogido")].evidencia["referencia"] == 382.0
+    assert ("negocio_movimientos", "volumen_encogido") not in por
+    assert por[("snapshot_cierre", "volumen_sin_dato")].severidad == "baja"
+    assert all(k[0] in {v.job for v in VOLUMENES} for k in por)
+    for h in por.values():
+        assert h.que_hacer and "12:00" in h.problema
+
+    monkeypatch.setattr(fuentes, "corridas", lambda job, n=15: None)
+    with pytest.raises(tipos.SinDatos):
+        datos.trajo_poco({})
+
+    h = catalogo.HABILIDADES["trajo_poco"]
+    assert h.dominio == "DATOS" and h.ventana == "habil" and not h.arreglos
+    assert set(h.umbrales) == {"corte", "min_corridas", "minimo_referencia", "ventana"}
+

@@ -4061,3 +4061,43 @@ me estás haciendo sobre eso, esto no es una mejora»*. Vale dejarlo escrito
 porque es un modo de falla del que construye: **portar un control muerto a la
 arquitectura nueva no lo revive, le da forma de vivo.** Lo que el cierre
 necesite mirar se decide desde el negocio, no desde lo que ya estaba escrito.
+
+### 0.dk TRAJO POCO — el job que trae la mitad sale en verde (2026-09-02)
+
+**Qué se midió.** Con `scripts/diag_ingesta` (12 corridas por job): **ningún
+job de ingesta compara su volumen contra ayer.** Las defensas que existen son
+otras (no anular de más, no purgar si vino vacío, error si no escribió nada),
+y un día que Aunesa devuelve la mitad de las cuentas pasa en verde. Y ya
+había un caso: `interbanking_sync` el 01/09 a las 17:00 trajo **0
+movimientos, 0 días, 0 cuentas, estado `ok`**, después de 382 a las 15:01.
+
+**Dos formas de traer, y no se miden igual.** Salió de los números, no de la
+teoría. Los jobs **diarios** (`aum` 1.044 a 1.062 cuentas, `sync_comitentes`
+1.970, `ap5` 460, `snapshot_cierre` 193 a 198) son estables: se comparan
+contra la mediana de sus últimas corridas ok. Los **acumulados**
+(`operaciones_informes` va de 1.583 a las 15:03 a 3.032 a las 11:31 del día
+siguiente, por su ventana de dos días) crecen durante el día: compararlos
+contra una mediana de corridas mezcladas es comparar la mañana con la tarde.
+Se comparan contra la corrida anterior **del mismo día**, y la primera del
+día no opina: un lunes trae menos que un viernes a la tarde.
+
+**Cómo quedó.** `reportes.VOLUMENES` declara, por job, cuál es su contador y
+de qué forma crece; `trajo_poco` (`agente/detectores/datos.py`) los compara
+cada hora en día hábil. Corte 50%, con tres guardas de umbral: menos de 5
+corridas de historia no opina, una referencia menor a 20 no opina (los
+números chicos son ruido), y una corrida en seco o solo-maestro (los jobs la
+marcan con `modo`) no cuenta ni como hoy ni como referencia. Una segunda regla,
+`volumen_sin_dato`, canta cuando la última corrida no trae el contador
+declarado: es lo que impide que la lista se pudra en silencio.
+
+**Lo que se dejó afuera, y por qué.** `research_mail` (2 y 3 mails: cualquier
+corte es ruido), `precios_acciones_daily` (las velas van de 616 a 930 según
+el día; no es volumen de ingesta) y `argentina_datos` (no guarda ningún
+número). Y `aranceles.sin_match` **se sacó de REPORTES** el mismo día: medido,
+son 2.530 de 3.187 informes (80%) todos los días — la base, no una anomalía.
+Se había declarado sin medir; REGLA #2.
+
+**De yapa.** `precios_acciones_daily` estaba `partial` **todos los días desde
+el 17/08** por un ticker que falla siempre. Ahora guarda `errores_lista` y
+entra por `job_reporto`: un color permanente pasa a ser un aviso con el ticker.
+

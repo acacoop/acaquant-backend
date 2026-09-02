@@ -4020,3 +4020,37 @@ una persona, con su firma.
 en una pasada). Cacheada por hash del error en `agente.explicaciones`: el
 mismo error no se paga dos veces, y queda con fecha y quién. Si la IA no está
 configurada o el presupuesto se agotó, el botón lo dice con esas palabras.
+
+---
+
+### 0.di LICITACIONES ANUNCIADAS — enterarse antes de que exista en algún lado (2026-09-02)
+
+> *«No detectó otros bonos nuevos que se licitaron.»* (2026-09-01, sobre S29E7)
+
+Un bono existe para el agente cuando Primary lo lista o 1816 lo pone en una
+curva, y las dos cosas pasan **después** de la licitación. Pero el anuncio
+llega antes, en los mails de research que `jobs/research_mail` ya guarda en
+`ia.research` todos los días. Es la primera tarea real del gateway de IA
+desde el 28/08, y entra por una sola puerta, declarada.
+
+- **`jobs/licitaciones`** (cron, 10 minutos después de cada corrida de
+  `research_mail`): lee los mails sin procesar de los últimos días, se queda
+  con los que hablan de una licitación (prefiltro por palabras: sin eso no se
+  paga ni una llamada), le pide a la IA (`licitacion_extraer`) ticker, tipo,
+  ajuste, moneda y fechas en JSON estricto, **sanea** lo que vuelve (ticker
+  con forma de ticker, fechas ISO o nada, ajuste dentro del vocabulario) y lo
+  guarda en `mercado.licitaciones`. Cada mail queda marcado en
+  `licitaciones_mail` con cuántos trajo: re-correr no vuelve a pagar.
+- **Habilidad `licitacion_anunciada`** (MERCADO, cada 2 h): cruza esa tabla
+  contra el master, Primary y el catálogo de 1816 —tres fuentes que no son la
+  IA— y avisa solo lo que no existe en ninguna. Lo que Primary ya lista lo
+  pide `soberanos_faltantes` como alta. Cierra por ausencia al entrar al master.
+- **Es la única habilidad con `usa_ia`**, y el test que antes congelaba «el
+  agente no usa IA» ahora congela «la usa exactamente esta, y así se declara».
+  El agente no llama al modelo: lee lo que el job extrajo y lo verifica.
+
+Lo que NO se sabe todavía (REGLA #2): si los mails de 1816 describen las
+licitaciones con el detalle que el prompt pide. El job cuenta `candidatos`,
+`con_ia` y `encontrados` en cada corrida; si en una semana `encontrados` es
+cero con `candidatos` mayor que cero, el prompt o el prefiltro se ajustan con
+mails reales, no con hipótesis.

@@ -314,6 +314,13 @@
 # Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/RESEARCH.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
+# ─── Licitaciones anunciadas en los mails de 1816 — jobs/licitaciones.py (AGENT.md §0.di)
+# 10 minutos después de cada corrida de research_mail: lee los mails nuevos,
+# prefiltra por palabras (sin «licitación» no se paga nada) y le pide a la IA
+# ticker, fechas y ajuste. La habilidad `licitacion_anunciada` avisa lo que
+# todavía no existe ni en el master, ni en Primary, ni en el catálogo de 1816.
+10,40 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh licitaciones 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.licitaciones'
+
 # ─── Guardrails de datos (invariantes post-cierre) — docs/RUNBOOK.md
 # Corre DESPUÉS de snapshot_cierre (20:25). Report en el log del job + stat
 # `violaciones` en manager.job_runs; los umbrales se fijan en

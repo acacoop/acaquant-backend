@@ -742,8 +742,13 @@ def test_no_quedan_tareas_de_ia_del_agente_viejo():
     src = (RAIZ / "core" / "ai.py").read_text()
     declaradas = set(re.findall(r'^\s*"(av_agent_\w+)":\s*\{', src, re.M))
     assert not declaradas, f"tareas de IA del agente viejo aún declaradas: {declaradas}"
-    con_ia = [h.nombre for h in catalogo.HABILIDADES.values() if h.usa_ia]
-    assert not con_ia, f"habilidades que declaran usa_ia: {con_ia}"
+    # 2026-09-02 (§0.di): la IA vuelve al agente por UNA puerta, declarada.
+    # `licitacion_anunciada` lee lo que `jobs/licitaciones` extrajo de los
+    # mails de 1816 y lo verifica contra el master, Primary y el catálogo. Es
+    # la única que declara `usa_ia`, y este test lo congela: una segunda entra
+    # acá con su decisión escrita, no por omisión.
+    con_ia = sorted(h.nombre for h in catalogo.HABILIDADES.values() if h.usa_ia)
+    assert con_ia == ["licitacion_anunciada"], f"habilidades que declaran usa_ia: {con_ia}"
 
 
 def test_toda_habilidad_que_depende_de_una_foto_la_mantiene_ella():
@@ -2574,3 +2579,58 @@ def test_parsear_tolera_el_cerco_y_rechaza_lo_que_no_es_la_forma():
     assert explicar._parsear('```json\n{"explicacion": "x", "de_quien": "raro"}\n```')["de_quien"] == "no_se"
     assert explicar._parsear("hola") is None
     assert explicar._parsear('{"otra": 1}') is None
+
+
+# ── LICITACIONES ANUNCIADAS (§0.di) ────────────────────────────────────────
+
+def test_licitacion_anunciada_avisa_solo_lo_que_no_existe_en_ningun_lado(monkeypatch):
+    """S29E7 se licitó y el agente se enteró cuando 1816 lo puso en una curva.
+    El anuncio venía antes, en el mail. Acá se avisa lo que el mail dijo y
+    todavía no está ni en el master, ni en Primary, ni en el catálogo; lo que
+    Primary ya lista lo pide `soberanos_faltantes` como alta."""
+    from datetime import date, datetime
+
+    from agente import fuentes, reloj
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 2, 15, 0, tzinfo=UTC))
+    monkeypatch.setattr(reloj, "hhmm", lambda a=None: "12:00")
+    fila = lambda tk, liq: {"ticker": tk, "denominacion": f"Lecap {tk}", "tipo": "letra",
+                            "ajuste": "fija", "moneda": "ARS", "fecha_licitacion": date(2026, 9, 1),
+                            "fecha_liquidacion": liq, "vencimiento": date(2027, 1, 29),
+                            "emisor": "Tesoro", "asunto_mail": "Licitación del Tesoro",
+                            "fecha_mail": date(2026, 9, 1), "detectado_at": None}
+    monkeypatch.setattr(fuentes, "licitaciones", lambda d=20: [
+        fila("S29E7", date(2026, 9, 3)), fila("X29E7", date(2026, 9, 3)), fila("AL30", None)])
+    monkeypatch.setattr(fuentes, "master", lambda: [{"ticker_corto": "AL30"}])
+    monkeypatch.setattr(fuentes, "tickers_en_primary", lambda: {"X29E7"})
+    monkeypatch.setattr(fuentes, "catalogo_1816_tickers", lambda: {"X29E7"})
+    por = {h.sujeto: h for h in mercado.licitacion_anunciada({"dias": 20})}
+    assert por["S29E7"].regla == "anunciada" and "liquida el 03/09" in por["S29E7"].problema
+    assert "Primary no lo lista" in por["S29E7"].problema
+    assert "X29E7" not in por, "Primary y 1816 ya lo tienen: es de soberanos_faltantes"
+    assert "AL30" not in por, "ya está en el master"
+    h = catalogo.HABILIDADES["licitacion_anunciada"]
+    assert h.usa_ia and not h.arreglos and h.dominio == "MERCADO"
+    monkeypatch.setattr(fuentes, "licitaciones", lambda d=20: None)
+    with pytest.raises(tipos.SinDatos):
+        mercado.licitacion_anunciada({})
+
+
+def test_el_job_de_licitaciones_no_paga_por_un_mail_que_no_habla_de_eso():
+    """El prefiltro por palabras decide qué se le manda a la IA. Y lo que la
+    IA contesta se sanea: un ticker con forma de ticker, fechas ISO o nada."""
+    from jobs import licitaciones as j
+    assert j._PALABRAS.search("El Tesoro licita mañana dos Lecaps")
+    assert not j._PALABRAS.search("Resumen diario de mercado: el dólar subió")
+    items = j._parsear('```json\n[{"ticker": "s29e7", "ajuste": "FIJA", "fecha_liquidacion": "2026-09-03", '
+                       '"vencimiento": "enero"}, {"ticker": "no es ticker"}]\n```')
+    assert len(items) == 1
+    assert items[0]["ticker"] == "S29E7" and items[0]["ajuste"] == "fija"
+    assert items[0]["fecha_liquidacion"] == "2026-09-03" and items[0]["vencimiento"] is None
+    assert j._parsear("no hay nada") == []
+    # Y el job está conectado: cron, árbol de diagnóstico, rastro, tarea del gateway.
+    from agente import crontab
+    from core import ai
+    assert sistema._cron_de(crontab.del_repo(), "jobs.licitaciones")
+    assert "licitacion_extraer" in ai._TAREAS
+    src = (RAIZ / "jobs" / "licitaciones.py").read_text(encoding="utf-8")
+    assert "JobRunLogger" in src and "sys.exit(main())" in src

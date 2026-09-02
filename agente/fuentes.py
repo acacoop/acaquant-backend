@@ -196,6 +196,33 @@ def latidos() -> dict[str, dict] | None:
     return _una_vez("latidos", _leer)
 
 
+# ── LAS LICITACIONES ANUNCIADAS ────────────────────────────────────────────
+def licitaciones(dias: int = 20) -> list[dict] | None:
+    """Lo que los mails de 1816 anunciaron (`mercado.licitaciones`, §0.di) con
+    liquidación o mail de los últimos `dias`. `None` = no pude leer."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ticker, denominacion, tipo, ajuste, moneda, fecha_licitacion, "
+                "       fecha_liquidacion, vencimiento, emisor, asunto_mail, fecha_mail, "
+                "       detectado_at "
+                "FROM mercado.licitaciones "
+                "WHERE coalesce(fecha_liquidacion, fecha_mail) >= current_date - %s",
+                (int(dias),))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+    return _una_vez(f"licitaciones_{int(dias)}", _leer)
+
+
+def catalogo_1816_tickers() -> set[str] | None:
+    """Los tickers del catálogo persistido de 1816. `None` = no pude leer."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT upper(btrim(ticker)) FROM research.mkt_1816_instrumentos")
+            return {r[0] for r in cur.fetchall() if r[0]}
+    return _una_vez("catalogo_1816_tickers", _leer)
+
+
 # ── EL PULSO DEL CLIENTE ───────────────────────────────────────────────────
 def pulsos(minutos: int = 10) -> list[dict] | None:
     """Los pulsos de los últimos `minutos` (`agente.pulso_cliente`, §0.dg):

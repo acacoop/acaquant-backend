@@ -91,6 +91,7 @@
 | cada hora · 13-19h · L-V | `jobs.tamar_1816'` |
 | cada hora · 16-17h · L-V | `jobs.mayor_sync'` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
+| cada hora · 10-14h · L-V | `jobs.licitaciones'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |

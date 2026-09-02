@@ -40,10 +40,17 @@ def existe(email: str) -> bool:
 
 
 def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
-           filas: list[dict] | None = None) -> dict:
+           filas: list[dict] | None = None, donde: str = "", por: str = "",
+           interrumpe: bool = False) -> dict:
     """Deja el mensaje. **Idempotente por `(para, tema)`**: el mismo tema el
     mismo día no se duplica — un job que corre cada hora no puede llenarle la
-    bandeja a nadie."""
+    bandeja a nadie.
+
+    ⚠️ `donde`, `por` e `interrumpe` (§0.de): `jobs/saldos_a_operadores` los
+    pasaba desde el 2026-08-24 y esta firma no los aceptaba — el job moría con
+    `TypeError` a las 16:45 todos los días y nadie recibía nada. `interrumpe`
+    es lo que hace que la pantalla lo abra sola, como el modal de briefing.
+    """
     e = (para or "").strip().lower()
     if not e:
         return {"ok": False, "error": "sin destinatario"}
@@ -51,12 +58,16 @@ def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO agente.avisos_dirigidos "
-                " (para, tema, asunto, detalle, filas) VALUES (%s,%s,%s,%s,%s) "
+                " (para, tema, asunto, detalle, filas, donde, por, interrumpe) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT (para, tema) DO UPDATE SET "
                 "  asunto = EXCLUDED.asunto, detalle = EXCLUDED.detalle, "
-                "  filas = EXCLUDED.filas, at = now() RETURNING id",
+                "  filas = EXCLUDED.filas, donde = EXCLUDED.donde, "
+                "  por = EXCLUDED.por, interrumpe = EXCLUDED.interrumpe, "
+                "  at = now(), visto_at = NULL RETURNING id",
                 (e, tema, asunto, detalle,
-                 json.dumps(filas or [], default=str)))
+                 json.dumps(filas or [], default=str), donde or "", por or "",
+                 bool(interrumpe)))
             return {"ok": True, "id": cur.fetchone()[0]}
     except Exception as ex:
         logger.warning("agente/mensajes: no pude mandar a %s (%s)", e, ex)
@@ -64,11 +75,12 @@ def enviar(*, para: str, asunto: str, detalle: str = "", tema: str = "mensaje",
 
 
 def enviar_tabla(*, para: str, asunto: str, filas: list[dict], tema: str,
-                 detalle: str = "") -> dict:
+                 detalle: str = "", donde: str = "", por: str = "",
+                 interrumpe: bool = False) -> dict:
     """Lo mismo, con una tabla adentro. Existe para que el que la recibe pueda
     ver las filas sin que el asunto se convierta en un párrafo."""
     return enviar(para=para, asunto=asunto, detalle=detalle, tema=tema,
-                  filas=filas)
+                  filas=filas, donde=donde, por=por, interrumpe=interrumpe)
 
 
 def de(email: str, *, solo_hoy: bool = True) -> list[dict]:
@@ -77,7 +89,8 @@ def de(email: str, *, solo_hoy: bool = True) -> list[dict]:
     e = (email or "").strip().lower()
     if not e:
         return []
-    sql = ("SELECT id, tema, asunto, detalle, filas, at, visto_at "
+    sql = ("SELECT id, tema, asunto, detalle, filas, at, visto_at, donde, por, "
+           "       interrumpe "
            "  FROM agente.avisos_dirigidos WHERE lower(para) = %s ")
     if solo_hoy:
         sql += ("AND (at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date "
@@ -88,7 +101,9 @@ def de(email: str, *, solo_hoy: bool = True) -> list[dict]:
             cur.execute(sql, (e,))
             return [{"id": r[0], "tema": r[1], "asunto": r[2], "detalle": r[3],
                      "filas": list(r[4] or []), "at": r[5].isoformat(),
-                     "visto": r[6] is not None} for r in cur.fetchall()]
+                     "visto": r[6] is not None, "donde": r[7] or "",
+                     "por": r[8] or "", "interrumpe": bool(r[9])}
+                    for r in cur.fetchall()]
     except Exception as ex:
         logger.warning("agente/mensajes: no pude leer la bandeja (%s)", ex)
         return []

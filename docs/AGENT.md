@@ -3880,3 +3880,47 @@ Todo eso terminaba en un log que nadie abre y en un contador de
   No juzga si el job corrió cuando debía: eso es de `salud`.
 - Un test cruza cada fila del registro contra el código de su job: una fila
   que promete un stat que el job no guarda es un aviso que jamás aparece.
+
+---
+
+### 0.de LA BANDEJA QUE NADIE PODÍA LEER — y el job que no la escribía (2026-09-02)
+
+> *«Es exclusivo del día: con saber que se informó alcanza, no hay que
+> guardar historial. Es solo avisar a las 16:45 y listo.»*
+
+Dos roturas encadenadas, y ninguna fallaba a la vista:
+
+1. **El router no existía.** `api/main.py` documentaba `/api/avisos` «sin
+   gate de módulo» y remitía a `api/routers/avisos.py` desde el 2026-08-19. El
+   archivo no estaba. La pantalla «PARA VOS» pedía la bandeja, el proxy de
+   Next reenviaba, y el backend contestaba 404, que el front traga.
+2. **El job moría al mandar.** `jobs/saldos_a_operadores` llamaba a
+   `mensajes.enviar_tabla(..., donde=, por=, interrumpe=True)` y la firma no
+   aceptaba esos tres: `TypeError` a las 16:45, todos los días, con
+   `manager.job_runs` en `error`. La bandeja se escribía para nadie y además
+   no se escribía.
+
+**Lo que queda:**
+
+- `api/routers/avisos.py`: `GET /api/avisos` (los de HOY del que pregunta,
+  `[]` para el invitado) y `POST /api/avisos/visto`. Montado con
+  `verify_api_key` y sin módulo, como `/api/me`.
+- `mensajes.enviar` acepta `donde`, `por` e `interrumpe`; la tabla los
+  guarda (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`), y un reenvío del mismo
+  tema vuelve a poner `visto_at` en NULL: el aviso de hoy es nuevo aunque el
+  tema sea el de ayer.
+- El front (`mis-avisos.tsx`) se reescribió al modelo 2.0: asunto, detalle,
+  la tabla que venga en `filas`, y un solo botón, «visto». Sin historial, sin
+  ítems que tildar, sin posponer: el que lleva `interrumpe` se abre solo, como
+  el de briefing, y con «visto» desaparece.
+
+Y en el mismo cambio, **Postrade entra a `core/proveedores.PROVEEDORES`**:
+era la única API externa sin vigilar. `core/postrade._request` deja rastro
+con el mismo criterio que Aunesa (`es_caida`: solo 5xx), así que
+`proveedor_caido` lo cubre sin una línea más. Se lo usa para leer, no para
+operar desde ahí.
+
+Y **la evidencia se ve**: `v_ahora` viaja con `visto_ultima_vez`, y las filas
+de AHORA y ENCONTRÓ muestran «confirmado hace N» al lado de «desde», más un
+desplegable con la evidencia del detector. Sin lo primero, un hallazgo de
+hace tres días y uno confirmado hace veinte minutos se veían iguales.

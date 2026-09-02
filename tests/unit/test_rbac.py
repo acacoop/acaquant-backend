@@ -180,3 +180,30 @@ def test_la_bandeja_filtra_por_el_email_del_que_pregunta():
     assert set(inspect.signature(mensajes.de).parameters) == {"email", "solo_hoy"}
     assert "lower(para) = %s" in inspect.getsource(mensajes.de)
     assert "lower(para) = %s" in inspect.getsource(mensajes.marcar_visto)
+
+
+def test_la_bandeja_tiene_puerta_y_el_job_puede_escribirla():
+    """§0.de. Dos roturas mudas: `/api/avisos` estaba documentado y no existía
+    (el front tragaba el 404), y `saldos_a_operadores` le pasaba a
+    `mensajes.enviar_tabla` tres kwargs que la firma no aceptaba (TypeError
+    a las 16:45, todos los días). Se congelan las dos puertas."""
+    import inspect
+
+    from agente import mensajes
+    from api.main import app
+    from api.routers import avisos
+
+    rutas = {(r.path, tuple(sorted(r.methods or ()))) for r in avisos.router.routes}
+    assert ("/api/avisos", ("GET",)) in rutas
+    assert ("/api/avisos/visto", ("POST",)) in rutas
+    # Montado en la app, sin módulo (un operador no tiene `ia`) y sin invitado.
+    montado = any(getattr(r, "path", "") == "/api/avisos" for r in app.routes)
+    assert montado, "el router existe y no está montado en api/main.py"
+    assert "is_guest_portal" in inspect.getsource(avisos.bandeja)
+    # La firma acepta lo que el job manda.
+    params = set(inspect.signature(mensajes.enviar_tabla).parameters)
+    assert {"donde", "por", "interrumpe"} <= params
+    import pathlib
+    raiz = pathlib.Path(__file__).resolve().parents[2]
+    job = (raiz / "jobs" / "saldos_a_operadores.py").read_text(encoding="utf-8")
+    assert "interrumpe=True" in job

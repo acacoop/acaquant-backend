@@ -4964,6 +4964,10 @@ CREATE TABLE IF NOT EXISTS agente.avisos_dirigidos (
 );
 CREATE INDEX IF NOT EXISTS avisos_dirigidos_bandeja
     ON agente.avisos_dirigidos (lower(para), at DESC);
+-- §0.de: dónde se atiende, quién lo mandó, y si la pantalla lo abre sola.
+ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS donde text NOT NULL DEFAULT '';
+ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS por text NOT NULL DEFAULT '';
+ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS interrumpe boolean NOT NULL DEFAULT false;
 
 -- ── LAS VISTAS. Las pantallas LEEN, no derivan. ────────────────────────────
 --
@@ -4980,7 +4984,7 @@ DROP VIEW IF EXISTS agente.v_ahora;
 CREATE OR REPLACE VIEW agente.v_ahora AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
-       f.veces, hab.dominio,
+       f.visto_ultima_vez, f.veces, hab.dominio,
        (f.arreglo <> '') AS accionable
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad

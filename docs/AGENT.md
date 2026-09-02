@@ -4061,3 +4061,36 @@ me estás haciendo sobre eso, esto no es una mejora»*. Vale dejarlo escrito
 porque es un modo de falla del que construye: **portar un control muerto a la
 arquitectura nueva no lo revive, le da forma de vivo.** Lo que el cierre
 necesite mirar se decide desde el negocio, no desde lo que ya estaba escrito.
+
+### 0.dk EL DOMINIO QUE FALTABA — NEGOCIO, y los bancos como primera habilidad (2026-09-02)
+
+**Qué se midió.** De las 116 tablas de negocio, back office y clientes, el
+agente leía 15. Las 18 de `bancos` no las miraba ninguna habilidad: un
+extracto que no cierra (`extracto_dia.cierra = false`), un banco que informa
+dos cierres distintos para el mismo día, una cuenta que no concilia contra el
+mayor, un pendiente confirmado que Contabilidad nunca cerró — todo eso existía
+en la base y se descubría **abriendo la tab**. Y había una cosa que la tab no
+podía mostrar por diseño: `bancos.tablero` juzga cada día aislado («un
+descuadre arrastrado no se ve», dice su docstring), así que la misma cuenta
+sin conciliar tres días seguidos se veía como tres avisos sueltos, o como
+ninguno.
+
+**Qué se hizo.** Un dominio nuevo, `NEGOCIO`, porque ninguno de los cuatro
+existentes (MERCADO · SISTEMA · DATOS · SEGURIDAD) nombraba lo que el back
+office concilia a mano; y la primera habilidad ahí: `banco_no_cierra`
+(`agente/detectores/negocio.py`), cada dos horas en día hábil, con cinco
+reglas: `extracto_no_cierra` · `saldo_discrepante` · `banco_vs_mayor` ·
+`descuadre_arrastrado` · `pendiente_viejo`.
+
+**La regla de la casa para este dominio: el agente lee los mismos services
+que dibujan la pantalla.** `bancos_tableros()` llama a `bancos.tablero`,
+`bancos_pendientes()` a `bancos.listar_pendientes`. El predicado «no
+concilia» vive una vez, y si la tab y el agente dijeran cosas distintas no
+habría forma de saber cuál miente (REGLA #9). Lo único que el agente calcula
+por su cuenta es lo que la pantalla no puede: poner los tableros de N días
+uno al lado del otro y contar los seguidos.
+
+**Sin arreglo, a propósito.** Conciliar es decidir de qué lado falta plata;
+eso lo hace una persona. Lo que el agente pone es que nadie tenga que entrar
+a mirar para enterarse.
+

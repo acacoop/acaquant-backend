@@ -256,3 +256,77 @@ def universo_1816() -> dict | None:
             inst[tk] = d
         return {"instrumentos": inst, "fuente": "catalogo_local"}
     return _una_vez("univ1816", _leer)
+
+
+# ── BANCOS (§0.dk) ─────────────────────────────────────────────────────────
+#
+# Todo por el service que ya usa la pantalla (`api/services/bancos`): el
+# predicado que decide «no concilia» vive UNA vez (`tablero`) y el agente lo
+# lee, no lo reimplementa. REGLA #9.
+def bancos_extractos(habiles: int = 2) -> list[dict] | None:
+    """Los días de extracto de la ventana que ingesta `interbanking_sync`
+    (día hábil anterior + hoy), con el saldo informado al lado para poder
+    compararlos. Una fila por cuenta y día."""
+    def _leer():
+        from core.calendario import restar_habiles
+        from core.tz import ahora_ar
+        desde = restar_habiles(ahora_ar().date(), int(habiles))
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT e.cuenta_id,
+                          coalesce(nullif(btrim(c.account_label), ''),
+                                   btrim(c.bank_name) || ' ' || c.account_number
+                                   || ' ' || c.currency) AS cuenta,
+                          e.fecha, e.cierra, e.diferencia, e.saldo_cierre,
+                          e.numero_extracto, s.saldo_dia
+                     FROM bancos.extracto_dia e
+                     JOIN bancos.cuentas c ON c.id = e.cuenta_id AND c.activa
+                     LEFT JOIN bancos.saldos s
+                            ON s.cuenta_id = e.cuenta_id AND s.fecha = e.fecha
+                    WHERE e.fecha >= %s
+                    ORDER BY e.fecha DESC, cuenta""", (desde,))
+            cols = [d[0] for d in cur.description]
+            out = []
+            for r in cur.fetchall():
+                f = dict(zip(cols, r, strict=True))
+                for k in ("diferencia", "saldo_cierre", "saldo_dia"):
+                    f[k] = float(f[k]) if f[k] is not None else None
+                out.append(f)
+            return out
+    return _una_vez("bancos_extractos", _leer)
+
+
+def bancos_tableros(dias: int = 3) -> dict | None:
+    """El tablero banco↔mayor de los últimos N días hábiles cerrados, el más
+    nuevo primero: `{fecha: filas}`. Es la misma función que dibuja la tab
+    CONCILIACIÓN, así el agente no puede decir algo distinto de la pantalla."""
+    def _leer():
+        from api.services import bancos
+        from core.calendario import restar_habiles
+        f = bancos.fecha_default()
+        out = {}
+        for _ in range(int(dias)):
+            out[f] = bancos.tablero("agente", f)["filas"]
+            f = restar_habiles(f, 1)
+        return out
+    return _una_vez("bancos_tableros", _leer)
+
+
+def bancos_pendientes() -> list[dict] | None:
+    """Lo que el back office confirmó que hay que arreglar en el otro sistema
+    y todavía no marcó resuelto, con cuántos días hábiles lleva abierto."""
+    def _leer():
+        from datetime import date
+
+        from api.services import bancos
+        from core.calendario import habiles_entre
+        from core.tz import ahora_ar
+
+        hoy = ahora_ar().date()
+        out = []
+        for p in bancos.listar_pendientes():
+            desde = date.fromisoformat(p["at"][:10]) if p.get("at") else hoy
+            out.append({**p, "dias_habiles": max(0, len(habiles_entre(desde, hoy)) - 1)})
+        return out
+    return _una_vez("bancos_pendientes", _leer)
+

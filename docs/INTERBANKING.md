@@ -1101,6 +1101,13 @@ Respeta el filtro por banco de la vista.
 
 ## Changelog
 
+- **2026-09-02** — **El AV AGENT vigila los bancos**: habilidad `banco_no_cierra`
+  (dominio NEGOCIO, cada 2 h en día hábil) sobre los MISMOS services de esta
+  vista: extractos que no cierran, dos cierres distintos del banco (el ≠ del
+  consolidado), la conciliación banco↔mayor de `tablero()` y los pendientes
+  sin resolver. Suma lo que la tab no muestra por diseño: el **descuadre
+  arrastrado** (la misma cuenta N días seguidos sin conciliar). Sin arreglo:
+  conciliar lo hace una persona. `docs/AGENT.md` §0.dk.
 - **2026-09-01 (3)** — ⚠️ **MANDA EL SALDO INFORMADO, no el cierre del extracto**
   (decisión del back office). Era al revés desde el principio.
   · **Por qué**: la pantalla ya venía detectando que hay dos números y avisando

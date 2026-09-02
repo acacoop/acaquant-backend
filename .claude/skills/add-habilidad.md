@@ -48,7 +48,8 @@ sobre `sistema._foto(...)` (mirar `foto_primary` / `foto_1816`, §0.cy y §0.df)
 
 ## 2. El detector — `agente/detectores/<dominio>.py`
 
-`mercado.py` · `sistema.py` · `datos.py` · `catalogo.py`. Contrato (§2.4 y §3):
+`mercado.py` · `sistema.py` · `datos.py` · `catalogo.py` · `negocio.py` (back office,
+lee los services de la pantalla, §0.dk). Contrato (§2.4 y §3):
 
 ```python
 # ═══ mi_habilidad ══════════════════════════════════════════════════════════
@@ -91,7 +92,7 @@ Reglas fijas del contrato, todas congeladas por test:
 ```python
     # Por qué existe, en dos líneas, y por qué tiene o no tiene arreglo. §0.<letras>
     Habilidad(
-        nombre="mi_habilidad", tipo="detector", dominio="MERCADO|SISTEMA|DATOS|SEGURIDAD",
+        nombre="mi_habilidad", tipo="detector", dominio="MERCADO|SISTEMA|DATOS|SEGURIDAD|NEGOCIO",
         que_mira="una frase en castellano",
         cada_segundos=N * _M, ventana="rueda|cierre|habil|siempre",
         correr=<modulo>.mi_habilidad,

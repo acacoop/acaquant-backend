@@ -156,9 +156,12 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
 
     Habilidad(
         nombre="latencia", tipo="detector", dominio="SISTEMA",
-        que_mira="endpoints degradados contra SU PROPIA normalidad, y los 5xx",
+        que_mira="endpoints degradados contra SU PROPIA normalidad, los 5xx, y las vistas ciegas",
         cada_segundos=10 * _M, ventana="siempre",
-        correr=sistema.latencia),
+        correr=sistema.latencia,
+        # `vista_ciega` (§0.dg): el pulso que manda una pantalla que no puede
+        # refrescar. Es la única regla del agente que mira el navegador.
+        umbrales={"pulso_ventana_min": 10}),
 
     Habilidad(
         nombre="proveedor_caido", tipo="detector", dominio="SISTEMA",

@@ -863,7 +863,7 @@ def latencia(u: dict) -> list[Hallazgo]:
     except Exception as e:
         raise SinDatos(f"no pude leer la telemetría: {e}") from e
 
-    out = []
+    out = _vistas_ciegas(u)
     for c in casos:
         if c["roto"]:
             out.append(Hallazgo(
@@ -886,6 +886,61 @@ def latencia(u: dict) -> list[Hallazgo]:
                 evidencia={"avg_ms": c["avg_ms"], "base_ms": c["base_ms"],
                            "veces": c["veces"], "max_ms": c["max_ms"],
                            "requests": c["n"]}))
+    return out
+
+
+def _vistas_ciegas(u: dict) -> list[Hallazgo]:
+    """Lo que la mesa tiene enfrente y el servidor no ve (§0.dg).
+
+    Cada pantalla que lleva más de un minuto sin poder refrescar deja un pulso
+    (`agente.pulso_cliente`). Acá se agrupan por vista: cuántas personas,
+    desde cuándo, qué pedido falla y con qué error. Y se cruza con el latido
+    de la API: si arrancó adentro de la ventana, la causa más probable es el
+    reinicio, y se dice. **No pudo leer ≠ no hubo pulsos**: sin tabla, no se
+    afirma nada (SinDatos lo decide `latencia` entera).
+    """
+    from agente import fuentes
+
+    ventana = int(u.get("pulso_ventana_min", 10))
+    filas = fuentes.pulsos(ventana)
+    if filas is None:
+        raise SinDatos("no pude leer agente.pulso_cliente")
+    if not filas:
+        return []
+    ahora = reloj.ahora_utc()
+    api = (fuentes.latidos() or {}).get("api.main") or {}
+    arranco = api.get("arrancado_at")
+    reinicio = (arranco is not None
+                and (ahora - arranco).total_seconds() <= ventana * 60)
+
+    por_vista: dict[str, list[dict]] = {}
+    for f in filas:
+        por_vista.setdefault(f["vista"], []).append(f)
+    out = []
+    for vista, ps in sorted(por_vista.items()):
+        personas = {p["email"] for p in ps if p["email"]}
+        desde = min((p["desde_at"] for p in ps if p["desde_at"]), default=ps[0]["at"])
+        ultimo = max(p["at"] for p in ps)
+        minutos = max(1, round((ultimo - desde).total_seconds() / 60))
+        endpoints = sorted({p["endpoint"] for p in ps})
+        motivos = sorted({p["motivo"] for p in ps if p["motivo"]})
+        causa = (f"coincide con el reinicio de la API ({arranco:%H:%M} UTC)"
+                 if reinicio else ", ".join(motivos) or "sin motivo informado")
+        out.append(Hallazgo(
+            sujeto=vista, regla="vista_ciega",
+            severidad="alta" if (len(personas) >= 3 or minutos >= 10) else "media",
+            nombre=vista,
+            problema=(f"ciega {minutos} min ({desde:%H:%M} a {ultimo:%H:%M} UTC) · "
+                      f"{len(personas) or len(ps)} pantalla/s abierta/s · causa: {causa} · "
+                      f"{reloj.hhmm(ahora)}"),
+            detalle=" · ".join(f"{e} ({', '.join(motivos) or '?'})" for e in endpoints),
+            que_hacer=("Si la causa es el reinicio de la API, nada: pasa solo. Si no, "
+                       "el pedido que falla es del proxy de Next o del backend: mirar "
+                       f"{endpoints[0]} y el log de la API a esa hora."),
+            evidencia={"personas": sorted(personas), "pulsos": len(ps),
+                       "desde": desde.isoformat(), "ultimo": ultimo.isoformat(),
+                       "endpoints": endpoints, "motivos": motivos,
+                       "api_arranco_at": arranco.isoformat() if arranco else None}))
     return out
 
 

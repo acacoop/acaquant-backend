@@ -196,6 +196,21 @@ def latidos() -> dict[str, dict] | None:
     return _una_vez("latidos", _leer)
 
 
+# ── EL PULSO DEL CLIENTE ───────────────────────────────────────────────────
+def pulsos(minutos: int = 10) -> list[dict] | None:
+    """Los pulsos de los últimos `minutos` (`agente.pulso_cliente`, §0.dg):
+    pantallas que no pudieron refrescar. `None` = no pude leer."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT at, email, vista, endpoint, motivo, desde_at "
+                        "FROM agente.pulso_cliente "
+                        "WHERE at >= now() - make_interval(mins => %s) ORDER BY at",
+                        (int(minutos),))
+            return [{"at": r[0], "email": r[1], "vista": r[2], "endpoint": r[3],
+                     "motivo": r[4], "desde_at": r[5]} for r in cur.fetchall()]
+    return _una_vez(f"pulsos_{int(minutos)}", lambda: _leer())
+
+
 # ── LO QUE LA CASA TIENE ───────────────────────────────────────────────────
 def en_cartera() -> set[str] | None:
     """Tickers con tenencia viva. Convierte «¿te interesa?» en una obviedad: un

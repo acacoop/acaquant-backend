@@ -3954,3 +3954,39 @@ Pendiente de decidir: `soberanos_faltantes` censa 1816 en vivo cuatro veces
 por día (~116 créditos). Con el catálogo fresco a diario podría leer de ahí y
 ahorrar eso; la diferencia sería enterarse de un bono nuevo a las 9 y no a las
 10. Se deja para el user.
+
+---
+
+### 0.dg EL PULSO DEL CLIENTE — lo que la mesa tiene enfrente y el servidor no ve (2026-09-02)
+
+> *«No tiene que estar sesgado por un rol. Tiene que ser algo verdaderamente
+> útil. ¿Cómo lo vería en el agente y cómo funcionaría?»*
+
+**Lo que había.** De las 37 pantallas que se refrescan solas, 3 le muestran a
+la persona que el refresco falló; las otras 34 conservan lo último que tenían
+(correcto) y no lo dicen (no). Y el backend no se entera de ninguna: el fallo
+ocurre en el navegador. Un 502 del proxy de Next, un timeout de Vercel, una
+vista que pide un endpoint que ya no existe, el minuto de reinicio de un
+deploy: nada de eso pasa por el servidor. La tab ESTRATEGIA se perdió una
+semana exactamente así.
+
+**Lo que queda, en tres piezas conectadas:**
+
+- **El navegador dice cuándo está ciego, una sola vez para todas las vistas.**
+  `usePoll` registra cada endpoint que lleva más de un minuto fallando en un
+  registro compartido; el componente `<Pulso />` del layout lo lee. Dibuja la
+  marca «sin actualizar hace N min» en la barra (para cualquier rol, en
+  cualquier vista) y manda `POST /api/pulso` una vez por minuto por endpoint
+  mientras dure. Nada mientras todo anda.
+- **`agente.pulso_cliente`** guarda vista, endpoint, motivo, desde cuándo y
+  quién. Retención 30 días (`cleanup_retencion`). Sin módulo y sin invitado.
+- **`latencia` gana la regla `vista_ciega`**: agrupa por vista, cuenta
+  personas, mide desde cuándo, y **cruza con el latido de la API**: `api/main`
+  ahora late como cualquier proceso (`uvicorn api.main:app` → `api.main` en
+  `unidades`), así que «ciega 4 min» puede decir «coincide con el reinicio de
+  la API de las 11:20». Es la única regla del agente que mira el navegador, y
+  por eso vive en `latencia`, que ya es la habilidad de «¿la app responde?».
+
+Lo que NO cubre todavía: el fallback vacío del SSR (`safeFetch` en cinco
+páginas). Ahí el navegador nunca pidió nada, así que no hay poll que falle:
+es el siguiente paso de esta misma pieza.

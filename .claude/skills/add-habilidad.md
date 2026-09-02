@@ -53,7 +53,7 @@ sobre `sistema._foto(...)` (mirar `foto_primary` / `foto_1816`, §0.cy y §0.df)
 ```python
 # ═══ mi_habilidad ══════════════════════════════════════════════════════════
 def mi_habilidad(u: dict) -> list[Hallazgo]:
-    """Qué mira y por qué importa. Cita el diario: (§0.xx)."""
+    """Qué mira y por qué importa. Cita el diario: (§0.<letras>)."""
     from agente import fuentes
     dato = fuentes.mi_dato()
     if dato is None:
@@ -89,7 +89,7 @@ Reglas fijas del contrato, todas congeladas por test:
 ## 3. La fila del catálogo — `agente/catalogo.py`
 
 ```python
-    # Por qué existe, en dos líneas, y por qué tiene o no tiene arreglo. §0.xx
+    # Por qué existe, en dos líneas, y por qué tiene o no tiene arreglo. §0.<letras>
     Habilidad(
         nombre="mi_habilidad", tipo="detector", dominio="MERCADO|SISTEMA|DATOS|SEGURIDAD",
         que_mira="una frase en castellano",

@@ -26,6 +26,9 @@ SYSTEMD = RAIZ / "deploy" / "systemd"
 TIMEOUT_S = 10
 
 _EXEC_M = re.compile(r"ExecStart=.*?-m\s+(\S+)")
+# `uvicorn api.main:app` → proceso `api.main` (es lo que `api/main.py` declara
+# al arrancar su latido, §0.dg). Sin esto la API era el único proceso sin vigía.
+_EXEC_UVICORN = re.compile(r"ExecStart=.*?uvicorn\s+([\w.]+):")
 _RESTART = re.compile(r"^Restart=(\S+)", re.M)
 _CRON_UNIT = re.compile(
     r"^(\S+)\s+(\S+)\s+\S+\s+\S+\s+(\S+)\s+systemctl\s+(restart|start|stop)\s+(\S+?)\.service")
@@ -75,7 +78,7 @@ def declaradas() -> dict[str, dict]:
         ventanas = _ventanas(crontab.del_repo())
         for f in sorted(SYSTEMD.glob("*.service")):
             txt = f.read_text(encoding="utf-8")
-            m = _EXEC_M.search(txt)
+            m = _EXEC_M.search(txt) or _EXEC_UVICORN.search(txt)
             r = _RESTART.search(txt)
             out[f.stem] = {"proceso": m.group(1) if m else None,
                            "restart": r.group(1) if r else "",

@@ -554,6 +554,22 @@ CREATE TABLE IF NOT EXISTS operaciones.motor_heartbeat (
     data       jsonb
 );
 
+-- EL PULSO DEL CLIENTE (AGENT.md §0.dg): una pantalla que no pudo refrescar
+-- durante más de un minuto lo dice, una vez por minuto, y acá queda con hora.
+-- Es lo único que le cuenta al agente lo que la mesa tiene enfrente: un 502
+-- del proxy de Next, un timeout de Vercel o una vista que pide un endpoint
+-- que ya no existe no pasan por el servidor y el servidor no los ve nunca.
+CREATE TABLE IF NOT EXISTS agente.pulso_cliente (
+    id        bigserial PRIMARY KEY,
+    at        timestamptz NOT NULL DEFAULT now(),
+    email     text NOT NULL DEFAULT '',
+    vista     text NOT NULL,            -- el path de la página (/agro, /renta-fija)
+    endpoint  text NOT NULL,            -- el pedido que falla (/api/derivados-agro)
+    motivo    text NOT NULL DEFAULT '', -- «HTTP 502», «error de red»
+    desde_at  timestamptz               -- desde cuándo esa pantalla no refresca
+);
+CREATE INDEX IF NOT EXISTS pulso_cliente_reciente ON agente.pulso_cliente (at DESC);
+
 -- EL LATIDO de cada proceso que corre solo (core/latido.py, AGENT.md §0.da).
 -- Una fila por proceso (`engines.valores`, `jobs.control_saldos`…), escrita
 -- cada 15 s por un hilo que arranca solo en `engines/__init__.py`. `data` es

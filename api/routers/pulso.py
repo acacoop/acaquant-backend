@@ -1,0 +1,47 @@
+"""`api/routers/pulso.py` — EL PULSO DEL CLIENTE. Doc: `docs/AGENT.md` §0.dg.
+
+Una pantalla que lleva más de un minuto sin poder refrescar lo dice acá, una
+vez por minuto como máximo (el freno vive en el navegador y se repite acá con
+el rate limit). No es telemetría de uso: solo llega cuando algo falla. El
+agente (`latencia` → `vista_ciega`) lo convierte en «la vista X estuvo ciega
+N minutos, M personas la tenían abierta, causa: …».
+
+Sin gate de módulo (cualquier vista, cualquier rol) y sin invitado (REGLA #8:
+escribe en la base y la bandeja del agente es de la mesa).
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
+
+from api.auth import get_user_email, require_no_invitado
+from api.ratelimit import limiter
+from core.postgres import get_pool
+
+router = APIRouter(prefix="/api/pulso", tags=["pulso"],
+                   dependencies=[Depends(require_no_invitado)])
+
+
+class _Pulso(BaseModel):
+    vista: str = Field(..., min_length=1, max_length=120)
+    endpoint: str = Field(..., min_length=1, max_length=200)
+    motivo: str = Field("", max_length=120)
+    desde_at: str | None = Field(None, max_length=40)
+
+
+@router.post("")
+@limiter.limit("12/minute;300/hour")
+def pulso(request: Request, body: _Pulso,
+          email: str = Depends(get_user_email)) -> dict:
+    """Deja el pulso. Nunca levanta hacia el navegador: si la base no está, la
+    pantalla ya tiene bastante con estar ciega."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO agente.pulso_cliente (email, vista, endpoint, motivo, desde_at) "
+                "VALUES (%s, %s, %s, %s, %s::timestamptz)",
+                (email or "", body.vista[:120], body.endpoint[:200], body.motivo[:120],
+                 body.desde_at))
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": type(e).__name__}

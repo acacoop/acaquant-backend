@@ -52,6 +52,7 @@ from api.routers import (
     operar,
     operativa,
     ordenes,
+    pulso,
     research1816,
     research_bcra,
     research_docs,
@@ -130,6 +131,14 @@ async def lifespan(_app: FastAPI):
     y el session manager del MCP se fue con el MCP (2026-08-28).
     """
     _validar_postura_auth()
+    # La API también late (core/latido.py, §0.da): así `motor_latido` la mira
+    # como a cualquier proceso y `vista_ciega` puede decir «coincide con el
+    # reinicio de la API de las 11:20» en vez de dejar que alguien lo adivine.
+    try:
+        from core import latido
+        latido.arrancar("api.main")
+    except Exception as e:  # nunca puede impedir que la API arranque
+        logger.warning("latido de la API no arrancó: %s", e)
     yield
 
 
@@ -277,6 +286,7 @@ app.include_router(me.router)                                      # /api/me —
 # para nadie. Devuelve SOLO los del email que pregunta — no hay parámetro para
 # pedir los de otro. Ver api/routers/avisos.py.
 app.include_router(avisos.router,            dependencies=_PUBLIC)
+app.include_router(pulso.router,             dependencies=_PUBLIC)   # §0.dg — sin módulo, sin invitado
 app.include_router(ingest.router)                                  # /api/ingest — auth propia (X-Ingest-Token), no _PUBLIC
 app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)

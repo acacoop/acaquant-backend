@@ -2129,7 +2129,7 @@ def test_el_universo_de_procesos_sale_de_systemd_y_del_cron():
     from agente import unidades
     d = unidades.declaradas()
     assert d["motor_rofex"]["proceso"] == "engines.valores"
-    assert d["api"]["proceso"] is None, "uvicorn no corre por -m: no se le pide latido"
+    assert d["api"]["proceso"] == "api.main", "uvicorn api.main:app también late (§0.dg)"
     v = d["motor_rofex"]["ventana"]
     assert v["inicio"] == (13, 20) and v["fin"] == (20, 5) and v["dias"] == {0, 1, 2, 3, 4}
     assert d["agente"]["ventana"] is None, "sin cron que lo apague, corre siempre"
@@ -2458,3 +2458,56 @@ def test_foto_1816_canta_cuando_el_catalogo_quedo_viejo(monkeypatch):
     assert h.severidad == "alta" and "mercado_1816_discovery" in h.que_hacer
     monkeypatch.setattr(fuentes, "catalogo_1816_fecha", lambda: datetime(2026, 9, 2, 12, 4, tzinfo=UTC))
     assert sistema.foto_1816({"gracia_min": 60}) == []
+
+
+# ── EL PULSO DEL CLIENTE (§0.dg) ───────────────────────────────────────────
+
+def test_vista_ciega_agrupa_por_vista_y_cruza_con_el_reinicio_de_la_api(monkeypatch):
+    """De 37 pantallas que se refrescan solas, 3 le muestran el fallo a la
+    persona y el servidor no se entera de ninguna. El pulso es lo único que
+    le cuenta al agente lo que la mesa tiene enfrente, y el latido de la API
+    es lo que convierte «ciega 4 min» en «coincide con el deploy de las 11:20»."""
+    from datetime import datetime, timedelta
+
+    from agente import fuentes, latencia, reloj
+    ahora = datetime(2026, 9, 2, 11, 25, tzinfo=UTC)
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: ahora)
+    monkeypatch.setattr(latencia, "comparar", lambda: [])
+    t0 = ahora - timedelta(minutes=4)
+    monkeypatch.setattr(fuentes, "pulsos", lambda m=10: [
+        {"at": t0 + timedelta(minutes=1), "email": "a@x", "vista": "/agro",
+         "endpoint": "/api/derivados-agro", "motivo": "HTTP 502", "desde_at": t0},
+        {"at": t0 + timedelta(minutes=2), "email": "b@x", "vista": "/agro",
+         "endpoint": "/api/derivados-agro", "motivo": "HTTP 502", "desde_at": t0},
+        {"at": t0 + timedelta(minutes=3), "email": "a@x", "vista": "/renta-fija",
+         "endpoint": "/api/cotizaciones/snapshot-live", "motivo": "error de red",
+         "desde_at": t0 + timedelta(minutes=2)}])
+    monkeypatch.setattr(fuentes, "latidos", lambda: {"api.main": {
+        "arrancado_at": ahora - timedelta(minutes=5)}})
+    por = {h.sujeto: h for h in sistema.latencia({"pulso_ventana_min": 10})}
+    assert por["/agro"].regla == "vista_ciega"
+    assert "2 pantalla" in por["/agro"].problema and "reinicio de la API" in por["/agro"].problema
+    assert por["/agro"].evidencia["personas"] == ["a@x", "b@x"]
+    assert "/api/cotizaciones/snapshot-live" in por["/renta-fija"].detalle
+    # Sin pulsos no hay nada; sin poder leer, no se afirma.
+    monkeypatch.setattr(fuentes, "pulsos", lambda m=10: [])
+    assert sistema.latencia({}) == []
+    monkeypatch.setattr(fuentes, "pulsos", lambda m=10: None)
+    with pytest.raises(tipos.SinDatos):
+        sistema.latencia({})
+
+
+def test_la_api_late_y_el_pulso_tiene_puerta():
+    """La API era el único proceso sin vigía: `uvicorn api.main:app` → proceso
+    `api.main`, y `api/main.py` arranca su latido. El pulso entra por
+    `/api/pulso`, sin módulo y sin invitado."""
+    from agente import unidades
+    from api.routers import pulso
+    assert unidades.declaradas()["api"]["proceso"] == "api.main"
+    main = (RAIZ / "api" / "main.py").read_text(encoding="utf-8")
+    assert 'latido.arrancar("api.main")' in main
+    rutas = {r.path for r in pulso.router.routes}
+    assert "/api/pulso" in rutas
+    assert "require_no_invitado" in inspect.getsource(pulso)
+    from jobs import cleanup_retencion
+    assert any(r.tabla == "agente.pulso_cliente" for r in cleanup_retencion.TABLAS)

@@ -340,13 +340,17 @@ def trajo_poco(u: dict) -> list[Hallazgo]:
                                  minimo_referencia=minimo_ref)
             contra = "la mediana de sus últimas corridas"
         else:
+            # La referencia es la última corrida SANA del mismo día, no la
+            # inmediata anterior: el 28/08 el banco trajo 245 → 7 → 0, y contra
+            # el 7 la corrida del 0 «no opinaba» y cerraba el aviso por ausencia
+            # con el job todavía en cero (lo mostró diag_ingesta --simular).
             dia = cuando.astimezone(reloj.AR_TZ).date() if cuando else None
-            ant = next((c for c in validas[1:]
-                        if c.get("finished_at")
-                        and c["finished_at"].astimezone(reloj.AR_TZ).date() == dia), None)
-            r = _encogido_acumulado(hoy, _valor(ant, v.stat) if ant else None,
-                                    corte=corte, minimo_referencia=minimo_ref)
-            contra = "la corrida anterior del mismo día"
+            ant = next((x for x in (_valor(c, v.stat) for c in validas[1:]
+                                    if c.get("finished_at")
+                                    and c["finished_at"].astimezone(reloj.AR_TZ).date() == dia)
+                        if x is not None and x >= minimo_ref), None)
+            r = _encogido_acumulado(hoy, ant, corte=corte, minimo_referencia=minimo_ref)
+            contra = "la última corrida sana del mismo día"
         if not r or not r["encogido"]:
             continue
         out.append(Hallazgo(

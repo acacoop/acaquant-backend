@@ -2624,9 +2624,12 @@ def test_trajo_poco_compara_por_modo_y_saltea_las_corridas_en_seco(monkeypatch):
                + [corrida(1440 * (i + 1), "ok", cuentas_ok=1050 + i) for i in range(10)],
         # acumulado: 0 después de 382 el mismo día → encogido; la corrida en seco
         # del medio se saltea y no tapa la comparación
+        # 245 → 7 → 0 el mismo día (28/08 real): el 0 se compara contra el 245,
+        # la última SANA, y no contra el 7 — si no, cerraba el aviso por ausencia
         "interbanking_sync": [corrida(0, "ok", movimientos=0),
                               corrida(30, "ok", movimientos=0, modo="dry"),
-                              corrida(120, "ok", movimientos=382),
+                              corrida(90, "ok", movimientos=7),
+                              corrida(120, "ok", movimientos=245),
                               corrida(1500, "ok", movimientos=263)],
         # acumulado: primera corrida del día (la anterior es de ayer) → no opina
         "negocio_movimientos": [corrida(0, "ok", boletos=1200),
@@ -2639,7 +2642,7 @@ def test_trajo_poco_compara_por_modo_y_saltea_las_corridas_en_seco(monkeypatch):
     por = {(h.sujeto, h.regla): h for h in datos.trajo_poco(
         {"corte": 0.5, "min_corridas": 5, "minimo_referencia": 20, "ventana": 10})}
     assert por[("aum", "volumen_encogido")].evidencia["modo"] == "diario"
-    assert por[("interbanking_sync", "volumen_encogido")].evidencia["referencia"] == 382.0
+    assert por[("interbanking_sync", "volumen_encogido")].evidencia["referencia"] == 245.0
     assert ("negocio_movimientos", "volumen_encogido") not in por
     assert por[("snapshot_cierre", "volumen_sin_dato")].severidad == "baja"
     assert all(k[0] in {v.job for v in VOLUMENES} for k in por)

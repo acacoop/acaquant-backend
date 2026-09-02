@@ -120,10 +120,10 @@ def simular(n: int) -> int:
                                      minimo_referencia=min_ref)
             else:
                 dia = c["finished_at"].astimezone(AR_TZ).date()
-                ant = next((h for h in validas[i + 1:]
-                            if h["finished_at"].astimezone(AR_TZ).date() == dia), None)
-                r = _encogido_acumulado(hoy, _valor(ant, v.stat) if ant else None,
-                                        corte=corte, minimo_referencia=min_ref)
+                ant = next((x for x in (_valor(h, v.stat) for h in validas[i + 1:]
+                                        if h["finished_at"].astimezone(AR_TZ).date() == dia)
+                            if x is not None and x >= min_ref), None)
+                r = _encogido_acumulado(hoy, ant, corte=corte, minimo_referencia=min_ref)
             if r is None:
                 print(f"  {c['cuando']}  {hoy!s:>7}  no opina")
                 continue

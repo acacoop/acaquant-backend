@@ -328,6 +328,13 @@
 # muerto es core/instrumentos_validos, aplicado en el WS para todos los motores.
 # Depende de manager.pyrofex_instruments (scripts/discovery_pyrofex); si está
 # vacía aborta sin marcar, para no llenar la tabla de falsos negativos.
+# ─── Catálogo de 1816 (12:00 UTC = 09:00 ART, L-V) — jobs/mercado_1816_discovery.py
+# `research.mkt_1816_instrumentos` es de donde leen ficha_1816 (el emisor),
+# tamar_1816 (la grafía de las patas) y el alta del agente. Era manual: el
+# 2026-09-02 no tenía a S29E7, licitado hacía días. «Jamás algo así puede ser
+# estático» (user). ~29 créditos por corrida. Lo vigila `foto_1816`. AGENT.md §0.df.
+0 12 * * 1-5 /root/TradingAV/deploy/run_job.sh mercado_1816_discovery 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.mercado_1816_discovery --apply --catalogo'
+
 # ─── Ficha de bonos desde 1816 — jobs/ficha_1816.py
 # 1816 es la fuente de verdad del EMISOR (decisión del user 2026-08-15). Cubre
 # 140/140 de nuestros corporativos, y publica UN nombre por emisor — contra los

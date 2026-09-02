@@ -3924,3 +3924,33 @@ Y **la evidencia se ve**: `v_ahora` viaja con `visto_ultima_vez`, y las filas
 de AHORA y ENCONTRÓ muestran «confirmado hace N» al lado de «desde», más un
 desplegable con la evidencia del detector. Sin lo primero, un hallazgo de
 hace tres días y uno confirmado hace veinte minutos se veían iguales.
+
+---
+
+### 0.df EL CATÁLOGO DE 1816 TAMPOCO PUEDE SER ESTÁTICO (2026-09-02)
+
+> *«El del catálogo persistido es grave. Jamás algo así puede ser estático.»*
+
+Es la misma foto que Primary, en otra tabla. `research.mkt_1816_instrumentos`
+la escribía `jobs/mercado_1816_discovery --apply --catalogo`, a mano, y de ahí
+leen tres cosas: `ficha_1816` (el emisor estándar), `tamar_1816` (la grafía
+con la que 1816 publica cada pata) y el alta del agente. El 2026-09-02 no tenía
+a S29E7, licitado hacía días: un bono nuevo nacía sin emisor y sin tasa TAMAR
+aunque 1816 lo tuviera, y nada lo decía.
+
+- **Cron** a las 12:00 UTC L-V, antes de `tamar_1816` (13:00) y de
+  `ficha_1816` (22:30). Con `--catalogo` las curvas de cruce salen del catálogo
+  ya relevado: una pasada por 1816, ~29 créditos por día, no dos.
+- **El job deja rastro** (`JobRunLogger`, stats `relevados`, `catalogo`,
+  `catalogo_guardados`, `watch`) y se niega a tocar la tabla si 1816 no
+  devuelve nada.
+- **Habilidad `foto_1816`** (SISTEMA, cada hora): lee `max(actualizado_en)` y
+  lo compara con la última corrida esperada del cron, leído del repo.
+- **Un solo detector para las dos fotos**: `foto_primary` y `foto_1816` son
+  dos filas del catálogo sobre `_foto(...)`. La tercera foto que aparezca es
+  otra fila, no otra copia de «¿esto quedó viejo?».
+
+Pendiente de decidir: `soberanos_faltantes` censa 1816 en vivo cuatro veces
+por día (~116 créditos). Con el catálogo fresco a diario podría leer de ahí y
+ahorrar eso; la diferencia sería enterarse de un bono nuevo a las 9 y no a las
+10. Se deja para el user.

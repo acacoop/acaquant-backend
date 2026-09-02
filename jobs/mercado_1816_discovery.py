@@ -14,11 +14,21 @@ Uso:
     python -m jobs.mercado_1816_discovery --dry-run             # qué matchea (sin escribir)
     python -m jobs.mercado_1816_discovery --apply               # popula watch + instrumentos
     python -m jobs.mercado_1816_discovery --apply --catalogo    # + la ficha de TODAS las curvas
+
+⚠️ **Corre por cron desde el 2026-09-02** (12:00 UTC L-V, `--apply --catalogo`).
+Hasta entonces era manual, y el catálogo que leen `ficha_1816` (el emisor),
+`tamar_1816` (la grafía de las patas) y el alta del agente tenía la foto del día
+que alguien se acordó de correrlo: S29E7 se licitó y no existía para ninguno de
+los tres. El user: *«jamás algo así puede ser estático»*. La habilidad
+`foto_1816` del agente canta si un día no corrió. Ver `docs/AGENT.md` §0.df.
+Con `--catalogo` las curvas de cruce salen del catálogo ya relevado: una sola
+pasada por 1816 (~29 créditos), no dos.
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import sys
 
 from core import mercado_1816
 from core.postgres import get_pool
@@ -182,7 +192,13 @@ def _upsert(matches: list[dict]) -> None:
             )
 
 
-def main() -> None:
+def main() -> int:
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("mercado_1816_discovery") as jr:
+        return _main(jr)
+
+
+def _main(jr) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="escribe watch + instrumentos")
     ap.add_argument("--dry-run", action="store_true", help="solo muestra el cruce")
@@ -193,11 +209,20 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     if not mercado_1816.disponible():
-        print("✗ falta MERCADO_1816_API_KEY en el .env")
-        return
+        jr.error("falta MERCADO_1816_API_KEY en el .env")
+        return 1
 
     mis = _mis_tickers()
-    insts = _instrumentos_1816()
+    cat: list[dict] = []
+    if args.catalogo:
+        # La ficha COMPLETA, y de ahí salen también las curvas de cruce: pedirle
+        # a 1816 las mismas 13 curvas dos veces era pagar dos veces lo mismo.
+        cat = _todo_el_catalogo()
+        cruce = {**_CURVAS_CRUCE, **_CURVAS_METADATA_EXTRA}
+        insts = [i for i in cat if i.get("_curva_id") in cruce]
+    else:
+        insts = _instrumentos_1816()
+    jr.set_stat("relevados", len(insts))
     # el cruce automático es SOLO contra las curvas de cruce (las de metadata
     # extra no cruzan — aportan info de los _EXTRA_WATCH corporativos)
     matches = [i for i in insts
@@ -229,21 +254,33 @@ def main() -> None:
         print(f"\nTuyos SIN match en 1816 ({len(sin_match)}) — quedan afuera "
               f"(pueden ser ONs, o ticker distinto):\n  " + ", ".join(sin_match))
 
+    jr.set_stat("match", len(matches))
+    jr.set_stat("extras", len(extras))
+    jr.set_stat("sin_match", len(sin_match))
     if args.catalogo:
-        # La ficha COMPLETA, independiente del cruce y del watch.
-        cat = _todo_el_catalogo()
         print(f"\nCATÁLOGO COMPLETO: {len(cat)} instrumentos en todas las curvas")
+        jr.set_stat("catalogo", len(cat))
+        if not cat:
+            # Sin catálogo no se pisa nada, y se dice: un TRUNCATE con una
+            # respuesta vacía dejaría a ficha_1816 y tamar_1816 sin contra qué.
+            jr.error("1816 no devolvió ningún instrumento: no se tocó el catálogo")
+            return 1
         if args.apply and not args.dry_run:
-            print(f"  → {_upsert_catalogo(cat)} guardados en mkt_1816_instrumentos")
+            n = _upsert_catalogo(cat)
+            jr.set_stat("catalogo_guardados", n)
+            print(f"  → {n} guardados en mkt_1816_instrumentos")
 
     if not args.apply or args.dry_run:
         print("\n(DRY-RUN — no se escribió. Corré con --apply para popular el universo.)")
-        return
+        jr.set_stat("dry", True)
+        return 0
 
     _upsert(matches + extras)
+    jr.set_stat("watch", len(matches) + len(extras))
     print(f"\n✅ {len(matches) + len(extras)} bonos en research.mkt_1816_watch. "
           f"Ahora corré: python -m jobs.mercado_1816_series --backfill")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

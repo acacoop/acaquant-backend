@@ -145,6 +145,18 @@ def primary_fecha():
     return _una_vez("primary_fecha", _leer)
 
 
+def catalogo_1816_fecha():
+    """Cuándo se refrescó por última vez `research.mkt_1816_instrumentos`
+    (`max(actualizado_en)`), o `None` si está vacía. Misma idea que
+    `primary_fecha`: una foto tiene fecha y la fecha se vigila (§0.df)."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT max(actualizado_en) FROM research.mkt_1816_instrumentos")
+            r = cur.fetchone()
+        return r[0] if r else None
+    return _una_vez("catalogo_1816_fecha", _leer)
+
+
 def tickers_en_primary() -> set[str] | None:
     """Los tickers que Primary lista, sacados del símbolo tal cual.
 

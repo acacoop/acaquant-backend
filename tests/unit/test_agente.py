@@ -2422,3 +2422,39 @@ def test_job_reporto_convierte_el_contador_en_aviso_con_su_lista(monkeypatch):
     monkeypatch.setattr(datos, "_ultima_corrida", _rompe)
     with pytest.raises(tipos.SinDatos):
         datos.job_reporto({})
+
+
+# ── EL CATÁLOGO DE 1816 NO ES ESTÁTICO (§0.df) ─────────────────────────────
+
+def test_el_catalogo_de_1816_tiene_cron_vigia_y_rastro():
+    """User (2026-09-02): *«jamás algo así puede ser estático»*. La misma
+    receta que la foto de Primary: un cron en el repo, una habilidad que lee
+    ESE cron y canta si no corrió, y el job deja rastro en job_runs."""
+    from agente import crontab
+    cron = sistema._cron_de(crontab.del_repo(), "jobs.mercado_1816_discovery")
+    assert cron is not None, "deploy/crontab.txt no corre mercado_1816_discovery"
+    minuto, hora = (int(x) for x in cron.split()[:2])
+    assert (hora, minuto) < (13, 0), "antes de tamar_1816 (13:00 UTC), que lee la grafía de ahí"
+    h = catalogo.HABILIDADES["foto_1816"]
+    assert h.dominio == "SISTEMA" and not h.arreglos
+    job = (RAIZ / "jobs" / "mercado_1816_discovery.py").read_text(encoding="utf-8")
+    assert "JobRunLogger" in job and "sys.exit(main())" in job
+    # Las dos fotos comparten el detector: dos copias de «¿la foto está vieja?»
+    # se separarían el día que se corrija una.
+    assert "_foto(" in inspect.getsource(sistema.foto_primary)
+    assert "_foto(" in inspect.getsource(sistema.foto_1816)
+
+
+def test_foto_1816_canta_cuando_el_catalogo_quedo_viejo(monkeypatch):
+    from datetime import datetime
+
+    from agente import crontab, fuentes, reloj
+    monkeypatch.setattr(crontab, "del_repo", lambda: {
+        "0 12 * * 1-5 run_job.sh mercado_1816_discovery 15m 'python -m jobs.mercado_1816_discovery --apply --catalogo'"})
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 2, 14, 0, tzinfo=UTC))
+    monkeypatch.setattr(fuentes, "catalogo_1816_fecha", lambda: datetime(2026, 8, 15, 12, 5, tzinfo=UTC))
+    (h,) = sistema.foto_1816({"gracia_min": 60})
+    assert h.regla == "foto_vieja" and h.sujeto == "research.mkt_1816_instrumentos"
+    assert h.severidad == "alta" and "mercado_1816_discovery" in h.que_hacer
+    monkeypatch.setattr(fuentes, "catalogo_1816_fecha", lambda: datetime(2026, 9, 2, 12, 4, tzinfo=UTC))
+    assert sistema.foto_1816({"gracia_min": 60}) == []

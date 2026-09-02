@@ -139,6 +139,15 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         correr=sistema.foto_primary,
         umbrales={"gracia_min": 60}),
 
+    # La otra foto: el catálogo de 1816, de donde leen el emisor, la grafía
+    # TAMAR y el alta. Era manual (§0.df): ahora corre por cron y esto lo vigila.
+    Habilidad(
+        nombre="foto_1816", tipo="detector", dominio="SISTEMA",
+        que_mira="que el catálogo de 1816 (emisor, grafía TAMAR, alta) no quede viejo",
+        cada_segundos=1 * _H, ventana="siempre",
+        correr=sistema.foto_1816,
+        umbrales={"gracia_min": 60}),
+
     Habilidad(
         nombre="cron_desalineado", tipo="detector", dominio="SISTEMA",
         que_mira="el crontab del repo contra el de la máquina, en las dos direcciones",

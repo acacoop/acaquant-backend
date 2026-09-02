@@ -314,12 +314,6 @@
 # Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/RESEARCH.md.
 */30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'
 
-# ─── Guardrails de datos (invariantes post-cierre) — docs/RUNBOOK.md
-# Corre DESPUÉS de snapshot_cierre (20:25). Report en el log del job + stat
-# `violaciones` en manager.job_runs; los umbrales se fijan en
-# config.GUARDRAILS_UMBRALES (None = sin calibrar, no marca violación).
-45 20 * * 1-5 /root/TradingAV/deploy/run_job.sh guardrails 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.guardrails'
-
 # ─── Vigencia + validación de símbolos de mercado — jobs/validar_instrumentos.py
 # A la NOCHE, después del cierre y del discovery: (1) da de baja los títulos que
 # ya amortizaron (`portafolio.assets.vigente`, motivo `vencido`, reversible), y

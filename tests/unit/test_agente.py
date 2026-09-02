@@ -2574,3 +2574,70 @@ def test_parsear_tolera_el_cerco_y_rechaza_lo_que_no_es_la_forma():
     assert explicar._parsear('```json\n{"explicacion": "x", "de_quien": "raro"}\n```')["de_quien"] == "no_se"
     assert explicar._parsear("hola") is None
     assert explicar._parsear('{"otra": 1}') is None
+
+
+# ── EL CIERRE CONTRA SU HISTORIA (§0.dj) ─────────────────────────────────────
+
+def test_cierre_sano_mide_la_normalidad_y_no_inventa_umbral(monkeypatch):
+    """El AuM cae 8% con una historia que nunca pasó de 1%: canta. Un bono que
+    se mueve 3% por día y hoy 4% no canta: SU máximo es 3 y 4 < 1,5 × 3. Y una
+    fila del cierre con precio null es inválida siempre, sin historia."""
+    from datetime import date, timedelta
+
+    from agente import fuentes, reloj
+    from agente.detectores import datos
+
+    monkeypatch.setattr(reloj, "hhmm", lambda a=None: "17:30")
+    d0 = date(2026, 9, 2)
+    fechas = [d0 - timedelta(days=i) for i in range(15)]
+    # AuM: 100, 108 (hoy cayó 8% contra ayer)… y antes ±1%.
+    aum = [(fechas[0], 100.0), (fechas[1], 108.7)] + [
+        (f, 108.7 * (1 + (0.01 if i % 2 else -0.01))) for i, f in enumerate(fechas[2:])]
+    monkeypatch.setattr(fuentes, "aum_serie", lambda fechas=20: aum)
+    precios = {}
+    for i, f in enumerate(fechas):
+        precios[f] = {"AL30": 100 * (1.03 ** (i % 2)),    # ±3% todos los días
+                      "GD30": 100.0 if i else 130.0}       # hoy +30% sobre una serie plana
+    precios[fechas[0]]["AL30"] = 104.0                      # hoy +4%: dentro de 1,5 × 3
+    cierres = {"fechas": fechas, "precios": precios,
+               "filas_hoy": [{"ticker_corto": "AL30", "ultimo_precio": 104.0},
+                             {"ticker_corto": "TX26", "ultimo_precio": None}]}
+    monkeypatch.setattr(fuentes, "cierres", lambda fechas=20: cierres)
+    monkeypatch.setattr(fuentes, "emisores_estado", lambda: {
+        "sin_industria": [{"emisor": "YPF", "bonos": 3}],
+        "contradicciones": [{"emisor": "PAMPA", "bonos": 4, "sectores": "Energía · Gas"}]})
+
+    por = {(h.sujeto, h.regla): h for h in datos.cierre_sano({"veces_maximo": 1.5,
+                                                              "min_historia": 10})}
+    assert ("AuM", "aum_salto") in por and por[("AuM", "aum_salto")].severidad == "alta"
+    assert ("cierre", "cierre_invalido") in por
+    assert por[("cierre", "cierre_invalido")].evidencia["items"] == ["TX26"]
+    assert ("AL30", "cierre_salto") not in por, "4% con máximo 3% no supera 1,5×"
+    # GD30: plano (máximo 0) → no se opina, porque 1,5 × 0 cantaría cualquier cosa
+    assert ("GD30", "cierre_salto") not in por
+    assert ("PAMPA", "emisor_contradictorio") in por
+    assert por[("industria", "emisor_sin_industria")].evidencia["items"] == ["YPF"]
+    for h in por.values():
+        assert h.que_hacer and "17:30" in h.problema
+
+
+def test_cierre_sano_ciego_de_las_tres_fuentes_levanta_y_de_una_sigue(monkeypatch):
+    """Invariante #1: sin ninguna fuente es `SinDatos`. Con una sola caída, las
+    otras reglas corren y la caída se dice en el log en vez de cerrar nada."""
+    from agente import fuentes
+    from agente.detectores import datos
+
+    monkeypatch.setattr(fuentes, "aum_serie", lambda fechas=20: None)
+    monkeypatch.setattr(fuentes, "cierres", lambda fechas=20: None)
+    monkeypatch.setattr(fuentes, "emisores_estado", lambda: None)
+    with pytest.raises(tipos.SinDatos):
+        datos.cierre_sano({})
+    monkeypatch.setattr(fuentes, "emisores_estado", lambda: {
+        "sin_industria": [], "contradicciones": [{"emisor": "X", "bonos": 2, "sectores": "a · b"}]})
+    assert [h.regla for h in datos.cierre_sano({})] == ["emisor_contradictorio"]
+
+    h = catalogo.HABILIDADES["cierre_sano"]
+    assert h.ventana == "cierre" and h.dominio == "DATOS" and not h.arreglos
+    assert h.umbrales == {"veces_maximo": 1.5, "min_historia": 10}
+    assert not (RAIZ / "jobs" / "guardrails.py").exists(), "guardrails se fue con el job"
+

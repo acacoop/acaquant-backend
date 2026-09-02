@@ -172,24 +172,6 @@ CF_TRUSTED_SERVICE_TOKENS: set[str] = {
     if t.strip()
 }
 
-# --- GUARDRAILS DE DATOS (docs/RUNBOOK.md, commit 2) ---
-# Umbrales de los invariantes de sanidad post-cierre (jobs/guardrails.py).
-# None = SIN CALIBRAR: el check corre igual (muestra el valor real medido)
-# pero JAMÁS marca violación. Calibrar corriendo varios días
-# `python -m jobs.guardrails` y fijando acá valores sensatos con esos
-# números en la mano (REGLA #2: nada de umbrales a ojo).
-GUARDRAILS_UMBRALES: dict[str, float | None] = {
-    "aum_delta_pct": None,        # |Δ%| del AuM total día-contra-día
-    "salto_precio_pct": None,     # |Δ%| del precio de cierre por bono vs cierre previo
-    "cobertura_curva_pct": None,  # % mínimo de bonos del master con cierre en el día
-    "especies_cruzadas_max": None,  # bonos cuyo instrumento no es de su moneda
-    # Corporativos cuyo emisor no tiene industria. Arranca en None (= no marca
-    # violación) igual que el resto: el catálogo recién se siembra y hoy son 51.
-    # Se fija cuando la mesa termine de cargar — la idea es que el número BAJE y
-    # el umbral lo sostenga, no al revés.
-    "emisores_sin_industria_max": None,
-}
-
 # --- CUPO TRANSACCIONAL ---
 # `clientes.comitentes.cupo_usado_ars` es una FOTO cargada a mano el 2026-06-01
 # (medido: `cupo_cargado_en` quedó NULL en las 1.567 cuentas, así que la fecha no

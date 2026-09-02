@@ -245,36 +245,19 @@ lo que la plataforma muestra y saber cómo se usa?**
 
 ---
 
-### COMMIT 2 — Guardrails de datos (invariantes post-cierre) ✅ HECHO (2026-07-18)
+### COMMIT 2 — Guardrails de datos → ABSORBIDO por el AV AGENT (2026-09-02)
 
-**Qué es:** `jobs/guardrails.py` — registry de **invariantes de sanidad**:
-funciones PURAS y testeables (`check_*(datos) → [{ok, check_id, severidad,
-mensaje, valor_medido, umbral}]`) + un runner que lee SQL scopeado (2 fechas
-puntuales por tabla, REGLA #4) y las corre post-cierre (cron 20:45 UTC L-V,
-después de snapshot_cierre 20:25).
+`jobs/guardrails.py` existió del 2026-07-18 al 2026-09-02. Sus umbrales nacieron
+en `None` («sin calibrar») y nunca se calibraron: corría todas las noches y no
+podía marcar una sola violación. Lo que miraba vive hoy en el agente:
 
-**Set inicial (4 checks sobre datos que EXISTEN):**
-1. `aum_delta` (alta) — AuM total día-contra-día (`portafolio.tenencia` aum='si';
-   la valuación YA viene con el divisor por cartera del writer — no se recalcula).
-2. `sanidad_cierre` (alta, ABSOLUTO sin umbral) — sin precios ≤0/null ni filas
-   sin ticker en el cierre.
-3. `salto_precio` (media) — |Δ%| de cierre por bono vs cierre previo.
-4. `cobertura_curva` (media) — % de bonos del master con cierre, por curva
-   (ONs excluidas a propósito: ilíquidas, darían falsos rojos).
+| check viejo | dónde vive hoy |
+|---|---|
+| `aum_delta`, `salto_precio`, `sanidad_cierre`, `emisor_contradictorio`, `emisor_sin_industria` | habilidad **`cierre_sano`** (`agente/detectores/datos.py`), ventana `cierre`, sin umbral en %: la normalidad se mide contra las últimas fechas |
+| `cobertura_curva` | `bono_sin_precio` + el reporte `snapshot_cierre.curvas_salteadas` |
+| `especies_cruzadas` | `precio_moneda` (`pata_equivocada`) + el duplicado `simbolo_master_vs_especies` de `dato_partido` |
 
-**Calibración (REGLA #2, el corazón del diseño):** los umbrales viven en
-`config.GUARDRAILS_UMBRALES` y NACEN en `None` = sin calibrar → el check MIDE y
-reporta el valor real pero JAMÁS marca violación. **El user corre
-`python -m jobs.guardrails` varios días, mira los valores medidos y fija los
-umbrales con esos números.** El resultado queda en el log del job y como stat
-`violaciones` en `manager.job_runs` (visible en Manager → jobs). *(2026-07-25:
-se eliminó la pata de alertas Telegram — decomiso total de Telegram.)*
-
-**Piezas:** `jobs/guardrails.py` · umbrales en `config.py` · cron en
-`deploy/crontab.txt` · SISTEMA.md regenerado · `tests/unit/test_guardrails.py`
-(7 tests de los checks puros, incl. la semántica None-no-viola).
-
----
+Historia y decisión: `docs/AGENT.md` §0.dj.
 
 ### COMMIT 3 — Golden tests del pipeline crítico ✅ HECHO (2026-07-18)
 
@@ -320,14 +303,9 @@ obliga a revisar lo ya ingestado con ese patrón.
 git pull
 python -m scripts.apply_schema        # crea manager.latencia_endpoints
 systemctl restart api.service          # activa el middleware de telemetría
-python -m jobs.guardrails              # 1ª corrida del report de calibración
 ```
 - El panel **Manager → OBSERVABILIDAD → LATENCIA** muestra datos tras ~1 min de uso
   (la tab USO se decomisó — ver arriba).
-- **Calibración de guardrails:** correr/leer el report unos días (el cron 20:45
-  ya lo corre solo y el output queda en `logs/guardrails.log`); con los valores
-  medidos, fijar los umbrales en `config.GUARDRAILS_UMBRALES` y cambiar el cron
-  a `--alert`.
 - **Decidir el hallazgo `_to_float("1.500")`** (ver commit 3).
 
 ### Registro (con fecha)

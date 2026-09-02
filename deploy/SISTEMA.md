@@ -112,7 +112,6 @@
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
 | 19:45 · L-V | `jobs.saldos_a_operadores'` |
-| 20:45 · L-V | `jobs.guardrails'` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 02:50 · Mar-Sáb | `jobs.tesoreria_snapshot'` |
 | 20:50 · L-V | `jobs.archive_options_data` |

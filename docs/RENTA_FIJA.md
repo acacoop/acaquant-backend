@@ -393,7 +393,7 @@ nadie lo hubiera clasificado), pero hay que completarlos: **10 bonos** —
 
 **Lectores de `curva` que quedan** (la columna todavía no se puede borrar):
 `engines/curvas.py` (`curva_depende_de` / `dep_tasa_disponible` — de qué feed
-depende la TEA), `jobs/backfill_tasas.py`, `jobs/guardrails.py::_leer_master_por_curva`,
+depende la TEA), `jobs/backfill_tasas.py`,
 `api/services/titulos_flujos.py`, y la clave persistida de las 4 tablas
 particionadas (fase B2-B5, el único paso irreversible).
 
@@ -844,15 +844,7 @@ acepta "todos".
 > corregirlos ahora sería trabajo que se rehace. Los 2 que NO son ONs (`AO29`
 > soberano y `CO32`) se pueden corregir ya.
 
-**GUARDRAIL — `especies_cruzadas`** (`jobs/guardrails.py`, corre 20:45 UTC L-V).
-El cruce de `AO29` estuvo meses invisible: el dato estaba, pero **ninguna pantalla
-se hacía la pregunta**. El check la hace todos los días y cuenta los bonos cuyo
-instrumento default no es de la moneda en la que se denominan **habiendo pata
-disponible** (esa segunda mitad es la que evita el falso positivo de las ONs sin
-pata en dólares). Nace **sin calibrar** a propósito — `especies_cruzadas_max: None`
-en `config.GUARDRAILS_UMBRALES` — así reporta el número medido sin marcar rojo
-mientras los 34 de las ONs siguen abiertos; se fija en **0** cuando el rediseño de
-ONs los cierre.
+**El cruce de especies lo vigila el AV AGENT** (`precio_moneda`, regla `pata_equivocada`, y el duplicado `simbolo_master_vs_especies` de `dato_partido`). El check `especies_cruzadas` de `jobs/guardrails.py` que lo hacía a las 20:45 se dio de baja el 2026-09-02 con el job entero (`docs/AGENT.md` §0.dj): nació sin calibrar y nunca marcó nada.
 
 **Estado (2026-08-15, aplicado):** 758 patas sembradas · `AO29` y `CO32`
 repuntados a su pata en dólares · **34 cruces pendientes, todos ONs**.

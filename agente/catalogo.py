@@ -218,6 +218,20 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=1 * _H, ventana="siempre",
         correr=datos.job_reporto),
 
+    # El cierre del día contra SU historia (§0.dj). Reemplaza a `jobs/guardrails`,
+    # cuyos umbrales nacieron en None el 2026-07-18 y nunca se calibraron: corría
+    # todas las noches y no podía marcar nada. Acá la normalidad se mide sobre
+    # las últimas fechas; `veces_maximo` es cuántas veces el máximo histórico
+    # tiene que superar el movimiento de hoy para cantar. Sin arreglo a
+    # propósito: un AuM que saltó o un cierre raro los mira una persona.
+    Habilidad(
+        nombre="cierre_sano", tipo="detector", dominio="DATOS",
+        que_mira="el cierre del día contra su propia historia: AuM, precios, filas inválidas, "
+                 "y los emisores que se contradicen",
+        cada_segundos=12 * _H, ventana="cierre",
+        correr=datos.cierre_sano,
+        umbrales={"veces_maximo": 1.5, "min_historia": 10}),
+
     Habilidad(
         nombre="dato_partido", tipo="detector", dominio="DATOS",
         que_mira="dos copias del mismo dato que dejaron de decir lo mismo",

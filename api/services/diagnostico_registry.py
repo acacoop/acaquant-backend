@@ -106,10 +106,6 @@ PIEZAS: list[Pieza] = [
     # La pata TAMAR de los duales NO la calcula ningún motor: la trae 1816. Sin
     # esta pieza, el día que el feed se corta la vista muestra la celda vacía y
     # nadie se entera (la TEA de la otra pata sigue viva y todo «parece bien»).
-    Pieza("MERCADOS", "job", "licitaciones (mails 1816 → IA)", grupo="RENTA FIJA",
-          unidad="jobs.licitaciones",
-          cadencia="cada 30m · 10-14 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          run_tipo="licitaciones"),
     Pieza("MERCADOS", "job", "mercado_1816_discovery (catálogo 1816)", grupo="RENTA FIJA",
           unidad="jobs.mercado_1816_discovery",
           cadencia="diario 12:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D),

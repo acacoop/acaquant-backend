@@ -554,34 +554,6 @@ CREATE TABLE IF NOT EXISTS operaciones.motor_heartbeat (
     data       jsonb
 );
 
--- LAS LICITACIONES que anuncian los mails de 1816 (AGENT.md §0.di). Las
--- extrae `jobs/licitaciones` con la IA y las cruza `licitacion_anunciada`
--- contra el master, Primary y el catálogo: es enterarse de un bono ANTES de
--- que exista en algún lado. `licitaciones_mail` marca cada mail procesado
--- (y cuántos trajo): re-correr no vuelve a pagar la llamada.
-CREATE TABLE IF NOT EXISTS mercado.licitaciones (
-    ticker            text PRIMARY KEY,
-    denominacion      text NOT NULL DEFAULT '',
-    tipo              text NOT NULL DEFAULT '',
-    ajuste            text NOT NULL DEFAULT 'otro',
-    moneda            text NOT NULL DEFAULT '',
-    fecha_licitacion  date,
-    fecha_liquidacion date,
-    vencimiento       date,
-    emisor            text NOT NULL DEFAULT '',
-    research_id       bigint,
-    asunto_mail       text NOT NULL DEFAULT '',
-    fecha_mail        date,
-    detectado_at      timestamptz NOT NULL DEFAULT now(),
-    actualizado_at    timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS mercado.licitaciones_mail (
-    research_id  bigint PRIMARY KEY,
-    procesado_at timestamptz NOT NULL DEFAULT now(),
-    encontrados  integer NOT NULL DEFAULT 0,
-    con_ia       boolean NOT NULL DEFAULT false
-);
-
 -- EL PULSO DEL CLIENTE (AGENT.md §0.dg): una pantalla que no pudo refrescar
 -- durante más de un minuto lo dice, una vez por minuto, y acá queda con hora.
 -- Es lo único que le cuenta al agente lo que la mesa tiene enfrente: un 502

@@ -142,65 +142,6 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
     return out
 
 
-# ═══ licitacion_anunciada ══════════════════════════════════════════════════
-def licitacion_anunciada(u: dict) -> list[Hallazgo]:
-    """Un bono que los mails de 1816 anunciaron y que todavía no existe en
-    ningún lado nuestro: ni en el master, ni en Primary, ni en el catálogo.
-
-    Es la única habilidad cuyo dato lo produce la IA (`jobs/licitaciones`,
-    §0.di), y por eso declara `usa_ia`. El agente no llama al modelo: lee lo
-    que el job extrajo y lo VERIFICA contra tres fuentes que no son la IA. Lo
-    que Primary ya lista lo pide `soberanos_faltantes` como alta; acá queda
-    solo lo que viene ANTES de eso. Cierra por ausencia cuando entra al master.
-    """
-    lic = fuentes.licitaciones(int(u.get("dias", 20)))
-    if lic is None:
-        raise SinDatos("no pude leer mercado.licitaciones")
-    if not lic:
-        return []
-    docs = fuentes.master()
-    if docs is None:
-        raise SinDatos("no pude leer mercado.curvas")
-    mios = {_tk(d.get("ticker_corto")) for d in docs} - {""}
-    primary = fuentes.tickers_en_primary()
-    catalogo = fuentes.catalogo_1816_tickers()
-    hoy = reloj.ahora_utc().date()
-
-    out = []
-    for r in lic:
-        tk = _tk(r["ticker"])
-        if not tk or tk in mios:
-            continue
-        en_primary = primary is not None and tk in primary
-        en_catalogo = catalogo is not None and tk in catalogo
-        if en_primary and en_catalogo:
-            continue                    # ya lo ve soberanos_faltantes
-        liq = r.get("fecha_liquidacion")
-        cuando = (f"liquida el {liq:%d/%m}" if liq and liq >= hoy else
-                  f"liquidó el {liq:%d/%m}" if liq else "sin fecha de liquidación")
-        falta = " y ".join(x for x in (
-            "Primary no lo lista" if not en_primary else "",
-            "1816 no lo tiene en su catálogo" if not en_catalogo else "") if x)
-        out.append(Hallazgo(
-            sujeto=tk, regla="anunciada", severidad="media",
-            nombre=f"{tk} · {r.get('denominacion') or r.get('tipo') or 'licitación'}",
-            problema=(f"el mail de 1816 del {r['fecha_mail']:%d/%m} anuncia {tk} "
-                      f"({r.get('ajuste')} · {r.get('moneda') or '?'}), {cuando}; "
-                      f"{falta} · {reloj.hhmm()}"),
-            detalle=str(r.get("asunto_mail") or ""),
-            que_hacer=("Nada que cargar todavía: no cotiza. Cuando Primary lo liste, "
-                       "`soberanos_faltantes` lo va a pedir como alta con su cronograma. "
-                       "Si es un bono que la casa va a tomar, avisar a la mesa que viene."),
-            evidencia={"denominacion": r.get("denominacion"), "tipo": r.get("tipo"),
-                       "ajuste": r.get("ajuste"), "moneda": r.get("moneda"),
-                       "fecha_licitacion": r.get("fecha_licitacion"),
-                       "fecha_liquidacion": liq, "vencimiento": r.get("vencimiento"),
-                       "emisor": r.get("emisor"), "en_primary": en_primary,
-                       "en_catalogo_1816": en_catalogo,
-                       "mail": r.get("asunto_mail"), "fuente": "IA sobre ia.research"}))
-    return out
-
-
 # ═══ bono_sin_flujo ════════════════════════════════════════════════════════
 def bono_sin_flujo(u: dict) -> list[Hallazgo]:
     """Bonos del master sin cronograma de pagos: no valúan.

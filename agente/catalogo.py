@@ -39,16 +39,6 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         correr=mercado.soberanos_faltantes,
         arreglos={"no_esta_en_curvas": "alta_bono"}),
 
-    # La única con `usa_ia`: su dato lo extrae la IA de los mails de 1816
-    # (`jobs/licitaciones`, §0.di) y el detector lo VERIFICA contra el master,
-    # Primary y el catálogo — que no son la IA. Sin arreglo: no cotiza todavía.
-    Habilidad(
-        nombre="licitacion_anunciada", tipo="detector", dominio="MERCADO",
-        que_mira="bonos que los mails de 1816 anuncian y que no existen todavía en ningún lado",
-        cada_segundos=2 * _H, ventana="siempre", usa_ia=True,
-        correr=mercado.licitacion_anunciada,
-        umbrales={"dias": 20}),
-
     Habilidad(
         nombre="bono_sin_flujo", tipo="detector", dominio="MERCADO",
         que_mira="bonos cargados sin cronograma de pagos: no valúan",

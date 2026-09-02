@@ -91,11 +91,6 @@ _TAREAS: dict[str, dict] = {
     # y cacheada por hash del error: el mismo error no se paga dos veces.
     "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
                        "thinking": "disabled"},
-    # Quién la mira: `jobs/licitaciones.py` → `mercado.licitaciones` → la
-    # habilidad `licitacion_anunciada` del agente (§0.di). Extracción
-    # estructurada de un mail; se verifica después contra Primary y 1816.
-    "licitacion_extraer": {"tier": "flash", "max_tokens": 900, "timeout_s": 60,
-                           "thinking": "disabled"},
     # ⚠️ `research_destilar` se fue el 2026-08-28 con su job: era la ÚLTIMA tarea
     # productiva del sistema. Se probó cuatro días (14-17/07), se apagó el 17/07
     # y ninguna pantalla llegó a dibujar su salida. Con ella, `smoke` quedó como

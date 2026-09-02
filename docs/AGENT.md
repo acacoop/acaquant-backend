@@ -3681,9 +3681,12 @@ dentro.
    Lee el horario **del crontab del repo**, no de una copia, calcula la última
    corrida esperada (L-V) y canta `foto_vieja` o `nunca_corrio`. Sin arreglo a
    propósito: sacar la foto necesita sesión pyRofex y el daemon no la tiene.
-3. **El descarte se canta**: regla `no_cotiza_en_primary`, AVISO de severidad
-   baja (vive en AHORA, no en ENCONTRÓ), con la fecha de la foto en el texto y
-   en la evidencia. Lo que está en cartera sigue pidiendo el alta.
+3. ~~El descarte se canta como aviso por bono~~ — **duró un día.** El user
+   (2026-09-02): *«si Primary no lo lista es porque no está, eso mata todo; no
+   hay que insistir»*. Primary ES el mercado. Lo que 1816 publica y Primary no
+   lista se descarta (y se cuenta en el log); lo que hacía falta no era avisar
+   sino que la foto fuera fresca y vigilada, que son los puntos 1 y 2. Lo que
+   está en cartera sigue pidiendo el alta.
 4. **El pre-flight distingue foto de vivo**: `_estado_simbolo` pregunta a
    Primary en vivo (`ordenes.simbolos_live`, la misma llamada que OPERAR) antes
    de afirmar que no lo lista. En vivo sí / foto no → INFO con la fecha de la

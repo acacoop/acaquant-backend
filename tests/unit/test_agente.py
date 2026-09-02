@@ -2007,13 +2007,12 @@ def _universo_1816(*tickers: str) -> dict:
             "denominacion": f"Letra {t}"} for t in tickers}}
 
 
-def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
-    """S29E7 (2026-09-01): la habilidad corrió 4 veces, guardó 1 hallazgo y el
-    resto de los licitados nuevos cayó en un `continue` con log.info porque la
-    FOTO de Primary tenía 17 días. «Miré y guardé lo que vi» sobre un descarte
-    invisible es un detector que dejó de mirar. El descarte se canta como AVISO,
-    con la fecha de la foto — y el que está en cartera sigue pidiendo el alta."""
-    from datetime import datetime
+def test_soberanos_faltantes_descarta_lo_que_primary_no_lista_salvo_cartera(monkeypatch):
+    """User (2026-09-02): *«si Primary no lo lista es porque no está, eso mata
+    todo; no hay que insistir»*. Lo que 1816 publica y Primary no lista NO es
+    un hallazgo — ni alta ni aviso —, salvo que esté en cartera, donde el
+    problema es más grave. Lo que garantiza que «no está en Primary» sea
+    verdad es la foto fresca (§0.cy), no un aviso por bono."""
     from types import SimpleNamespace
 
     from agente import fuentes
@@ -2024,8 +2023,6 @@ def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
     monkeypatch.setattr(fuentes, "master", lambda: [{"ticker_corto": "AL30"}])
     monkeypatch.setattr(fuentes, "en_cartera", lambda: {"S29E7"})
     monkeypatch.setattr(fuentes, "tickers_en_primary", lambda: {"X29E7", "AL30"})
-    monkeypatch.setattr(fuentes, "primary_fecha",
-                        lambda: datetime(2026, 8, 15, 19, 23, tzinfo=UTC))
     monkeypatch.setattr(curvas_ejes, "desde_1816",
                         lambda c: SimpleNamespace(emisor_tipo="soberano", moneda="ARS"))
     monkeypatch.setattr(curvas_sql, "calendario_habil", lambda: set())
@@ -2034,12 +2031,7 @@ def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
     por = {h.sujeto: h for h in mercado.soberanos_faltantes({})}
     assert por["S29E7"].regla == "no_esta_en_curvas", "en cartera → pide el alta"
     assert por["X29E7"].regla == "no_esta_en_curvas", "cotiza → pide el alta"
-    assert por["T30E7"].regla == "no_cotiza_en_primary", "no cotiza → AVISO, no silencio"
-    assert por["T30E7"].severidad == "baja"
-    assert "15/08" in por["T30E7"].problema, "la fecha de la foto va en el texto"
-    assert por["T30E7"].evidencia["foto_primary_de"].startswith("2026-08-15")
-    # Sin arreglo declarado → aviso: vive en AHORA, nunca en ENCONTRÓ.
-    assert catalogo.HABILIDADES["soberanos_faltantes"].arreglo_de("no_cotiza_en_primary") == ""
+    assert "T30E7" not in por, "no cotiza y no está en cartera → no existe para nosotros"
 
 
 def test_la_foto_de_primary_tiene_cron_y_quien_la_vigile():

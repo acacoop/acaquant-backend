@@ -67,6 +67,8 @@ HERRAMIENTAS: dict[str, str] = {
                              "de un deploy grande o un cambio de schema.",
     "diag_interbanking":     "smoke de las 5 APIs de Interbanking con datos reales. Distinto de «respondió», "
                              "que es lo único que mira el detector `proveedor_caido`.",
+    "diag_ingesta":          "cuánto trajo cada job de ingesta, corrida por corrida, con la mediana: el "
+                             "dato que decide `ingesta_encogida` antes de escribirla (REGLA #2).",
     "diag_postrade_auth":    "el agente vigila que Postrade RESPONDA (`proveedor_caido`); esto es lo único "
                              "que contesta «¿entramos con ESTA credencial?» con datos reales.",
     "diag_postrade_metodos": "qué métodos de Postrade nos habilitaron. Cambia cuando ACyRSA toca permisos, "

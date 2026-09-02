@@ -155,11 +155,9 @@ REPORTES: tuple[Reporte, ...] = (
             "posición guardada no es la real.",
             severidad="alta"),
     # Lo que queda sin resolver y solo tiene número (el job no guarda lista).
-    Reporte("aranceles", "sin_match",
-            "informe(s) de Aunesa que no matchearon ningún boleto: aranceles sin cargar",
-            "Correr el backfill desde Manager → AUNESA → BOLETOS con la ventana del "
-            "job; si siguen sin match, son boletos que operaciones_informes no trajo.",
-            con_lista=False),
+    # ⚠️ `aranceles.sin_match` NO está a propósito: medido el 2026-09-02, son
+    # 2.530 de 3.187 informes (80%) todos los días — es la base, no una
+    # anomalía, y un aviso por hora con ese número enseña a ignorar AHORA.
     Reporte("ops_tasa_mav", "sin_texto",
             "boleto(s) MAV cuyo movimiento no trae `informacion`: no hay de dónde "
             "sacar la tasa",

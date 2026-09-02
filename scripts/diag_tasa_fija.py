@@ -16,11 +16,23 @@ pantalla los tres se ven igual:
   quedó de un cálculo anterior.
 
   **(2) El precio de arranque es otro.** Nosotros usamos el `last_price` de
-  Primary (live); 1816 publica su `precioClean` de BYMA. Con precios distintos
-  las tasas TIENEN que dar distinto y no hay nada roto. Por eso el script
-  recalcula **nuestra fórmula con el precio de ELLOS**: si ahí da su TEA, el
-  cálculo está bien y la diferencia era el precio. Es la prueba decisiva y es la
-  que evita salir a tocar el motor por un problema que no tiene.
+  Primary (live); 1816 publica el suyo de BYMA. Con precios distintos las tasas
+  TIENEN que dar distinto y no hay nada roto. Por eso el script recalcula
+  **nuestra fórmula con el precio de ELLOS**: si ahí da su TEA, el cálculo está
+  bien y la diferencia era el precio. Evita salir a tocar un motor que está sano.
+
+  ⚠️ El precio comparable es **`precioDirty`**, no `precioClean` (corregido
+  2026-09-02, tras verlo en la corrida). `precioClean` está expresado sobre el
+  VALOR TÉCNICO: para las letras capitalizables da ~100 siempre, y el cociente
+  contra nuestro precio de mercado es exactamente lo que capitalizó el papel
+  (S15S6 1,064 · S30O6 1,285 · T15E7 1,474). Metérselo a una fórmula que espera
+  el precio sucio por 100 VN daba TNAs de 200% que no eran un hallazgo: eran
+  este bug.
+
+  Y para no depender de la comparación en absoluto está `--cruzado`, que usa el
+  endpoint de INPUT MANUAL de 1816 (`indicadores_de`): se le pasa NUESTRO precio
+  y devuelve SU tasa sobre el MISMO número. Ahí la variable «precio» desaparece
+  y lo que queda es convención pura. Cuesta campos por ticker, aparte.
 
   **(3) La convención de TNA no es la misma.** La casa deriva `TNA = TEM × 12`
   con `TEM = (1+TEA)^(1/12) − 1` (`quant/tasas.py`). 1816 publica su propia
@@ -40,6 +52,7 @@ Uso:
     python -m scripts.diag_tasa_fija --dry          # universo + costo, sin pegar
     python -m scripts.diag_tasa_fija --sin-1816     # solo recálculo local
     python -m scripts.diag_tasa_fija --ticker S31G6 # un bono, paso por paso
+    python -m scripts.diag_tasa_fija --cruzado      # + su tasa sobre NUESTRO precio
 """
 from __future__ import annotations
 
@@ -180,11 +193,19 @@ def grafias(tickers: list[str]) -> dict[str, str]:
     return out
 
 
-CAMPOS_1816 = ["tea", "tna", "duration", "precioClean"]
+# `convencionTna` y `fechaLiquidacion` son METADATA (`mercado_1816.CAMPOS_METADATA`):
+# vienen llenas aunque no haya precio, y `indicadores_vigentes` ya las excluye del
+# predicado de «esta rueda trajo datos» — sin eso el retroceso no correría nunca.
+#
+# `convencionTna` es EL campo de esta auditoría: 1816 DECLARA con qué convención
+# calculó su TNA. Sin él había que deducirla despejando la fórmula de los números;
+# con él la pregunta la contesta el proveedor.
+CAMPOS_1816 = ["tea", "tna", "tem", "duration", "precioDirty", "precioClean",
+               "convencionTna", "fechaLiquidacion"]
 
 
 def pedir_1816(tickers: list[str]) -> tuple[dict[str, dict], str | None]:
-    """`nuestro ticker → {tea, tna, duration, precioClean}` + la rueda que salió.
+    """`nuestro ticker → sus indicadores` + la rueda que salió.
 
     Una sola llamada. `indicadores_vigentes` retrocede día hábil por hábil hasta
     encontrar una rueda con datos: sin eso, un lunes temprano devuelve todo en
@@ -200,7 +221,7 @@ def pedir_1816(tickers: list[str]) -> tuple[dict[str, dict], str | None]:
     out: dict[str, dict] = {}
     for grafia, nuestro in g.items():
         v = inst.get(grafia) or {}
-        if v.get("tea") is None and v.get("precioClean") is None:
+        if v.get("tea") is None and v.get("precioDirty") is None:
             continue
         # Gana la grafía que trajo TEA (el alias hace que un dual se pida dos veces).
         if nuestro not in out or (out[nuestro].get("tea") is None
@@ -234,7 +255,9 @@ def auditar(bonos: list[dict], ins: dict, snaps: dict,
         r_hoy = recalcular(ins, sim, precio, ahora) if sim else None
 
         o = d1816.get(tk) or {}
-        p1816 = _f(o.get("precioClean"))
+        # El de MERCADO. `precioClean` va aparte porque es sobre valor técnico y
+        # solo sirve para mostrar cuánto capitalizó el papel, no para recalcular.
+        p1816 = _f(o.get("precioDirty"))
         # LA PRUEBA DECISIVA: nuestra fórmula, su precio.
         r_su_precio = recalcular(ins, sim, p1816, ahora) if (sim and p1816) else None
 
@@ -249,6 +272,12 @@ def auditar(bonos: list[dict], ins: dict, snaps: dict,
             "tea_su_px": _f((r_su_precio or {}).get("TEA")),
             "tea_1816": _f(o.get("tea")),
             "tna_1816": _f(o.get("tna")),
+            "tem_1816": _f(o.get("tem")),
+            "convencion": o.get("convencionTna"),
+            "liq_1816": o.get("fechaLiquidacion"),
+            "clean_1816": _f(o.get("precioClean")),
+            "vto": b.get("vencimiento"),
+            "cruzado": None,          # lo llena --cruzado
             "dur_vista": _f(m.get("duration")),
             "dur_motor": _f((r_motor or {}).get("duration")),
             "dur_1816": _f(o.get("duration")),
@@ -363,32 +392,117 @@ def bloque_2(filas: list[dict], fecha_1816: str | None) -> None:
               f"{_pct(_tna(f['tea_1816']), 2)}")
 
 
+def _dias(fila) -> int | None:
+    """Días de liquidación a vencimiento, con las fechas de 1816 cuando las da.
+
+    La `fechaLiquidacion` sale de ELLOS a propósito: si se asumiera T+1 nuestro y
+    ellos liquidaran distinto, la fórmula candidata fallaría por el plazo y
+    parecería que la convención es otra. El insumo tiene que ser el de ellos.
+    """
+    from datetime import date
+    v, liq = fila.get("vto"), fila.get("liq_1816")
+    if not v or not liq:
+        return None
+    try:
+        a = date.fromisoformat(str(v)[:10])
+        b = date.fromisoformat(str(liq)[:10])
+    except ValueError:
+        return None
+    d = (a - b).days
+    return d if d > 0 else None
+
+
 def bloque_3(filas: list[dict]) -> None:
     print("\n" + "=" * 92)
-    print("3. ¿LA TNA DE 1816 ES LA MISMA CONVENCIÓN QUE LA NUESTRA?")
+    print("3. LA CONVENCIÓN DE LA TNA — la declarada por 1816 y las tres candidatas")
     print("=" * 92)
-    print("  La casa deriva TNA = TEM×12 con TEM = (1+TEA)^(1/12)−1. Se compara la")
-    print("  `tna` que publica 1816 contra la que sale de SU PROPIA `tea`: si no")
-    print("  cierran, las dos columnas no son comparables aunque el bono esté bien")
-    print("  valuado, y esto NO depende de que nuestro precio coincida.\n")
     hay = [f for f in filas if f["tea_1816"] is not None and f["tna_1816"] is not None]
     if not hay:
         print("  1816 no devolvió `tna` para ningún bono — nada que verificar.")
         return
-    malos = [f for f in hay
-             if abs((f["tna_1816"] - (_tna(f["tea_1816"]) or 0)) * 100) > 0.02]
-    print(f"  bonos con `tea` y `tna` de 1816 .......... {len(hay)}")
-    print(f"  donde su TNA ≠ TEM×12 de su TEA .......... {len(malos)}")
-    if malos:
-        print(f"\n  {'TICKER':<9} {'TEA 1816':>9} {'TNA 1816':>9} {'TEM×12':>9} {'Δ pp':>7}")
-        for f in malos[:20]:
-            der = _tna(f["tea_1816"])
-            print(f"  {f['tk']:<9} {_pct(f['tea_1816'], 2):>9} {_pct(f['tna_1816'], 2):>9} "
-                  f"{_pct(der, 2):>9} {((f['tna_1816'] - (der or 0)) * 100):>7.2f}")
-        print("\n  ⚠️  Con esto, comparar «nuestra TNA» contra «la TNA de ellos» mide")
-        print("      DOS cosas a la vez. La comparación válida es TEA contra TEA.")
-    else:
-        print("  ✅ misma convención: las dos columnas TNA son comparables.")
+
+    # LO QUE 1816 DICE DE SÍ MISMO. Antes esto se deducía despejando la fórmula;
+    # el campo existía en el enum del spec y no se pedía.
+    decl = {}
+    for f in hay:
+        decl[f["convencion"] or "(no la declaró)"] = decl.get(
+            f["convencion"] or "(no la declaró)", 0) + 1
+    print("\n  ► CONVENCIÓN QUE DECLARA 1816 (campo `convencionTna`):")
+    for c, n in sorted(decl.items(), key=lambda x: -x[1]):
+        print(f"       {c!r} — en {n} de {len(hay)} bonos")
+
+    # Y LA VERIFICACIÓN, que no depende de que el campo venga ni de creerle:
+    # se reconstruye su TNA con las tres candidatas y gana la que la reproduce.
+    print("\n  ► LAS TRES CANDIDATAS, reconstruidas desde SU PROPIA `tea`:")
+    print("     · LINEAL 365 = (rendimiento del plazo) × 365/días")
+    print("     · TEM×12     = la que deriva nuestra pantalla hoy")
+    print("     · EFECTIVA   = la TIR misma (TNA = TEA)")
+    print(f"\n  {'TICKER':<9}{'DÍAS':>6}{'TNA 1816':>10}{'LINEAL':>9}{'TEM×12':>9}"
+          f"{'EFECTIVA':>10}   GANA")
+    puntos = {"lineal": 0, "temx12": 0, "efectiva": 0, "ninguna": 0}
+    err = {"lineal": [], "temx12": [], "efectiva": []}
+    for f in sorted(hay, key=lambda x: _dias(x) or 0):
+        tea, tna, d = f["tea_1816"], f["tna_1816"], _dias(f)
+        lineal = (((1 + tea) ** (d / 365) - 1) * 365 / d) if d else None
+        cands = {"lineal": lineal, "temx12": _tna(tea), "efectiva": tea}
+        for k, v in cands.items():
+            if v is not None:
+                err[k].append(abs(v - tna) * 100)
+        vivas = {k: abs(v - tna) * 100 for k, v in cands.items() if v is not None}
+        gana = min(vivas, key=vivas.get) if vivas else None
+        puntos[gana if gana and vivas[gana] <= 0.05 else "ninguna"] += 1
+        print(f"  {f['tk']:<9}{d or 0:>6}{_pct(tna, 2):>10}{_pct(lineal, 2):>9}"
+              f"{_pct(cands['temx12'], 2):>9}{_pct(cands['efectiva'], 2):>10}   "
+              f"{gana if gana and vivas[gana] <= 0.05 else '—'}")
+
+    print("\n  ► VEREDICTO (una candidata «gana» un bono si la reproduce a ≤0,05 pp)")
+    for k in ("lineal", "temx12", "efectiva"):
+        e = err[k]
+        peor = f"{max(e):.2f} pp" if e else "--"
+        print(f"       {k:<9} gana en {puntos[k]:>2} de {len(hay)}   ·   "
+              f"peor error {peor}")
+    if puntos["ninguna"]:
+        print(f"       ninguna   en {puntos['ninguna']} — ahí la convención es OTRA")
+
+    print("\n  ► Y LA NUESTRA, contra la ganadora:")
+    print("     la pantalla deriva TEM×12. Cuánto se aparta, por plazo — si esto")
+    print("     crece ordenado con los días, es diferencia de FÓRMULA y no un bug.")
+    for f in sorted(hay, key=lambda x: _dias(x) or 0):
+        d = _dias(f)
+        nuestra = _tna(f["tea_vista"])
+        if nuestra is None or d is None:
+            continue
+        print(f"     {f['tk']:<9}{d:>5}d   nuestra {_pct(nuestra, 2)}   "
+              f"1816 {_pct(f['tna_1816'], 2)}   dif "
+              f"{((nuestra - f['tna_1816']) * 100):>6.2f} pp")
+
+
+def bloque_cruzado(filas: list[dict]) -> None:
+    """SU tasa sobre NUESTRO precio. Elimina la variable del precio.
+
+    Es la respuesta a «no es justo comparar, los precios son de momentos
+    distintos»: acá el precio es UNO SOLO y es el nuestro, así que lo que quede
+    de diferencia no puede ser el insumo.
+    """
+    print("\n" + "=" * 92)
+    print("5. CONTROL CRUZADO — la tasa de 1816 calculada sobre NUESTRO precio")
+    print("=" * 92)
+    hechos = [f for f in filas if f.get("cruzado")]
+    if not hechos:
+        print("  (sin datos: correr con --cruzado)")
+        return
+    print(f"\n  {'TICKER':<9}{'PRECIO':>10}{'TEA NUESTRA':>12}{'TEA DE ELLOS':>13}"
+          f"{'dif pp':>8}   {'TNA NUESTRA':>12}{'TNA DE ELLOS':>13}{'dif pp':>8}")
+    for f in hechos:
+        c = f["cruzado"]
+        te, tn = _f(c.get("tea")), _f(c.get("tna"))
+        dt_ = _dif(f["tea_vista"], te)
+        dn = _dif(_tna(f["tea_vista"]), tn)
+        print(f"  {f['tk']:<9}{f['precio'] or 0:>10.2f}{_pct(f['tea_vista'], 2):>12}"
+              f"{_pct(te, 2):>13}{(dt_ or 0):>8.2f}   "
+              f"{_pct(_tna(f['tea_vista']), 2):>12}{_pct(tn, 2):>13}{(dn or 0):>8.2f}")
+    print("\n  Con el MISMO precio: si la columna TEA cierra y la TNA no, no hay")
+    print("  nada mal valuado — son dos convenciones distintas y punto.")
 
 
 def bloque_4(filas: list[dict]) -> None:
@@ -405,6 +519,33 @@ def bloque_4(filas: list[dict]) -> None:
     print(f"\n  duration nuestra vs 1816, dif > 0,05 ..... {len(dif)}")
     for f in dif[:15]:
         print(f"     {f['tk']:<9} nuestra {f['dur_vista']:.3f}  1816 {f['dur_1816']:.3f}")
+
+
+def cruzar(filas: list[dict]) -> None:
+    """Le pide a 1816 SUS indicadores calculados sobre NUESTRO precio.
+
+    Una llamada por ticker (el endpoint es `/indicadores/{ticker}`), y cuesta
+    CAMPOS por llamada, no tickers × campos. Se le manda `precioDirty` porque es
+    el precio de mercado — el mismo tipo de número que nuestro `last_price`.
+    """
+    from core import mercado_1816
+    if not mercado_1816.disponible():
+        return
+    for f in filas:
+        if not f["precio"] or f["tea_1816"] is None:
+            continue
+        try:
+            r = mercado_1816.indicadores_de(
+                f["tk"], ["tea", "tna", "tem", "duration"],
+                precioDirty=float(f["precio"]))
+        except Exception as e:
+            print(f"     {f['tk']}: 1816 rechazó el cruce ({str(e)[:90]})")
+            continue
+        # La respuesta trae el ticker adentro de `instrumentos`, igual que el
+        # endpoint masivo; algunas versiones la devuelven plana.
+        inst = (r.get("instrumentos") or {})
+        f["cruzado"] = next(iter(inst.values()), None) or (
+            r if r.get("tea") is not None else None)
 
 
 def detalle(tk: str) -> int:
@@ -455,6 +596,9 @@ def main() -> int:
     ap.add_argument("--dry", action="store_true",
                     help="universo y costo en créditos, sin pegarle a 1816")
     ap.add_argument("--ticker", help="detalle de UN bono, paso por paso")
+    ap.add_argument("--cruzado", action="store_true",
+                    help="pide la tasa de 1816 sobre NUESTRO precio (elimina la "
+                         "variable del precio). Cuesta campos POR TICKER.")
     args = ap.parse_args()
 
     if args.ticker:
@@ -483,17 +627,29 @@ def main() -> int:
         d1816, fecha = pedir_1816(tickers)
 
     filas = auditar(bonos, ins, snaps, d1816)
+    if args.cruzado and d1816:
+        print("  Cruzando: la tasa de 1816 sobre NUESTRO precio…")
+        cruzar(filas)
     bloque_1(filas)
     if d1816:
         bloque_2(filas, fecha)
         bloque_3(filas)
     bloque_4(filas)
+    if args.cruzado:
+        bloque_cruzado(filas)
     print("\n" + "=" * 92)
-    print("LEER ASÍ: el bloque 1 dice si el número de la base es el que sale de")
-    print("recalcularlo (problema NUESTRO). El 2 dice si lo que queda difiriendo")
-    print("contra 1816 lo explica el precio o no. El 3 avisa si las dos columnas")
-    print("TNA ni siquiera son la misma cuenta. Sin el 3 en verde, el 2 se lee")
-    print("solo por la columna de TEA.")
+    print("LEER ASÍ, y en este orden:")
+    print("  · Bloque 1 — ¿el número de la base es el que sale de recalcularlo?")
+    print("    Si acá hay algo, el problema es NUESTRO y no hay que mirar más.")
+    print("  · Bloque 3 — ¿las dos columnas TNA son siquiera la misma cuenta?")
+    print("    Va ANTES del 2 en la lectura: si la convención difiere, comparar")
+    print("    TNA contra TNA mide dos cosas a la vez y no significa nada.")
+    print("  · Bloque 2 — con la convención ya despejada, la comparación válida")
+    print("    es TEA contra TEA, y la última columna dice si lo que sobra lo")
+    print("    explica el precio.")
+    print("  · --cruzado — la misma comparación con UN SOLO precio, el nuestro.")
+    print("    Es lo que hay que correr cuando la duda es «las fotos son de")
+    print("    momentos distintos»: ahí no hay dos momentos.")
     print("=" * 92 + "\n")
     return 0
 

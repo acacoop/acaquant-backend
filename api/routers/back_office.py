@@ -900,8 +900,9 @@ def tenencia_hd_portfolio_alquiler_nominal(
 
 
 # ── CONTABILIDAD (resultado mensual por título de las cuentas propias) ────────
-# Identidad rectora: total = ΔValuación + ventas − compras + rentas; el split
-# TENENCIA / INTERMEDIACIÓN / RENTAS y el cuadre viven en el service
+# DOS canales y nada más: total = TENENCIA + INTERMEDIACIÓN. NO hay rentas —
+# cupones/dividendos no entran al informe. La valuación depende de la SITUACIÓN
+# (ocho casos) y el cuadre viven en el service
 # (api/services/contabilidad_sql.py). Lectura = módulo back-office; escritura
 # del ABM de cuentas = allowlist de Tesorería + admin (mismo gate que
 # Interbanking), como dependency para que audit_rbac la vea.
@@ -937,8 +938,8 @@ def contabilidad_resumen(
     mes: str = Query(..., pattern=_RE_MES, description="YYYY-MM del mes a contabilizar"),
     email: str = Depends(get_user_email),
 ):
-    """El informe del mes: una fila por título con RxT / intermediación / rentas /
-    total + cuadre de nominales, y los totales sumados en el backend."""
+    """El informe del mes: una fila por título con RxT / intermediación / total
+    + cuadre de nominales, y los totales sumados en el backend."""
     return svc_conta.resumen(id_cuenta=id_cuenta, mes=mes)
 
 

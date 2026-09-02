@@ -3,7 +3,7 @@
 Resultado MENSUAL por título de una cuenta propia. DOS canales, cada uno
 CALCULADO de verdad, y el total es su SUMA:
 
-    resultado_total = TENENCIA + INTERMEDIACIÓN + RENTAS
+    resultado_total = TENENCIA + INTERMEDIACIÓN
 
   · TENENCIA (RxT)   — lo que rindió la posición que estuvo presente en LOS DOS
                        cierres, valuada al precio implícito de cada uno. Es la
@@ -12,8 +12,13 @@ CALCULADO de verdad, y el total es su SUMA:
   · INTERMEDIACIÓN   — la SUMATORIA de los boletos del mes: compra NEGATIVA,
                        venta POSITIVA, ir sumando los importes. O sea
                        `ventas − compras`, el neto de caja del período.
-  · RENTAS           — cupones / dividendos / amortizaciones (categoría `acreencia`
-                       de los boletos), con signo tal cual viene.
+
+⚠️ NO HAY RENTAS. Cupones, dividendos y amortizaciones NO entran al informe: el
+proceso del back office no los cuenta acá (regla del user, 2026-09-02). Existió
+un tercer canal `RENTAS` leyendo la categoría `acreencia` de
+`operaciones.negocio_movimientos`; se sacó ENTERO — no se lee esa tabla, no hay
+columna y no suma al total. Media medida sería peor: un canal escondido que
+igual mueve el número del mes.
 
 ⚠️ LO QUE SE COMPRA Y NO SE VENDE **NO ES RESULTADO DEL MES** (regla del back
 office, 2026-09-01). Su valuación final no entra en ningún canal: es el saldo
@@ -21,7 +26,7 @@ inicial del mes que viene, y recién ahí genera tenencia.
 
 Hasta 2026-09-01 el total lo definía la IDENTIDAD `ΔValuación + ventas − compras
 + rentas` y los canales se repartían ESE número, con la intermediación como
-RESIDUO (`total − rxt − rentas`). Dos fallas, las dos medidas sobre AO29 08/26:
+RESIDUO. Dos fallas, las dos medidas sobre AO29 08/26:
 
   1. **La ganancia NO REALIZADA de lo comprado en el mes entraba como resultado.**
      La cuenta arrancó sin AO29, compró por 1.788.643.523 y vendió por
@@ -78,9 +83,6 @@ Fuentes (todo existe, nada nuevo se persiste):
     cuentan como compra/venta). Lo que no mueve posición (cauciones, futuros,
     `otro`) NO se suma y se CUENTA en `ignorados` — si el catálogo usara otras
     grafías se vería ahí, no fallaría en silencio.
-  · Rentas → `operaciones.negocio_movimientos` categoría `acreencia` (cupones /
-    dividendos / amortizaciones — en `operaciones.operaciones` no existen). Si esa
-    tabla no trae la cuenta, rentas queda en 0 y el hueco se ve en el cuadre.
 
 Boletos en USD se pesifican con el `mep` snapshot del propio boleto (fallback
 `get_mep_for_date`), igual que el motor de PnL. Magnitudes en valor absoluto —
@@ -100,18 +102,13 @@ from __future__ import annotations
 from datetime import date
 
 from api.cache import cached
-from api.services._negocio_sql_read import negocio_movimientos_rows
 from api.services._sql import _f, _q
 
 # Dirección por categoría (misma partición que el motor de PnL: _CATS_PAGO /
 # _CATS_COBRO_VENTA / _CATS_COBRO_PASIVO).
 _CATS_COMPRA = {"compra", "suscripcion_fci"}
 _CATS_VENTA = {"venta", "rescate_fci"}
-_CATS_RENTA = {"acreencia"}
-_CATS_TODAS = _CATS_COMPRA | _CATS_VENTA | _CATS_RENTA
-
-_CAMPOS_BOLETO = ["fecha", "categoria", "op", "ticker", "cantidad", "precio",
-                  "importe", "moneda", "mep", "comprobante"]
+_CATS_TODAS = _CATS_COMPRA | _CATS_VENTA
 
 # Redondeo del cuadre de nominales: por debajo de esto es ruido de float, no un
 # boleto que falta.
@@ -148,7 +145,7 @@ def calcular_titulos(
     match_to_display: dict[str, str],
     fecha_ini: str = "",
 ) -> list[dict]:
-    """Una fila por título: TENENCIA + INTERMEDIACIÓN + RENTAS + cuadre.
+    """Una fila por título: TENENCIA + INTERMEDIACIÓN + cuadre.
 
     Los dos canales salen de la MISMA pasada de FIFO que dibuja el modal
     (`libro`), no de una identidad. Entradas:
@@ -236,22 +233,20 @@ def calcular_titulos(
         costo_salida = salieron * px_ini if px_ini is not None else 0.0
         # INTERMEDIACIÓN: la sumatoria de los boletos, menos el activo que
         # salió, y sin el costo de lo que quedó en cartera (ese se lo llevó la
-        # tenencia). Con estos dos términos, TENENCIA + INTERMEDIACIÓN + RENTAS
-        # da la plata real del mes (`v_fin − v_ini + ventas − compras`) en TODOS
+        # tenencia). Con estos dos términos, TENENCIA + INTERMEDIACIÓN da la
+        # plata real del mes (`v_fin − v_ini + ventas − compras`) en TODOS
         # los casos — quieta, intradía, alta, baja, achicó, agrandó, rotó, y
         # vendió-todo-y-recompró. Congelado por tests.
         rxt = _r2(rxt)
         intermediacion = _r2(ag["intermediacion"] - costo_salida + costo_nuevo)
-        rentas = _r2(ag["rentas"])
         residual = qf - qi - ag["qty_compras"] + ag["qty_ventas"]
         out.append({
             "titulo": d["titulo"], "key": key, "unidades": d["unidades"],
             "qty_ini": qi, "qty_fin": qf, "v_ini": _r2(vi), "v_fin": _r2(vf),
             "px_ini": px_ini, "px_fin": px_fin,
             "compras": _r2(ag["compras"]), "ventas": _r2(ag["ventas"]),
-            "rentas": rentas,
             "rxt": rxt, "intermediacion": intermediacion,
-            "total": _r2(rxt + intermediacion + rentas),
+            "total": _r2(rxt + intermediacion),
             "estado": ("alta" if qi == 0 and qf != 0 else
                        "baja" if qi != 0 and qf == 0 else
                        "sin_operar" if ag["n_boletos"] == 0 else "operado"),
@@ -277,13 +272,13 @@ def calcular_titulos(
 
 def separar_altas(titulos: list[dict]) -> tuple[list[dict], list[dict]]:
     """(con_resultado, altas_puras). ALTA PURA = no había nominales al cierre
-    anterior y en el mes solo se COMPRÓ (sin ventas ni rentas): se compró para
+    anterior y en el mes solo se COMPRÓ (sin ventas): se compró para
     dejar en cartera, y por definición del proceso su resultado recién entra al
     RxT del mes que viene — mostrarla entre los resultados es ruido. Una alta
-    que además vendió o cobró renta SÍ tiene resultado del mes y se queda."""
+    que además vendió SÍ tiene resultado del mes y se queda."""
     con_resultado, altas = [], []
     for t in titulos:
-        if t["estado"] == "alta" and t["ventas"] == 0 and t["rentas"] == 0:
+        if t["estado"] == "alta" and t["ventas"] == 0:
             altas.append(t)
         else:
             con_resultado.append(t)
@@ -373,7 +368,7 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
     """Boletos del MES CONTABLE traducidos al shape que consume
     `calcular_titulos`: compras/ventas desde `operaciones.operaciones`
     (importe = bruto, título por `instrumento` = unidad → clave del mapping)
-    + rentas (`acreencia`) desde `negocio_movimientos`. El corte de mes es por
+    El corte de mes es por
     LIQUIDACIÓN, no por concertación — ver `pertenece_al_mes`. Los boletos sin
     dirección viajan con categoria=None: no suman, pero el detalle y el
     contador `ignorados` los muestran."""
@@ -414,10 +409,6 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
             "moneda": r.get("moneda"), "mep": _f(r.get("mep")),
             "comprobante": r.get("boleto"), "condiciones": r.get("condiciones"),
         })
-    rentas = negocio_movimientos_rows(
-        fields=_CAMPOS_BOLETO, id_cuenta=id_cuenta, fecha_prefix=mes_str,
-        categorias=["acreencia"], ticker_not_null=True, order=True)
-    boletos.extend(rentas)
     return boletos
 
 
@@ -441,7 +432,7 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
     # mes: van en su bloque aparte y NO suman a los totales del informe.
     titulos, altas = separar_altas(todos)
     tot = {k: round(sum(t[k] for t in titulos), 2)
-           for k in ("v_ini", "v_fin", "compras", "ventas", "rentas",
+           for k in ("v_ini", "v_fin", "compras", "ventas",
                      "rxt", "intermediacion", "total")}
     tot["descuadres"] = sum(1 for t in todos if not t["cuadra"])
     tot["mep_faltantes"] = sum(t["mep_faltantes"] for t in todos)
@@ -480,7 +471,7 @@ def ledger(boletos: list[dict]) -> dict:
     (REGLA #9) — no de dos cuentas parecidas que nadie compara.
     """
     nominales = acum = 0.0
-    ag = {"compras": 0.0, "ventas": 0.0, "rentas": 0.0,
+    ag = {"compras": 0.0, "ventas": 0.0,
           "qty_compras": 0.0, "qty_ventas": 0.0,
           "n_boletos": 0, "mep_faltantes": 0}
     for b in boletos:
@@ -499,9 +490,6 @@ def ledger(boletos: list[dict]) -> dict:
             nominales -= q
             ag["ventas"] += imp
             ag["qty_ventas"] += q
-        elif cat in _CATS_RENTA:
-            acum += b.get("importe_ars") or 0.0  # con su signo
-            ag["rentas"] += b.get("importe_ars") or 0.0
         if cat in _CATS_TODAS:
             ag["n_boletos"] += 1
             ag["mep_faltantes"] += 1 if b.get("sin_mep") else 0
@@ -529,7 +517,7 @@ def libro(*, key: str, qty_ini: float, v_ini: float, fecha_ini: str,
         cat = b.get("categoria")
         b["direccion"] = ("compra" if cat in _CATS_COMPRA else
                           "venta" if cat in _CATS_VENTA else
-                          "renta" if cat in _CATS_RENTA else "otro")
+                          "otro")
     if qty_ini or v_ini:
         filas.insert(0, {
             "fecha": fecha_ini, "categoria": "saldo_inicial",
@@ -564,8 +552,7 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
                       fecha_ini=ini["fecha_usada"] or ini["fecha_objetivo"],
                       boletos=boletos)
     return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": filas,
-            "intermediacion": round(ag["intermediacion"], 2),
-            "rentas": round(ag["rentas"], 2)}
+            "intermediacion": round(ag["intermediacion"], 2)}
 
 
 # ── ABM de cuentas del proceso ───────────────────────────────────────────────

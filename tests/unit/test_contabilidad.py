@@ -1,8 +1,8 @@
 """Tests del cálculo puro de CONTABILIDAD (api/services/contabilidad_sql.py).
 
 LA VALUACIÓN DEPENDE DE LA SITUACIÓN — no hay una sola fórmula. El invariante
-que las une es que **TENENCIA + INTERMEDIACIÓN + RENTAS == LA PLATA REAL DEL
-MES** (`v_fin − v_ini + ventas − compras + rentas`) en todos los casos donde
+que las une es que **TENENCIA + INTERMEDIACIÓN == LA PLATA REAL DEL MES**
+(`v_fin − v_ini + ventas − compras`) en todos los casos donde
 los nominales cuadran. Ocho casos, de simple a complejo: quieta · intradía ·
 alta · baja · achicó · agrandó · rotó · vendió-todo-y-recompró, y los recorre
 `test_los_ocho_casos_dan_la_plata_real`.
@@ -105,16 +105,18 @@ def test_comprado_y_retenido_es_resultado_por_tenencia():
     assert f["cuadra"]
 
 
-def test_renta_es_su_propio_canal():
-    """Cupón cobrado con posición quieta: RxT = ΔV, renta aparte, interm. 0."""
+def test_las_rentas_no_existen_en_el_informe():
+    """NO HAY canal de rentas (regla del user, 2026-09-02). Un cupón cobrado no
+    entra por ningún lado: ni columna, ni suma al total, y la tabla de donde
+    salían (`negocio_movimientos`) ya no se lee."""
     filas = _calc([_t("[100] AL30 - GD", 1_000_000, 500_000)],
                   [_t("[100] AL30 - GD", 1_000_000, 510_000)],
                   [_b("acreencia", "AL30", 0, 25_000)])
     (f,) = filas
-    assert f["rentas"] == pytest.approx(25_000)
+    assert "rentas" not in f
     assert f["rxt"] == pytest.approx(10_000)
     assert f["intermediacion"] == pytest.approx(0)
-    assert f["total"] == pytest.approx(35_000)
+    assert f["total"] == pytest.approx(10_000)   # el cupón NO suma
 
 
 def test_cuadre_detecta_boleto_faltante():
@@ -164,9 +166,8 @@ def test_total_es_la_suma_de_los_canales():
     # Se fueron 500k nominales (lo que las ventas explican en NETO), a su
     # precio del cierre anterior: 500.000 × 0,50 = 250.000.
     assert f["intermediacion"] == pytest.approx(545_000 - 260_000 - 250_000)  # 35.000
-    assert f["rentas"] == pytest.approx(30_000)
-    assert f["total"] == pytest.approx(215_000)   # = la plata real
-    assert f["rxt"] + f["intermediacion"] + f["rentas"] == pytest.approx(f["total"])
+    assert f["total"] == pytest.approx(185_000)   # el cupón de 30.000 NO cuenta
+    assert f["rxt"] + f["intermediacion"] == pytest.approx(f["total"])
     assert f["cuadra"]  # −500k = +500k − 1M
 
 
@@ -198,7 +199,7 @@ def test_los_ocho_casos_dan_la_plata_real():
     """EL INVARIANTE del módulo, sobre los ocho casos que se pueden dar.
 
     No hay UNA fórmula: la valuación depende de la situación. Lo que las une es
-    que, cuando los nominales cuadran, TENENCIA + INTERMEDIACIÓN + RENTAS tiene
+    que, cuando los nominales cuadran, TENENCIA + INTERMEDIACIÓN tiene
     que dar exactamente la plata del mes — `v_fin − v_ini + ventas − compras`.
     Cada vez que este test se rompió, la pantalla estaba inflando: AO29 mostró
     1.869.729 donde había −348.892, y una venta SENEBI llegó a mostrar 6.465
@@ -227,7 +228,7 @@ def test_los_ocho_casos_dan_la_plata_real():
                      [_t("[100] AL30 - GD", n1, v1)] if n1 or v1 else [], bol)
         real = v1 - v0 + f["ventas"] - f["compras"]
         assert f["cuadra"], nombre
-        assert f["rxt"] + f["intermediacion"] + f["rentas"] == pytest.approx(f["total"]), nombre
+        assert f["rxt"] + f["intermediacion"] == pytest.approx(f["total"]), nombre
         assert f["total"] == pytest.approx(real, abs=0.01), (
             f"{nombre}: total {f['total']} != plata real {real}")
 
@@ -326,22 +327,21 @@ def test_ao29_la_valuacion_nueva_no_es_ganancia():
 
 def test_el_modal_y_la_fila_dan_lo_mismo():
     """REGLA #9: un solo motor. `libro()` es el que corre en las dos puntas, así
-    que el `pnl_acum` de la última fila del modal == intermediación + rentas de
-    la fila del resumen. Hasta 2026-09-01 eran cálculos distintos y para AO29
+    que el `pnl_acum` de la última fila del modal se reconcilia con la
+    intermediación de la fila del resumen. Hasta 2026-09-01 eran cálculos distintos y para AO29
     daban números distintos sin que nada los comparara."""
     bol = [_b("compra", "AL30", 500_000, -260_000),
-           _b("venta", "AL30", 1_000_000, 545_000),
-           _b("acreencia", "AL30", 0, 30_000)]
+           _b("venta", "AL30", 1_000_000, 545_000)]
     (f,) = _calc([_t("[100] AL30 - GD", 3_000_000, 1_500_000)],
                  [_t("[100] AL30 - GD", 2_500_000, 1_400_000)], bol)
     filas, _ = libro(key="AL30", qty_ini=3_000_000, v_ini=1_500_000,
                      fecha_ini="2026-07-31", boletos=bol)
     assert filas[0]["categoria"] == "saldo_inicial"      # la posición inicial primero
     # El modal muestra la CAJA corrida de los boletos (ventas − compras +
-    # rentas). La fila ajusta esa caja por el activo que entró y el que salió;
+    # La fila ajusta esa caja por el activo que entró y el que salió;
     # el puente entre los dos números es explícito — si no cerrara, la fila y su
     # detalle se estarían contradiciendo (REGLA #9).
-    puente = f["intermediacion"] + f["costo_salida"] - f["costo_nuevo"] + f["rentas"]
+    puente = f["intermediacion"] + f["costo_salida"] - f["costo_nuevo"]
     assert filas[-1]["pnl_acum"] == pytest.approx(puente)
 
 
@@ -444,19 +444,18 @@ def test_ledger_la_posicion_inicial_mueve_nominales_pero_no_plata():
     assert ag["compras"] == 0   # el saldo inicial NO es una compra
 
 
-def test_ledger_rentas_y_otros():
-    """La renta suma con signo al acumulado sin tocar nominales; un boleto sin
-    dirección (caución/futuro) no toca nada pero muestra el acumulado vigente.
-    Ojo: la renta entra al acumulado del MODAL, pero es su propio canal en el
-    resumen — `intermediacion` son solo compras y ventas."""
+def test_ledger_ignora_lo_que_no_es_compra_ni_venta():
+    """Una acreencia (cupón) y un boleto sin dirección (caución/futuro) NO tocan
+    nada: ni nominales ni plata. Se ven en el modal con el acumulado vigente al
+    lado —para que se sepa que estuvieron— pero no mueven el número."""
     movs = [_mov("compra", 100, 1_000),
             _mov("acreencia", 0, 250),
             _mov(None, 999, 99_999)]
     ag = ledger(movs)
-    assert movs[1]["nominales_acum"] == 100 and movs[1]["pnl_acum"] == -750
-    assert movs[2]["nominales_acum"] == 100 and movs[2]["pnl_acum"] == -750
-    assert ag["rentas"] == pytest.approx(250)
-    assert ag["intermediacion"] == pytest.approx(-1_000)   # sin la renta
+    assert movs[1]["nominales_acum"] == 100 and movs[1]["pnl_acum"] == -1_000
+    assert movs[2]["nominales_acum"] == 100 and movs[2]["pnl_acum"] == -1_000
+    assert "rentas" not in ag
+    assert ag["intermediacion"] == pytest.approx(-1_000)
 
 
 def test_mes_contable_por_liquidacion():

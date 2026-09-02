@@ -1310,7 +1310,7 @@ def test_el_dia_que_falta_no_depende_de_que_el_arbol_lo_note():
     el día está en la tabla o no está. Así que se hace igual.
     """
     src = inspect.getsource(sistema.motor_caido)
-    i = src.index("for job in rehacer.REHACIBLES")
+    i = src.index("for job, cfg in rehacer.rehacibles().items()")
     barrido = src[i:i + 1400]
     assert 'd["estado"] != "falta"' in barrido, (
         "solo el día que FALTA es trabajo: «ya está» y «no pude mirar» no")
@@ -2042,7 +2042,7 @@ def test_la_foto_de_primary_tiene_cron_y_quien_la_vigile():
     from agente import crontab
     cron = sistema._cron_discovery(crontab.del_repo())
     assert cron is not None, "deploy/crontab.txt no corre scripts.discovery_pyrofex"
-    hora, minuto = cron
+    minuto, hora = (int(x) for x in cron.split()[:2])
     assert (hora, minuto) < (12, 30), "tiene que correr ANTES del cleanup (12:30 UTC)"
     h = catalogo.HABILIDADES["foto_primary"]
     assert h.dominio == "SISTEMA" and not h.arreglos
@@ -2056,14 +2056,12 @@ def test_foto_primary_juzga_contra_la_ultima_corrida_esperada(monkeypatch):
     from agente import crontab, fuentes, reloj
     monkeypatch.setattr(crontab, "del_repo", lambda: {
         "15 12 * * 1-5 run_job.sh discovery_pyrofex 10m 'python -m scripts.discovery_pyrofex'"})
-    # Lunes 11:00 UTC: la última esperada es la del VIERNES (no hay cron el finde).
-    lunes = datetime(2026, 8, 31, 11, 0, tzinfo=UTC)
-    assert sistema._ultima_esperada(lunes, 12, 15, 60) == datetime(2026, 8, 28, 12, 15, tzinfo=UTC)
-    # Martes 13:00 UTC: la de hoy todavía está en gracia → sigue valiendo la de ayer.
-    assert sistema._ultima_esperada(datetime(2026, 9, 1, 13, 0, tzinfo=UTC), 12, 15, 60) \
-        == datetime(2026, 8, 31, 12, 15, tzinfo=UTC)
-    assert sistema._ultima_esperada(datetime(2026, 9, 1, 13, 30, tzinfo=UTC), 12, 15, 60) \
-        == datetime(2026, 9, 1, 12, 15, tzinfo=UTC)
+    # El horario lo evalúa el ÚNICO evaluador cron del repo (salud): un lunes
+    # a las 11 UTC la última esperada es la del VIERNES, no hay cron el finde.
+    from api.services import salud
+    assert salud.ultima_ejecucion_esperada("15 12 * * 1-5", datetime(2026, 8, 31, 11, 0, tzinfo=UTC)) \
+        == datetime(2026, 8, 28, 12, 15, tzinfo=UTC)
+    assert "_ultima_esperada" not in dir(sistema), "volvió un segundo evaluador cron"
 
     monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 1, 14, 0, tzinfo=UTC))
     # Foto de hoy 12:20 → nada.
@@ -2266,3 +2264,46 @@ def test_bono_sin_precio_dice_por_que_no_esta_suscripto(monkeypatch):
     assert por["AAA"].regla == "simbolo_rechazado"
     assert por["BBB"].regla == "no_suscripto"
     assert catalogo.HABILIDADES["bono_sin_precio"].arreglo_de("simbolo_rechazado") == ""
+
+
+# ── LOS RELANZABLES SE DERIVAN (§0.db) ────────────────────────────────────
+
+def test_los_relanzables_salen_del_crontab_y_de_los_contratos():
+    """`REHACIBLES` tuvo UNA entrada diez días y el botón de rehacer aparecía
+    en un solo job. Lo que hace relanzable a un job ya está escrito: el
+    comando en el crontab, la prueba en los contratos de SALUD unidos por
+    `core.escribe`. Lo declarado a mano gana; el resto se deriva."""
+    r = rehacer.rehacibles()
+    assert len(r) >= 40
+    assert r["portafolio_diario"]["prueba"] == rehacer.PRUEBA_DIA
+    assert r["portafolio_diario"]["schedule"] == "0 11 * * 1-5", "el horario sale del cron"
+    assert r["cierre_chain"]["prueba"] == rehacer.PRUEBA_TABLA
+    assert r["cierre_chain"]["tabla"] == "mercado.snapshots_cierre"
+    assert r["negocio_chain"]["prueba"] == rehacer.PRUEBA_CORRIDA
+    assert "run_job" not in r["negocio_chain"]["comando"]
+    assert "jobs.aranceles" in r["negocio_chain"]["comando"]
+    # Un job con tres líneas de cron tiene los tres horarios, no el primero.
+    assert len(r["sync_comitentes"]["schedules"]) == 3
+    # Y el árbitro de nombres resuelve el módulo, el label y el tipo de job_runs.
+    assert rehacer.cual_job("jobs.aranceles") == "negocio_chain"
+    assert rehacer.cual_job("job:cierre_chain") == "cierre_chain"
+    assert rehacer.cual_job("jobs.snapshot_cierre") == "cierre_chain"
+    assert rehacer.cual_job("motor_rofex.service") == ""
+
+
+def test_todavia_no_le_toco_lee_el_crontab_y_no_la_prosa():
+    """La hora de arranque salía de una regex sobre `cadencia` (texto libre).
+    Ahora sale del crontab, por el único evaluador cron. Un job diario de las
+    12 UTC no está atrasado a las 11; a las 13 con umbral de 10 min, sí."""
+    from datetime import datetime
+
+    from core.tz import AR_TZ
+    p = {"unidad": "jobs.argentina_datos", "umbral_s": 600, "cadencia": "prosa"}
+    a_las_8_ar = datetime(2026, 9, 1, 8, 0, tzinfo=AR_TZ)      # 11:00 UTC
+    a_las_10_ar = datetime(2026, 9, 1, 10, 0, tzinfo=AR_TZ)    # 13:00 UTC
+    assert sistema._todavia_no_le_toco(p, a_las_8_ar)
+    assert not sistema._todavia_no_le_toco(p, a_las_10_ar)
+    # Sin cron conocido no se afirma nada: avisar de más antes que callar.
+    assert not sistema._todavia_no_le_toco({"unidad": "motor_rofex", "cadencia": "13-21 UTC"},
+                                           a_las_8_ar)
+    assert "re.search" not in inspect.getsource(sistema._todavia_no_le_toco)

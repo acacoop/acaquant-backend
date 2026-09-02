@@ -36,8 +36,10 @@ def parse_crontab() -> list[dict]:
             continue  # systemctl start/stop de motores → viven en DIAGNÓSTICO
         label, timeout, inner = m.groups()
         modules = _RE_MODULES.findall(inner)
+        # `comando` es lo que run_job.sh ejecuta, tal cual: es lo que un
+        # relanzamiento tiene que repetir (agente/rehacer.py), sin re-armarlo.
         out.append({"label": label, "schedule": schedule, "timeout": timeout,
-                    "modules": modules})
+                    "modules": modules, "comando": inner})
     return out
 
 

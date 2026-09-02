@@ -365,8 +365,22 @@ class RehacerJob(Arreglo):
     def preview(self, sujeto: str, ev: dict) -> dict:
         from agente import rehacer
         job, fecha = self._job_fecha(sujeto, ev)
-        cfg = rehacer.REHACIBLES.get(job) or {}
+        cfg = rehacer.rehacibles().get(job) or {}
         hay = rehacer.hay_dato(job, fecha)
+        prueba = cfg.get("prueba", rehacer.PRUEBA_DIA)
+        if prueba == rehacer.PRUEBA_TABLA:
+            verif = (f"el contrato de SALUD sobre {cfg.get('tabla')}: MAX("
+                     f"{cfg.get('columna')}) con no más de "
+                     f"{(cfg.get('contrato') or {}).get('max_dias_habiles', '?')} "
+                     "días hábiles de atraso")
+        elif prueba == rehacer.PRUEBA_CORRIDA:
+            verif = (f"una corrida en manager.job_runs (tipo "
+                     f"{', '.join(cfg.get('tipos') or ['?'])}) empezada después de "
+                     f"{fecha} y que no haya fallado — es una prueba sobre la "
+                     "CORRIDA, no sobre el dato: este job no tiene contrato de tabla")
+        else:
+            verif = (f'SELECT 1 FROM {cfg.get("tabla", "?")} '
+                     f'WHERE {cfg.get("columna", "?")}::date = \'{fecha}\'')
         return {"ok": True, "que_escribe": f"correr `{job}` para {fecha}",
                 "donde": self.donde, "ya_hay_dato": hay,
                 # ⚠️ **EL COMANDO EXACTO, no una descripción de él.** «Ver qué
@@ -379,9 +393,7 @@ class RehacerJob(Arreglo):
                                       f'{cfg.get("comando", "")}',
                            "estado": "ok"},
                           {"titulo": "y después se verifica",
-                           "detalle": (f'SELECT 1 FROM {cfg.get("tabla", "?")} '
-                                       f'WHERE {cfg.get("columna", "?")}::date '
-                                       f"= '{fecha}'"),
+                           "detalle": verif,
                            "estado": "ok"}],
                 "porque": ("el job no dejó el dato de ese día. Se relanza por el "
                            "mismo lanzador del cron y se verifica mirando la "

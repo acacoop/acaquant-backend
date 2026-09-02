@@ -3792,3 +3792,42 @@ que no llega a ninguna tabla.
 **El día del deploy**: los motores corren código sin latido hasta su próximo
 arranque (cron 13:20 UTC). Mientras `operaciones.latidos` esté vacía, la
 habilidad levanta `SinDatos` y lo dice, en vez de cantar quince alarmas.
+
+---
+
+### 0.db LOS RELANZABLES SE DERIVAN — y el horario sale del cron (2026-09-02)
+
+`rehacer.REHACIBLES` tuvo una sola entrada, `portafolio_diario`, desde el
+20/08. Todo lo demás caía en `pieza_<estado>` con la frase «todavía no tiene
+botón: hay que declarar en qué tabla se ve su resultado». Nadie declara
+cuarenta jobs a mano, y no hacía falta: lo que hace relanzable a un job ya
+estaba escrito en otro lado.
+
+- **El comando, el label y el timeout** salen de `deploy/crontab.txt`
+  (`core.crontab.parse_crontab`, que ahora también devuelve el comando
+  interno): es exactamente lo que `run_job.sh` recibe cada día.
+- **La prueba de que el dato está** sale de los contratos de frescura de
+  `api/services/salud.CONTRATOS`, unidos al job por `core.escribe.que_relanzar`
+  (quién escribe esa tabla). Para esos jobs el chequeo es **el mismo que corre
+  SALUD** (`_chequeo_dato`), no una segunda query parecida.
+- **Los que no tienen contrato** se prueban por la **corrida**: una fila que
+  no falló en `manager.job_runs`, empezada después de la última hora de cron.
+  Es una prueba sobre el proceso y no sobre el resultado, y el preview lo dice
+  con esas palabras.
+- **Lo declarado gana**: `portafolio_diario` sigue con su regla del hábil
+  anterior, y ahora toma el horario del cron en vez de una copia.
+- Un job con varias líneas de cron (`sync_comitentes`, tres) tiene todos sus
+  horarios; la última esperada es la más reciente de las tres.
+
+`rehacibles()` es la única lista y `cual_job` resuelve módulo, label y tipo
+de `job_runs`. El segundo barrido de `motor_caido` («el día que falta no
+depende de que el árbol lo note») sigue limitado a los jobs con prueba sobre
+el DATO: consultar los cuarenta de prueba «corrida» cada dos minutos era justo
+el barrido que ese comentario prohíbe, y a esos ya los canta el árbol.
+
+**Y la deuda de §5.1 se paga**: `_todavia_no_le_toco` dejaba de avisar según
+una expresión regular sobre la prosa de la cadencia (`"cada 30m · 15-22 UTC
+L-V"`). Ahora lee el horario del crontab por `rehacer.rehacibles()` y lo
+evalúa **el único evaluador cron del repo**, `salud.ultima_ejecucion_esperada`.
+`foto_primary` (§0.cy) también: nació con un evaluador propio y se lo sacó el
+mismo día, porque dos evaluadores de la misma expresión son la REGLA #9 (B).

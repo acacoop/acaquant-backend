@@ -32,6 +32,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `safe-backfill` | Backfill/migración/`--full` que NO tira el CPU: medir → scopear → batchear+throttle → run_job → fuera de rueda (REGLA #4, post-incidente 2026-06-04). |
 | `index-health` | Auditar que los índices REALMENTE se usen (explain, no index_information). Caza el trap partial→COLLSCAN. |
 | `security-review` | Checklist de seguridad antes de exponer endpoint/auth: RBAC, secretos, CF Access. |
+| `add-habilidad` | Agregar una habilidad al AV AGENT: las siete piezas (catálogo, detector, fuente, test, diario, cita, conteo) y aviso vs. trabajo (REGLA #10). |
 
 ## Agents (subagentes — corren en contexto limpio)
 
@@ -44,6 +45,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | Hook | Qué hace |
 |---|---|
 | PreToolUse · `git push` | `check_imports.sh` — corre `from api.main import app` y **BLOQUEA** el push si no importa (enforcement de la REGLA #1). |
+| PreToolUse · `git push` | `check_agente.py` — si el push toca `agente/`, `docs/AGENT.md`, el registro de diagnóstico o el crontab, corre los tests del agente y **BLOQUEA** si están rojos (REGLA #10). |
 | PostToolUse · `Write\|Edit` | `ruff_check.sh` — `ruff check` sobre el `.py` editado, informativo (no bloquea). |
 | PostToolUse · `Write\|Edit` | `sistema_drift.sh` — drift de docs autogenerados: `deploy/systemd/*`/`crontab.txt` → `SISTEMA.md`; `scripts/*.py` → `docs/HERRAMIENTAS.md`. Avisa si quedaron desincronizados (no bloquea). |
 

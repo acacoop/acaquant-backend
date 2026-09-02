@@ -45,6 +45,12 @@
             "command": "python .claude/hooks/check_imports.py",
             "timeout": 120,
             "statusMessage": "Validando imports (REGLA #1)…"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/check_agente.py",
+            "timeout": 180,
+            "statusMessage": "Tests del AV AGENT (REGLA #10)…"
           }
         ]
       }

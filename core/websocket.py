@@ -32,6 +32,7 @@ from typing import ClassVar
 
 import pyRofex
 
+from core import latido
 from core.threads import lanzar_hilo_vital
 
 logger = logging.getLogger("core.websocket")
@@ -55,6 +56,10 @@ class WebSocketManager:
             ticker = message["instrumentId"]["symbol"]
             data = message["marketData"]
             self.mm.update_price(ticker, data)
+            # El latido cuenta lo que llega: «conectado y mudo» y «recibiendo»
+            # se tienen que poder distinguir desde afuera (§0.da).
+            latido.sumar("ws_mensajes")
+            latido.marcar("ws_ultimo_mensaje_at")
         except Exception:
             logger.exception("WS %s: mensaje de mercado ignorado por error", self._nombre)
 
@@ -90,6 +95,7 @@ class WebSocketManager:
                 logger.info(
                     "WS %s: %d símbolo(s) en cuarentena excluidos de la suscripción",
                     self._nombre, antes - len(lista_tickers))
+                latido.agregar("ws_cuarentena", sorted(q))
             if not lista_tickers:
                 return
         # VALIDACIÓN contra el catálogo real de Primary. Va acá y no en cada
@@ -103,6 +109,9 @@ class WebSocketManager:
             logger.warning(
                 "WS %s: %d símbolo(s) NO existen en Primary — no se suscriben: %s",
                 self._nombre, len(invalidos), ", ".join(sorted(invalidos)[:10]))
+            # La lista COMPLETA va al latido: el log la trunca a 10 y el agente
+            # necesita saber si ESTE bono fue rechazado, no si hubo rechazos.
+            latido.agregar("ws_rechazados_primary", sorted(invalidos))
         if not lista_tickers:
             return
         ents = entries if entries is not None else self._ENTRIES
@@ -129,12 +138,15 @@ class WebSocketManager:
                 exception_handler=self._on_exception,
             )
             self.agregar_suscripciones(lista_tickers, depth=depth, entries=entries)
+            latido.anotar(ws="conectado", ws_pedidos=len(lista_tickers))
+            latido.marcar("ws_conectado_at")
             print(
                 f"📡 WebSocket conectado y suscripto a {len(lista_tickers)} activos "
                 f"(Lotes: 50, Profundidad: {depth})."
             )
             return True
         except Exception as e:
+            latido.anotar(ws="error_inicio", ws_error=str(e)[:200])
             logger.error("WS %s: error al iniciar: %s", self._nombre, e)
             print(f"❌ Error al iniciar WebSocket: {e}")
             return False
@@ -194,6 +206,7 @@ class WebSocketManager:
                 self._nombre, bad,
             )
             self._purgar_simbolos(bad)
+            latido.agregar("ws_rechazados_rofex", sorted(bad))
             # Playbook determinista: persistir la lección para que el próximo
             # arranque NO vuelva a pedir el símbolo muerto (la purga en memoria
             # se perdía en cada reinicio y el error se repetía todos los días).
@@ -216,6 +229,8 @@ class WebSocketManager:
         if self._reconectando or self._sub is None:
             return
         self._reconectando = True
+        latido.anotar(ws="reconectando")
+        latido.sumar("ws_reconexiones")
         lanzar_hilo_vital(self._loop_reconexion, "ws_reconexion")
 
     def _loop_reconexion(self) -> None:
@@ -237,6 +252,8 @@ class WebSocketManager:
                     self.agregar_suscripciones(tickers, depth=depth, entries=entries)
                     # Recuperación transitoria → solo log (se auto-sanó).
                     logger.info("WS %s: reconectado OK (intento %d)", self._nombre, intento)
+                    latido.anotar(ws="conectado")
+                    latido.marcar("ws_conectado_at")
                     return
                 except Exception as e:
                     logger.error("WS %s: reconexión intento %d falló: %s", self._nombre, intento, e)
@@ -245,6 +262,11 @@ class WebSocketManager:
                 "❌ reconexión AGOTADA tras 6 intentos — motor sin datos, "
                 "me mato para que systemd reinicie y reconecte en frío"
             )
+            # El último latido dice POR QUÉ me fui: sin esto el agente ve un
+            # proceso que dejó de latir y systemd uno que reinició, y nada une
+            # las dos cosas con «el broker no volvió».
+            latido.anotar(ws="agotado")
+            latido.latir_ahora()
             # os._exit (no sys.exit): estamos en un thread no-main y queremos
             # terminar el proceso YA, sin depender de que el main loop coopere.
             os._exit(1)

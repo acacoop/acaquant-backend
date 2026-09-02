@@ -191,6 +191,13 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     for vista in arbol.get("vistas") or []:
         for grupo in vista.get("grupos") or []:
             for p in grupo.get("piezas") or []:
+                # Los PROCESOS los mira `motor_latido` por su latido (§0.da):
+                # acá quedan los JOBS, que se juzgan por su resultado. Un
+                # motor juzgado por la frescura de su tabla confundía «mercado
+                # quieto» con «muerto», y dos habilidades sobre lo mismo son
+                # dos relojes.
+                if (p.get("tipo") or "") == "motor":
+                    continue
                 estado = (p.get("estado") or "").strip()
                 if estado in ignorar or estado not in rotos:
                     continue
@@ -394,6 +401,146 @@ def _todavia_no_le_toco(p: dict, ahora) -> bool:
     except (TypeError, ValueError):
         gracia = timedelta(0)
     return ahora < inicio + gracia
+
+
+# ═══ motor_latido ══════════════════════════════════════════════════════════
+def _edad_s(ts, ahora) -> float | None:
+    if ts is None:
+        return None
+    try:
+        return (ahora - ts).total_seconds()
+    except TypeError:
+        return None
+
+
+def _iso_edad_s(iso: str | None, ahora) -> float | None:
+    from datetime import datetime
+    if not iso:
+        return None
+    try:
+        return (ahora - datetime.fromisoformat(str(iso))).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def motor_latido(u: dict) -> list[Hallazgo]:
+    """Cada proceso que systemd corre late solo, y acá se lee el latido.
+
+    Cuatro veredictos, y la diferencia es lo que decide qué hacer:
+
+      apagado   — systemd lo tiene inactive/failed dentro de su ventana.
+      sin_latido — systemd dice active y nunca latió: corre código anterior al
+                   latido (arrancó antes del deploy) o se colgó antes de latir.
+      colgado   — latía y dejó de latir; systemd lo sigue viendo active.
+      sin_feed / feed_mudo — vivo, pero el WS no está conectado, o lo está y
+                   no llega un mensaje hace rato en plena rueda.
+
+    **El universo sale de `deploy/systemd` + `deploy/crontab.txt`** (`agente/
+    unidades.py`): un motor nuevo se espera desde que existe su unit. Y no hay
+    botón a propósito: reiniciar en rueda le corta el feed a la mesa, y eso lo
+    decide la mesa; el `que_hacer` trae el comando exacto.
+    """
+    from agente import fuentes, unidades
+
+    decl = {k: v for k, v in unidades.declaradas().items() if v.get("proceso")}
+    if not decl:
+        raise SinDatos("no pude leer deploy/systemd: no sé qué procesos esperar")
+    filas = fuentes.latidos()
+    if filas is None:
+        raise SinDatos("no pude leer operaciones.latidos")
+    if not filas:
+        raise SinDatos("ningún proceso late todavía: el latido entra con el "
+                       "próximo arranque de los motores (cron 13:20 UTC)")
+
+    ahora = reloj.ahora_utc()
+    tol = float(u.get("tolerancia_s", 90))
+    gracia = float(u.get("gracia_arranque_s", 120))
+    mudo_s = float(u.get("feed_mudo_min", 10)) * 60
+    estados = unidades.activas(sorted(decl))
+    caliente = reloj.feed_caliente(ahora)
+
+    out = []
+    for unidad, d in sorted(decl.items()):
+        v = d.get("ventana")
+        if not unidades.en_ventana(v, ahora):
+            continue
+        desde = unidades.desde_inicio_s(v, ahora)
+        if desde is not None and desde < gracia:
+            continue
+        proceso = d["proceso"]
+        lat = filas.get(proceso)
+        sysd = (estados or {}).get(unidad)
+        sysd_txt = sysd or "no pude preguntarle a systemd"
+        base_ev = {"unidad": unidad, "proceso": proceso, "systemd": sysd,
+                   "ventana": v, "restart": d.get("restart")}
+        reiniciar = (f"`systemctl restart {unidad}.service` — en rueda corta el feed "
+                     "de la mesa, lo decide la mesa; fuera de rueda lo hace el cron.")
+
+        if sysd in ("inactive", "failed", "deactivating"):
+            out.append(Hallazgo(
+                sujeto=unidad, regla="apagado", severidad="alta", nombre=unidad,
+                problema=(f"systemd lo tiene «{sysd}» dentro de su ventana · "
+                          f"{reloj.hhmm(ahora)}"),
+                que_hacer=f"Arrancarlo: {reiniciar}",
+                evidencia=base_ev))
+            continue
+        if lat is None:
+            out.append(Hallazgo(
+                sujeto=unidad, regla="sin_latido", severidad="alta", nombre=unidad,
+                problema=(f"systemd dice «{sysd_txt}» y el proceso nunca latió · "
+                          f"{reloj.hhmm(ahora)}"),
+                detalle=("o corre código anterior al latido (arrancó antes del "
+                         "deploy) o se colgó antes de latir por primera vez"),
+                que_hacer=(f"Si es del deploy de hoy, se resuelve solo en el próximo "
+                           f"arranque. Si no, {reiniciar}"),
+                evidencia=base_ev))
+            continue
+        edad = _edad_s(lat.get("latido_at"), ahora)
+        ev = {**base_ev, "pid": lat.get("pid"), "host": lat.get("host"),
+              "arrancado_at": lat.get("arrancado_at"), "latido_at": lat.get("latido_at"),
+              "latido_hace_s": None if edad is None else round(edad)}
+        if edad is None or edad > tol:
+            out.append(Hallazgo(
+                sujeto=unidad, regla="colgado" if sysd == "active" else "muerto",
+                severidad="alta", nombre=unidad,
+                problema=(f"dejó de latir hace {_humano(edad or 0)} · systemd dice "
+                          f"«{sysd_txt}» · {reloj.hhmm(ahora)}"),
+                detalle=(f"último latido {lat.get('latido_at')} · pid {lat.get('pid')} "
+                         f"· tolera {_humano(tol)}"),
+                que_hacer=reiniciar,
+                evidencia=ev))
+            continue
+        data = lat.get("data") or {}
+        ws = data.get("ws")
+        if ws is None:
+            continue                      # no usa el WS: vivo alcanza
+        ev.update({k: data.get(k) for k in ("ws", "ws_pedidos", "ws_mensajes",
+                                            "ws_reconexiones", "ws_conectado_at",
+                                            "ws_ultimo_mensaje_at", "ws_error")})
+        if ws != "conectado":
+            out.append(Hallazgo(
+                sujeto=unidad, regla="sin_feed", severidad="alta", nombre=unidad,
+                problema=(f"vivo pero el WebSocket está «{ws}» · "
+                          f"{data.get('ws_reconexiones') or 0} reconexión/es · "
+                          f"{reloj.hhmm(ahora)}"),
+                detalle=str(data.get("ws_error") or ""),
+                que_hacer=("Si «reconectando» dura minutos, el broker no vuelve: "
+                           f"{reiniciar}"),
+                evidencia=ev))
+            continue
+        mudo = _iso_edad_s(data.get("ws_ultimo_mensaje_at"), ahora)
+        if caliente and (mudo is None or mudo > mudo_s):
+            out.append(Hallazgo(
+                sujeto=unidad, regla="feed_mudo", severidad="media", nombre=unidad,
+                problema=(f"conectado y sin recibir un mensaje hace "
+                          f"{_humano(mudo) if mudo is not None else 'nunca'} en plena "
+                          f"rueda · {reloj.hhmm(ahora)}"),
+                detalle=(f"{data.get('ws_pedidos') or 0} símbolos pedidos · "
+                         f"{data.get('ws_mensajes') or 0} mensajes desde el arranque"),
+                que_hacer=("Puede ser mercado quieto en lo que pide este motor. Si "
+                           "los otros motores reciben y este no, " + reiniciar),
+                evidencia=ev))
+    return out
 
 
 # ═══ tabla_quieta ══════════════════════════════════════════════════════════

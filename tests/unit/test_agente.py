@@ -2119,3 +2119,150 @@ def test_reincide_el_item_no_el_grupo():
     assert "'reincidio'" in schema[j:j + 250]
     assert "DROP INDEX IF EXISTS agente.hallazgos_abierto_unico" in schema[:j]
     assert "dedup §0.cz" in schema[:j]
+
+
+# ── EL LATIDO (§0.da) ──────────────────────────────────────────────────────
+
+def test_el_universo_de_procesos_sale_de_systemd_y_del_cron():
+    """Un motor nuevo es una unit nueva: con eso el agente ya lo espera. La
+    ventana sale del cron que lo prende y lo apaga, no de una lista a mano."""
+    from datetime import datetime
+
+    from agente import unidades
+    d = unidades.declaradas()
+    assert d["motor_rofex"]["proceso"] == "engines.valores"
+    assert d["api"]["proceso"] is None, "uvicorn no corre por -m: no se le pide latido"
+    v = d["motor_rofex"]["ventana"]
+    assert v["inicio"] == (13, 20) and v["fin"] == (20, 5) and v["dias"] == {0, 1, 2, 3, 4}
+    assert d["agente"]["ventana"] is None, "sin cron que lo apague, corre siempre"
+    assert unidades.en_ventana(v, datetime(2026, 9, 1, 14, 0, tzinfo=UTC))
+    assert not unidades.en_ventana(v, datetime(2026, 9, 5, 14, 0, tzinfo=UTC)), "sábado"
+    assert not unidades.en_ventana(v, datetime(2026, 9, 1, 21, 0, tzinfo=UTC)), "apagado"
+    assert unidades.en_ventana(None, datetime(2026, 9, 5, 3, 0, tzinfo=UTC))
+    # Cada unit con -m tiene proceso, y ninguno se repite: es la clave del latido.
+    procesos = [x["proceso"] for x in d.values() if x["proceso"]]
+    assert len(procesos) == len(set(procesos)) >= 15
+
+
+def test_el_latido_arranca_solo_en_los_motores_y_sabe_quien_es():
+    """`python -m engines.valores` late sin que el motor lo pida: el paquete
+    `engines` lo arranca desde `sys.orig_argv`. Y `sys.argv[0]` no sirve para
+    eso: mientras se importa el paquete vale `-m`."""
+    from core import latido
+    assert latido.proceso_de(["python", "-m", "engines.valores"]) == "engines.valores"
+    assert latido.proceso_de(["python", "-m", "jobs.control_saldos"]) == "jobs.control_saldos"
+    assert latido.proceso_de(["uvicorn", "api.main:app"]) is None
+    src = (RAIZ / "engines" / "__init__.py").read_text(encoding="utf-8")
+    assert "orig_argv" in src and 'startswith("engines.")' in src
+    assert "latido.arrancar(" in src
+    # El WS anota el estado del feed: es el único punto por el que pasan todos.
+    ws = (RAIZ / "core" / "websocket.py").read_text(encoding="utf-8")
+    for clave in ("ws_rechazados_primary", "ws_rechazados_rofex", "ws_cuarentena",
+                  "ws_ultimo_mensaje_at", 'ws="conectado"', 'ws="agotado"'):
+        assert clave in ws, clave
+    # Y los daemons de jobs/ lo llaman explícito.
+    for j in ("control_saldos", "tenencia_live", "agente"):
+        assert "latido.arrancar()" in (RAIZ / "jobs" / f"{j}.py").read_text(encoding="utf-8"), j
+
+
+def _latido(proceso, hace_s, ahora, **data):
+    from datetime import timedelta
+    return {"proceso": proceso, "pid": 1, "host": "h",
+            "arrancado_at": ahora - timedelta(hours=1),
+            "latido_at": ahora - timedelta(seconds=hace_s), "data": data}
+
+
+def test_motor_latido_distingue_apagado_colgado_sin_feed_y_mudo(monkeypatch):
+    """Cuatro veredictos porque el que_hacer es otro en cada uno. Y «vivo y
+    mudo con el mercado quieto» no es «muerto»: por eso el feed mudo es media
+    y solo en rueda caliente."""
+    from datetime import datetime, timedelta
+
+    from agente import fuentes, reloj, unidades
+
+    ahora = datetime(2026, 9, 1, 15, 0, tzinfo=UTC)          # martes, en rueda
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: ahora)
+    monkeypatch.setattr(reloj, "feed_caliente", lambda a=None: True)
+    v = {"inicio": (13, 20), "fin": (20, 5), "dias": {0, 1, 2, 3, 4}}
+    monkeypatch.setattr(unidades, "declaradas", lambda: {
+        "motor_a": {"proceso": "engines.a", "restart": "always", "ventana": v},
+        "motor_b": {"proceso": "engines.b", "restart": "always", "ventana": v},
+        "motor_c": {"proceso": "engines.c", "restart": "always", "ventana": v},
+        "motor_d": {"proceso": "engines.d", "restart": "always", "ventana": v},
+        "motor_e": {"proceso": "engines.e", "restart": "always", "ventana": v},
+        "motor_f": {"proceso": "engines.f", "restart": "always", "ventana": v},
+        "nocturno": {"proceso": "engines.n", "restart": "always",
+                     "ventana": {"inicio": (22, 0), "fin": (23, 0), "dias": None}},
+        "api": {"proceso": None, "restart": "always", "ventana": None},
+    })
+    monkeypatch.setattr(unidades, "activas", lambda us: {
+        "motor_a": "inactive", "motor_b": "active", "motor_c": "active",
+        "motor_d": "active", "motor_e": "active", "motor_f": "active", "nocturno": "inactive"})
+    monkeypatch.setattr(fuentes, "latidos", lambda: {
+        "engines.c": _latido("engines.c", 600, ahora),
+        "engines.d": _latido("engines.d", 5, ahora, ws="reconectando", ws_reconexiones=3),
+        "engines.e": _latido("engines.e", 5, ahora, ws="conectado",
+                             ws_ultimo_mensaje_at=(ahora - timedelta(minutes=30)).isoformat()),
+        "engines.f": _latido("engines.f", 5, ahora, ws="conectado",
+                             ws_ultimo_mensaje_at=(ahora - timedelta(seconds=20)).isoformat()),
+    })
+    por = {h.sujeto: h for h in sistema.motor_latido(
+        {"tolerancia_s": 90, "gracia_arranque_s": 120, "feed_mudo_min": 10})}
+    assert por["motor_a"].regla == "apagado"
+    assert por["motor_b"].regla == "sin_latido"
+    assert por["motor_c"].regla == "colgado" and por["motor_c"].severidad == "alta"
+    assert por["motor_d"].regla == "sin_feed"
+    assert por["motor_e"].regla == "feed_mudo" and por["motor_e"].severidad == "media"
+    assert "motor_f" not in por, "vivo, conectado y recibiendo"
+    assert "nocturno" not in por, "fuera de su ventana, apagado es lo normal"
+    assert "api" not in por
+    for h in por.values():
+        assert "systemctl restart" in h.que_hacer
+
+    # Arrancando no es caído: a los 60 s del cron nadie tiene que haber latido.
+    monkeypatch.setattr(reloj, "ahora_utc",
+                        lambda a=None: datetime(2026, 9, 1, 13, 21, tzinfo=UTC))
+    assert sistema.motor_latido({"gracia_arranque_s": 120}) == []
+
+    # Nadie late todavía (código sin desplegar en los motores) → SinDatos, no 15 alarmas.
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: ahora)
+    monkeypatch.setattr(fuentes, "latidos", lambda: {})
+    with pytest.raises(tipos.SinDatos):
+        sistema.motor_latido({})
+    # Y sin systemd, sin_latido igual se canta con «no pude preguntarle».
+    monkeypatch.setattr(fuentes, "latidos", lambda: {"engines.f": _latido("engines.f", 5, ahora)})
+    monkeypatch.setattr(unidades, "activas", lambda us: None)
+    por = {h.sujeto: h for h in sistema.motor_latido({})}
+    assert por["motor_a"].regla == "sin_latido"
+
+
+def test_motor_caido_deja_los_procesos_al_latido():
+    """Dos habilidades sobre lo mismo son dos relojes: los motores los juzga
+    `motor_latido` por su latido y `motor_caido` se queda con los jobs."""
+    src = inspect.getsource(sistema.motor_caido)
+    i = src.index('if (p.get("tipo") or "") == "motor":')
+    assert "continue" in src[i:i + 80]
+    h = catalogo.HABILIDADES["motor_latido"]
+    assert h.dominio == "SISTEMA" and not h.arreglos and h.cada_segundos <= 300
+
+
+def test_bono_sin_precio_dice_por_que_no_esta_suscripto(monkeypatch):
+    """«Nadie lo suscribió» y «lo pedí y Primary no lo lista» tienen arreglos
+    distintos: el primero tiene botón (pedir la pata) y el segundo no, porque
+    no hay precio posible. El WS deja la lista completa en su latido."""
+    from datetime import datetime
+
+    from agente import fuentes, reloj
+    monkeypatch.setattr(mercado, "_feed_o_sindatos", lambda: None)
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 1, 15, 0, tzinfo=UTC))
+    monkeypatch.setattr(reloj, "en_rueda", lambda a=None: True)
+    monkeypatch.setattr(fuentes, "master", lambda: [
+        {"ticker_corto": "AAA", "ticker": "MERV - XMEV - AAA - 24hs"},
+        {"ticker_corto": "BBB", "ticker": "MERV - XMEV - BBB - 24hs"}])
+    monkeypatch.setattr(fuentes, "snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(fuentes, "latidos", lambda: {"engines.valores": {"data": {
+        "ws_rechazados_primary": ["MERV - XMEV - AAA - 24hs"]}}})
+    por = {h.sujeto: h for h in mercado.bono_sin_precio({})}
+    assert por["AAA"].regla == "simbolo_rechazado"
+    assert por["BBB"].regla == "no_suscripto"
+    assert catalogo.HABILIDADES["bono_sin_precio"].arreglo_de("simbolo_rechazado") == ""

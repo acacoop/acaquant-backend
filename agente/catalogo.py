@@ -112,6 +112,17 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # puede quedar una fila con un botón que siempre falla.
         arreglos={"job_sin_dato": "rehacer_job"}),
 
+    # Los PROCESOS, por su latido (core/latido.py, §0.da). El universo sale de
+    # deploy/systemd + crontab: un motor nuevo se espera solo. Sin arreglo a
+    # propósito: reiniciar en rueda lo decide la mesa; el que_hacer trae el
+    # comando. `motor_caido` queda para los JOBS, que se juzgan por resultado.
+    Habilidad(
+        nombre="motor_latido", tipo="detector", dominio="SISTEMA",
+        que_mira="cada proceso de systemd late solo: apagado, colgado, sin feed o mudo",
+        cada_segundos=2 * _M, ventana="siempre",
+        correr=sistema.motor_latido,
+        umbrales={"tolerancia_s": 90, "gracia_arranque_s": 120, "feed_mudo_min": 10}),
+
     Habilidad(
         nombre="tabla_quieta", tipo="detector", dominio="SISTEMA",
         que_mira="tablas que dejaron de escribir — la cadencia se MIDE, no se declara",

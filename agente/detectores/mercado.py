@@ -261,6 +261,20 @@ def bono_sin_tasa(u: dict) -> list[Hallazgo]:
 
 
 # ═══ bono_sin_precio ═══════════════════════════════════════════════════════
+def _rechazo(simbolo: str) -> str:
+    """Qué dijo el WS de `motor_rofex` sobre este símbolo, según su latido:
+    '' si nada. La lista completa vive en `operaciones.latidos.data` (§0.da)."""
+    lat = (fuentes.latidos() or {}).get("engines.valores") or {}
+    data = lat.get("data") or {}
+    if simbolo in (data.get("ws_rechazados_primary") or []):
+        return "Primary no lo lista (no se suscribió)"
+    if simbolo in (data.get("ws_rechazados_rofex") or []):
+        return "ROFEX lo rechazó al suscribir («Product don't exist»)"
+    if simbolo in (data.get("ws_cuarentena") or []):
+        return "está en cuarentena por un rechazo reciente de ROFEX"
+    return ""
+
+
 def bono_sin_precio(u: dict) -> list[Hallazgo]:
     """Bonos del master a los que el motor NO les está dando precio, en rueda.
 
@@ -297,6 +311,21 @@ def bono_sin_precio(u: dict) -> list[Hallazgo]:
 
         d = snap.get(simbolo)
         if d is None:
+            # ⚠️ **PRIMERO SE MIRA SI EL MOTOR LO PIDIÓ Y LO RECHAZARON (§0.da).**
+            # El WS deja en el latido la lista completa de lo que Primary no
+            # lista y de lo que ROFEX rechazó. Ahí «pedir la pata» no arregla
+            # nada: es un aviso con el motivo, no un botón.
+            motivo = _rechazo(simbolo)
+            if motivo:
+                out.append(Hallazgo(
+                    sujeto=tk, regla="simbolo_rechazado", severidad="alta",
+                    problema=f"el motor pidió «{simbolo}» y {motivo} · "
+                             f"{reloj.hhmm(ahora)}",
+                    que_hacer="Sin símbolo válido no hay precio posible: revisar la "
+                              "pata en `mercado.especies` (otro plazo o sufijo) y "
+                              "corregir el símbolo del master.",
+                    evidencia={**ev, "rechazo": motivo}))
+                continue
             out.append(Hallazgo(
                 sujeto=tk, regla="no_suscripto", severidad="alta",
                 problema=f"el motor NO está pidiendo «{simbolo}»: está en el "

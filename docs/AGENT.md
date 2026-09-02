@@ -3742,3 +3742,53 @@ de cada trío con más de una fila abierta queda la más nueva, las
 «reincidencias» de `ficha_incompleta` se borran y sus hallazgos vuelven a
 `nuevo`. Con eso hecho, `hallazgos_abierto_unico` pasa a cubrir `reincidio`:
 la base ya no permite la copia que el código dejó de hacer.
+
+---
+
+### 0.da EL LATIDO — cada proceso dice que está vivo, solo (2026-09-02)
+
+> *«Es el que más me interesa. Tiene que estar hecho de manera excelente y
+> eficiente, y actualizarse solo, no depender de intervención humana: si
+> mañana meto otro motor se tiene que detectar solo.»*
+
+**Lo que había.** De diecisiete procesos de systemd, dos escribían un latido
+(`motor_ordenes`, `control_saldos`), cada uno con su hilo y su formato, en un
+singleton. Los otros quince se juzgaban por la frescura de la tabla que
+escriben (`motor_caido` sobre el árbol de diagnóstico), y eso no distingue
+«vivo y sin operaciones» de «muerto». El WS trunca a diez los símbolos que
+Primary no lista y, cuando agota seis reconexiones, se mata con un mensaje
+que no llega a ninguna tabla.
+
+**Lo que queda, y por qué nadie tiene que acordarse de nada:**
+
+- **`core/latido.py`**: un hilo daemon escribe `operaciones.latidos` cada 15 s
+  (proceso, pid, host, arrancado, último latido, `data`). Nunca levanta: si
+  Postgres no responde, loguea una vez cada diez minutos y sigue.
+- **Arranca solo en `engines/__init__.py`** cuando el proceso es `python -m
+  engines.<motor>`, leído de `sys.orig_argv` (`sys.argv[0]` vale `-m` mientras
+  se importa el paquete). Un motor nuevo late desde su primer arranque sin
+  saber que esto existe. Los tres daemons de `jobs/` lo llaman en su `main`.
+- **`core/websocket.py` anota el feed en el latido**: `ws` (conectado ·
+  reconectando · agotado · error_inicio), mensajes recibidos y cuándo fue el
+  último, reconexiones, y las listas COMPLETAS de rechazados por Primary, por
+  ROFEX y en cuarentena. Es el único punto por el que pasan todos los motores.
+- **`agente/unidades.py`**: el universo de procesos sale de `deploy/systemd`
+  (qué unit corre qué módulo) y de `deploy/crontab.txt` (a qué hora la prende
+  y la apaga el cron). Y le pregunta a systemd en la máquina con
+  `systemctl is-active`, como `cron_desalineado` le pregunta al crontab.
+- **Habilidad `motor_latido`** (SISTEMA, cada 2 min), cuatro veredictos porque
+  el que_hacer es otro en cada uno: `apagado` (systemd inactive en ventana),
+  `sin_latido` (active y nunca latió: código anterior al latido, o colgado
+  antes de latir), `colgado`/`muerto` (dejó de latir), `sin_feed` (WS no
+  conectado) y `feed_mudo` (conectado y sin mensajes en rueda caliente, media:
+  puede ser mercado quieto). Sin arreglo a propósito: reiniciar en rueda lo
+  decide la mesa; el que_hacer trae el comando exacto.
+- **`motor_caido` deja los procesos y se queda con los jobs**, que se juzgan
+  por su resultado. Dos habilidades sobre lo mismo son dos relojes.
+- **`bono_sin_precio` dice por qué**: antes de ofrecer «pedir la pata» mira si
+  `motor_rofex` ya lo pidió y lo rechazaron; ahí es `simbolo_rechazado`, aviso
+  con el motivo, sin botón, porque no hay precio posible.
+
+**El día del deploy**: los motores corren código sin latido hasta su próximo
+arranque (cron 13:20 UTC). Mientras `operaciones.latidos` esté vacía, la
+habilidad levanta `SinDatos` y lo dice, en vez de cantar quince alarmas.

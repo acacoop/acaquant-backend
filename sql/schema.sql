@@ -554,6 +554,22 @@ CREATE TABLE IF NOT EXISTS operaciones.motor_heartbeat (
     data       jsonb
 );
 
+-- EL LATIDO de cada proceso que corre solo (core/latido.py, AGENT.md §0.da).
+-- Una fila por proceso (`engines.valores`, `jobs.control_saldos`…), escrita
+-- cada 15 s por un hilo que arranca solo en `engines/__init__.py`. `data` es
+-- lo que el proceso quiera contar; core/websocket.py deja ahí el estado del
+-- feed y los símbolos rechazados (la lista completa, no los 10 del log).
+-- Reemplaza, para el AGENTE, al singleton `motor_heartbeat` de arriba, que
+-- sigue existiendo porque lo lee /manager → DIAG.
+CREATE TABLE IF NOT EXISTS operaciones.latidos (
+    proceso      text PRIMARY KEY,
+    pid          integer,
+    host         text,
+    arrancado_at timestamptz,
+    latido_at    timestamptz NOT NULL DEFAULT now(),
+    data         jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
 CREATE TABLE IF NOT EXISTS operaciones.operativas_mep (
     id      text PRIMARY KEY,              -- str(_id) Mongo
     account text,

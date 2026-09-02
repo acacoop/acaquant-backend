@@ -169,6 +169,21 @@ def tickers_en_primary() -> set[str] | None:
     return out
 
 
+# ── LOS LATIDOS ────────────────────────────────────────────────────────────
+def latidos() -> dict[str, dict] | None:
+    """proceso → su último latido (`operaciones.latidos`, core/latido.py).
+    `None` = no pude leer. Vacío = nadie late todavía (código sin desplegar
+    en los motores), que es distinto y el detector lo dice distinto."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT proceso, pid, host, arrancado_at, latido_at, data "
+                        "FROM operaciones.latidos")
+            return {r[0]: {"proceso": r[0], "pid": r[1], "host": r[2],
+                           "arrancado_at": r[3], "latido_at": r[4],
+                           "data": dict(r[5] or {})} for r in cur.fetchall()}
+    return _una_vez("latidos", _leer)
+
+
 # ── LO QUE LA CASA TIENE ───────────────────────────────────────────────────
 def en_cartera() -> set[str] | None:
     """Tickers con tenencia viva. Convierte «¿te interesa?» en una obviedad: un

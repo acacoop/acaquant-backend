@@ -554,6 +554,17 @@ CREATE TABLE IF NOT EXISTS operaciones.motor_heartbeat (
     data       jsonb
 );
 
+-- LICITACIONES (2026-09-02): dos tablas que NACIERON y MURIERON en la misma
+-- noche. Las creó el deploy de 218638c (`mercado.licitaciones` +
+-- `mercado.licitaciones_mail`, para que la IA leyera los mails de 1816) y el
+-- feature se revirtió antes de que corriera el job una sola vez — decisión del
+-- user: «lo de las licitaciones es lo que menos me importa, con lo de 1816
+-- está solucionado». Quedaron VACÍAS en la base del Droplet. Se dropean acá,
+-- y no a mano, por la misma razón que las 18 del agente viejo: el DROP
+-- idempotente en el schema es lo único que garantiza que no reaparezcan.
+DROP TABLE IF EXISTS mercado.licitaciones_mail;
+DROP TABLE IF EXISTS mercado.licitaciones;
+
 -- EL PULSO DEL CLIENTE (AGENT.md §0.dg): una pantalla que no pudo refrescar
 -- durante más de un minuto lo dice, una vez por minuto, y acá queda con hora.
 -- Es lo único que le cuenta al agente lo que la mesa tiene enfrente: un 502

@@ -93,6 +93,12 @@ HERRAMIENTAS: dict[str, str] = {
                              "saltó y hace cuánto que el motor no la recalcula. La pantalla no puede "
                              "distinguir una tasa de hace tres semanas de una de hace tres segundos "
                              "(2026-09-02, abierto).",
+    "diag_tasa_fija":        "audita la pill TASA FIJA: recalcula cada bono con la función del "
+                             "motor y lo cruza contra 1816 por ticker, SEPARANDO las tres causas "
+                             "posibles de una diferencia (el número guardado quedó viejo · el precio "
+                             "de arranque es otro · la convención de TNA no es la misma). Sin esa "
+                             "separación no se puede decidir si hay que tocar el motor "
+                             "(2026-09-02, abierto).",
     "diag_duales_pata_fija": "por qué TTD26/TTS26 salen en -- en TASA FIJA teniendo TAMAR completo: sigue "
                              "la cadena hasta el punto exacto donde se corta (2026-08-31, abierto).",
     "diag_1816_grafias":     "con qué grafía publica 1816 la pata fija que `tamar_1816` pide con dos "

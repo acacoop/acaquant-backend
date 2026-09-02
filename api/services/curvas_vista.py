@@ -100,10 +100,11 @@ def _tna_de(metrics: dict, vencimiento, pill: str,
     pill sin medir —o un request sin calendario— no cambia de número por
     accidente.
 
-    ⚠️ `liquidacion` ENTRA como parámetro, igual que `mep` y `tamar`: es el T+1
-    hábil y sale de la base. Resolverlo acá adentro pondría una query POR BONO en
-    el loop (222 × por request) y dejaría de ser una función pura — que es todo
-    el punto de `_armar`.
+    ⚠️ `liquidacion` ENTRA como parámetro, igual que `mep` y `tamar`. NO es por
+    costo — `core.calendario.proximo_habil` es puro (feriados de la librería
+    `holidays`, sin base). Es por PUREZA: resolverlo adentro ataría el resultado
+    a `date.today()` y el test no podría fijar la fecha, con lo cual el número
+    que congela cambiaría solo con el paso de los días.
     """
     if pill != "tasa_fija" or metrics.get("TEA") is None or not vencimiento:
         return None
@@ -445,7 +446,8 @@ def get_curvas_vista() -> dict:
     doc = get_ultimo_mep()
     raw = doc.get("mep") if doc else None
     mep = float(raw) if raw and raw > 0 else None
-    # El T+1 hábil se resuelve UNA vez por request (una query, no 222).
+    # El T+1 hábil, resuelto UNA vez y pasado hacia adentro para que `_armar`
+    # siga siendo pura (no depende de `hoy`, así el test puede fijar la fecha).
     from core.calendario import proximo_habil
     try:
         liq = proximo_habil(date.today())

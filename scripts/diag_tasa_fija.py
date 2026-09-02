@@ -276,6 +276,12 @@ def auditar(bonos: list[dict], ins: dict, snaps: dict,
             "ruido": b.get("tasa_ruido"), "fuente": b.get("tea_fuente"),
             "precio": precio, "p1816": p1816,
             "tea_vista": _f(m.get("TEA")),
+            # La TNA que el backend MANDA (`metrics.TNA`), no la que se derivaría.
+            # Sin esto el script mide lo que el front calcularía por su cuenta y
+            # no puede ver el cambio que acaba de deployarse — que es exactamente
+            # lo que pasó en la corrida del 2026-09-02 20:11.
+            "tna_vista": _f(m.get("TNA")),
+            "tna_conv": b.get("tna_convencion"),
             "tea_guard": _f(s.get("tea")),
             "tea_motor": _f((r_motor or {}).get("TEA")),
             "tea_hoy": _f((r_hoy or {}).get("TEA")),
@@ -474,17 +480,43 @@ def bloque_3(filas: list[dict]) -> None:
     if puntos["ninguna"]:
         print(f"       ninguna   en {puntos['ninguna']} — ahí la convención es OTRA")
 
-    print("\n  ► Y LA NUESTRA, contra la ganadora:")
-    print("     la pantalla deriva TEM×12. Cuánto se aparta, por plazo — si esto")
-    print("     crece ordenado con los días, es diferencia de FÓRMULA y no un bug.")
+    # ── LO QUE LA PANTALLA MUESTRA HOY, que es la verificación del cambio ────
+    #
+    # Dos columnas distintas y hay que mirarlas separadas:
+    #   · MANDA EL BACKEND (`metrics.TNA`) → si viene, ES lo que se ve.
+    #   · DERIVA EL FRONT (TEM×12)          → lo que se ve cuando NO viene.
+    # Mezclarlas fue el error de la primera versión: el script derivaba siempre y
+    # por eso no podía ver que el backend ya estaba mandando el número bueno.
+    print("\n  ► LO QUE MUESTRA LA PANTALLA, contra la ganadora:")
+    mandados = [f for f in hay if f["tna_vista"] is not None]
+    print(f"     el backend manda `metrics.TNA` en {len(mandados)} de {len(hay)}"
+          f"   ← si esto es 0, el cambio NO está deployado o `liquidacion` vino"
+          " en None")
+    print(f"\n     {'BONO':<9}{'DÍAS':>5}   {'EN PANTALLA':>12} {'CONVENCIÓN':>12}"
+          f"   {'1816':>8}  {'dif pp':>7}")
     for f in sorted(hay, key=lambda x: _dias(x) or 0):
         d = _dias(f)
-        nuestra = _tna(f["tea_vista"])
-        if nuestra is None or d is None:
+        if d is None:
             continue
-        print(f"     {f['tk']:<9}{d:>5}d   nuestra {_pct(nuestra, 2)}   "
-              f"1816 {_pct(f['tna_1816'], 2)}   dif "
-              f"{((nuestra - f['tna_1816']) * 100):>6.2f} pp")
+        # Exactamente lo que dibuja `bonos-table.tsx`: si vino, la usa; si no,
+        # deriva. Replicarlo acá es la única forma de auditar lo que se VE.
+        en_pantalla = (f["tna_vista"] if f["tna_vista"] is not None
+                       else _tna(f["tea_vista"]))
+        if en_pantalla is None:
+            continue
+        dif = (en_pantalla - f["tna_1816"]) * 100
+        marca = "  ✅" if abs(dif) <= 0.05 else "  ← no cierra"
+        print(f"     {f['tk']:<9}{d:>5}d   {_pct(en_pantalla, 2):>12} "
+              f"{(f['tna_conv'] or '?'):>12}   {_pct(f['tna_1816'], 2):>8}  "
+              f"{dif:>7.2f}{marca}")
+    cierran = sum(1 for f in hay
+                  if (f["tna_vista"] if f["tna_vista"] is not None
+                      else _tna(f["tea_vista"])) is not None
+                  and abs(((f["tna_vista"] if f["tna_vista"] is not None
+                            else _tna(f["tea_vista"])) - f["tna_1816"]) * 100) <= 0.05)
+    print(f"\n     cierran con 1816 (≤0,05 pp): {cierran} de {len(hay)}"
+          + ("   ✅ la columna quedó alineada" if cierran == len(hay)
+             else "   ← todavía no"))
 
 
 def bloque_cruzado(filas: list[dict]) -> None:

@@ -844,7 +844,7 @@ acepta "todos".
 > corregirlos ahora sería trabajo que se rehace. Los 2 que NO son ONs (`AO29`
 > soberano y `CO32`) se pueden corregir ya.
 
-**El cruce de especies lo vigila el AV AGENT** (`precio_moneda`, regla `pata_equivocada`, y el duplicado `simbolo_master_vs_especies` de `dato_partido`). El check `especies_cruzadas` de `jobs/guardrails.py` que lo hacía a las 20:45 se dio de baja el 2026-09-02 con el job entero (`docs/AGENT.md` §0.dj): nació sin calibrar y nunca marcó nada.
+El check `especies_cruzadas` de `jobs/guardrails.py` se dio de baja el 2026-09-02 con el job entero (`docs/AGENT.md` §0.dj): nació sin calibrar y nunca marcó nada. El cruce lo mira `precio_moneda` (regla `pata_equivocada`).
 
 **Estado (2026-08-15, aplicado):** 758 patas sembradas · `AO29` y `CO32`
 repuntados a su pata en dólares · **34 cruces pendientes, todos ONs**.

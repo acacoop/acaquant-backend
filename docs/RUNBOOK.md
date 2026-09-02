@@ -245,19 +245,12 @@ lo que la plataforma muestra y saber cómo se usa?**
 
 ---
 
-### COMMIT 2 — Guardrails de datos → ABSORBIDO por el AV AGENT (2026-09-02)
+### COMMIT 2 — Guardrails de datos → BORRADO (2026-09-02)
 
 `jobs/guardrails.py` existió del 2026-07-18 al 2026-09-02. Sus umbrales nacieron
 en `None` («sin calibrar») y nunca se calibraron: corría todas las noches y no
-podía marcar una sola violación. Lo que miraba vive hoy en el agente:
-
-| check viejo | dónde vive hoy |
-|---|---|
-| `aum_delta`, `salto_precio`, `sanidad_cierre`, `emisor_contradictorio`, `emisor_sin_industria` | habilidad **`cierre_sano`** (`agente/detectores/datos.py`), ventana `cierre`, sin umbral en %: la normalidad se mide contra las últimas fechas |
-| `cobertura_curva` | `bono_sin_precio` + el reporte `snapshot_cierre.curvas_salteadas` |
-| `especies_cruzadas` | `precio_moneda` (`pata_equivocada`) + el duplicado `simbolo_master_vs_especies` de `dato_partido` |
-
-Historia y decisión: `docs/AGENT.md` §0.dj.
+podía marcar una sola violación. Se borró entero (job, test, config, cron).
+Decisión: `docs/AGENT.md` §0.dj.
 
 ### COMMIT 3 — Golden tests del pipeline crítico ✅ HECHO (2026-07-18)
 

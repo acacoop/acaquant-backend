@@ -4048,40 +4048,16 @@ _incoherencias` devuelve las fechas y no un conteo).
 `ops_tasa_mav.sin_texto` y `ambiguos` solo tienen el número: el aviso lo
 aclara (`con_lista=False`) en vez de prometer una lista que no llega.
 
-### 0.dj EL JOB QUE NO PODÍA MARCAR NADA — guardrails entra al agente como `cierre_sano` (2026-09-02)
+### 0.dj GUARDRAILS SE BORRA, Y NO SE RECICLA (2026-09-02)
 
-**Qué había.** `jobs/guardrails.py` corría todas las noches a las 20:45 con
-siete chequeos de sanidad post-cierre, y el user lo resumió como *«100%
-muerto»*. Tenía razón por una causa precisa: sus cinco umbrales vivían en
-`config.GUARDRAILS_UMBRALES`, **nacieron en `None` el 2026-07-18** («sin
-calibrar: mide pero jamás marca violación») y nadie los calibró nunca. Un
-chequeo que no puede marcar es un log que se escribe solo. Encima el resultado
-quedaba en dos contadores de `manager.job_runs` sin lista ni ticker.
+`jobs/guardrails.py` corría todas las noches desde el 2026-07-18 con cinco
+umbrales que nacieron en `None` («sin calibrar») y nunca se calibraron: no
+podía marcar nada. El user lo dio por muerto y se borró entero: job, test,
+`config.GUARDRAILS_UMBRALES`, cron y su fila en el registro de diagnóstico.
 
-**Qué se decidió.** El agente ya tiene el lugar para cada pieza: los umbrales
-viven en la fila del catálogo y se editan en la base (`umbrales_de`), el
-resultado es un hallazgo con evidencia, y «¿corrió?» lo contesta la columna
-`ultima_corrida_at`. Así que el job se borró entero (código, test, config,
-cron) y lo que miraba pasó a:
-
-- **`cierre_sano`** (nueva, ventana `cierre`): `aum_salto`, `cierre_invalido`,
-  `cierre_salto`, `emisor_contradictorio`, `emisor_sin_industria`.
-- `cobertura_curva` → ya lo cubren `bono_sin_precio` y el reporte
-  `snapshot_cierre.curvas_salteadas`.
-- `especies_cruzadas` → ya lo cubren `precio_moneda` y el duplicado
-  `simbolo_master_vs_especies`.
-
-**La decisión de diseño que importa: sin umbral en porcentaje.** REGLA #2
-prohíbe inventar un número, y el número «calibrado a mano» es el que nunca
-llegó. La normalidad se **mide** contra la propia historia, igual que
-`tabla_quieta` mide la cadencia: el AuM (o un bono) canta cuando el movimiento
-de hoy supera `veces_maximo` (1,5) veces el mayor movimiento de sus últimas
-fechas, con al menos `min_historia` (10) fechas para opinar. Un bono que se
-mueve 3% por día y un AuM que se mueve 0,5% no podían compartir un umbral, y el
-que compartían era `None`.
-
-**Qué queda igual.** Sin arreglo, a propósito: un AuM que saltó o un cierre
-raro los mira una persona antes de tocar nada. Y si una de las tres fuentes
-no se pudo leer, esa regla no cierra nada y se dice en el log; solo con las
-tres ciegas la corrida es `sin_datos`.
-
+La primera versión de este cambio lo reciclaba como una habilidad nueva, y
+el user la rechazó con razón: *«son 5 que dijiste que no sirven para nada y
+me estás haciendo sobre eso, esto no es una mejora»*. Vale dejarlo escrito
+porque es un modo de falla del que construye: **portar un control muerto a la
+arquitectura nueva no lo revive, le da forma de vivo.** Lo que el cierre
+necesite mirar se decide desde el negocio, no desde lo que ya estaba escrito.

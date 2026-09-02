@@ -4020,3 +4020,31 @@ una persona, con su firma.
 en una pasada). Cacheada por hash del error en `agente.explicaciones`: el
 mismo error no se paga dos veces, y queda con fecha y quién. Si la IA no está
 configurada o el presupuesto se agotó, el botón lo dice con esas palabras.
+
+### 0.di LOS CONTADORES DE NEGOCIO QUE MORÍAN EN EL LOG (2026-09-02)
+
+**Qué se midió.** Al relevar las 116 tablas de negocio, back office y
+clientes contra lo que el agente lee, salieron cuatro jobs que **cuentan
+anomalías de plata todos los días y las dejan en `manager.job_runs` sin que
+nadie las lea**: `operaciones_informes` y `negocio_movimientos` abortan la
+anulación de boletos cuando el tope salta y escriben «NO se marcó nada —
+revisar a mano» en el log; `interbanking_sync` cuenta `dias_incoherentes` y
+`cuentas_error`; `mayor_sync` cuenta `duplicados`, `cuentas_sin_mapear` y, la
+peor, **no aplica el día** si Aunesa devuelve 0 sobre un día que tenía
+movimientos (guarda correcta, pero el día queda con el mayor de ayer y la
+conciliación de hoy compara contra un mayor viejo); `ap5_portfolio` cuenta
+`claves_divergentes`, filas de futuros distintas bajo la misma clave donde el
+UPSERT elige una y pierde la otra.
+
+**Por qué es §0.dd otra vez, y no una habilidad nueva.** El mecanismo ya
+existía: una fila en `agente/reportes.py`, el job guarda `<stat>_lista`, y
+`job_reporto` lo convierte en aviso con la lista. Lo que faltaba era medir
+cuáles contadores eran de negocio. Se sumaron doce filas, y cinco jobs pasaron
+a guardar la lista al lado del número (`negocio_movimientos._reconciliar`
+ahora devuelve también cuántos candidatos dejó sin marcar; `interbanking_sync.
+_incoherencias` devuelve las fechas y no un conteo).
+
+**Lo que sigue sin lista, y se dice.** `aranceles.sin_match`,
+`ops_tasa_mav.sin_texto` y `ambiguos` solo tienen el número: el aviso lo
+aclara (`con_lista=False`) en vez de prometer una lista que no llega.
+

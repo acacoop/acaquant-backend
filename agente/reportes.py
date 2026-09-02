@@ -4,7 +4,8 @@ Varios jobs encuentran cosas que no corrigen a propósito —una moneda que 1816
 dice distinta, un conflicto entre dos fuentes, una curva que el cierre salteó—
 y hasta el 2026-09-02 lo dejaban en su log y en un contador de
 `manager.job_runs`. Un contador dice que hay algo; no dice qué. Y un log no lo
-abre nadie. Ver `docs/AGENT.md` §0.dd.
+abre nadie. Ver `docs/AGENT.md` §0.dd, y §0.di para los contadores de NEGOCIO
+(boletos, bancos, cámara) que se sumaron después de medir cuáles morían en el log.
 
 Acá se declara, UNA fila por stat, qué significa que ese número sea mayor que
 cero y qué hay que hacer. El job persiste la LISTA al lado del número
@@ -93,5 +94,82 @@ REPORTES: tuple[Reporte, ...] = (
     Reporte("sync_comitentes", "saltadas_sin_id",
             "comitente(s) que Aunesa mandó sin id y no entraron",
             "Es un dato roto en origen: revisar en Aunesa los comitentes sin código.",
+            con_lista=False),
+
+    # ── Los contadores que morían en el log (§0.di) ────────────────────────
+    # Boletos: la anulación que el tope dejó a medias. Es el hallazgo más caro
+    # que se perdía: MOVIMIENTOS muestra vivos boletos que Aunesa ya anuló.
+    Reporte("operaciones_informes", "anulacion_incompleta",
+            "tope(s) que frenaron la anulación de boletos que Aunesa dejó de devolver "
+            "(respuesta parcial probable): esos boletos siguen VIVOS en la base",
+            "Volver a correr `jobs.operaciones_informes` fuera de hora pico; si el tope "
+            "vuelve a saltar, Aunesa está devolviendo parcial de verdad y hay que mirar "
+            "cuenta por cuenta en Manager → OPERACIONES antes de anular.",
+            severidad="alta"),
+    Reporte("operaciones_informes", "cuentas_fallidas",
+            "cuenta(s) que la API de informes de Aunesa no contestó (timeout/error): "
+            "sus boletos de hoy NO entraron",
+            "Se completan solos en la próxima corrida horaria. Si la misma cuenta falla "
+            "varias veces seguidas, es de Aunesa: reclamar con el número de cuenta."),
+    Reporte("negocio_movimientos", "anulacion_abortada",
+            "día(s) donde el tope frenó la anulación de boletos del consolidado: "
+            "quedaron vivos boletos que Aunesa ya no devuelve",
+            "Volver a correr `jobs.negocio_movimientos --fecha <día>`; si vuelve a "
+            "abortar, revisar ese día en /operaciones/negocio contra Aunesa a mano.",
+            severidad="alta"),
+    # Bancos: lo que interbanking_sync y mayor_sync ya miden y nadie leía.
+    Reporte("interbanking_sync", "dias_incoherentes",
+            "día(s) de banco donde lo guardado NO coincide con el total que declara "
+            "el extracto: el consolidado de ese día está incompleto",
+            "Volver a correr `jobs.interbanking_sync --dias 2` para esa ventana. Si "
+            "persiste, el extracto de Interbanking trae movimientos con el mismo hash "
+            "y hay que mirarlo en BACK OFFICE → Interbanking → ese día.",
+            severidad="alta"),
+    Reporte("interbanking_sync", "cuentas_error",
+            "cuenta(s) bancaria(s) que Interbanking no contestó: sin extracto de hoy",
+            "Se reintenta en la próxima corrida (cada 2 h). Si la misma cuenta falla "
+            "todo el día, es del banco o del abonado: reclamar a Interbanking."),
+    Reporte("mayor_sync", "no_aplicado",
+            "corrida(s) donde el MAYOR contable no se aplicó: el día tenía movimientos y "
+            "Aunesa devolvió 0, así que se conservó el de ayer",
+            "Si Aunesa anuló todo de verdad, correr `jobs.mayor_sync --forzar`. Si no, "
+            "esperar la próxima corrida: la conciliación banco↔mayor de hoy está usando "
+            "un mayor viejo hasta entonces.",
+            severidad="alta"),
+    Reporte("mayor_sync", "cuentas_sin_mapear",
+            "cuenta(s) contable(s) del mayor que no están mapeadas a un banco: sus "
+            "movimientos quedan AFUERA de la conciliación",
+            "Cargar el `codigo_contable` de cada una en BACK OFFICE → Interbanking → "
+            "cuentas. No se deduce del nombre: hay que saber qué banco es."),
+    Reporte("mayor_sync", "duplicados",
+            "movimientoID repetido(s) en la respuesta de Aunesa: se guardó uno y se "
+            "descartó el resto",
+            "Es un dato de origen: si el saldo del mayor no cuadra ese día, el "
+            "duplicado es el primer sospechoso. Reclamar a Aunesa con los ids."),
+    # Cámara: la fila que el UPSERT elige y la que pierde.
+    Reporte("ap5_portfolio", "claves_divergentes",
+            "clave(s) de posición de futuros con filas DISTINTAS en el PositionReport: "
+            "se guardó una y se perdió la otra",
+            "Comparar las filas divergentes contra la cámara en /operaciones → "
+            "POSICIONES Y DIFERENCIAS y corregir el ACTIVO INTEGRADO a mano si la "
+            "posición guardada no es la real.",
+            severidad="alta"),
+    # Lo que queda sin resolver y solo tiene número (el job no guarda lista).
+    Reporte("aranceles", "sin_match",
+            "informe(s) de Aunesa que no matchearon ningún boleto: aranceles sin cargar",
+            "Correr el backfill desde Manager → AUNESA → BOLETOS con la ventana del "
+            "job; si siguen sin match, son boletos que operaciones_informes no trajo.",
+            con_lista=False),
+    Reporte("ops_tasa_mav", "sin_texto",
+            "boleto(s) MAV cuyo movimiento no trae `informacion`: no hay de dónde "
+            "sacar la tasa",
+            "Falta el dato en origen: cargar la tasa a mano en Manager → OPERACIONES "
+            "o reclamar a Aunesa el campo.",
+            severidad="baja", con_lista=False),
+    Reporte("ops_tasa_mav", "ambiguos",
+            "boleto(s) MAV con VARIAS tasas distintas en su información: se dejan sin "
+            "tasa a propósito",
+            "Elegir la tasa correcta a mano en Manager → OPERACIONES; el job no "
+            "adivina entre dos.",
             con_lista=False),
 )

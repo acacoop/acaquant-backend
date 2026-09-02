@@ -361,6 +361,7 @@ def run(fecha: str | None = None, *, dry: bool = False, refrescar_nombres: bool 
         run_log.set_stat("filas_crudas", len(filas))
         run_log.set_stat("filas_unicas", len(a_escribir))
         run_log.set_stat("claves_divergentes", len(divergencias))
+        run_log.set_stat("claves_divergentes_lista", [str(d) for d in divergencias[:200]])
         if len(a_escribir) != len(filas):
             run_log.log(f"  {len(filas)} filas → {len(a_escribir)} claves únicas")
         if divergencias:

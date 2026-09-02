@@ -298,7 +298,7 @@ def _persistir(cuenta_id: int, dias: dict, movs: list) -> tuple[int, int]:
     return len(dias), len(movs)
 
 
-def _incoherencias(cuenta_id: int, fechas: list[date]) -> int:
+def _incoherencias(cuenta_id: int, fechas: list[date]) -> list[date]:
     """Días donde lo que guardamos no coincide con lo que declara el extracto.
 
     Es el auto-chequeo del hash: si dos movimientos distintos colapsaran en el
@@ -306,17 +306,18 @@ def _incoherencias(cuenta_id: int, fechas: list[date]) -> int:
     quedar escondida en la base.
     """
     if not fechas:
-        return 0
+        return []
     with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT count(*) FROM bancos.extracto_dia e
+            """SELECT e.fecha FROM bancos.extracto_dia e
                 WHERE e.cuenta_id = %s AND e.fecha = ANY(%s)
                   AND e.total_movimientos IS DISTINCT FROM
                       (SELECT count(*) FROM bancos.movimientos m
-                        WHERE m.cuenta_id = e.cuenta_id AND m.fecha = e.fecha)""",
+                        WHERE m.cuenta_id = e.cuenta_id AND m.fecha = e.fecha)
+                ORDER BY e.fecha""",
             (cuenta_id, fechas),
         )
-        return cur.fetchone()[0] or 0
+        return [r[0] for r in cur.fetchall()]
 
 
 # --------------------------------------------------------------------------- #
@@ -518,6 +519,8 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
         "ventana": f"{d1}..{d2}", "cuentas": 0, "cuentas_ok": 0, "cuentas_error": 0,
         "dias": 0, "movimientos": 0, "dias_incoherentes": 0, "llamadas": 0,
         "dias_saldo": 0, "cuentas_sin_saldo": 0,
+        # Las listas al lado del número, para el agente (AGENT.md §0.di).
+        "dias_incoherentes_lista": [], "cuentas_error_lista": [],
     }
 
     cuentas = sincronizar_cuentas(dry=dry)
@@ -534,9 +537,11 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
             incoh = _incoherencias(c["id"], list(d.keys()))
             stats["dias"] += n_dias
             stats["movimientos"] += n_movs
-            stats["dias_incoherentes"] += incoh
+            stats["dias_incoherentes"] += len(incoh)
+            stats["dias_incoherentes_lista"] += [
+                f"{c.get('bank_name')} {c.get('account_number')}: {f}" for f in incoh]
             stats["cuentas_ok"] += 1
-            _log_sync(c["id"], d1, d2, pags, n_dias, n_movs, incoh, control, True, None)
+            _log_sync(c["id"], d1, d2, pags, n_dias, n_movs, len(incoh), control, True, None)
 
             # SALDOS: una llamada más por cuenta. Va DESPUÉS del extracto y en su
             # propio try — si el saldo falla no se pierde el extracto, que es el
@@ -560,6 +565,8 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
         except Exception as e:
             stats["cuentas_error"] += 1
             msg = f"{type(e).__name__}: {e}"
+            stats["cuentas_error_lista"].append(
+                f"{c.get('bank_name')} {c.get('account_number')}: {msg[:80]}")
             logger.warning("cuenta %s (%s): %s", c["id"], c.get("bank_name"), msg)
             _log_sync(c.get("id"), d1, d2, 0, 0, 0, 0, None, False, msg)
 

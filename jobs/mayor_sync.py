@@ -143,6 +143,7 @@ def _extraer(registros: list, mapeo: dict[str, int], dia: date) -> dict:
     """Aplana asientos→movimientos y se queda con los bancarios mapeados."""
     filas: dict[str, tuple] = {}
     duplicados = 0
+    duplicados_ids: list[str] = []
     sin_mapear: set[str] = set()
     vistos = 0
 
@@ -172,6 +173,7 @@ def _extraer(registros: list, mapeo: dict[str, int], dia: date) -> dict:
                 continue
             if mid in filas:
                 duplicados += 1
+                duplicados_ids.append(mid)
                 continue
             filas[mid] = (
                 mid, str(asiento.get("asientoID") or ""), str(asiento.get("numero") or ""),
@@ -183,6 +185,7 @@ def _extraer(registros: list, mapeo: dict[str, int], dia: date) -> dict:
                 str(mov.get("referencia") or ""),
             )
     return {"filas": list(filas.values()), "duplicados": duplicados,
+            "duplicados_ids": duplicados_ids,
             "sin_mapear": sin_mapear, "movimientos_api": vistos}
 
 
@@ -260,6 +263,11 @@ def run(fecha: date | None = None, *, dry: bool = False, forzar: bool = False) -
     stats["movimientos_banco"] = len(ext["filas"])
     stats["duplicados"] = ext["duplicados"]
     stats["cuentas_sin_mapear"] = len(ext["sin_mapear"])
+    # Las listas al lado del número, para el agente (AGENT.md §0.di): hasta
+    # hoy «3 cuentas sin mapear» no decía CUÁLES, y mapearlas es una carga a
+    # mano que necesita el código contable.
+    stats["duplicados_lista"] = ext["duplicados_ids"][:200]
+    stats["cuentas_sin_mapear_lista"] = sorted(ext["sin_mapear"])[:200]
 
     previos = _guardados(dia)
     stats["guardados_antes"] = previos
@@ -312,6 +320,12 @@ def main() -> None:
             run_log.errors.append(f"{stats['duplicados']} movimientoID duplicados")
         if not stats.get("aplicado") and not args.dry:
             run_log.errors.append(stats.get("motivo") or "no se aplicó")
+        # La guarda «no se vacía un día solo» es lo que más importa que se vea
+        # (§0.di): el día quedó con el mayor de ayer y nadie lo sabría.
+        no_aplicado = int(not stats.get("aplicado") and not args.dry)
+        run_log.set_stat("no_aplicado", no_aplicado)
+        run_log.set_stat("no_aplicado_lista",
+                         [stats.get("motivo") or "no se aplicó"] if no_aplicado else [])
 
         _anotar(_fecha_iso(args.fecha) or fecha_objetivo(), stats,
                 ok=bool(stats.get("aplicado")), error=stats.get("motivo"))

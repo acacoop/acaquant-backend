@@ -88,7 +88,8 @@ def _extract_id_cuenta(cuenta: str | None) -> str | None:
 
 def _reconciliar(cur, fecha_iso: str, vivos: list[str], logger) -> int:
     """Marca `anulado_en` en los boletos de `fecha_iso` que Aunesa ya no devuelve.
-    Devuelve cuántos marcó (0 si el tope de seguridad lo abortó)."""
+    Devuelve `(marcados, abortados)`: cuántos marcó y, si el tope lo abortó,
+    cuántos candidatos quedaron sin marcar (AGENT.md §0.di)."""
     cur.execute(
         "SELECT count(*) AS total, "
         "       count(*) FILTER (WHERE anulado_en IS NULL "
@@ -97,7 +98,7 @@ def _reconciliar(cur, fecha_iso: str, vivos: list[str], logger) -> int:
         {"fecha": fecha_iso, "vivos": vivos})
     total, candidatos = cur.fetchone()
     if not candidatos:
-        return 0
+        return 0, 0
 
     tope = max(_TOPE_ANULACION_MIN, int(total * _TOPE_ANULACION_PCT))
     if candidatos > tope:
@@ -105,7 +106,7 @@ def _reconciliar(cur, fecha_iso: str, vivos: list[str], logger) -> int:
             "ANULACIÓN ABORTADA en %s: %d candidatos sobre %d boletos (tope %d). "
             "Aunesa probablemente respondió parcial. NO se marcó nada — revisar a mano.",
             fecha_iso, candidatos, total, tope)
-        return 0
+        return 0, candidatos
 
     cur.execute(
         "UPDATE negocio_movimientos SET anulado_en = now() "
@@ -114,7 +115,7 @@ def _reconciliar(cur, fecha_iso: str, vivos: list[str], logger) -> int:
         {"fecha": fecha_iso, "vivos": vivos})
     logger.warning("Anulados %d boleto(s) en %s (Aunesa dejó de devolverlos).",
                    candidatos, fecha_iso)
-    return candidatos
+    return candidatos, 0
 
 
 
@@ -209,12 +210,14 @@ def run(fecha_d: date, dry: bool = False) -> dict:
             "ingestado_en=EXCLUDED.ingestado_en, anulado_en=NULL",
             docs)
         n = len(docs)
-        anulados = _reconciliar(cur, fecha_iso, [d["comprobante"] for d in docs], logger)
+        anulados, abortados = _reconciliar(cur, fecha_iso,
+                                           [d["comprobante"] for d in docs], logger)
         conn.commit()
     logger.info("SQL upsert OK: %d boletos → operaciones.negocio_movimientos", n)
 
     return {"fecha": fecha_iso, "boletos": len(persistibles),
-            "skipped": skipped, "upsertados": n, "anulados": anulados}
+            "skipped": skipped, "upsertados": n, "anulados": anulados,
+            "anulacion_abortada": abortados}
 
 
 def main() -> int:
@@ -263,15 +266,21 @@ def main() -> int:
     from core.job_runs import JobRunLogger
     with JobRunLogger("negocio_movimientos") as jr:
         agg = {"dias": len(dias), "rango": f"{dias[0]}..{dias[-1]}" if dias else "",
-               "boletos": 0, "skipped": 0, "upsertados": 0, "anulados": 0}
+               "boletos": 0, "skipped": 0, "upsertados": 0, "anulados": 0,
+               "anulacion_abortada": 0}
+        # Los días donde el tope abortó la anulación, para el agente (§0.di).
+        abortadas: list[str] = []
         for i, d in enumerate(dias):
             res = run(fecha_d=d, dry=args.dry)
-            for k in ("boletos", "skipped", "upsertados", "anulados"):
+            for k in ("boletos", "skipped", "upsertados", "anulados", "anulacion_abortada"):
                 agg[k] += res.get(k, 0) or 0
+            if res.get("anulacion_abortada"):
+                abortadas.append(f"{d}: {res['anulacion_abortada']} candidatos sin marcar")
             if i < len(dias) - 1:
                 time.sleep(2)  # throttle suave entre días (REGLA #4)
         for k, v in agg.items():
             jr.set_stat(k, v)
+        jr.set_stat("anulacion_abortada_lista", abortadas)
     print(f"\n→ {agg}")
     return 0
 

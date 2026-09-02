@@ -159,6 +159,15 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
         jr.set_stat("modificadas", res["modificadas"])
         jr.set_stat("anulados", anul["anulados"])
         jr.set_stat("marca_a", marca["marcadas"])
+        # Lo que la anulación NO hizo, para el agente (AGENT.md §0.di): el tope
+        # protege contra una respuesta parcial de Aunesa, pero «no marqué nada»
+        # vivía solo en el log. Es un stat con lista: `job_reporto` lo canta.
+        incompleta = ([f"tope global: {anul.get('candidatos', 0)} candidatos"]
+                      if anul["abortado"] else [])
+        incompleta += [str(p) for p in anul["pares_salteados"]]
+        jr.set_stat("anulacion_incompleta", len(incompleta))
+        jr.set_stat("anulacion_incompleta_lista", incompleta[:200])
+        jr.set_stat("cuentas_fallidas_lista", [str(c) for c in fallidas[:200]])
         if marca["marcadas"]:
             jr.log(f"Anulados {marca['marcadas']} registro(s) con la marca (A) de Aunesa.")
         if anul["abortado"]:

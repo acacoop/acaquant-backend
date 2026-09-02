@@ -37,6 +37,7 @@ Este script mira las dos. Si mirás solo una, te mentís.
 """
 from __future__ import annotations
 
+import difflib
 import re
 import sys
 from collections import defaultdict
@@ -222,8 +223,14 @@ def main() -> None:
 
     if "--check" in sys.argv:
         if nuevo != original:
+            # El diff va al log: «desincronizado» a secas obligaba a adivinar
+            # qué fila cambió, y en CI no hay dónde correr el generador.
+            diff = difflib.unified_diff(original.splitlines(), nuevo.splitlines(),
+                                        "docs/MAPA_APP.md (repo)", "docs/MAPA_APP.md (código)",
+                                        lineterm="", n=0)
             print("❌ docs/MAPA_APP.md está DESINCRONIZADO con el código.\n"
-                  "   Corré: python -m scripts.gen_mapa_app")
+                  "   Corré: python -m scripts.gen_mapa_app\n")
+            print("\n".join(list(diff)[:80]))
             raise SystemExit(1)
         print("✅ docs/MAPA_APP.md sincronizado.")
         return

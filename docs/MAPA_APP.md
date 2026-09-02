@@ -1733,12 +1733,34 @@ con las tres tabs en tres hojas, armado con el MISMO payload que la pantalla · 
 
 **REPORTE (modal, `carteras-reporte-modal.tsx`, 2026-08-21)** — el informe como DOCUMENTO, hoja por
 hoja, con el mismo formato que el REPORTE FIN DE DÍA de Interbanking: azul de la casa `#094293` y logo
-arriba de CADA hoja, A4 apaisado. Las hojas son: **Resumen ejecutivo** · **una por cartera** de
-ACTIVOS · **Métricas** · **Evolución**. Sale del MISMO payload de `/vista` (no recalcula ni vuelve a
-consultar); lo único que pide aparte es `/{id}/mensual` para la hoja de evolución. El PDF es
-`window.print()` con reglas `@media print` que viven DENTRO del componente (solo existen mientras el
-modal está abierto) — no hay librería de PDF: ninguna reproduce el CSS de la app sin sorpresas y el
-resultado de imprimir ES lo que se ve, porque es el mismo DOM.
+arriba de CADA hoja, **A4 vertical**. Las hojas son: **Resumen ejecutivo** · **ACTIVOS**, paginado por
+RENGLONES (no una hoja por cartera: las carteras se meten en orden hasta llenar la hoja y una cartera
+larga se parte marcada «(cont.)») · **Métricas y evolución**, que van juntas. Sale del MISMO payload de
+`/vista` (no recalcula ni vuelve a consultar); lo único que pide aparte es `/{id}/mensual` para el
+cierre mensual. El PDF es `window.print()` con reglas `@media print` que viven DENTRO del componente
+(solo existen mientras el modal está abierto) — no hay librería de PDF: ninguna reproduce el CSS de la
+app sin sorpresas y el resultado de imprimir ES lo que se ve, porque es el mismo DOM.
+
+**MONEDA del reporte (2026-09-02)** — el documento SALE en la moneda que está mirando la pantalla: el
+modal recibe la del toggle ARS/USD de la barra del informe y la puede cambiar sin cerrarse (los mismos
+dos botones, en su barra azul). Cambian **todos** los montos —composición por cartera, cierre anterior,
+la torta, la valuación de cada título, las tres aperturas de métricas y el cierre mensual (que en USD
+además usa la TEM y el base 100 en dólares, calculados sobre un cashflow pesificado al MEP de cada
+fecha: no es el mismo número en otra unidad)—. **No cambian** los porcentajes, porque la ponderación
+tiene el mismo divisor en las dos monedas, ni la columna PRECIO, que es el precio de MERCADO del título
+(paridad en la renta fija) y no un monto de la cartera — el backend no publica un `precio_usd` y
+dividirlo en el navegador sería inventar un número que del otro lado no existe. Antes el reporte salía
+**siempre en pesos** aunque el informe estuviera en dólares.
+
+⚠️ Dos cosas que sostienen que el documento no pueda mentir: el rótulo y las cifras salen los DOS de la
+moneda **efectiva** (con una fecha sin MEP el USD se deshabilita y el documento dice ARS — un
+encabezado «USD» arriba de cifras en pesos no falla, sale mal y nadie se entera), y **cada hoja lleva
+la moneda en su barra azul, con el MEP al lado**: las hojas se imprimen y se mandan sueltas, así que un
+cuadro de montos sin moneda no se puede leer solo. Y sigue sin calcularse nada en el navegador: el
+toggle elige QUÉ CAMPO se lee (`monto` / `monto_usd`), los espejos en dólares vienen resueltos del
+backend al MEP del día del snapshot. El selector vive UNA vez, en `components/ui/informe.tsx::enMoneda`,
+compartido por la pantalla y el reporte — dos copias es como el PDF y la pantalla terminan diciendo
+cosas distintas.
 
 ⚠️ **Tres cosas que rompieron el PDF y quedaron resueltas** (medidas, no supuestas):
 - **El modal va por PORTAL a `<body>`.** Renderizado dentro de la vista, su ancestro
@@ -1750,8 +1772,9 @@ resultado de imprimir ES lo que se ve, porque es el mismo DOM.
 - **`.reporte-overlay > *` con `display: block` le pegaba también al `<style>`** de las propias reglas
   → un bloque vacío al final = una hoja en blanco de más (6 hojas → 7 páginas). Se apunta al
   contenedor por id.
-- **El alto de hoja es `min-height: 205mm`, no 210**: el útil de un A4 apaisado es 210 justos, así que
-  pedir 210 hace que cualquier redondeo empuje unos píxeles a una página siguiente.
+- **El alto de hoja es fijo en `290mm`, no 297**: el A4 vertical mide 297 justos, así que pedir 297 hace
+  que cualquier redondeo (un borde, el padding del pie) empuje unos píxeles a una página siguiente y el
+  PDF salga con hojas en blanco intercaladas.
 
 **Cómo se arma cada cosa** (`api/services/carteras_informe.py`):
 - **Las carteras se DERIVAN de la posición**, ordenadas por monto desc. Acá no hay 4 canónicas como en

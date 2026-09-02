@@ -2593,11 +2593,12 @@ def test_licitacion_anunciada_avisa_solo_lo_que_no_existe_en_ningun_lado(monkeyp
     from agente import fuentes, reloj
     monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 2, 15, 0, tzinfo=UTC))
     monkeypatch.setattr(reloj, "hhmm", lambda a=None: "12:00")
-    fila = lambda tk, liq: {"ticker": tk, "denominacion": f"Lecap {tk}", "tipo": "letra",
-                            "ajuste": "fija", "moneda": "ARS", "fecha_licitacion": date(2026, 9, 1),
-                            "fecha_liquidacion": liq, "vencimiento": date(2027, 1, 29),
-                            "emisor": "Tesoro", "asunto_mail": "Licitación del Tesoro",
-                            "fecha_mail": date(2026, 9, 1), "detectado_at": None}
+    def fila(tk, liq):
+        return {"ticker": tk, "denominacion": f"Lecap {tk}", "tipo": "letra",
+                "ajuste": "fija", "moneda": "ARS", "fecha_licitacion": date(2026, 9, 1),
+                "fecha_liquidacion": liq, "vencimiento": date(2027, 1, 29),
+                "emisor": "Tesoro", "asunto_mail": "Licitación del Tesoro",
+                "fecha_mail": date(2026, 9, 1), "detectado_at": None}
     monkeypatch.setattr(fuentes, "licitaciones", lambda d=20: [
         fila("S29E7", date(2026, 9, 3)), fila("X29E7", date(2026, 9, 3)), fila("AL30", None)])
     monkeypatch.setattr(fuentes, "master", lambda: [{"ticker_corto": "AL30"}])

@@ -131,7 +131,7 @@ def banco_no_cierra(u: dict) -> list[Hallazgo]:
                     que_hacer=("No es un día: es un movimiento que nunca se cargó al mayor "
                                "y se arrastra. Conciliar desde el primer día que no cierra "
                                f"({fechas[seguidos - 1]}) en BACK OFFICE → Interbanking → "
-                               "CONCILIAR → Tablero y confirmar el pendiente para Contabilidad."),
+                               "CONCILIACIÓN y confirmar el pendiente para Contabilidad."),
                     evidencia={"dias_seguidos": seguidos, "desde": str(fechas[seguidos - 1]),
                                "hasta": str(hoy), "diferencia": dif, "dif_sin_gastos": sin_g}))
             else:
@@ -144,7 +144,7 @@ def banco_no_cierra(u: dict) -> list[Hallazgo]:
                     detalle=f"sin gastos: {_fmt(sin_g)} · movimientos del mayor: "
                             f"{fila.get('movimientos_mayor')}",
                     que_hacer=("Abrir la conciliación de ese día en BACK OFFICE → Interbanking "
-                               "→ CONCILIAR → Tablero, clic en la cuenta y usar el buscador de candidatos; lo que no "
+                               "→ CONCILIACIÓN y usar el buscador de candidatos; lo que no "
                                "calce se confirma como pendiente para Contabilidad. Si el "
                                "mayor todavía se está cargando (mirar la hora de la corrida), "
                                "esperar la próxima."),

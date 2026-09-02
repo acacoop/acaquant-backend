@@ -173,3 +173,73 @@ def permiso_flojo(u: dict) -> list[Hallazgo]:
                           "teoría: se midió contra producción.",
                 evidencia={"capa": "efectivo", "detalle": r}))
     return out
+
+
+# ═══ job_reporto ═══════════════════════════════════════════════════════════
+def _ultima_corrida(job: str) -> dict | None:
+    """`{finished_at, stats}` de la última corrida de ese job, o `None`."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT finished_at, data FROM manager.job_runs WHERE tipo = %s "
+                    "ORDER BY finished_at DESC NULLS LAST LIMIT 1", (job,))
+        r = cur.fetchone()
+    if not r:
+        return None
+    data = dict(r[1] or {})
+    return {"finished_at": r[0], "stats": dict(data.get("stats") or {}),
+            "status": data.get("status")}
+
+
+def job_reporto(u: dict) -> list[Hallazgo]:
+    """Lo que un job REPORTÓ sin escribir, convertido en aviso con su lista.
+
+    Lee la última corrida de cada job de `agente/reportes.REPORTES` y, si el
+    contador declarado es mayor que cero, canta un hallazgo con la lista que el
+    job dejó al lado (`<stat>_lista`). Un job que todavía corre código sin la
+    lista sale igual, con el número, y lo dice. Ver §0.dd.
+
+    No juzga si el job corrió cuando debía: eso es de `salud`. Acá solo importa
+    lo que la última corrida dijo.
+    """
+    from agente import reloj
+    from agente.reportes import REPORTES
+
+    out = []
+    corridas: dict[str, dict | None] = {}
+    fallas = 0
+    for r in REPORTES:
+        if r.job not in corridas:
+            try:
+                corridas[r.job] = _ultima_corrida(r.job)
+            except Exception as e:
+                fallas += 1
+                logger.warning("job_reporto: no pude leer %s (%s)", r.job, e)
+                corridas[r.job] = None
+        c = corridas[r.job]
+        if not c:
+            continue
+        n = c["stats"].get(r.stat)
+        if not isinstance(n, int | float) or n <= 0:
+            continue
+        lista = c["stats"].get(r.lista)
+        tiene_lista = isinstance(lista, list)
+        lista = [str(x) for x in (lista or [])][:200]
+        cuando = c["finished_at"]
+        cuando_txt = cuando.strftime("%d/%m %H:%M") if cuando else "?"
+        out.append(Hallazgo(
+            sujeto=f"{r.job}·{r.stat}", regla=r.nombre_regla, severidad=r.severidad,
+            nombre=f"{r.job}: {r.stat}",
+            problema=f"{int(n)} {r.que} · corrida del {cuando_txt} · {reloj.hhmm()}",
+            detalle=(" · ".join(lista[:30]) + (f" · y {len(lista) - 30} más"
+                                                if len(lista) > 30 else "")
+                     if tiene_lista else
+                     ("el job solo guarda el número, no la lista" if not r.con_lista else
+                      "la lista aparece con la próxima corrida (el job corre código "
+                      "que todavía no la guarda)")),
+            que_hacer=r.que_hacer,
+            evidencia={"job": r.job, "stat": r.stat, "n": n, "lista": lista,
+                       "corrida_at": cuando.isoformat() if cuando else None,
+                       "status": c.get("status")}))
+    if fallas and fallas == len({r.job for r in REPORTES}):
+        raise SinDatos("no pude leer manager.job_runs: no sé qué reportaron los jobs")
+    return out

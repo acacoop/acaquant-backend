@@ -291,11 +291,19 @@ def main() -> int:
         total = 0
         hist_rows: list[dict] = []
         last_rows: list[dict] = []
+        # Una curva que se SALTEA (sin universo, sin tickers, sin snapshot) se
+        # cuenta y se nombra: antes era un warning en el log y el total no la
+        # distinguía de una curva chica (§0.dd).
+        salteadas: list[str] = []
         for curva in CURVAS_V1:
             n, h_rows, l_rows = procesar_curva(curva, fecha_str, args.dry)
             total += n
             hist_rows.extend(h_rows)
             last_rows.extend(l_rows)
+            if n == 0:
+                salteadas.append(curva)
+        jr.set_stat("curvas_salteadas", len(salteadas))
+        jr.set_stat("curvas_salteadas_lista", salteadas)
         if not args.dry:
             # Histórico: upsert incondicional por (fecha, curva, ticker).
             write_native("mercado.snapshots_cierre_hist", ["fecha", "curva", "ticker"],

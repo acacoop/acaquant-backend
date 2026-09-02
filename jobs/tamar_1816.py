@@ -283,6 +283,7 @@ def main() -> None:
         jr.set_stat("filas", n)
         jr.set_stat("con_margen", con_margen)
         jr.set_stat("sin_dato", len(sin_dato))
+        jr.set_stat("sin_dato_lista", sin_dato[:200])
         jr.set_stat("snapshot", n_snap)
         jr.set_stat("fecha_operacion", fecha_op)
         if sin_dato:

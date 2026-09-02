@@ -197,6 +197,15 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "fci_sin_ticker": "completar_ficha"}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────
+    # Lo que un job reporta sin escribir, declarado en `agente/reportes.py`
+    # (§0.dd): una fila por stat. Sin arreglo: cada aviso dice qué hacer, y
+    # lo que el job no corrige es porque no debe (la moneda, un conflicto).
+    Habilidad(
+        nombre="job_reporto", tipo="detector", dominio="DATOS",
+        que_mira="lo que los jobs encontraron y no corrigieron: cada contador, con su lista",
+        cada_segundos=1 * _H, ventana="siempre",
+        correr=datos.job_reporto),
+
     Habilidad(
         nombre="dato_partido", tipo="detector", dominio="DATOS",
         que_mira="dos copias del mismo dato que dejaron de decir lo mismo",

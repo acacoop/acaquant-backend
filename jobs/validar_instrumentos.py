@@ -194,7 +194,9 @@ def main() -> int:
                f"vencimiento, {len(cambios) - bajas} reactivación(es)")
         jr.set_stat("vigencia_bajas", bajas)
         jr.set_stat("vigencia_altas", len(cambios) - bajas)
-        jr.set_stat("tickers_no_vigentes", len(tickers_no_vigentes()))
+        no_vig = tickers_no_vigentes()
+        jr.set_stat("tickers_no_vigentes", len(no_vig))
+        jr.set_stat("tickers_no_vigentes_lista", no_vig[:200])
 
         # 2) VALIDACIÓN — mismo criterio y misma fuente que el filtro del WS.
         universo = validos(forzar=True)
@@ -216,6 +218,7 @@ def main() -> int:
             jr.log(f"      🗑 {sim}")
         jr.set_stat("simbolos_validados", len(ok))
         jr.set_stat("simbolos_borrados", len(borrar))
+        jr.set_stat("simbolos_borrados_lista", sorted(borrar)[:200])
     return 0
 
 

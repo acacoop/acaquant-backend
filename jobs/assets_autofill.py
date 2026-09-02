@@ -701,6 +701,8 @@ def main() -> int:
             jr.set_stat(f"{r.id}_matcheadas", rep["matcheadas"])
             jr.set_stat(f"{r.id}_campos", rep["campos"])
             jr.set_stat(f"{r.id}_conflictos", len(rep["conflictos"]))
+            # La lista entera (no los 10 del log): la lee `job_reporto` (§0.dd).
+            jr.set_stat(f"{r.id}_conflictos_lista", list(rep["conflictos"][:200]))
 
         if any(r.id == "especies" for r in reglas):
             jr.log(f"  · especies: {esp['tickers_en_especies']} ticker(s) en el catálogo "
@@ -731,6 +733,8 @@ def main() -> int:
                        f"NO se escriben (HEREDAR_NO_FCI=False)")
             jr.set_stat("herencia_grupos", her["grupos"])
             jr.set_stat("herencia_divergencias", len(her["divergencias"]))
+            jr.set_stat("herencia_divergencias_lista",
+                        [str(d) for d in her["divergencias"][:200]])
             jr.set_stat("herencia_no_fci_receptoras", her["no_fci_receptoras"])
             jr.set_stat("herencia_no_fci_campos", her["no_fci_campos"])
 

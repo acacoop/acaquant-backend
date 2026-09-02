@@ -3853,3 +3853,30 @@ durante cuatro días se seguía corrigiendo a mano.
   ENCONTRÓ con botón) y `copias_a_mano` (declara `arreglo_manual` → aviso con
   la instrucción, en AHORA). Un botón que siempre contesta «esto se hace a
   mano» es un aviso con forma de trabajo, la misma lección que `salud`.
+
+---
+
+### 0.dd LO QUE LOS JOBS REPORTAN Y NO ESCRIBEN — de un log a un aviso (2026-09-02)
+
+`ficha_1816` encuentra bonos donde 1816 dice otra moneda y no la corrige,
+porque la moneda decide la valuación; `tamar_1816` cuenta las patas sin tasa;
+`assets_autofill` capa sus conflictos a diez en cron; `snapshot_cierre`
+saltea una curva con un warning; `cleanup_curvas` borraba sin dejar qué.
+Todo eso terminaba en un log que nadie abre y en un contador de
+`manager.job_runs` que dice que hay algo y no qué.
+
+- **`agente/reportes.py`**: una fila por stat (`job`, `stat`, qué significa
+  que sea mayor que cero, qué hacer, severidad). Es la REGLA #10 aplicada a
+  los jobs: cada uno inventaba su forma de quejarse.
+- **Cada job persiste la lista al lado del número** (`<stat>_lista`, hasta
+  200): `ficha_1816`, `tamar_1816`, `assets_autofill` (por regla, y las
+  divergencias de herencia), `ops_tasa_mav` (las muestras del formato
+  desconocido), `validar_instrumentos` (borrados y no vigentes),
+  `snapshot_cierre` (curvas salteadas, que antes ni se contaban) y
+  `cleanup_curvas` (qué borró; `run()` ahora lo devuelve).
+- **Habilidad `job_reporto`** (DATOS, cada hora): lee la última corrida de
+  cada job y convierte cada contador en un aviso con la lista adentro. Un job
+  que todavía corre código sin la lista sale igual, con el número, y lo dice.
+  No juzga si el job corrió cuando debía: eso es de `salud`.
+- Un test cruza cada fila del registro contra el código de su job: una fila
+  que promete un stat que el job no guarda es un aviso que jamás aparece.

@@ -2366,3 +2366,59 @@ def test_arbitrar_copia_relee_escribe_y_anota_una_linea_por_fila(monkeypatch):
     monkeypatch.setattr(duplicados, "una", lambda i: {"ok": True, "id": i, "filas": []})
     r = a.aplicar("simbolo_columna_vs_blob", {}, por="test")
     assert r.ok and "coinciden" in r.detalle and escritas == ["simbolo_columna_vs_blob"]
+
+
+# ── LO QUE LOS JOBS REPORTAN (§0.dd) ───────────────────────────────────────
+
+def test_cada_reporte_declarado_existe_en_su_job():
+    """Una fila en `agente/reportes.py` promete que ese job guarda ese stat y
+    su lista. Si el job no lo escribe, el aviso jamás aparece y nadie lo nota:
+    por eso se cruza contra el código del job."""
+    from agente.reportes import REPORTES
+    for r in REPORTES:
+        src = (RAIZ / "jobs" / f"{r.job}.py").read_text(encoding="utf-8")
+        if r.stat.endswith("_conflictos"):
+            # Stat por regla: `f"{r.id}_conflictos"` con el id declarado en REGLAS.
+            assert '_conflictos"' in src and f'"{r.stat[:-11]}"' in src, (
+                f"{r.job}: la regla {r.stat[:-11]!r} no existe o no guarda conflictos")
+        else:
+            assert r.stat in src, f"{r.job} no guarda el stat {r.stat!r}"
+        if r.con_lista:
+            assert f'{r.stat}_lista' in src or '_conflictos_lista' in src, (
+                f"{r.job} no guarda la lista de {r.stat!r}")
+        assert len(r.que_hacer) > 40 and r.severidad in tipos.SEVERIDADES
+    assert len({(r.job, r.stat) for r in REPORTES}) == len(REPORTES), "un stat repetido"
+    assert not catalogo.HABILIDADES["job_reporto"].arreglos
+
+
+def test_job_reporto_convierte_el_contador_en_aviso_con_su_lista(monkeypatch):
+    from datetime import datetime
+
+    from agente import reloj
+    monkeypatch.setattr(reloj, "hhmm", lambda a=None: "10:00")
+    corridas = {
+        "ficha_1816": {"finished_at": datetime(2026, 9, 1, 22, 31, tzinfo=UTC),
+                       "status": "ok",
+                       "stats": {"moneda_divergente": 2,
+                                 "moneda_divergente_lista": ["AO29: nuestro=ARS 1816=USD",
+                                                             "CO32: nuestro=ARS 1816=USD"]}},
+        "tamar_1816": {"finished_at": datetime(2026, 9, 1, 20, 0, tzinfo=UTC),
+                       "status": "ok", "stats": {"sin_dato": 0}},
+        # Corre código viejo: tiene el número y no la lista → igual se canta.
+        "cleanup_curvas": {"finished_at": datetime(2026, 9, 1, 12, 30, tzinfo=UTC),
+                           "status": "ok", "stats": {"borrados": 3}},
+    }
+    monkeypatch.setattr(datos, "_ultima_corrida", lambda job: corridas.get(job))
+    por = {h.sujeto: h for h in datos.job_reporto({})}
+    h = por["ficha_1816·moneda_divergente"]
+    assert h.regla == "moneda_divergente" and h.severidad == "alta"
+    assert "2 bono(s)" in h.problema and "01/09 22:31" in h.problema
+    assert "AO29" in h.detalle and h.evidencia["lista"][1].startswith("CO32")
+    assert "tamar_1816·sin_dato" not in por, "cero no es un aviso"
+    assert "próxima corrida" in por["cleanup_curvas·borrados"].detalle
+    # Sin poder leer job_runs, no se afirma nada.
+    def _rompe(job):
+        raise RuntimeError("db caída")
+    monkeypatch.setattr(datos, "_ultima_corrida", _rompe)
+    with pytest.raises(tipos.SinDatos):
+        datos.job_reporto({})

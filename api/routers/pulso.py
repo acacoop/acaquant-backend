@@ -14,9 +14,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from agente import pulso as _pulso
 from api.auth import get_user_email, require_no_invitado
 from api.ratelimit import limiter
-from core.postgres import get_pool
 
 router = APIRouter(prefix="/api/pulso", tags=["pulso"],
                    dependencies=[Depends(require_no_invitado)])
@@ -33,15 +33,6 @@ class _Pulso(BaseModel):
 @limiter.limit("12/minute;300/hour")
 def pulso(request: Request, body: _Pulso,
           email: str = Depends(get_user_email)) -> dict:
-    """Deja el pulso. Nunca levanta hacia el navegador: si la base no está, la
-    pantalla ya tiene bastante con estar ciega."""
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO agente.pulso_cliente (email, vista, endpoint, motivo, desde_at) "
-                "VALUES (%s, %s, %s, %s, %s::timestamptz)",
-                (email or "", body.vista[:120], body.endpoint[:200], body.motivo[:120],
-                 body.desde_at))
-        return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": type(e).__name__}
+    """Deja el pulso. Solo plumbing: la escritura vive en `agente/pulso.py`."""
+    return _pulso.registrar(email=email, vista=body.vista, endpoint=body.endpoint,
+                            motivo=body.motivo, desde_at=body.desde_at)

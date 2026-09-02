@@ -1310,7 +1310,7 @@ def test_el_dia_que_falta_no_depende_de_que_el_arbol_lo_note():
     el día está en la tabla o no está. Así que se hace igual.
     """
     src = inspect.getsource(sistema.motor_caido)
-    i = src.index("for job in rehacer.REHACIBLES")
+    i = src.index("for job, cfg in rehacer.rehacibles().items()")
     barrido = src[i:i + 1400]
     assert 'd["estado"] != "falta"' in barrido, (
         "solo el día que FALTA es trabajo: «ya está» y «no pude mirar» no")
@@ -2007,13 +2007,12 @@ def _universo_1816(*tickers: str) -> dict:
             "denominacion": f"Letra {t}"} for t in tickers}}
 
 
-def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
-    """S29E7 (2026-09-01): la habilidad corrió 4 veces, guardó 1 hallazgo y el
-    resto de los licitados nuevos cayó en un `continue` con log.info porque la
-    FOTO de Primary tenía 17 días. «Miré y guardé lo que vi» sobre un descarte
-    invisible es un detector que dejó de mirar. El descarte se canta como AVISO,
-    con la fecha de la foto — y el que está en cartera sigue pidiendo el alta."""
-    from datetime import datetime
+def test_soberanos_faltantes_descarta_lo_que_primary_no_lista_salvo_cartera(monkeypatch):
+    """User (2026-09-02): *«si Primary no lo lista es porque no está, eso mata
+    todo; no hay que insistir»*. Lo que 1816 publica y Primary no lista NO es
+    un hallazgo — ni alta ni aviso —, salvo que esté en cartera, donde el
+    problema es más grave. Lo que garantiza que «no está en Primary» sea
+    verdad es la foto fresca (§0.cy), no un aviso por bono."""
     from types import SimpleNamespace
 
     from agente import fuentes
@@ -2024,8 +2023,6 @@ def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
     monkeypatch.setattr(fuentes, "master", lambda: [{"ticker_corto": "AL30"}])
     monkeypatch.setattr(fuentes, "en_cartera", lambda: {"S29E7"})
     monkeypatch.setattr(fuentes, "tickers_en_primary", lambda: {"X29E7", "AL30"})
-    monkeypatch.setattr(fuentes, "primary_fecha",
-                        lambda: datetime(2026, 8, 15, 19, 23, tzinfo=UTC))
     monkeypatch.setattr(curvas_ejes, "desde_1816",
                         lambda c: SimpleNamespace(emisor_tipo="soberano", moneda="ARS"))
     monkeypatch.setattr(curvas_sql, "calendario_habil", lambda: set())
@@ -2034,12 +2031,7 @@ def test_soberanos_faltantes_no_descarta_en_silencio(monkeypatch):
     por = {h.sujeto: h for h in mercado.soberanos_faltantes({})}
     assert por["S29E7"].regla == "no_esta_en_curvas", "en cartera → pide el alta"
     assert por["X29E7"].regla == "no_esta_en_curvas", "cotiza → pide el alta"
-    assert por["T30E7"].regla == "no_cotiza_en_primary", "no cotiza → AVISO, no silencio"
-    assert por["T30E7"].severidad == "baja"
-    assert "15/08" in por["T30E7"].problema, "la fecha de la foto va en el texto"
-    assert por["T30E7"].evidencia["foto_primary_de"].startswith("2026-08-15")
-    # Sin arreglo declarado → aviso: vive en AHORA, nunca en ENCONTRÓ.
-    assert catalogo.HABILIDADES["soberanos_faltantes"].arreglo_de("no_cotiza_en_primary") == ""
+    assert "T30E7" not in por, "no cotiza y no está en cartera → no existe para nosotros"
 
 
 def test_la_foto_de_primary_tiene_cron_y_quien_la_vigile():
@@ -2050,7 +2042,7 @@ def test_la_foto_de_primary_tiene_cron_y_quien_la_vigile():
     from agente import crontab
     cron = sistema._cron_discovery(crontab.del_repo())
     assert cron is not None, "deploy/crontab.txt no corre scripts.discovery_pyrofex"
-    hora, minuto = cron
+    minuto, hora = (int(x) for x in cron.split()[:2])
     assert (hora, minuto) < (12, 30), "tiene que correr ANTES del cleanup (12:30 UTC)"
     h = catalogo.HABILIDADES["foto_primary"]
     assert h.dominio == "SISTEMA" and not h.arreglos
@@ -2064,14 +2056,12 @@ def test_foto_primary_juzga_contra_la_ultima_corrida_esperada(monkeypatch):
     from agente import crontab, fuentes, reloj
     monkeypatch.setattr(crontab, "del_repo", lambda: {
         "15 12 * * 1-5 run_job.sh discovery_pyrofex 10m 'python -m scripts.discovery_pyrofex'"})
-    # Lunes 11:00 UTC: la última esperada es la del VIERNES (no hay cron el finde).
-    lunes = datetime(2026, 8, 31, 11, 0, tzinfo=UTC)
-    assert sistema._ultima_esperada(lunes, 12, 15, 60) == datetime(2026, 8, 28, 12, 15, tzinfo=UTC)
-    # Martes 13:00 UTC: la de hoy todavía está en gracia → sigue valiendo la de ayer.
-    assert sistema._ultima_esperada(datetime(2026, 9, 1, 13, 0, tzinfo=UTC), 12, 15, 60) \
-        == datetime(2026, 8, 31, 12, 15, tzinfo=UTC)
-    assert sistema._ultima_esperada(datetime(2026, 9, 1, 13, 30, tzinfo=UTC), 12, 15, 60) \
-        == datetime(2026, 9, 1, 12, 15, tzinfo=UTC)
+    # El horario lo evalúa el ÚNICO evaluador cron del repo (salud): un lunes
+    # a las 11 UTC la última esperada es la del VIERNES, no hay cron el finde.
+    from api.services import salud
+    assert salud.ultima_ejecucion_esperada("15 12 * * 1-5", datetime(2026, 8, 31, 11, 0, tzinfo=UTC)) \
+        == datetime(2026, 8, 28, 12, 15, tzinfo=UTC)
+    assert "_ultima_esperada" not in dir(sistema), "volvió un segundo evaluador cron"
 
     monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 1, 14, 0, tzinfo=UTC))
     # Foto de hoy 12:20 → nada.
@@ -2127,3 +2117,308 @@ def test_reincide_el_item_no_el_grupo():
     assert "'reincidio'" in schema[j:j + 250]
     assert "DROP INDEX IF EXISTS agente.hallazgos_abierto_unico" in schema[:j]
     assert "dedup §0.cz" in schema[:j]
+
+
+# ── EL LATIDO (§0.da) ──────────────────────────────────────────────────────
+
+def test_el_universo_de_procesos_sale_de_systemd_y_del_cron():
+    """Un motor nuevo es una unit nueva: con eso el agente ya lo espera. La
+    ventana sale del cron que lo prende y lo apaga, no de una lista a mano."""
+    from datetime import datetime
+
+    from agente import unidades
+    d = unidades.declaradas()
+    assert d["motor_rofex"]["proceso"] == "engines.valores"
+    assert d["api"]["proceso"] is None, "uvicorn no corre por -m: no se le pide latido"
+    v = d["motor_rofex"]["ventana"]
+    assert v["inicio"] == (13, 20) and v["fin"] == (20, 5) and v["dias"] == {0, 1, 2, 3, 4}
+    assert d["agente"]["ventana"] is None, "sin cron que lo apague, corre siempre"
+    assert unidades.en_ventana(v, datetime(2026, 9, 1, 14, 0, tzinfo=UTC))
+    assert not unidades.en_ventana(v, datetime(2026, 9, 5, 14, 0, tzinfo=UTC)), "sábado"
+    assert not unidades.en_ventana(v, datetime(2026, 9, 1, 21, 0, tzinfo=UTC)), "apagado"
+    assert unidades.en_ventana(None, datetime(2026, 9, 5, 3, 0, tzinfo=UTC))
+    # Cada unit con -m tiene proceso, y ninguno se repite: es la clave del latido.
+    procesos = [x["proceso"] for x in d.values() if x["proceso"]]
+    assert len(procesos) == len(set(procesos)) >= 15
+
+
+def test_el_latido_arranca_solo_en_los_motores_y_sabe_quien_es():
+    """`python -m engines.valores` late sin que el motor lo pida: el paquete
+    `engines` lo arranca desde `sys.orig_argv`. Y `sys.argv[0]` no sirve para
+    eso: mientras se importa el paquete vale `-m`."""
+    from core import latido
+    assert latido.proceso_de(["python", "-m", "engines.valores"]) == "engines.valores"
+    assert latido.proceso_de(["python", "-m", "jobs.control_saldos"]) == "jobs.control_saldos"
+    assert latido.proceso_de(["uvicorn", "api.main:app"]) is None
+    src = (RAIZ / "engines" / "__init__.py").read_text(encoding="utf-8")
+    assert "orig_argv" in src and 'startswith("engines.")' in src
+    assert "latido.arrancar(" in src
+    # El WS anota el estado del feed: es el único punto por el que pasan todos.
+    ws = (RAIZ / "core" / "websocket.py").read_text(encoding="utf-8")
+    for clave in ("ws_rechazados_primary", "ws_rechazados_rofex", "ws_cuarentena",
+                  "ws_ultimo_mensaje_at", 'ws="conectado"', 'ws="agotado"'):
+        assert clave in ws, clave
+    # Y los daemons de jobs/ lo llaman explícito.
+    for j in ("control_saldos", "tenencia_live", "agente"):
+        assert "latido.arrancar()" in (RAIZ / "jobs" / f"{j}.py").read_text(encoding="utf-8"), j
+
+
+def _latido(proceso, hace_s, ahora, **data):
+    from datetime import timedelta
+    return {"proceso": proceso, "pid": 1, "host": "h",
+            "arrancado_at": ahora - timedelta(hours=1),
+            "latido_at": ahora - timedelta(seconds=hace_s), "data": data}
+
+
+def test_motor_latido_distingue_apagado_colgado_sin_feed_y_mudo(monkeypatch):
+    """Cuatro veredictos porque el que_hacer es otro en cada uno. Y «vivo y
+    mudo con el mercado quieto» no es «muerto»: por eso el feed mudo es media
+    y solo en rueda caliente."""
+    from datetime import datetime, timedelta
+
+    from agente import fuentes, reloj, unidades
+
+    ahora = datetime(2026, 9, 1, 15, 0, tzinfo=UTC)          # martes, en rueda
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: ahora)
+    monkeypatch.setattr(reloj, "feed_caliente", lambda a=None: True)
+    v = {"inicio": (13, 20), "fin": (20, 5), "dias": {0, 1, 2, 3, 4}}
+    monkeypatch.setattr(unidades, "declaradas", lambda: {
+        "motor_a": {"proceso": "engines.a", "restart": "always", "ventana": v},
+        "motor_b": {"proceso": "engines.b", "restart": "always", "ventana": v},
+        "motor_c": {"proceso": "engines.c", "restart": "always", "ventana": v},
+        "motor_d": {"proceso": "engines.d", "restart": "always", "ventana": v},
+        "motor_e": {"proceso": "engines.e", "restart": "always", "ventana": v},
+        "motor_f": {"proceso": "engines.f", "restart": "always", "ventana": v},
+        "nocturno": {"proceso": "engines.n", "restart": "always",
+                     "ventana": {"inicio": (22, 0), "fin": (23, 0), "dias": None}},
+        "api": {"proceso": None, "restart": "always", "ventana": None},
+    })
+    monkeypatch.setattr(unidades, "activas", lambda us: {
+        "motor_a": "inactive", "motor_b": "active", "motor_c": "active",
+        "motor_d": "active", "motor_e": "active", "motor_f": "active", "nocturno": "inactive"})
+    monkeypatch.setattr(fuentes, "latidos", lambda: {
+        "engines.c": _latido("engines.c", 600, ahora),
+        "engines.d": _latido("engines.d", 5, ahora, ws="reconectando", ws_reconexiones=3),
+        "engines.e": _latido("engines.e", 5, ahora, ws="conectado",
+                             ws_ultimo_mensaje_at=(ahora - timedelta(minutes=30)).isoformat()),
+        "engines.f": _latido("engines.f", 5, ahora, ws="conectado",
+                             ws_ultimo_mensaje_at=(ahora - timedelta(seconds=20)).isoformat()),
+    })
+    por = {h.sujeto: h for h in sistema.motor_latido(
+        {"tolerancia_s": 90, "gracia_arranque_s": 120, "feed_mudo_min": 10})}
+    assert por["motor_a"].regla == "apagado"
+    assert por["motor_b"].regla == "sin_latido"
+    assert por["motor_c"].regla == "colgado" and por["motor_c"].severidad == "alta"
+    assert por["motor_d"].regla == "sin_feed"
+    assert por["motor_e"].regla == "feed_mudo" and por["motor_e"].severidad == "media"
+    assert "motor_f" not in por, "vivo, conectado y recibiendo"
+    assert "nocturno" not in por, "fuera de su ventana, apagado es lo normal"
+    assert "api" not in por
+    for h in por.values():
+        assert "systemctl restart" in h.que_hacer
+
+    # Arrancando no es caído: a los 60 s del cron nadie tiene que haber latido.
+    monkeypatch.setattr(reloj, "ahora_utc",
+                        lambda a=None: datetime(2026, 9, 1, 13, 21, tzinfo=UTC))
+    assert sistema.motor_latido({"gracia_arranque_s": 120}) == []
+
+    # Nadie late todavía (código sin desplegar en los motores) → SinDatos, no 15 alarmas.
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: ahora)
+    monkeypatch.setattr(fuentes, "latidos", lambda: {})
+    with pytest.raises(tipos.SinDatos):
+        sistema.motor_latido({})
+    # Y sin systemd, sin_latido igual se canta con «no pude preguntarle».
+    monkeypatch.setattr(fuentes, "latidos", lambda: {"engines.f": _latido("engines.f", 5, ahora)})
+    monkeypatch.setattr(unidades, "activas", lambda us: None)
+    por = {h.sujeto: h for h in sistema.motor_latido({})}
+    assert por["motor_a"].regla == "sin_latido"
+
+
+def test_motor_caido_deja_los_procesos_al_latido():
+    """Dos habilidades sobre lo mismo son dos relojes: los motores los juzga
+    `motor_latido` por su latido y `motor_caido` se queda con los jobs."""
+    src = inspect.getsource(sistema.motor_caido)
+    i = src.index('if (p.get("tipo") or "") == "motor":')
+    assert "continue" in src[i:i + 80]
+    h = catalogo.HABILIDADES["motor_latido"]
+    assert h.dominio == "SISTEMA" and not h.arreglos and h.cada_segundos <= 300
+
+
+def test_bono_sin_precio_dice_por_que_no_esta_suscripto(monkeypatch):
+    """«Nadie lo suscribió» y «lo pedí y Primary no lo lista» tienen arreglos
+    distintos: el primero tiene botón (pedir la pata) y el segundo no, porque
+    no hay precio posible. El WS deja la lista completa en su latido."""
+    from datetime import datetime
+
+    from agente import fuentes, reloj
+    monkeypatch.setattr(mercado, "_feed_o_sindatos", lambda: None)
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: datetime(2026, 9, 1, 15, 0, tzinfo=UTC))
+    monkeypatch.setattr(reloj, "en_rueda", lambda a=None: True)
+    monkeypatch.setattr(fuentes, "master", lambda: [
+        {"ticker_corto": "AAA", "ticker": "MERV - XMEV - AAA - 24hs"},
+        {"ticker_corto": "BBB", "ticker": "MERV - XMEV - BBB - 24hs"}])
+    monkeypatch.setattr(fuentes, "snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(fuentes, "latidos", lambda: {"engines.valores": {"data": {
+        "ws_rechazados_primary": ["MERV - XMEV - AAA - 24hs"]}}})
+    por = {h.sujeto: h for h in mercado.bono_sin_precio({})}
+    assert por["AAA"].regla == "simbolo_rechazado"
+    assert por["BBB"].regla == "no_suscripto"
+    assert catalogo.HABILIDADES["bono_sin_precio"].arreglo_de("simbolo_rechazado") == ""
+
+
+# ── LOS RELANZABLES SE DERIVAN (§0.db) ────────────────────────────────────
+
+def test_los_relanzables_salen_del_crontab_y_de_los_contratos():
+    """`REHACIBLES` tuvo UNA entrada diez días y el botón de rehacer aparecía
+    en un solo job. Lo que hace relanzable a un job ya está escrito: el
+    comando en el crontab, la prueba en los contratos de SALUD unidos por
+    `core.escribe`. Lo declarado a mano gana; el resto se deriva."""
+    r = rehacer.rehacibles()
+    assert len(r) >= 40
+    assert r["portafolio_diario"]["prueba"] == rehacer.PRUEBA_DIA
+    assert r["portafolio_diario"]["schedule"] == "0 11 * * 1-5", "el horario sale del cron"
+    assert r["cierre_chain"]["prueba"] == rehacer.PRUEBA_TABLA
+    assert r["cierre_chain"]["tabla"] == "mercado.snapshots_cierre"
+    assert r["negocio_chain"]["prueba"] == rehacer.PRUEBA_CORRIDA
+    assert "run_job" not in r["negocio_chain"]["comando"]
+    assert "jobs.aranceles" in r["negocio_chain"]["comando"]
+    # Un job con tres líneas de cron tiene los tres horarios, no el primero.
+    assert len(r["sync_comitentes"]["schedules"]) == 3
+    # Y el árbitro de nombres resuelve el módulo, el label y el tipo de job_runs.
+    assert rehacer.cual_job("jobs.aranceles") == "negocio_chain"
+    assert rehacer.cual_job("job:cierre_chain") == "cierre_chain"
+    assert rehacer.cual_job("jobs.snapshot_cierre") == "cierre_chain"
+    assert rehacer.cual_job("motor_rofex.service") == ""
+
+
+def test_todavia_no_le_toco_lee_el_crontab_y_no_la_prosa():
+    """La hora de arranque salía de una regex sobre `cadencia` (texto libre).
+    Ahora sale del crontab, por el único evaluador cron. Un job diario de las
+    12 UTC no está atrasado a las 11; a las 13 con umbral de 10 min, sí."""
+    from datetime import datetime
+
+    from core.tz import AR_TZ
+    p = {"unidad": "jobs.argentina_datos", "umbral_s": 600, "cadencia": "prosa"}
+    a_las_8_ar = datetime(2026, 9, 1, 8, 0, tzinfo=AR_TZ)      # 11:00 UTC
+    a_las_10_ar = datetime(2026, 9, 1, 10, 0, tzinfo=AR_TZ)    # 13:00 UTC
+    assert sistema._todavia_no_le_toco(p, a_las_8_ar)
+    assert not sistema._todavia_no_le_toco(p, a_las_10_ar)
+    # Sin cron conocido no se afirma nada: avisar de más antes que callar.
+    assert not sistema._todavia_no_le_toco({"unidad": "motor_rofex", "cadencia": "13-21 UTC"},
+                                           a_las_8_ar)
+    assert "re.search" not in inspect.getsource(sistema._todavia_no_le_toco)
+
+
+# ── ARBITRAR DOS COPIAS (§0.dc) ────────────────────────────────────────────
+
+def test_el_duplicado_con_sql_tiene_boton_y_el_manual_es_aviso(monkeypatch):
+    """`core/duplicados` declaraba `arreglo_sql` en dos de cinco y ningún
+    arreglo lo usaba: «dato partido» salía sin botón. Ahora el que tiene SQL
+    se arbitra desde ENCONTRÓ y el manual es un aviso con la instrucción."""
+    from core import duplicados
+    assert catalogo.HABILIDADES["dato_partido"].arreglo_de("copias_que_no_coinciden") \
+        == "arbitrar_copia"
+    assert catalogo.HABILIDADES["dato_partido"].arreglo_de("copias_a_mano") == ""
+    con_sql = [d for d in duplicados.DUPLICADOS if d.arreglo_sql.strip()]
+    assert con_sql and all(d.gana in ("a", "b") for d in con_sql), (
+        "todo duplicado con SQL declara quién gana: es lo que se anota en el libro")
+
+    monkeypatch.setattr(duplicados, "divergencias", lambda: {
+        "partidos": [
+            {"id": "simbolo_columna_vs_blob", "que": "el símbolo", "a": "col", "b": "blob",
+             "arbitro": "la COLUMNA", "rompe": "sin precio", "tiene_sql": True,
+             "arreglo_manual": "", "n": 2,
+             "ejemplos": [{"sujeto": "AO29", "valor_a": "x", "valor_b": "y"}]},
+            {"id": "emisor_curvas_vs_assets", "que": "el emisor", "a": "curvas", "b": "assets",
+             "arbitro": "1816", "rompe": "agrupa mal", "tiene_sql": False,
+             "arreglo_manual": "correr jobs.ficha_1816", "n": 1, "ejemplos": []}],
+        "sin_mirar": [], "revisados": 5})
+    por = {h.sujeto: h for h in datos.dato_partido({})}
+    assert por["simbolo_columna_vs_blob"].regla == "copias_que_no_coinciden"
+    assert por["emisor_curvas_vs_assets"].regla == "copias_a_mano"
+    assert "ficha_1816" in por["emisor_curvas_vs_assets"].que_hacer
+
+
+def test_arbitrar_copia_relee_escribe_y_anota_una_linea_por_fila(monkeypatch):
+    from core import duplicados
+    a = arreglos.ARREGLOS["arbitrar_copia"]
+    filas = [("AO29", "MERV - XMEV - AO29D - 24hs", "MERV - XMEV - AO29 - 24hs"),
+             ("CO32", "MERV - XMEV - CO32D - 24hs", "MERV - XMEV - CO32 - 24hs")]
+    monkeypatch.setattr(duplicados, "una", lambda i: {"ok": True, "id": i, "filas": filas})
+    pv = a.preview("simbolo_columna_vs_blob", {})
+    assert pv["puede_aplicar"] and pv["donde"] == "mercado.curvas"
+    assert len(pv["pasos"]) == 2 and "AO29D" in pv["pasos"][0]["detalle"]
+    # El manual no se puede aplicar, y lo dice sin error.
+    pv2 = a.preview("emisor_curvas_vs_assets", {})
+    assert pv2["ok"] and not pv2["puede_aplicar"]
+
+    escritas, libro_lineas = [], []
+    monkeypatch.setattr(duplicados, "arbitrar",
+                        lambda i: (escritas.append(i) or {"ok": True, "filas": 2}))
+    from agente import libro as _libro
+    monkeypatch.setattr(_libro, "registrar", lambda **kw: libro_lineas.append(kw))
+    r = a.aplicar("simbolo_columna_vs_blob", {}, por="test")
+    assert r.ok and escritas == ["simbolo_columna_vs_blob"]
+    assert [x["objetivo"] for x in libro_lineas] == ["AO29", "CO32"]
+    assert libro_lineas[0]["antes"].endswith("AO29 - 24hs")
+    assert libro_lineas[0]["despues"].endswith("AO29D - 24hs")
+    # Sin filas no se ejecuta nada: ya coinciden.
+    monkeypatch.setattr(duplicados, "una", lambda i: {"ok": True, "id": i, "filas": []})
+    r = a.aplicar("simbolo_columna_vs_blob", {}, por="test")
+    assert r.ok and "coinciden" in r.detalle and escritas == ["simbolo_columna_vs_blob"]
+
+
+# ── LO QUE LOS JOBS REPORTAN (§0.dd) ───────────────────────────────────────
+
+def test_cada_reporte_declarado_existe_en_su_job():
+    """Una fila en `agente/reportes.py` promete que ese job guarda ese stat y
+    su lista. Si el job no lo escribe, el aviso jamás aparece y nadie lo nota:
+    por eso se cruza contra el código del job."""
+    from agente.reportes import REPORTES
+    for r in REPORTES:
+        src = (RAIZ / "jobs" / f"{r.job}.py").read_text(encoding="utf-8")
+        if r.stat.endswith("_conflictos"):
+            # Stat por regla: `f"{r.id}_conflictos"` con el id declarado en REGLAS.
+            assert '_conflictos"' in src and f'"{r.stat[:-11]}"' in src, (
+                f"{r.job}: la regla {r.stat[:-11]!r} no existe o no guarda conflictos")
+        else:
+            assert r.stat in src, f"{r.job} no guarda el stat {r.stat!r}"
+        if r.con_lista:
+            assert f'{r.stat}_lista' in src or '_conflictos_lista' in src, (
+                f"{r.job} no guarda la lista de {r.stat!r}")
+        assert len(r.que_hacer) > 40 and r.severidad in tipos.SEVERIDADES
+    assert len({(r.job, r.stat) for r in REPORTES}) == len(REPORTES), "un stat repetido"
+    assert not catalogo.HABILIDADES["job_reporto"].arreglos
+
+
+def test_job_reporto_convierte_el_contador_en_aviso_con_su_lista(monkeypatch):
+    from datetime import datetime
+
+    from agente import reloj
+    monkeypatch.setattr(reloj, "hhmm", lambda a=None: "10:00")
+    corridas = {
+        "ficha_1816": {"finished_at": datetime(2026, 9, 1, 22, 31, tzinfo=UTC),
+                       "status": "ok",
+                       "stats": {"moneda_divergente": 2,
+                                 "moneda_divergente_lista": ["AO29: nuestro=ARS 1816=USD",
+                                                             "CO32: nuestro=ARS 1816=USD"]}},
+        "tamar_1816": {"finished_at": datetime(2026, 9, 1, 20, 0, tzinfo=UTC),
+                       "status": "ok", "stats": {"sin_dato": 0}},
+        # Corre código viejo: tiene el número y no la lista → igual se canta.
+        "cleanup_curvas": {"finished_at": datetime(2026, 9, 1, 12, 30, tzinfo=UTC),
+                           "status": "ok", "stats": {"borrados": 3}},
+    }
+    monkeypatch.setattr(datos, "_ultima_corrida", lambda job: corridas.get(job))
+    por = {h.sujeto: h for h in datos.job_reporto({})}
+    h = por["ficha_1816·moneda_divergente"]
+    assert h.regla == "moneda_divergente" and h.severidad == "alta"
+    assert "2 bono(s)" in h.problema and "01/09 22:31" in h.problema
+    assert "AO29" in h.detalle and h.evidencia["lista"][1].startswith("CO32")
+    assert "tamar_1816·sin_dato" not in por, "cero no es un aviso"
+    assert "próxima corrida" in por["cleanup_curvas·borrados"].detalle
+    # Sin poder leer job_runs, no se afirma nada.
+    def _rompe(job):
+        raise RuntimeError("db caída")
+    monkeypatch.setattr(datos, "_ultima_corrida", _rompe)
+    with pytest.raises(tipos.SinDatos):
+        datos.job_reporto({})

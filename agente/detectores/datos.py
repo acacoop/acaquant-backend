@@ -32,19 +32,33 @@ def dato_partido(u: dict) -> list[Hallazgo]:
         ej = d.get("ejemplos") or []
         muestra = "; ".join(f"{x['sujeto']}: «{x['valor_a']}» ≠ «{x['valor_b']}»"
                             for x in ej[:3])
+        # ⚠️ **DOS REGLAS, porque solo una tiene botón (§0.dc).** El duplicado
+        # que declara `arreglo_sql` se arbitra desde acá (`arbitrar_copia`);
+        # el que declara `arreglo_manual` es un AVISO con la instrucción — un
+        # botón que siempre contesta «esto se hace a mano» es un aviso con
+        # forma de trabajo.
+        con_sql = bool(d.get("tiene_sql"))
         out.append(Hallazgo(
             # `alta` sin dudar: acá no hay «es contexto». Si dos copias
             # difieren, ALGO está leyendo el valor incorrecto ahora mismo — lo
             # único que no sabemos es quién.
-            sujeto=str(d["id"]), regla="copias_que_no_coinciden", severidad="alta",
+            sujeto=str(d["id"]),
+            regla="copias_que_no_coinciden" if con_sql else "copias_a_mano",
+            severidad="alta",
             nombre=str(d.get("que") or d["id"]),
             problema=f"{d['n']} caso(s) donde {d['que']} dice cosas distintas "
                      f"según dónde se lea: {d['a']} vs {d['b']}."
                      + (f" Ejemplos — {muestra}." if muestra else ""),
             detalle=muestra,
-            que_hacer=f"Manda {d['arbitro']}. Qué se rompe si no: {d['rompe']}.",
+            que_hacer=(f"Manda {d['arbitro']}. Aplicar escribe la copia que pierde "
+                       f"con el valor de la que manda, fila por fila. Qué se rompe "
+                       f"si no: {d['rompe']}." if con_sql else
+                       f"Manda {d['arbitro']}. No se arregla con un UPDATE: "
+                       f"{d.get('arreglo_manual') or 'ver el árbitro'}. Qué se "
+                       f"rompe si no: {d['rompe']}."),
             evidencia={"n": d["n"], "a": d["a"], "b": d["b"],
-                       "arbitro": d["arbitro"], "ejemplos": ej}))
+                       "arbitro": d["arbitro"], "ejemplos": ej,
+                       "tiene_sql": con_sql}))
     # **Lo que no se pudo mirar se canta.** Un duplicado sin chequear se leería
     # igual que uno sano, que es la forma de mentir que este detector persigue.
     for x in res.get("sin_mirar") or []:
@@ -158,4 +172,74 @@ def permiso_flojo(u: dict) -> list[Hallazgo]:
                 que_hacer="Cerrarlo en el router o en Cloudflare. Esto no es "
                           "teoría: se midió contra producción.",
                 evidencia={"capa": "efectivo", "detalle": r}))
+    return out
+
+
+# ═══ job_reporto ═══════════════════════════════════════════════════════════
+def _ultima_corrida(job: str) -> dict | None:
+    """`{finished_at, stats}` de la última corrida de ese job, o `None`."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT finished_at, data FROM manager.job_runs WHERE tipo = %s "
+                    "ORDER BY finished_at DESC NULLS LAST LIMIT 1", (job,))
+        r = cur.fetchone()
+    if not r:
+        return None
+    data = dict(r[1] or {})
+    return {"finished_at": r[0], "stats": dict(data.get("stats") or {}),
+            "status": data.get("status")}
+
+
+def job_reporto(u: dict) -> list[Hallazgo]:
+    """Lo que un job REPORTÓ sin escribir, convertido en aviso con su lista.
+
+    Lee la última corrida de cada job de `agente/reportes.REPORTES` y, si el
+    contador declarado es mayor que cero, canta un hallazgo con la lista que el
+    job dejó al lado (`<stat>_lista`). Un job que todavía corre código sin la
+    lista sale igual, con el número, y lo dice. Ver §0.dd.
+
+    No juzga si el job corrió cuando debía: eso es de `salud`. Acá solo importa
+    lo que la última corrida dijo.
+    """
+    from agente import reloj
+    from agente.reportes import REPORTES
+
+    out = []
+    corridas: dict[str, dict | None] = {}
+    fallas = 0
+    for r in REPORTES:
+        if r.job not in corridas:
+            try:
+                corridas[r.job] = _ultima_corrida(r.job)
+            except Exception as e:
+                fallas += 1
+                logger.warning("job_reporto: no pude leer %s (%s)", r.job, e)
+                corridas[r.job] = None
+        c = corridas[r.job]
+        if not c:
+            continue
+        n = c["stats"].get(r.stat)
+        if not isinstance(n, int | float) or n <= 0:
+            continue
+        lista = c["stats"].get(r.lista)
+        tiene_lista = isinstance(lista, list)
+        lista = [str(x) for x in (lista or [])][:200]
+        cuando = c["finished_at"]
+        cuando_txt = cuando.strftime("%d/%m %H:%M") if cuando else "?"
+        out.append(Hallazgo(
+            sujeto=f"{r.job}·{r.stat}", regla=r.nombre_regla, severidad=r.severidad,
+            nombre=f"{r.job}: {r.stat}",
+            problema=f"{int(n)} {r.que} · corrida del {cuando_txt} · {reloj.hhmm()}",
+            detalle=(" · ".join(lista[:30]) + (f" · y {len(lista) - 30} más"
+                                                if len(lista) > 30 else "")
+                     if tiene_lista else
+                     ("el job solo guarda el número, no la lista" if not r.con_lista else
+                      "la lista aparece con la próxima corrida (el job corre código "
+                      "que todavía no la guarda)")),
+            que_hacer=r.que_hacer,
+            evidencia={"job": r.job, "stat": r.stat, "n": n, "lista": lista,
+                       "corrida_at": cuando.isoformat() if cuando else None,
+                       "status": c.get("status")}))
+    if fallas and fallas == len({r.job for r in REPORTES}):
+        raise SinDatos("no pude leer manager.job_runs: no sé qué reportaron los jobs")
     return out

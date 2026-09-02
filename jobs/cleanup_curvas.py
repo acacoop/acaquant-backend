@@ -45,16 +45,17 @@ def run(dry: bool = False):
 
     if not a_borrar:
         print(f"Nada que limpiar (hoy={hoy}).")
-        return
+        return []
 
     if dry:
         print(f"\n[DRY RUN] Se borrarían {len(a_borrar)} docs de mercado.curvas.")
-        return
+        return a_borrar
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM mercado.curvas WHERE ticker = ANY(%s)", (a_borrar,))
         deleted = cur.rowcount or 0
     print(f"\nEliminados {deleted} docs de mercado.curvas (hoy={hoy}).")
+    return a_borrar
 
 
 if __name__ == "__main__":
@@ -62,4 +63,7 @@ if __name__ == "__main__":
     dry = "--dry" in sys.argv
     with JobRunLogger("cleanup_curvas") as jr:
         jr.set_stat("dry", dry)
-        run(dry=dry)
+        # Qué se borró queda con la corrida: el agente lo muestra (§0.dd).
+        borrados = run(dry=dry) or []
+        jr.set_stat("borrados", len(borrados))
+        jr.set_stat("borrados_lista", list(borrados)[:200])

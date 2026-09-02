@@ -166,6 +166,17 @@ def ultima_ejecucion_esperada(cron: str, ahora: datetime | None = None) -> datet
     return None
 
 
+def proxima_ejecucion(cron: str, ahora: datetime | None = None) -> datetime | None:
+    """El próximo minuto en que ese cron va a dispararse (tope 8 días).
+    Misma fuerza bruta que `ultima_ejecucion_esperada`, hacia adelante."""
+    t = (ahora or _ahora()).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    for _ in range(ABANDONO_DIAS * 24 * 60):
+        if _matchea(cron, t):
+            return t
+        t += timedelta(minutes=1)
+    return None
+
+
 # ── Chequeos de JOBS (¿corrió cuando debía? ¿salió bien?) ────────────────────
 
 def _iso(v: Any) -> datetime | None:

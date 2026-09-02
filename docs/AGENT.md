@@ -3681,9 +3681,12 @@ dentro.
    Lee el horario **del crontab del repo**, no de una copia, calcula la última
    corrida esperada (L-V) y canta `foto_vieja` o `nunca_corrio`. Sin arreglo a
    propósito: sacar la foto necesita sesión pyRofex y el daemon no la tiene.
-3. **El descarte se canta**: regla `no_cotiza_en_primary`, AVISO de severidad
-   baja (vive en AHORA, no en ENCONTRÓ), con la fecha de la foto en el texto y
-   en la evidencia. Lo que está en cartera sigue pidiendo el alta.
+3. ~~El descarte se canta como aviso por bono~~ — **duró un día.** El user
+   (2026-09-02): *«si Primary no lo lista es porque no está, eso mata todo; no
+   hay que insistir»*. Primary ES el mercado. Lo que 1816 publica y Primary no
+   lista se descarta (y se cuenta en el log); lo que hacía falta no era avisar
+   sino que la foto fuera fresca y vigilada, que son los puntos 1 y 2. Lo que
+   está en cartera sigue pidiendo el alta.
 4. **El pre-flight distingue foto de vivo**: `_estado_simbolo` pregunta a
    Primary en vivo (`ordenes.simbolos_live`, la misma llamada que OPERAR) antes
    de afirmar que no lo lista. En vivo sí / foto no → INFO con la fecha de la
@@ -3739,3 +3742,185 @@ de cada trío con más de una fila abierta queda la más nueva, las
 «reincidencias» de `ficha_incompleta` se borran y sus hallazgos vuelven a
 `nuevo`. Con eso hecho, `hallazgos_abierto_unico` pasa a cubrir `reincidio`:
 la base ya no permite la copia que el código dejó de hacer.
+
+---
+
+### 0.da EL LATIDO — cada proceso dice que está vivo, solo (2026-09-02)
+
+> *«Es el que más me interesa. Tiene que estar hecho de manera excelente y
+> eficiente, y actualizarse solo, no depender de intervención humana: si
+> mañana meto otro motor se tiene que detectar solo.»*
+
+**Lo que había.** De diecisiete procesos de systemd, dos escribían un latido
+(`motor_ordenes`, `control_saldos`), cada uno con su hilo y su formato, en un
+singleton. Los otros quince se juzgaban por la frescura de la tabla que
+escriben (`motor_caido` sobre el árbol de diagnóstico), y eso no distingue
+«vivo y sin operaciones» de «muerto». El WS trunca a diez los símbolos que
+Primary no lista y, cuando agota seis reconexiones, se mata con un mensaje
+que no llega a ninguna tabla.
+
+**Lo que queda, y por qué nadie tiene que acordarse de nada:**
+
+- **`core/latido.py`**: un hilo daemon escribe `operaciones.latidos` cada 15 s
+  (proceso, pid, host, arrancado, último latido, `data`). Nunca levanta: si
+  Postgres no responde, loguea una vez cada diez minutos y sigue.
+- **Arranca solo en `engines/__init__.py`** cuando el proceso es `python -m
+  engines.<motor>`, leído de `sys.orig_argv` (`sys.argv[0]` vale `-m` mientras
+  se importa el paquete). Un motor nuevo late desde su primer arranque sin
+  saber que esto existe. Los tres daemons de `jobs/` lo llaman en su `main`.
+- **`core/websocket.py` anota el feed en el latido**: `ws` (conectado ·
+  reconectando · agotado · error_inicio), mensajes recibidos y cuándo fue el
+  último, reconexiones, y las listas COMPLETAS de rechazados por Primary, por
+  ROFEX y en cuarentena. Es el único punto por el que pasan todos los motores.
+- **`agente/unidades.py`**: el universo de procesos sale de `deploy/systemd`
+  (qué unit corre qué módulo) y de `deploy/crontab.txt` (a qué hora la prende
+  y la apaga el cron). Y le pregunta a systemd en la máquina con
+  `systemctl is-active`, como `cron_desalineado` le pregunta al crontab.
+- **Habilidad `motor_latido`** (SISTEMA, cada 2 min), cuatro veredictos porque
+  el que_hacer es otro en cada uno: `apagado` (systemd inactive en ventana),
+  `sin_latido` (active y nunca latió: código anterior al latido, o colgado
+  antes de latir), `colgado`/`muerto` (dejó de latir), `sin_feed` (WS no
+  conectado) y `feed_mudo` (conectado y sin mensajes en rueda caliente, media:
+  puede ser mercado quieto). Sin arreglo a propósito: reiniciar en rueda lo
+  decide la mesa; el que_hacer trae el comando exacto.
+- **`motor_caido` deja los procesos y se queda con los jobs**, que se juzgan
+  por su resultado. Dos habilidades sobre lo mismo son dos relojes.
+- **`bono_sin_precio` dice por qué**: antes de ofrecer «pedir la pata» mira si
+  `motor_rofex` ya lo pidió y lo rechazaron; ahí es `simbolo_rechazado`, aviso
+  con el motivo, sin botón, porque no hay precio posible.
+
+**El día del deploy**: los motores corren código sin latido hasta su próximo
+arranque (cron 13:20 UTC). Mientras `operaciones.latidos` esté vacía, la
+habilidad levanta `SinDatos` y lo dice, en vez de cantar quince alarmas.
+
+---
+
+### 0.db LOS RELANZABLES SE DERIVAN — y el horario sale del cron (2026-09-02)
+
+`rehacer.REHACIBLES` tuvo una sola entrada, `portafolio_diario`, desde el
+20/08. Todo lo demás caía en `pieza_<estado>` con la frase «todavía no tiene
+botón: hay que declarar en qué tabla se ve su resultado». Nadie declara
+cuarenta jobs a mano, y no hacía falta: lo que hace relanzable a un job ya
+estaba escrito en otro lado.
+
+- **El comando, el label y el timeout** salen de `deploy/crontab.txt`
+  (`core.crontab.parse_crontab`, que ahora también devuelve el comando
+  interno): es exactamente lo que `run_job.sh` recibe cada día.
+- **La prueba de que el dato está** sale de los contratos de frescura de
+  `api/services/salud.CONTRATOS`, unidos al job por `core.escribe.que_relanzar`
+  (quién escribe esa tabla). Para esos jobs el chequeo es **el mismo que corre
+  SALUD** (`_chequeo_dato`), no una segunda query parecida.
+- **Los que no tienen contrato** se prueban por la **corrida**: una fila que
+  no falló en `manager.job_runs`, empezada después de la última hora de cron.
+  Es una prueba sobre el proceso y no sobre el resultado, y el preview lo dice
+  con esas palabras.
+- **Lo declarado gana**: `portafolio_diario` sigue con su regla del hábil
+  anterior, y ahora toma el horario del cron en vez de una copia.
+- Un job con varias líneas de cron (`sync_comitentes`, tres) tiene todos sus
+  horarios; la última esperada es la más reciente de las tres.
+
+`rehacibles()` es la única lista y `cual_job` resuelve módulo, label y tipo
+de `job_runs`. El segundo barrido de `motor_caido` («el día que falta no
+depende de que el árbol lo note») sigue limitado a los jobs con prueba sobre
+el DATO: consultar los cuarenta de prueba «corrida» cada dos minutos era justo
+el barrido que ese comentario prohíbe, y a esos ya los canta el árbol.
+
+**Y la deuda de §5.1 se paga**: `_todavia_no_le_toco` dejaba de avisar según
+una expresión regular sobre la prosa de la cadencia (`"cada 30m · 15-22 UTC
+L-V"`). Ahora lee el horario del crontab por `rehacer.rehacibles()` y lo
+evalúa **el único evaluador cron del repo**, `salud.ultima_ejecucion_esperada`.
+`foto_primary` (§0.cy) también: nació con un evaluador propio y se lo sacó el
+mismo día, porque dos evaluadores de la misma expresión son la REGLA #9 (B).
+
+---
+
+### 0.dc ARBITRAR DOS COPIAS — el SQL declarado al lado del chequeo, con botón (2026-09-02)
+
+`core/duplicados.DUPLICADOS` declaraba `arreglo_sql` en dos de sus cinco
+entradas desde el 2026-08-19 y ningún `Arreglo` lo consumía: «dato partido»
+salía sin botón, y el símbolo columna-vs-blob que dejó dos bonos en `--`
+durante cuatro días se seguía corrigiendo a mano.
+
+- **`arbitrar_copia`** es UNA clase para todos: el preview relee con
+  `duplicados.una()` las filas que difieren y las muestra una por una (la que
+  pierde → la que manda); aplicar relee de nuevo, corre el `arreglo_sql`
+  declarado (scopeado por su propio WHERE) y anota **una línea de libro por
+  fila** con antes y después. Lo que se arregla es exactamente lo que el
+  detector midió, porque el SQL vive al lado del chequeo.
+- `Duplicado.gana` (`"a"`/`"b"`) dice cuál copia manda cuando hay SQL: es lo
+  que permite escribir el libro sin adivinar leyendo la prosa de `arbitro`.
+- **Dos reglas en `dato_partido`**: `copias_que_no_coinciden` (tiene SQL →
+  ENCONTRÓ con botón) y `copias_a_mano` (declara `arreglo_manual` → aviso con
+  la instrucción, en AHORA). Un botón que siempre contesta «esto se hace a
+  mano» es un aviso con forma de trabajo, la misma lección que `salud`.
+
+---
+
+### 0.dd LO QUE LOS JOBS REPORTAN Y NO ESCRIBEN — de un log a un aviso (2026-09-02)
+
+`ficha_1816` encuentra bonos donde 1816 dice otra moneda y no la corrige,
+porque la moneda decide la valuación; `tamar_1816` cuenta las patas sin tasa;
+`assets_autofill` capa sus conflictos a diez en cron; `snapshot_cierre`
+saltea una curva con un warning; `cleanup_curvas` borraba sin dejar qué.
+Todo eso terminaba en un log que nadie abre y en un contador de
+`manager.job_runs` que dice que hay algo y no qué.
+
+- **`agente/reportes.py`**: una fila por stat (`job`, `stat`, qué significa
+  que sea mayor que cero, qué hacer, severidad). Es la REGLA #10 aplicada a
+  los jobs: cada uno inventaba su forma de quejarse.
+- **Cada job persiste la lista al lado del número** (`<stat>_lista`, hasta
+  200): `ficha_1816`, `tamar_1816`, `assets_autofill` (por regla, y las
+  divergencias de herencia), `ops_tasa_mav` (las muestras del formato
+  desconocido), `validar_instrumentos` (borrados y no vigentes),
+  `snapshot_cierre` (curvas salteadas, que antes ni se contaban) y
+  `cleanup_curvas` (qué borró; `run()` ahora lo devuelve).
+- **Habilidad `job_reporto`** (DATOS, cada hora): lee la última corrida de
+  cada job y convierte cada contador en un aviso con la lista adentro. Un job
+  que todavía corre código sin la lista sale igual, con el número, y lo dice.
+  No juzga si el job corrió cuando debía: eso es de `salud`.
+- Un test cruza cada fila del registro contra el código de su job: una fila
+  que promete un stat que el job no guarda es un aviso que jamás aparece.
+
+---
+
+### 0.de LA BANDEJA QUE NADIE PODÍA LEER — y el job que no la escribía (2026-09-02)
+
+> *«Es exclusivo del día: con saber que se informó alcanza, no hay que
+> guardar historial. Es solo avisar a las 16:45 y listo.»*
+
+Dos roturas encadenadas, y ninguna fallaba a la vista:
+
+1. **El router no existía.** `api/main.py` documentaba `/api/avisos` «sin
+   gate de módulo» y remitía a `api/routers/avisos.py` desde el 2026-08-19. El
+   archivo no estaba. La pantalla «PARA VOS» pedía la bandeja, el proxy de
+   Next reenviaba, y el backend contestaba 404, que el front traga.
+2. **El job moría al mandar.** `jobs/saldos_a_operadores` llamaba a
+   `mensajes.enviar_tabla(..., donde=, por=, interrumpe=True)` y la firma no
+   aceptaba esos tres: `TypeError` a las 16:45, todos los días, con
+   `manager.job_runs` en `error`. La bandeja se escribía para nadie y además
+   no se escribía.
+
+**Lo que queda:**
+
+- `api/routers/avisos.py`: `GET /api/avisos` (los de HOY del que pregunta,
+  `[]` para el invitado) y `POST /api/avisos/visto`. Montado con
+  `verify_api_key` y sin módulo, como `/api/me`.
+- `mensajes.enviar` acepta `donde`, `por` e `interrumpe`; la tabla los
+  guarda (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`), y un reenvío del mismo
+  tema vuelve a poner `visto_at` en NULL: el aviso de hoy es nuevo aunque el
+  tema sea el de ayer.
+- El front (`mis-avisos.tsx`) se reescribió al modelo 2.0: asunto, detalle,
+  la tabla que venga en `filas`, y un solo botón, «visto». Sin historial, sin
+  ítems que tildar, sin posponer: el que lleva `interrumpe` se abre solo, como
+  el de briefing, y con «visto» desaparece.
+
+Y en el mismo cambio, **Postrade entra a `core/proveedores.PROVEEDORES`**:
+era la única API externa sin vigilar. `core/postrade._request` deja rastro
+con el mismo criterio que Aunesa (`es_caida`: solo 5xx), así que
+`proveedor_caido` lo cubre sin una línea más. Se lo usa para leer, no para
+operar desde ahí.
+
+Y **la evidencia se ve**: `v_ahora` viaja con `visto_ultima_vez`, y las filas
+de AHORA y ENCONTRÓ muestran «confirmado hace N» al lado de «desde», más un
+desplegable con la evidencia del detector. Sin lo primero, un hallazgo de
+hace tres días y uno confirmado hace veinte minutos se veían iguales.

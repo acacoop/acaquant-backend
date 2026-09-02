@@ -89,6 +89,10 @@ def _imprimir_estado() -> None:
 
 
 def main() -> int:
+    # Late en operaciones.latidos como cualquier motor (core/latido.py, §0.da):
+    # es un daemon de systemd y el agente lo espera por su unit.
+    from core import latido
+    latido.arrancar()
     ap = argparse.ArgumentParser(description="El AV Agent")
     ap.add_argument("--una", action="store_true", help="una pasada y salgo")
     ap.add_argument("--forzar", action="store_true",

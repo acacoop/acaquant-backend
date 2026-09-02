@@ -78,11 +78,11 @@ def _que_hacer_pieza(p: dict, dia: dict | None, nombre: str, unidad: str) -> str
         return (f"No pude consultar {dia['tabla']}, así que no sé si hace falta "
                 f"rehacer. Mirar la base a mano. {dia['proximo']}.")
 
-    # No es relanzable: no hay botón porque no está declarado dónde se ve su
-    # resultado — no porque sea peligroso. Decirlo así es lo honesto.
+    # No es relanzable: no corre por `run_job.sh` en `deploy/crontab.txt`, que
+    # es de donde el agente saca el comando y la prueba (§0.db).
     return (f"Mirar el log de `{unidad or nombre}` y relanzarlo a mano. "
-            f"Cadencia: {cad}. Todavía no tiene botón: para tenerlo hay que "
-            "declarar en `agente/rehacer.py` en qué tabla se ve su resultado.")
+            f"Cadencia: {cad}. No tiene botón porque no está en el crontab por "
+            "`run_job.sh`: lo que corre por ahí se rehace desde acá solo.")
 
 
 def _renglon_del_dia(dia: dict | None) -> str:
@@ -191,6 +191,13 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     for vista in arbol.get("vistas") or []:
         for grupo in vista.get("grupos") or []:
             for p in grupo.get("piezas") or []:
+                # Los PROCESOS los mira `motor_latido` por su latido (§0.da):
+                # acá quedan los JOBS, que se juzgan por su resultado. Un
+                # motor juzgado por la frescura de su tabla confundía «mercado
+                # quieto» con «muerto», y dos habilidades sobre lo mismo son
+                # dos relojes.
+                if (p.get("tipo") or "") == "motor":
+                    continue
                 estado = (p.get("estado") or "").strip()
                 if estado in ignorar or estado not in rotos:
                     continue
@@ -284,8 +291,11 @@ def motor_caido(u: dict) -> list[Hallazgo]:
     # `salud`: mirar el proceso no es mirar el resultado.
     #
     # No duplica: solo se agrega lo que el árbol NO cantó (`ya_dichos`).
-    for job in rehacer.REHACIBLES:
-        if job in ya_dichos:
+    for job, cfg in rehacer.rehacibles().items():
+        # Solo los que tienen prueba sobre el DATO (declarados o con contrato):
+        # los de prueba «corrida» ya los canta el árbol por su run_status, y
+        # consultarlos acá sería el barrido de 40 jobs cada 2 minutos.
+        if job in ya_dichos or cfg.get("prueba") == rehacer.PRUEBA_CORRIDA:
             continue
         d = rehacer.estado_del_dia(job)
         if not d or d["estado"] != "falta":
@@ -366,34 +376,173 @@ def _todavia_no_le_toco(p: dict, ahora) -> bool:
 
     A las 11:13 un job que arranca 12:00 no está atrasado: no le tocó.
 
-    ⚠️ **Hoy la hora de arranque sale de un REGEX sobre prosa** — cada pieza
-    declara su cadencia como texto libre (`"cada 30m :05,:35 · 15-22 UTC L-V"`).
-    Es la deuda que `AGENT.md` §5.1 deja anotada: el horario real vive en
-    `deploy/crontab.txt` y en los units de systemd, que es la MISMA fuente que ya
-    lee la habilidad `cron_desalineado`. Hasta entonces: ante cualquier duda
-    devuelve `False` — avisar de más es mejor que callar un motor caído.
+    **El horario sale del crontab** (`rehacer.rehacibles()` → `schedule`) y lo
+    evalúa el único evaluador cron del repo (`salud.ultima_ejecucion_esperada`).
+    Hasta el 2026-09-02 salía de una expresión regular sobre la prosa de la
+    cadencia (`"cada 30m · 15-22 UTC L-V"`), la deuda que §5.1 dejó anotada.
+    Ante cualquier duda devuelve `False`: avisar de más es mejor que callar.
     """
-    import re
-    from datetime import datetime, timedelta
-    from datetime import time as _t
+    from datetime import UTC, timedelta
+
+    from agente import rehacer
 
     if ahora is None:
         return False
-    m = re.search(r"(\d{1,2})\s*-\s*\d{1,2}\s*UTC", str(p.get("cadencia") or ""))
-    if not m:
+    job = rehacer.cual_job(str(p.get("unidad") or ""))
+    cfg = rehacer.rehacibles().get(job) if job else None
+    if not cfg or not cfg.get("schedules"):
         return False
-    utc = int(m.group(1))
-    if not 0 <= utc <= 23:
+    ahora_utc = ahora.astimezone(UTC)
+    esperada = rehacer.ultima_esperada(cfg, ahora_utc)
+    if esperada is None:
         return False
-    inicio = datetime.combine(ahora.date(), _t((utc - 3) % 24, 0),
-                              tzinfo=ahora.tzinfo)
-    if inicio > ahora:
-        return True
+    if esperada.date() < ahora_utc.date():
+        return True                       # hoy todavía no disparó
     try:
         gracia = timedelta(seconds=float(p.get("umbral_s") or 0))
     except (TypeError, ValueError):
         gracia = timedelta(0)
-    return ahora < inicio + gracia
+    return ahora_utc < esperada + gracia
+
+
+# ═══ motor_latido ══════════════════════════════════════════════════════════
+def _edad_s(ts, ahora) -> float | None:
+    if ts is None:
+        return None
+    try:
+        return (ahora - ts).total_seconds()
+    except TypeError:
+        return None
+
+
+def _iso_edad_s(iso: str | None, ahora) -> float | None:
+    from datetime import datetime
+    if not iso:
+        return None
+    try:
+        return (ahora - datetime.fromisoformat(str(iso))).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def motor_latido(u: dict) -> list[Hallazgo]:
+    """Cada proceso que systemd corre late solo, y acá se lee el latido.
+
+    Cuatro veredictos, y la diferencia es lo que decide qué hacer:
+
+      apagado   — systemd lo tiene inactive/failed dentro de su ventana.
+      sin_latido — systemd dice active y nunca latió: corre código anterior al
+                   latido (arrancó antes del deploy) o se colgó antes de latir.
+      colgado   — latía y dejó de latir; systemd lo sigue viendo active.
+      sin_feed / feed_mudo — vivo, pero el WS no está conectado, o lo está y
+                   no llega un mensaje hace rato en plena rueda.
+
+    **El universo sale de `deploy/systemd` + `deploy/crontab.txt`** (`agente/
+    unidades.py`): un motor nuevo se espera desde que existe su unit. Y no hay
+    botón a propósito: reiniciar en rueda le corta el feed a la mesa, y eso lo
+    decide la mesa; el `que_hacer` trae el comando exacto.
+    """
+    from agente import fuentes, unidades
+
+    decl = {k: v for k, v in unidades.declaradas().items() if v.get("proceso")}
+    if not decl:
+        raise SinDatos("no pude leer deploy/systemd: no sé qué procesos esperar")
+    filas = fuentes.latidos()
+    if filas is None:
+        raise SinDatos("no pude leer operaciones.latidos")
+    if not filas:
+        raise SinDatos("ningún proceso late todavía: el latido entra con el "
+                       "próximo arranque de los motores (cron 13:20 UTC)")
+
+    ahora = reloj.ahora_utc()
+    tol = float(u.get("tolerancia_s", 90))
+    gracia = float(u.get("gracia_arranque_s", 120))
+    mudo_s = float(u.get("feed_mudo_min", 10)) * 60
+    estados = unidades.activas(sorted(decl))
+    caliente = reloj.feed_caliente(ahora)
+
+    out = []
+    for unidad, d in sorted(decl.items()):
+        v = d.get("ventana")
+        if not unidades.en_ventana(v, ahora):
+            continue
+        desde = unidades.desde_inicio_s(v, ahora)
+        if desde is not None and desde < gracia:
+            continue
+        proceso = d["proceso"]
+        lat = filas.get(proceso)
+        sysd = (estados or {}).get(unidad)
+        sysd_txt = sysd or "no pude preguntarle a systemd"
+        base_ev = {"unidad": unidad, "proceso": proceso, "systemd": sysd,
+                   "ventana": v, "restart": d.get("restart")}
+        reiniciar = (f"`systemctl restart {unidad}.service` — en rueda corta el feed "
+                     "de la mesa, lo decide la mesa; fuera de rueda lo hace el cron.")
+
+        if sysd in ("inactive", "failed", "deactivating"):
+            out.append(Hallazgo(
+                sujeto=unidad, regla="apagado", severidad="alta", nombre=unidad,
+                problema=(f"systemd lo tiene «{sysd}» dentro de su ventana · "
+                          f"{reloj.hhmm(ahora)}"),
+                que_hacer=f"Arrancarlo: {reiniciar}",
+                evidencia=base_ev))
+            continue
+        if lat is None:
+            out.append(Hallazgo(
+                sujeto=unidad, regla="sin_latido", severidad="alta", nombre=unidad,
+                problema=(f"systemd dice «{sysd_txt}» y el proceso nunca latió · "
+                          f"{reloj.hhmm(ahora)}"),
+                detalle=("o corre código anterior al latido (arrancó antes del "
+                         "deploy) o se colgó antes de latir por primera vez"),
+                que_hacer=(f"Si es del deploy de hoy, se resuelve solo en el próximo "
+                           f"arranque. Si no, {reiniciar}"),
+                evidencia=base_ev))
+            continue
+        edad = _edad_s(lat.get("latido_at"), ahora)
+        ev = {**base_ev, "pid": lat.get("pid"), "host": lat.get("host"),
+              "arrancado_at": lat.get("arrancado_at"), "latido_at": lat.get("latido_at"),
+              "latido_hace_s": None if edad is None else round(edad)}
+        if edad is None or edad > tol:
+            out.append(Hallazgo(
+                sujeto=unidad, regla="colgado" if sysd == "active" else "muerto",
+                severidad="alta", nombre=unidad,
+                problema=(f"dejó de latir hace {_humano(edad or 0)} · systemd dice "
+                          f"«{sysd_txt}» · {reloj.hhmm(ahora)}"),
+                detalle=(f"último latido {lat.get('latido_at')} · pid {lat.get('pid')} "
+                         f"· tolera {_humano(tol)}"),
+                que_hacer=reiniciar,
+                evidencia=ev))
+            continue
+        data = lat.get("data") or {}
+        ws = data.get("ws")
+        if ws is None:
+            continue                      # no usa el WS: vivo alcanza
+        ev.update({k: data.get(k) for k in ("ws", "ws_pedidos", "ws_mensajes",
+                                            "ws_reconexiones", "ws_conectado_at",
+                                            "ws_ultimo_mensaje_at", "ws_error")})
+        if ws != "conectado":
+            out.append(Hallazgo(
+                sujeto=unidad, regla="sin_feed", severidad="alta", nombre=unidad,
+                problema=(f"vivo pero el WebSocket está «{ws}» · "
+                          f"{data.get('ws_reconexiones') or 0} reconexión/es · "
+                          f"{reloj.hhmm(ahora)}"),
+                detalle=str(data.get("ws_error") or ""),
+                que_hacer=("Si «reconectando» dura minutos, el broker no vuelve: "
+                           f"{reiniciar}"),
+                evidencia=ev))
+            continue
+        mudo = _iso_edad_s(data.get("ws_ultimo_mensaje_at"), ahora)
+        if caliente and (mudo is None or mudo > mudo_s):
+            out.append(Hallazgo(
+                sujeto=unidad, regla="feed_mudo", severidad="media", nombre=unidad,
+                problema=(f"conectado y sin recibir un mensaje hace "
+                          f"{_humano(mudo) if mudo is not None else 'nunca'} en plena "
+                          f"rueda · {reloj.hhmm(ahora)}"),
+                detalle=(f"{data.get('ws_pedidos') or 0} símbolos pedidos · "
+                         f"{data.get('ws_mensajes') or 0} mensajes desde el arranque"),
+                que_hacer=("Puede ser mercado quieto en lo que pide este motor. Si "
+                           "los otros motores reciben y este no, " + reiniciar),
+                evidencia=ev))
+    return out
 
 
 # ═══ tabla_quieta ══════════════════════════════════════════════════════════
@@ -563,31 +712,14 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
 _SUJETO_FOTO = "manager.pyrofex_instruments"
 
 
-def _cron_discovery(lineas: set[str]) -> tuple[int, int] | None:
-    """(hora, minuto) UTC del cron de `discovery_pyrofex`, leído del crontab del
-    repo. **Se lee, no se copia**: si el horario viviera también acá, el día que
-    alguien mueva el cron el detector juzgaría con el viejo (REGLA #9 B)."""
+def _cron_discovery(lineas: set[str]) -> str | None:
+    """La expresión cron (5 campos) de `discovery_pyrofex`, leída del crontab
+    del repo. **Se lee, no se copia**: si el horario viviera también acá, el
+    día que alguien mueva el cron el detector juzgaría con el viejo (REGLA #9 B).
+    La evalúa `salud.ultima_ejecucion_esperada`, el único evaluador cron."""
     for linea in lineas:
-        if "scripts.discovery_pyrofex" not in linea:
-            continue
-        partes = linea.split()
-        try:
-            return int(partes[1]), int(partes[0])
-        except (IndexError, ValueError):
-            return None
-    return None
-
-
-def _ultima_esperada(ahora, hora: int, minuto: int, gracia_min: int):
-    """El último día HÁBIL (L-V) cuya corrida ya debería haber terminado."""
-    from datetime import timedelta
-    limite = ahora - timedelta(minutes=gracia_min)
-    d = limite
-    for _ in range(8):
-        candidata = d.replace(hour=hora, minute=minuto, second=0, microsecond=0)
-        if d.weekday() < 5 and candidata <= limite:
-            return candidata
-        d = d - timedelta(days=1)
+        if "scripts.discovery_pyrofex" in linea:
+            return " ".join(linea.split()[:5])
     return None
 
 
@@ -600,17 +732,23 @@ def foto_primary(u: dict) -> list[Hallazgo]:
     la refresca un cron, y este detector es lo que hace que un cron que dejó de
     correr no vuelva a pasar 17 días sin que nadie se entere (§0.cy).
     """
+    from datetime import timedelta
+
     from agente import crontab, fuentes
+    from api.services import salud
 
     cron = _cron_discovery(crontab.del_repo())
     if cron is None:
         raise SinDatos("no encuentro el cron de `scripts.discovery_pyrofex` en "
                        "deploy/crontab.txt: no sé cuándo debería refrescarse")
-    hora, minuto = cron
     ahora = reloj.ahora_utc()
-    esperada = _ultima_esperada(ahora, hora, minuto, int(u.get("gracia_min", 60)))
+    # La última corrida que YA debería haber terminado: la esperada a
+    # (ahora − gracia), que descuenta el tiempo que tarda en sacar la foto.
+    esperada = salud.ultima_ejecucion_esperada(
+        cron, ahora - timedelta(minutes=int(u.get("gracia_min", 60))))
     if esperada is None:
         raise SinDatos("no pude calcular la última corrida esperada")
+    hora, minuto = esperada.hour, esperada.minute
 
     fecha = fuentes.primary_fecha()
     que_hacer = ("Correrlo ahora: `python -m scripts.discovery_pyrofex` (y mirar "

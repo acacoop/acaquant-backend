@@ -62,6 +62,7 @@ def test_el_hallazgo_es_ALTA_y_lleva_los_DOS_valores(monkeypatch):
     _con(monkeypatch, {"partidos": [{
         "id": "x", "que": "el símbolo", "a": "columna", "b": "blob",
         "arbitro": "la columna", "rompe": "la fila sale vacía teniendo precio",
+        "tiene_sql": True,
         "n": 2, "ejemplos": [{"sujeto": "AO29", "valor_a": "AO29D",
                               "valor_b": "AO29"}]}], "sin_mirar": []})
     hs = det.dato_partido({})
@@ -108,12 +109,16 @@ def test_si_no_puede_LEER_levanta_SIN_DATOS(monkeypatch):
         det.dato_partido({})
 
 
-def test_NO_se_automatiza_y_es_una_decision():
-    """Elegir la del árbitro y pisar la otra parece obvio y no lo es: puede que
-    la equivocada sea la del árbitro, y pisar borra la evidencia de que hubo una
-    divergencia."""
+def test_se_arbitra_solo_lo_que_declara_su_SQL_y_lo_aprieta_una_persona():
+    """Hasta el 2026-09-02 esto congelaba «no se automatiza». Lo que cambió
+    (§0.dc, decisión del user): el duplicado que declara `arreglo_sql` tiene
+    botón —lo aprieta una persona, con el preview fila por fila y el libro
+    anotando antes → después, así la evidencia de la divergencia no se
+    pierde—; el que declara `arreglo_manual` sigue sin botón, como aviso."""
     from agente import catalogo
-    assert not catalogo.HABILIDADES["dato_partido"].arreglos
+    h = catalogo.HABILIDADES["dato_partido"]
+    assert h.arreglos == {"copias_que_no_coinciden": "arbitrar_copia"}
+    assert h.arreglo_de("copias_a_mano") == "" and h.arreglo_de("no_pude_chequear") == ""
 
 
 def test_el_caso_AO29_esta_cubierto():

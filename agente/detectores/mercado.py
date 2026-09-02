@@ -55,8 +55,6 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
     mios = {_tk(d.get("ticker_corto")) for d in docs} - {""}
     cartera = fuentes.en_cartera() or set()
     tickers_primary = fuentes.tickers_en_primary()
-    foto_de = fuentes.primary_fecha()
-    foto_txt = foto_de.strftime("%d/%m %H:%M UTC") if foto_de else "sin fecha"
 
     # ⚠️⚠️ **LO QUE ESTAMOS SACANDO NO ES UN FALTANTE.** `jobs/cleanup_curvas`
     # borra del master todo lo que vence a menos de 2 días hábiles, y sin esto
@@ -94,38 +92,21 @@ def soberanos_faltantes(u: dict) -> list[Hallazgo]:
             por_vencer += 1
             continue
         lo_tenemos = tk in cartera
-        # ⚠️ **NO COTIZA EN PRIMARY → NO ES UN ALTA, PERO SE DICE.** Si no se le
-        # puede poner precio, darlo de alta no sirve: no entra a ENCONTRÓ.
-        # La EXCEPCIÓN es la cartera: ahí el problema es más grave, no menor.
+        # ⚠️ **NO COTIZA EN PRIMARY → NO EXISTE PARA NOSOTROS.** Primary ES el
+        # mercado: si no lo lista, no hay símbolo, no hay precio y no hay nada
+        # que dar de alta. Se descarta y se cuenta en el log, nada más.
         #
-        # ⚠️⚠️ **Y NO SE DESCARTA EN SILENCIO (§0.cy).** La primera versión hacía
-        # `continue` con un log.info, y «Primary» acá es una FOTO
-        # (`manager.pyrofex_instruments`) que el 2026-09-01 tenía 17 días: todo
-        # bono licitado después caía en este `continue`, y la habilidad decía
-        # «miré y guardé lo que vi» con 4 corridas y 1 hallazgo. El user, con
-        # razón: *«no detectó otros bonos nuevos que se licitaron, y encima dice
-        # que chequeó»*. Un descarte que no deja rastro es indistinguible de un
-        # detector que dejó de mirar — así que va como AVISO (sin arreglo: vive
-        # en AHORA, no en ENCONTRÓ), con la fecha de la foto en la mano.
+        # Historia (§0.cy): esto era un `continue` mudo, la foto de Primary tenía
+        # 17 días y todo lo licitado después caía acá. Por un día se convirtió en
+        # un AVISO por bono, y el user lo dio vuelta: *«si Primary no lo lista es
+        # porque no está, eso mata todo; no hay que insistir»*. Lo que hacía
+        # falta no era avisar por cada bono sino que la foto fuera fresca (cron
+        # 12:15 UTC) y que alguien vigile que lo sea (`foto_primary`). Con eso,
+        # «no está en Primary» vuelve a ser una afirmación confiable.
+        # La EXCEPCIÓN sigue siendo la cartera: ahí el problema es más grave.
         if (not lo_tenemos and tickers_primary is not None
                 and tk not in tickers_primary):
             sin_primary.append(tk)
-            out.append(Hallazgo(
-                sujeto=tk, regla="no_cotiza_en_primary", severidad="baja",
-                problema=(f"1816 lo publica en «{curva}» y Primary no lo lista "
-                          f"(foto del catálogo: {foto_txt}): sin símbolo no hay "
-                          "precio, así que no se pide el alta."),
-                que_hacer=("Nada que cargar por ahora: cuando cotice, el agente lo "
-                           "va a pedir como alta. Si OPERAR ya lo encuentra, la "
-                           "foto de Primary está vieja — corre sola a las 12:15 "
-                           "UTC L-V, o a mano: `python -m scripts.discovery_pyrofex`."),
-                evidencia={
-                    "curva_1816": curva, "ticker_1816": ticker,
-                    "denominacion": inst.get("denominacion"),
-                    "vencimiento_1816": inst.get("fechaVencimiento"),
-                    "simbolo_buscado": f"MERV - XMEV - {tk} - 24hs",
-                    "foto_primary_de": foto_de.isoformat() if foto_de else None,
-                    "fuente_universo": univ["fuente"]}))
             continue
         out.append(Hallazgo(
             sujeto=tk, regla="no_esta_en_curvas",
@@ -280,6 +261,20 @@ def bono_sin_tasa(u: dict) -> list[Hallazgo]:
 
 
 # ═══ bono_sin_precio ═══════════════════════════════════════════════════════
+def _rechazo(simbolo: str) -> str:
+    """Qué dijo el WS de `motor_rofex` sobre este símbolo, según su latido:
+    '' si nada. La lista completa vive en `operaciones.latidos.data` (§0.da)."""
+    lat = (fuentes.latidos() or {}).get("engines.valores") or {}
+    data = lat.get("data") or {}
+    if simbolo in (data.get("ws_rechazados_primary") or []):
+        return "Primary no lo lista (no se suscribió)"
+    if simbolo in (data.get("ws_rechazados_rofex") or []):
+        return "ROFEX lo rechazó al suscribir («Product don't exist»)"
+    if simbolo in (data.get("ws_cuarentena") or []):
+        return "está en cuarentena por un rechazo reciente de ROFEX"
+    return ""
+
+
 def bono_sin_precio(u: dict) -> list[Hallazgo]:
     """Bonos del master a los que el motor NO les está dando precio, en rueda.
 
@@ -316,6 +311,21 @@ def bono_sin_precio(u: dict) -> list[Hallazgo]:
 
         d = snap.get(simbolo)
         if d is None:
+            # ⚠️ **PRIMERO SE MIRA SI EL MOTOR LO PIDIÓ Y LO RECHAZARON (§0.da).**
+            # El WS deja en el latido la lista completa de lo que Primary no
+            # lista y de lo que ROFEX rechazó. Ahí «pedir la pata» no arregla
+            # nada: es un aviso con el motivo, no un botón.
+            motivo = _rechazo(simbolo)
+            if motivo:
+                out.append(Hallazgo(
+                    sujeto=tk, regla="simbolo_rechazado", severidad="alta",
+                    problema=f"el motor pidió «{simbolo}» y {motivo} · "
+                             f"{reloj.hhmm(ahora)}",
+                    que_hacer="Sin símbolo válido no hay precio posible: revisar la "
+                              "pata en `mercado.especies` (otro plazo o sufijo) y "
+                              "corregir el símbolo del master.",
+                    evidencia={**ev, "rechazo": motivo}))
+                continue
             out.append(Hallazgo(
                 sujeto=tk, regla="no_suscripto", severidad="alta",
                 problema=f"el motor NO está pidiendo «{simbolo}»: está en el "

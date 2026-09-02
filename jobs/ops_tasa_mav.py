@@ -193,6 +193,7 @@ def main() -> None:
         run.set_stat("escritos", escritos)
         run.set_stat("sin_texto", res["sin_texto"])
         run.set_stat("formato_desconocido", res["formato_desconocido"])
+        run.set_stat("formato_desconocido_lista", list(res["muestras"]))
         run.set_stat("ambiguos", res["ambiguos"])
         run.set_stat("todo", args.todo)
         run.set_stat("dry_run", args.dry_run)

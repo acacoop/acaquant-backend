@@ -164,6 +164,11 @@ def main() -> int:
         # Se reporta y NO se escribe: la moneda decide la valuación.
         div = divergencias_moneda()
         jr.set_stat("moneda_divergente", len(div))
+        # La LISTA viaja con la corrida: el agente la convierte en aviso
+        # (`job_reporto`, §0.dd). Un contador solo dice que hay algo.
+        jr.set_stat("moneda_divergente_lista",
+                    [f"{d['ticker']}: nuestro={d['moneda_eje']} 1816={d['moneda_denom']}"
+                     for d in div[:200]])
         if div:
             jr.log(f"⚠ {len(div)} bono(s) donde 1816 dice OTRA moneda de "
                    f"denominación (NO se corrige — toca la valuación):")

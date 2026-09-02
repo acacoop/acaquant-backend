@@ -33,6 +33,7 @@ from api.routers import (
     agente,
     analitica,
     ap5,
+    avisos,
     back_office,
     carteras,
     cotizaciones,
@@ -275,6 +276,7 @@ app.include_router(me.router)                                      # /api/me —
 # trader no tiene el módulo `ia`, así que bajo /api/ia el aviso quedaba guardado
 # para nadie. Devuelve SOLO los del email que pregunta — no hay parámetro para
 # pedir los de otro. Ver api/routers/avisos.py.
+app.include_router(avisos.router,            dependencies=_PUBLIC)
 app.include_router(ingest.router)                                  # /api/ingest — auth propia (X-Ingest-Token), no _PUBLIC
 app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)

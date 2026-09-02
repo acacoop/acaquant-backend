@@ -365,8 +365,22 @@ class RehacerJob(Arreglo):
     def preview(self, sujeto: str, ev: dict) -> dict:
         from agente import rehacer
         job, fecha = self._job_fecha(sujeto, ev)
-        cfg = rehacer.REHACIBLES.get(job) or {}
+        cfg = rehacer.rehacibles().get(job) or {}
         hay = rehacer.hay_dato(job, fecha)
+        prueba = cfg.get("prueba", rehacer.PRUEBA_DIA)
+        if prueba == rehacer.PRUEBA_TABLA:
+            verif = (f"el contrato de SALUD sobre {cfg.get('tabla')}: MAX("
+                     f"{cfg.get('columna')}) con no más de "
+                     f"{(cfg.get('contrato') or {}).get('max_dias_habiles', '?')} "
+                     "días hábiles de atraso")
+        elif prueba == rehacer.PRUEBA_CORRIDA:
+            verif = (f"una corrida en manager.job_runs (tipo "
+                     f"{', '.join(cfg.get('tipos') or ['?'])}) empezada después de "
+                     f"{fecha} y que no haya fallado — es una prueba sobre la "
+                     "CORRIDA, no sobre el dato: este job no tiene contrato de tabla")
+        else:
+            verif = (f'SELECT 1 FROM {cfg.get("tabla", "?")} '
+                     f'WHERE {cfg.get("columna", "?")}::date = \'{fecha}\'')
         return {"ok": True, "que_escribe": f"correr `{job}` para {fecha}",
                 "donde": self.donde, "ya_hay_dato": hay,
                 # ⚠️ **EL COMANDO EXACTO, no una descripción de él.** «Ver qué
@@ -379,9 +393,7 @@ class RehacerJob(Arreglo):
                                       f'{cfg.get("comando", "")}',
                            "estado": "ok"},
                           {"titulo": "y después se verifica",
-                           "detalle": (f'SELECT 1 FROM {cfg.get("tabla", "?")} '
-                                       f'WHERE {cfg.get("columna", "?")}::date '
-                                       f"= '{fecha}'"),
+                           "detalle": verif,
                            "estado": "ok"}],
                 "porque": ("el job no dejó el dato de ese día. Se relanza por el "
                            "mismo lanzador del cron y se verifica mirando la "
@@ -421,6 +433,92 @@ class RehacerJob(Arreglo):
             return Resultado(False, f"corrió y la tabla SIGUE sin {fecha}")
         return Resultado(True, f"la tabla ya tiene {fecha}", campo=self.campo,
                          antes="sin dato", despues=fecha, donde=self.donde)
+
+
+# ── ARBITRAR DOS COPIAS DEL MISMO DATO ─────────────────────────────────────
+class ArbitrarCopia(Arreglo):
+    """Escribe la copia que PIERDE con el valor de la que MANDA, fila por fila,
+    para un duplicado de `core/duplicados.DUPLICADOS` que declare `arreglo_sql`.
+
+    Es UNA clase para todos los duplicados, manejada por el registro: el SQL
+    que corre es el declarado al lado del chequeo, así que lo que se arregla es
+    exactamente lo que el detector midió (§0.dc). `preview` recalcula la lista
+    de filas que difieren cuando se mira y `aplicar` la recalcula de nuevo
+    antes de escribir: lo que se aplica es lo cierto AHORA.
+    """
+
+    id = "arbitrar_copia"
+    titulo = "Escribir la copia que pierde con el valor de la que manda"
+    donde = "core/duplicados (la tabla del duplicado)"
+    campo = "copia"
+
+    @staticmethod
+    def _tabla(d) -> str:
+        import re
+        m = re.search(r"UPDATE\s+([\w.]+)", d.arreglo_sql or "", re.I)
+        return m.group(1) if m else "?"
+
+    def preview(self, sujeto: str, ev: dict) -> dict:
+        from core import duplicados
+        d = duplicados.declarado(sujeto)
+        if d is None:
+            return {"ok": False, "error": f"«{sujeto}» no es un duplicado declarado"}
+        if not d.arreglo_sql.strip():
+            return {"ok": True, "que_escribe": "nada: este duplicado no se arregla con "
+                                              "un UPDATE",
+                    "donde": "—", "porque": d.arreglo_manual or d.arbitro,
+                    "puede_aplicar": False, "pasos": []}
+        r = duplicados.una(sujeto)
+        if not r.get("ok"):
+            return {"ok": False, "error": r.get("error") or "no pude leer el duplicado"}
+        filas = r.get("filas") or []
+        gana_a = d.gana != "b"
+        tabla = self._tabla(d)
+        return {
+            "ok": True,
+            "que_escribe": (f"{len(filas)} fila/s de {tabla}: "
+                            f"{d.b if gana_a else d.a} ← {d.a if gana_a else d.b}"),
+            "donde": tabla,
+            "porque": f"manda {d.arbitro}. {d.rompe}",
+            "puede_aplicar": bool(filas),
+            "pasos": [{"titulo": str(f[0]),
+                       "detalle": (f"«{f[2] if gana_a else f[1]}» → "
+                                   f"«{f[1] if gana_a else f[2]}»"),
+                       "estado": "ok"} for f in filas[:50]]
+                     + ([{"titulo": f"… y {len(filas) - 50} más", "detalle": "",
+                          "estado": "info"}] if len(filas) > 50 else []),
+        }
+
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
+        from core import duplicados
+        d = duplicados.declarado(sujeto)
+        if d is None:
+            return Resultado(False, f"«{sujeto}» no es un duplicado declarado")
+        if not d.arreglo_sql.strip():
+            return Resultado(False, f"no se arregla con un UPDATE: {d.arreglo_manual}")
+        # Se relee ANTES de escribir: es la lista de lo que va a cambiar, y es la
+        # que se anota en el libro fila por fila.
+        antes = duplicados.una(sujeto)
+        if not antes.get("ok"):
+            return Resultado(False, f"no pude leer el duplicado: {antes.get('error')}")
+        filas = antes.get("filas") or []
+        if not filas:
+            return Resultado(True, "ya coinciden: no había nada que arbitrar",
+                             campo=self.campo, donde=self._tabla(d))
+        r = duplicados.arbitrar(sujeto)
+        if not r.get("ok"):
+            return Resultado(False, str(r.get("error") or "no se pudo arbitrar"))
+        gana_a = d.gana != "b"
+        tabla = self._tabla(d)
+        for f in filas:
+            libro.registrar(accion=self.id, objetivo=str(f[0]), destino=tabla,
+                            campo=d.que[:40], antes=str(f[2] if gana_a else f[1]),
+                            despues=str(f[1] if gana_a else f[2]), por=por, ok=True)
+        return Resultado(True, f"{r.get('filas', len(filas))} fila/s de {tabla} "
+                               f"escritas con el valor de {'A' if gana_a else 'B'}",
+                         campo=self.campo, antes=f"{len(filas)} distintas",
+                         despues="coinciden", donde=tabla)
 
 
 # ── COMPLETAR LA FICHA DE UN TÍTULO ────────────────────────────────────────
@@ -564,7 +662,7 @@ class CompletarFicha(Arreglo):
 
 ARREGLOS: dict[str, Arreglo] = {
     a.id: a for a in (PedirPata(), PataDolar(), ApuntarPata(), AltaFlujos(),
-                      AltaBono(), RehacerJob(), CompletarFicha())
+                      AltaBono(), RehacerJob(), CompletarFicha(), ArbitrarCopia())
 }
 
 

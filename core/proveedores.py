@@ -75,6 +75,11 @@ PROVEEDORES: dict[str, Proveedor] = {
     "bcra": Proveedor(
         "BCRA", "api.bcra.gob.ar",
         "el CER del día. Los bonos CER quedan con el de ayer"),
+    # Postrade (A3/ACyRSA) se usa para LEER: posiciones, garantías y márgenes
+    # de AP5. Sumado el 2026-09-02: era la única API externa sin vigilar.
+    "postrade": Proveedor(
+        "POSTRADE", "postrade",
+        "posiciones, garantías y márgenes de AP5. Lo de ayer queda"),
 }
 
 # No se escribe más seguido que esto por proveedor y por proceso. Un daemon

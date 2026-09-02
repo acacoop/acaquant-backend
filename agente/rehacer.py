@@ -124,6 +124,110 @@ REHACIBLES: dict[str, dict] = {
 }
 
 
+# ── LOS DEMÁS: DERIVADOS DEL CRONTAB (§0.db) ────────────────────────────────
+#
+# `REHACIBLES` (arriba) tuvo UNA entrada durante diez días, y por eso el botón
+# de rehacer aparecía en un solo job: el resto caía en «todavía no tiene botón:
+# hay que declararlo». Nadie declara cuarenta jobs a mano.
+#
+# Lo que hace relanzable a un job ya está escrito en otro lado:
+#   · el COMANDO, el LABEL y el TIMEOUT → `deploy/crontab.txt` (`core.crontab`),
+#     que es exactamente lo que `run_job.sh` recibe cada día;
+#   · la PRUEBA de que el dato está → los contratos de frescura de
+#     `api/services/salud.CONTRATOS`, unidos al job por `core.escribe`, que sabe
+#     qué módulo escribe cada tabla;
+#   · para los que no tienen contrato, la prueba es la CORRIDA: que después de
+#     la última hora de cron haya una fila `ok` en `manager.job_runs`. Es una
+#     prueba sobre el proceso y no sobre el resultado, y se dice así.
+# Lo declarado a mano (`REHACIBLES`) gana sobre lo derivado: `portafolio_diario`
+# necesita saber que escribe el hábil ANTERIOR, y eso no se deduce.
+PRUEBA_DIA, PRUEBA_TABLA, PRUEBA_CORRIDA = "dia", "tabla", "corrida"
+
+_cache_rehacibles: dict[str, dict] | None = None
+
+
+def _contrato_de(modulos: list[str]) -> dict | None:
+    """El contrato de frescura de salud cuya tabla la escribe uno de estos
+    módulos. Las series (con `filtro`) no identifican un job: se saltean."""
+    from api.services import salud
+    from core import escribe
+    for c in salud.CONTRATOS:
+        if c.get("filtro"):
+            continue
+        if escribe.que_relanzar(c["tabla"]) in modulos:
+            return c
+    return None
+
+
+def _derivados(crons: list[dict]) -> dict[str, dict]:
+    from api.services.jobs_catalogo import _tipo_de
+    out: dict[str, dict] = {}
+    for c in crons:
+        mods = [m for m in c.get("modules") or [] if m.startswith("jobs.")]
+        if not mods or c["label"] in REHACIBLES:
+            continue
+        if c["label"] in out:
+            # El mismo job con varias líneas de cron (`sync_comitentes` corre
+            # a las 14, 17 y 21): son TODOS sus horarios, no el primero.
+            out[c["label"]]["schedules"].append(c["schedule"])
+            continue
+        contrato = _contrato_de(mods)
+        tipos = list(dict.fromkeys(_tipo_de(m) for m in mods))
+        out[c["label"]] = {
+            "titulo": c["label"], "label": c["label"], "timeout": c["timeout"],
+            "comando": c["comando"], "schedule": c["schedule"],
+            "schedules": [c["schedule"]], "modulos": mods, "tipos": tipos,
+            "prueba": PRUEBA_TABLA if contrato else PRUEBA_CORRIDA,
+            "tabla": contrato["tabla"] if contrato else "manager.job_runs",
+            "columna": contrato["columna"] if contrato else "started_at",
+            "contrato": contrato,
+            "conocido_como": tuple(mods + [f"job:{c['label']}"] + tipos),
+            "rompe": (contrato or {}).get("detalle", ""),
+            "dura_aprox_s": 0,
+        }
+    return out
+
+
+def ultima_esperada(cfg: dict, ahora: datetime) -> datetime | None:
+    """La última hora de cron que ya pasó, mirando TODOS los horarios del job."""
+    from api.services import salud
+    ts = [salud.ultima_ejecucion_esperada(sch, ahora) for sch in cfg.get("schedules") or []]
+    ts = [t for t in ts if t is not None]
+    return max(ts) if ts else None
+
+
+def proxima_esperada(cfg: dict, ahora: datetime) -> datetime | None:
+    from api.services import salud
+    ts = [salud.proxima_ejecucion(sch, ahora) for sch in cfg.get("schedules") or []]
+    ts = [t for t in ts if t is not None]
+    return min(ts) if ts else None
+
+
+def rehacibles() -> dict[str, dict]:
+    """Todos los jobs relanzables: los declarados (`REHACIBLES`) más los
+    derivados del crontab. Se arma una vez por proceso: el crontab viaja con el
+    deploy y no cambia sin reiniciar."""
+    global _cache_rehacibles
+    if _cache_rehacibles is not None:
+        return _cache_rehacibles
+    try:
+        from core.crontab import parse_crontab
+        crons = parse_crontab()
+    except Exception as e:
+        logger.warning("agente/rehacer: no pude leer el crontab (%s)", e)
+        crons = []
+    por_label = {c["label"]: c for c in crons}
+    out: dict[str, dict] = {}
+    for k, cfg in REHACIBLES.items():
+        c = por_label.get(cfg.get("label") or k) or {}
+        # El horario sale del crontab, no de una copia: si difieren, manda el cron.
+        out[k] = {**cfg, "prueba": PRUEBA_DIA, "schedule": c.get("schedule", ""),
+                  "schedules": [c["schedule"]] if c else []}
+    out.update(_derivados(crons))
+    _cache_rehacibles = out
+    return out
+
+
 # ⚠️⚠️ **EL ÁRBITRO DE NOMBRES — REGLA #9(B) adentro del agente.**
 #
 # `portafolio_diario` se llama de CUATRO formas distintas según quién lo mire:
@@ -149,10 +253,10 @@ def cual_job(nombre: str) -> str:
     era ninguna de esas dos transformaciones.
     """
     if not _INDICE:
-        for k, cfg in REHACIBLES.items():
+        for k, cfg in rehacibles().items():
             _INDICE[k] = k
             for alias in cfg.get("conocido_como") or ():
-                _INDICE[alias] = k
+                _INDICE.setdefault(alias, k)
     n = (nombre or "").strip()
     if not n:
         return ""
@@ -176,9 +280,15 @@ def proximo_intento(job: str, ahora: datetime | None = None) -> str:
     """
     from core.calendario import es_habil
 
-    cfg = REHACIBLES.get(job)
-    if not cfg or "corre_utc" not in cfg:
+    cfg = rehacibles().get(job)
+    if not cfg:
         return ""
+    if "corre_utc" not in cfg:
+        # Derivado: la próxima la contesta el evaluador cron de salud (el único).
+        from datetime import UTC
+        t = proxima_esperada(cfg, datetime.now(UTC))
+        return ("no reintenta solo · próxima corrida programada: "
+                + (f"{t:%Y-%m-%d %H:%M} UTC" if t else "no está en el crontab"))
     ahora = ahora or datetime.now()
     h = int(cfg["corre_utc"])
     d = ahora.date()
@@ -210,7 +320,7 @@ def estado_del_dia(nombre: str) -> dict | None:
     job = cual_job(nombre)
     if not job:
         return None
-    cfg = REHACIBLES[job]
+    cfg = rehacibles()[job]
     fecha = fecha_objetivo(job)
     if not fecha:
         return None
@@ -218,6 +328,7 @@ def estado_del_dia(nombre: str) -> dict | None:
     estado = "no_pude" if hay is None else ("esta" if hay else "falta")
     return {"job": job, "fecha": fecha, "estado": estado,
             "tabla": cfg["tabla"], "rompe": cfg.get("rompe", ""),
+            "prueba": cfg.get("prueba", PRUEBA_DIA),
             "proximo": proximo_intento(job)}
 
 
@@ -248,8 +359,20 @@ def fecha_objetivo(job: str, ahora: datetime | None = None) -> str:
     """
     from core.calendario import es_habil
 
-    cfg = REHACIBLES.get(job)
-    if not cfg or cfg.get("dia") != "habil_anterior":
+    cfg = rehacibles().get(job)
+    if not cfg:
+        return ""
+    if cfg.get("prueba") == PRUEBA_TABLA:
+        # La prueba es «la tabla está al día según su contrato»: el día que se
+        # exige es hoy, y el contrato dice cuántos hábiles de atraso tolera.
+        from datetime import UTC
+        return (ahora or datetime.now(UTC)).date().isoformat()
+    if cfg.get("prueba") == PRUEBA_CORRIDA:
+        # La prueba es la CORRIDA: la última hora de cron que ya pasó.
+        from datetime import UTC
+        t = ultima_esperada(cfg, ahora or datetime.now(UTC))
+        return t.isoformat(timespec="minutes") if t else ""
+    if cfg.get("dia") != "habil_anterior":
         return ""
     ahora = ahora or datetime.now()
     d = ahora.date()
@@ -271,9 +394,13 @@ def hay_dato(job: str, fecha: str) -> bool | None:
     `None` no es `False`: relanzar porque no pudimos consultar sería ejecutar a
     ciegas, que es justo lo que este módulo existe para no hacer.
     """
-    cfg = REHACIBLES.get(job)
+    cfg = rehacibles().get(job)
     if not cfg:
         return None
+    if cfg.get("prueba") == PRUEBA_TABLA:
+        return _al_dia_por_contrato(cfg)
+    if cfg.get("prueba") == PRUEBA_CORRIDA:
+        return _corrio_desde(cfg, fecha)
     from core.postgres import get_pool
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -289,9 +416,41 @@ def hay_dato(job: str, fecha: str) -> bool | None:
         return None
 
 
+def _al_dia_por_contrato(cfg: dict) -> bool | None:
+    """La prueba de los jobs con contrato: **el mismo chequeo que corre SALUD**
+    (`_chequeo_dato`), no una segunda query parecida. OK → está; ERROR → falta;
+    WARN (no pudo consultar) → no sé."""
+    from api.services import salud
+    try:
+        r = salud._chequeo_dato(cfg["contrato"], salud._ahora())
+    except Exception as e:
+        logger.warning("agente/rehacer: contrato de %s falló (%s)", cfg["label"], e)
+        return None
+    return {salud.OK: True, salud.ERROR: False}.get(r.get("estado"))
+
+
+def _corrio_desde(cfg: dict, desde_iso: str) -> bool | None:
+    """La prueba de los jobs sin contrato: ¿hay una corrida que NO falló,
+    empezada después de la última hora de cron? `None` si no se pudo mirar."""
+    from api.services.manager_infra_sql import jobrun_ultimo_sql
+    try:
+        desde = datetime.fromisoformat(desde_iso)
+    except (TypeError, ValueError):
+        return None
+    try:
+        for tipo in cfg.get("tipos") or []:
+            ft, status = jobrun_ultimo_sql(tipo)
+            if ft is not None and ft >= desde and status != "error":
+                return True
+        return False
+    except Exception as e:
+        logger.warning("agente/rehacer: no pude leer job_runs (%s)", e)
+        return None
+
+
 def rehacer(job: str, fecha: str, *, por: str = "") -> dict:
     """Relanza el job **solo si la fecha falta de verdad**. Nunca levanta."""
-    cfg = REHACIBLES.get(job)
+    cfg = rehacibles().get(job)
     if not cfg:
         return {"ok": False, "error": f"«{job}» no es un job que se pueda rehacer"}
 

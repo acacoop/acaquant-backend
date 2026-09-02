@@ -860,6 +860,10 @@ def _salir_limpio(signum, _frame):
 
 
 def main() -> int:
+    # Late en operaciones.latidos como cualquier motor (core/latido.py, §0.da):
+    # es un daemon de systemd y el agente lo espera por su unit.
+    from core import latido
+    latido.arrancar()
     import signal
 
     from core.job_runs import JobRunLogger

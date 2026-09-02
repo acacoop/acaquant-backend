@@ -112,6 +112,17 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # puede quedar una fila con un botón que siempre falla.
         arreglos={"job_sin_dato": "rehacer_job"}),
 
+    # Los PROCESOS, por su latido (core/latido.py, §0.da). El universo sale de
+    # deploy/systemd + crontab: un motor nuevo se espera solo. Sin arreglo a
+    # propósito: reiniciar en rueda lo decide la mesa; el que_hacer trae el
+    # comando. `motor_caido` queda para los JOBS, que se juzgan por resultado.
+    Habilidad(
+        nombre="motor_latido", tipo="detector", dominio="SISTEMA",
+        que_mira="cada proceso de systemd late solo: apagado, colgado, sin feed o mudo",
+        cada_segundos=2 * _M, ventana="siempre",
+        correr=sistema.motor_latido,
+        umbrales={"tolerancia_s": 90, "gracia_arranque_s": 120, "feed_mudo_min": 10}),
+
     Habilidad(
         nombre="tabla_quieta", tipo="detector", dominio="SISTEMA",
         que_mira="tablas que dejaron de escribir — la cadencia se MIDE, no se declara",
@@ -186,11 +197,24 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "fci_sin_ticker": "completar_ficha"}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────
+    # Lo que un job reporta sin escribir, declarado en `agente/reportes.py`
+    # (§0.dd): una fila por stat. Sin arreglo: cada aviso dice qué hacer, y
+    # lo que el job no corrige es porque no debe (la moneda, un conflicto).
+    Habilidad(
+        nombre="job_reporto", tipo="detector", dominio="DATOS",
+        que_mira="lo que los jobs encontraron y no corrigieron: cada contador, con su lista",
+        cada_segundos=1 * _H, ventana="siempre",
+        correr=datos.job_reporto),
+
     Habilidad(
         nombre="dato_partido", tipo="detector", dominio="DATOS",
         que_mira="dos copias del mismo dato que dejaron de decir lo mismo",
         cada_segundos=_H, ventana="siempre",
-        correr=datos.dato_partido),
+        correr=datos.dato_partido,
+        # Solo el duplicado que declara `arreglo_sql` tiene botón (§0.dc); el
+        # que declara `arreglo_manual` sale como `copias_a_mano`, un aviso con
+        # la instrucción, y `no_pude_chequear` es un aviso sobre el chequeo.
+        arreglos={"copias_que_no_coinciden": "arbitrar_copia"}),
 
     Habilidad(
         nombre="permiso_flojo", tipo="detector", dominio="SEGURIDAD",

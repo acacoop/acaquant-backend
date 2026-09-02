@@ -53,6 +53,7 @@
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/back-office` | 64 | 37 | `back-office` · 32 rutas con gate extra | `back-office` |  |
+| `/api/avisos` | 2 | 1 | — | — | ⚠️ |
 | `/api/back-office/interbanking` | 26 | 17 | `back-office` · 22 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |

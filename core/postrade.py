@@ -369,7 +369,18 @@ def _request(verbo: str, path: str, *, params=None, json_body=None) -> Any:
             if intento + 1 < _REINTENTOS:
                 time.sleep(3 * (intento + 1))
                 continue
+            # Rastro para el agente (`proveedor_caido`): la red no llegó.
+            from core import proveedores
+            proveedores.anotar("postrade", ok=False, donde=f"{verbo} {path}"[:120],
+                               error=ultimo[:200])
             raise PostradeError(f"red en {path}: {ultimo}") from e
+
+        # El mismo criterio de «caído» que Aunesa: solo 5xx (`es_caida`). Un
+        # 401/403 es nuestro (credencial o permiso), no del proveedor.
+        from core import proveedores
+        proveedores.anotar("postrade", ok=not proveedores.es_caida(r.status_code),
+                           donde=f"{verbo} {path}"[:120],
+                           error="" if r.status_code < 500 else f"HTTP {r.status_code}")
 
         if r.status_code in (401, 403) and not reintentado_auth:
             logger.warning("Postrade %s en %s; reintento con token nuevo", r.status_code, path)

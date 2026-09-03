@@ -91,11 +91,18 @@ REGLAS:
 
 REDACCION = """Con TODO lo que averiguaste, completá el veredicto.
 
-- `que_paso` son HECHOS con fecha y hora, sin interpretación.
-- `que_haria` es una acción concreta, no «revisar». Si además de lo que te
-  preguntaron quedó algo pendiente, decilo igual: para eso te contrataron.
-- `lo_que_no_se` NUNCA va vacío. Siempre hay algo que no miraste.
-- `de_donde` son las tablas y los archivos con su línea. Sin fuente no vale."""
+⚠️ **LOS CAMPOS QUE SON LISTAS VAN COMO LISTAS DE FRASES CORTAS, DE UNA LÍNEA
+CADA UNA.** No metas un párrafo entero como un solo elemento: el que lo lee ve
+viñetas, y una viñeta de ochenta palabras no se lee. Un hecho, una idea o una
+acción por elemento.
+
+- `titulo`: la conclusión en UNA frase corta, que se entienda sola.
+- `que_paso`: la cronología, un hecho por elemento, cada uno con su fecha y hora.
+- `por_que`: la causa, una idea por elemento.
+- `que_haria`: una acción concreta por elemento, en imperativo. Nada de
+  «revisar». Si quedó algo pendiente que no te preguntaron, va igual.
+- `lo_que_no_se`: NUNCA vacío. Una cosa no verificada por elemento.
+- `de_donde`: las tablas y los archivos con su línea. Sin fuente no vale."""
 
 
 class Estado(TypedDict):

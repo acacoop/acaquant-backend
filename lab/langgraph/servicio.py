@@ -55,7 +55,9 @@ def pasos_de(nodo: str, salida: dict | None) -> list[dict]:
     if salida.get("guardado"):
         return fuera
     if salida.get("veredicto") is not None:
-        return [{"clase": "veredicto", "que": "", "detalle": ""}]
+        # No se anota un paso: el veredicto viaja en la fila del pedido, y un
+        # paso vacío se dibuja como una viñeta sola que no dice nada.
+        return fuera
     for m in salida.get("messages", []):
         if getattr(m, "tool_calls", None):
             for tc in m.tool_calls:

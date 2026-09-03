@@ -98,8 +98,16 @@ def buscar_en_repo(patron: str, carpeta: str = "") -> str:
             # (`deploy/crontab.txt`) es donde se ve QUÉ otro proceso corrió
             # cerca del momento en que algo se rompió — y muchas veces la causa
             # es otro proceso nuestro, no un bug.
+            # ⚠️ Se EXCLUYE el propio laboratorio. Sus comentarios explican
+            # bugs del agente citando los mismos nombres que se buscan
+            # (`alta_bono`, `sale_del_master`), así que aparecían mezclados con
+            # el código real: el investigador se leía a sí mismo hablando de lo
+            # que estaba investigando.
             ["grep", "-rn", "--include=*.py", "--include=*.sql",
-             "--include=*.txt", "--include=*.md", "-E", patron, str(destino)],
+             "--include=*.txt", "--include=*.md",
+             "--exclude-dir=lab", "--exclude-dir=venv", "--exclude-dir=venv-lab",
+             "--exclude-dir=.git", "--exclude-dir=node_modules",
+             "-E", patron, str(destino)],
             capture_output=True, text=True, timeout=20)
     except subprocess.TimeoutExpired:
         return "la búsqueda tardó demasiado — probá un patrón más específico"

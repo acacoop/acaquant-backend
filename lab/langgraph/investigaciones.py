@@ -101,6 +101,36 @@ INVESTIGACIONES: dict[str, Investigacion] = {i.nombre: i for i in (
 )}
 
 
+# ⚠️ **DE QUÉ HABILIDAD SALE QUÉ INVESTIGACIÓN.** Vive acá, al lado de las
+# investigaciones, y no en el navegador: si estuviera en el front, agregar una
+# investigación no aparecería y sacar una dejaría un botón que falla.
+#
+# Una habilidad que no está en este mapa simplemente no se puede investigar
+# todavía — y eso se ve en pantalla como la ausencia del botón, no como un
+# botón que abre la investigación equivocada.
+DE_LA_HABILIDAD: dict[str, str] = {
+    "soberanos_faltantes": "reincidencia",
+    "bono_sin_flujo": "reincidencia",
+    "bono_sin_precio": "bono_sin_precio",
+    "precio_moneda": "bono_sin_precio",
+    "bono_sin_tasa": "bono_sin_precio",
+    "tasas_al_cierre": "bono_sin_precio",
+    "tabla_quieta": "job",
+    "motor_caido": "job",
+    "salud": "job",
+    "job_reporto": "job",
+    "trajo_poco": "job",
+    "proveedor_caido": "job",
+    "foto_primary": "job",
+    "foto_1816": "job",
+}
+
+
+def tipo_de(habilidad: str) -> str:
+    """Qué investigación le corresponde a una habilidad, o vacío si ninguna."""
+    return DE_LA_HABILIDAD.get(habilidad, "")
+
+
 def _validar() -> None:
     """El piso no puede nombrar una herramienta que no existe.
 
@@ -116,6 +146,13 @@ def _validar() -> None:
             raise RuntimeError(
                 f"la investigación «{inv.nombre}» exige {faltan}, que no "
                 f"existe(n) como herramienta. Disponibles: {sorted(existen)}")
+    # Y el mapa no puede apuntar a una investigación que no existe: sería un
+    # botón que aparece en la pantalla y falla al apretarlo.
+    for hab, tipo in DE_LA_HABILIDAD.items():
+        if tipo not in INVESTIGACIONES:
+            raise RuntimeError(
+                f"la habilidad «{hab}» apunta a la investigación «{tipo}», "
+                f"que no existe. Hay: {sorted(INVESTIGACIONES)}")
 
 
 _validar()

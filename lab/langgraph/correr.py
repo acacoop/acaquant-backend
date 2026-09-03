@@ -61,19 +61,19 @@ def _mostrar(evento: dict) -> None:
 # El veredicto del modo guionado: existe para que la prueba gratis cubra TAMBIÉN
 # el nodo que concluye, que es donde vive la forma de la respuesta.
 _VEREDICTO_DE_PRUEBA = Veredicto(
-    que_paso="(guionado) el grafo corrió entero: pidió una herramienta, se "
-             "ejecutó, se anotó en la memoria de trabajo, se revisó el piso y "
-             "llegó al nodo que concluye.",
-    por_que="No hay causa que investigar: es una corrida de prueba sin modelo.",
+    titulo="(guionado) el grafo corrió entero, sin modelo.",
+    que_paso=["pidió una herramienta y se ejecutó de verdad",
+              "el resultado se anotó en la memoria de trabajo",
+              "se revisó el piso y llegó al nodo que concluye"],
+    por_que=["no hay causa que investigar: es una corrida de prueba"],
     de_quien_es="no_se",
-    que_haria="Nada. Para una investigación de verdad, correlo sin --guionado.",
-    lo_que_no_se="Si el modelo elige bien las herramientas — eso el modo "
-                 "guionado no lo prueba, sólo el cableado.",
+    que_haria=["Para una investigación de verdad, correlo sin --guionado."],
+    lo_que_no_se=["Si el modelo elige bien las herramientas — eso el modo "
+                  "guionado no lo prueba, sólo el cableado."],
     de_donde=["lab/langgraph/correr.py::_VEREDICTO_DE_PRUEBA"])
 # ⚠️ Queda como OBJETO, igual que lo que devuelve el modelo real: el que lo
 # convierte a datos planos es el grafo. Si se convirtiera acá, el modo guionado
-# probaría un camino que en producción no existe — y un modo de prueba que
-# recorre otro camino no prueba nada.
+# probaría un camino que en producción no existe.
 
 _GUION = [
     AIMessage(content="", tool_calls=[

@@ -53,11 +53,15 @@ CREATE TABLE IF NOT EXISTS lab.investigaciones (
     caso                  text NOT NULL,
 
     -- EL VEREDICTO
+    titulo                text NOT NULL DEFAULT '',
     de_quien_es           text NOT NULL,
-    que_paso              text NOT NULL,
-    por_que               text NOT NULL,
-    que_haria             text NOT NULL,
-    lo_que_no_se          text NOT NULL,
+    -- ⚠️ ARREGLOS, no texto: un campo que ENUMERA cosas (una cronologia, tres
+    -- acciones, cuatro dudas) en un `text` vuelve un parrafo de ochenta
+    -- palabras que nadie lee. El tipo es la regla.
+    que_paso              text[] NOT NULL,
+    por_que               text[] NOT NULL,
+    que_haria             text[] NOT NULL,
+    lo_que_no_se          text[] NOT NULL,
     de_donde              text[] NOT NULL,
 
     -- LA CALIDAD DE LA CORRIDA. Hechos, no opiniones del modelo.
@@ -73,9 +77,9 @@ CREATE TABLE IF NOT EXISTS lab.investigaciones (
     -- filas sean prosa vacia.
     CONSTRAINT inv_de_quien CHECK (
         de_quien_es IN ('nuestro','dato','proveedor','no_se')),
-    CONSTRAINT inv_que_paso  CHECK (btrim(que_paso) <> ''),
-    CONSTRAINT inv_que_haria CHECK (btrim(que_haria) <> ''),
-    CONSTRAINT inv_no_se     CHECK (btrim(lo_que_no_se) <> ''),
+    CONSTRAINT inv_que_paso  CHECK (cardinality(que_paso) > 0),
+    CONSTRAINT inv_que_haria CHECK (cardinality(que_haria) > 0),
+    CONSTRAINT inv_no_se     CHECK (cardinality(lo_que_no_se) > 0),
     -- ⚠️ `cardinality`, NO `array_length`. `array_length('{}', 1)` devuelve
     -- **NULL**, y un CHECK que da NULL PASA —solo falla con FALSE—, asi que
     -- la restriccion era decorativa justo para el caso que venia a atajar:
@@ -106,6 +110,39 @@ GRANT USAGE, SELECT ON SEQUENCE lab.investigaciones_id_seq TO escritor_lab;
 --
 -- `DROP ... IF EXISTS` antes de crear porque CREATE POLICY no acepta IF NOT
 -- EXISTS: sin eso, correr este bloque dos veces falla.
+-- ⚠️ MIGRACION DE LOS CAMPOS QUE PASARON DE `text` A `text[]`.
+-- Convierte lo que ya hay en un arreglo de UN elemento: no se pierde nada, y
+-- las filas viejas se ven como un solo punto largo — que es exactamente lo que
+-- eran. Va adentro de un DO porque `ALTER ... TYPE` falla si el tipo ya es el
+-- nuevo, y este bloque se corre mas de una vez.
+DO $mig$
+DECLARE c text;
+BEGIN
+  FOREACH c IN ARRAY ARRAY['que_paso','por_que','que_haria','lo_que_no_se'] LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'lab' AND table_name = 'investigaciones'
+                  AND column_name = c AND data_type <> 'ARRAY') THEN
+      EXECUTE format(
+        'ALTER TABLE lab.investigaciones ALTER COLUMN %I TYPE text[] '
+        'USING CASE WHEN btrim(%I) = %L THEN ARRAY[]::text[] ELSE ARRAY[%I] END',
+        c, c, '', c);
+    END IF;
+  END LOOP;
+END
+$mig$;
+
+ALTER TABLE lab.investigaciones ADD COLUMN IF NOT EXISTS titulo text NOT NULL DEFAULT '';
+
+ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_que_paso;
+ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_que_paso
+    CHECK (cardinality(que_paso) > 0);
+ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_que_haria;
+ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_que_haria
+    CHECK (cardinality(que_haria) > 0);
+ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_no_se;
+ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_no_se
+    CHECK (cardinality(lo_que_no_se) > 0);
+
 -- Si la tabla ya existia con el CHECK viejo (el de array_length), esto lo
 -- reemplaza. Es idempotente: en una tabla recien creada no hace nada.
 ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_fuentes;
@@ -125,8 +162,11 @@ CREATE POLICY lector_lab_lee ON lab.investigaciones
     FOR SELECT TO lector_lab USING (true);
 """
 
-_CAMPOS = ("de_quien_es", "que_paso", "por_que", "que_haria", "lo_que_no_se",
-           "de_donde")
+# Los campos del veredicto que van a la base, EN EL ORDEN del INSERT. Se
+# derivan del modelo para que agregar un campo arriba no obligue a acordarse
+# de dos listas.
+_CAMPOS = ("titulo", "de_quien_es", "que_paso", "por_que", "que_haria",
+           "lo_que_no_se", "de_donde")
 
 
 def guardar(tipo: str, caso: str, veredicto: dict, *, herramientas: list[str],
@@ -141,14 +181,19 @@ def guardar(tipo: str, caso: str, veredicto: dict, *, herramientas: list[str],
     if veredicto is None:
         return {"ok": False, "error": "no hay veredicto que guardar"}
     try:
+        from lab.langgraph.veredicto import LISTAS
+        # Una lista que llega vacía se guarda vacía y el CHECK la rechaza: es
+        # lo que queremos. Lo que NO puede pasar es mandar `None` a una columna
+        # NOT NULL y que el error hable de otra cosa.
+        valores = [list(veredicto.get(c) or []) if c in LISTAS
+                   else (veredicto.get(c) or "") for c in _CAMPOS]
         f = escribir(
             "INSERT INTO lab.investigaciones "
-            " (tipo, caso, de_quien_es, que_paso, por_que, que_haria, "
+            " (tipo, caso, titulo, de_quien_es, que_paso, por_que, que_haria, "
             "  lo_que_no_se, de_donde, herramientas_usadas, piso_cubierto, "
             "  corto_por_presupuesto, vueltas, modelo, por) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (tipo, caso, *[veredicto.get(c) for c in _CAMPOS[:-1]],
-             list(veredicto.get("de_donde") or []), list(herramientas),
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (tipo, caso, *valores, list(herramientas),
              piso_cubierto, corto, int(vueltas), modelo, por))
         return {"ok": True, "id": f[0] if f else None}
     except Exception as e:
@@ -162,7 +207,7 @@ def anteriores(tipo: str, caso: str, limite: int = 3) -> list[dict]:
     recibe una lista y no una afirmación de que no existe nada."""
     r = leer(
         "SELECT id, to_char(at,'YYYY-MM-DD HH24:MI') AS cuando, de_quien_es, "
-        "       que_paso, que_haria, lo_que_no_se, piso_cubierto, "
+        "       titulo, que_haria, lo_que_no_se, piso_cubierto, "
         "       corto_por_presupuesto "
         "  FROM lab.investigaciones WHERE tipo = %s AND upper(caso) = upper(%s) "
         " ORDER BY at DESC LIMIT %s", (tipo, caso, int(limite)))

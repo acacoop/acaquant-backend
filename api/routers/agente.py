@@ -233,7 +233,14 @@ def lab(limite: int = 20):
     from lab.langgraph import cola
     from lab.langgraph.investigaciones import INVESTIGACIONES
     r = cola.ultimos(limite)
+    # ⚠️ **LOS CASOS QUE SE PUEDEN INVESTIGAR VIENEN DE ACÁ, NO DE UN CAMPO DE
+    # TEXTO.** Antes había que adivinar qué escribir. Ahora la pantalla ofrece
+    # lo que está REALMENTE abierto, derivado de los hallazgos y reincidencias
+    # del agente: lo nuevo aparece solo y lo resuelto desaparece solo.
+    inv = cola.investigables()
     return {
+        "casos": inv["casos"],
+        "casos_error": inv["error"],
         # `ok` viene de si se pudo LEER, no se pone a mano: una lista vacía y
         # una lectura fallida no se pueden ver iguales en la pantalla.
         "ok": r["ok"], "error": r["error"],

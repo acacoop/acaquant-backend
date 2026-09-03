@@ -183,3 +183,50 @@ def ultimos(limite: int = 20) -> dict:
     cols, filas = r
     return {"ok": True, "error": "",
             "pedidos": [dict(zip(cols, f, strict=True)) for f in filas]}
+
+
+def investigables(limite: int = 60) -> dict:
+    """**QUÉ SE PUEDE INVESTIGAR AHORA**, derivado de lo que el agente encontró.
+
+    ⚠️ Esto reemplaza al campo de texto libre donde había que adivinar qué
+    escribir. No es una lista de ejemplos: son **las cosas que realmente están
+    abiertas ahora mismo** — las reincidencias vivas y los hallazgos abiertos
+    cuya habilidad sabemos investigar.
+
+    Se DERIVA del estado del agente y no de una lista escrita a mano: mañana
+    aparece un hallazgo nuevo y aparece solo acá, y el día que se resuelve
+    desaparece solo. Una lista a mano tendría que acordarse de las dos cosas.
+    """
+    from lab.langgraph.investigaciones import DE_LA_HABILIDAD
+
+    habilidades = sorted(DE_LA_HABILIDAD)
+    r = leer(
+        # Las REINCIDENCIAS primero y aparte: son la tabla que debería estar
+        # vacía, así que si hay alguna es lo primero que hay que mirar.
+        "SELECT 'reincidencia' AS origen, r.sujeto, r.habilidad, r.regla, "
+        "       to_char(r.volvio_at,'YYYY-MM-DD HH24:MI') AS cuando, "
+        "       'volvió después de «' || coalesce(r.arreglo_aplicado,'?') "
+        "         || '», aguantó ' || round(r.dias_aguanto,1) || ' días' AS que "
+        "  FROM agente.reincidencias r "
+        "  JOIN agente.hallazgos h ON h.id = r.hallazgo_id "
+        " WHERE h.estado = ANY(%s) "
+        "UNION ALL "
+        "SELECT 'hallazgo', f.sujeto, f.habilidad, f.regla, "
+        "       to_char(f.detectado_at,'YYYY-MM-DD HH24:MI'), left(f.problema, 140) "
+        "  FROM agente.hallazgos f "
+        " WHERE f.estado = ANY(%s) AND f.habilidad = ANY(%s) "
+        " ORDER BY 1, 5 DESC LIMIT %s",
+        (["nuevo", "en_curso", "reincidio", "ignorado"],
+         ["nuevo", "en_curso", "reincidio"], habilidades, int(limite)))
+    if isinstance(r, str):
+        return {"ok": False, "error": r, "casos": []}
+    cols, filas = r
+    casos = []
+    for f in filas:
+        d = dict(zip(cols, f, strict=True))
+        d["tipo"] = DE_LA_HABILIDAD.get(d["habilidad"], "")
+        # Sin tipo no se puede investigar: no se ofrece. Mejor que no esté a
+        # que esté y abra la investigación equivocada.
+        if d["tipo"]:
+            casos.append(d)
+    return {"ok": True, "error": "", "casos": casos}

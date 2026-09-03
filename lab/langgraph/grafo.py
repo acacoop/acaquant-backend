@@ -110,7 +110,18 @@ def construir(modelo, con_memoria: bool = True):
         no deja guardar un hallazgo sin `que_hacer` — la forma la garantiza el
         sistema, no la buena voluntad de quien escribe.
         """
-        escritor = modelo.with_structured_output(Veredicto)
+        # ⚠️ `method="function_calling"` NO es un detalle: LangChain por defecto
+        # pide la respuesta estructurada con `response_format: json_schema`, y
+        # DeepSeek contesta **HTTP 400 «This response_format type is
+        # unavailable now»**. El mecanismo de HERRAMIENTAS, en cambio, le anda
+        # perfecto — es el mismo que usa para pedir cada tool de la
+        # investigación. O sea: se le pide el veredicto como si fuera una
+        # herramienta más, que es lo que ya sabe hacer.
+        #
+        # Es el motivo por el que el proveedor vive en UN archivo: el dialecto
+        # de cada uno es distinto y no se puede adivinar desde el grafo.
+        escritor = modelo.with_structured_output(Veredicto,
+                                                 method="function_calling")
         try:
             v = escritor.invoke([SystemMessage(SISTEMA)] + estado["messages"]
                                 + [SystemMessage(REDACCION)])

@@ -89,6 +89,35 @@ def _tipos() -> None:
         print(f"  {n:16} {i.que_es}\n{'':18}piso: {piso}\n")
 
 
+def _ver_pedido(pid: int) -> int:
+    """Cómo va un pedido encolado. Es lo mismo que va a pollear la pantalla."""
+    from lab.langgraph import cola
+    p = cola.ver(pid)
+    if p is None:
+        print(f"\nNo existe el pedido {pid}.\n")
+        return 1
+    print(f"\n[{p['tipo']} {p['caso']}] pedido {pid} · {p['estado'].upper()}"
+          + (f" · pedido por {p['por']}" if p["por"] else ""))
+    if p["error"]:
+        print(f"  ⚠ {p['error']}")
+    for paso in (p["pasos"] or []):
+        icono = _ICONO.get(paso.get("clase", ""), "·")
+        que = paso.get("que") or ""
+        print(f"  {icono} {(que + ' ' if que else '') + str(paso.get('detalle',''))[:170]}")
+    if p["investigacion_id"]:
+        from lab.langgraph.veredicto import Veredicto
+        campos = {c: p[c] for c in Veredicto.model_fields if c in p}
+        print("\n" + render(campos))
+    elif p["estado"] == cola_estado_corriendo():
+        print("\n  … sigue corriendo. Volvé a preguntar en un rato.\n")
+    return 0
+
+
+def cola_estado_corriendo() -> str:
+    from lab.langgraph import cola
+    return cola.CORRIENDO
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Laboratorio LangGraph")
     ap.add_argument("tipo", nargs="?", default="",
@@ -99,6 +128,12 @@ def main() -> int:
     ap.add_argument("--tipos", action="store_true", help="qué sabe investigar")
     ap.add_argument("--historial", action="store_true",
                     help="lo que ya se investigó (filtra por tipo y caso si los das)")
+    ap.add_argument("--pedir", action="store_true",
+                    help="ENCOLA la investigación (la corre el daemon) en vez "
+                         "de correrla acá")
+    ap.add_argument("--pedido", type=int, default=0,
+                    help="cómo va un pedido encolado")
+    ap.add_argument("--cola", action="store_true", help="los últimos pedidos")
     ap.add_argument("--sql", action="store_true",
                     help="imprime el SQL del diario, para correrlo una vez en Supabase")
     ap.add_argument("--modelo", default="", help=f"default {modelo.MODELO_DEFAULT}")
@@ -115,6 +150,22 @@ def main() -> int:
         return 0
     if a.historial:
         print("\n" + diario.historial(a.tipo, " ".join(a.caso)) + "\n")
+        return 0
+    if a.pedido:
+        return _ver_pedido(a.pedido)
+    if a.cola:
+        from lab.langgraph import cola
+        filas = cola.ultimos()
+        if not filas:
+            print("\nNo hay pedidos.\n")
+            return 0
+        print(f"\n{'ID':>4}  {'CUÁNDO':17} {'TIPO':14} {'CASO':12} {'ESTADO':10} INV")
+        for f in filas:
+            print(f"{f['id']:>4}  {str(f['at'])[:16]:17} {f['tipo']:14} "
+                  f"{f['caso'][:12]:12} {f['estado']:10} "
+                  f"{f['investigacion_id'] or ''}"
+                  + (f"  ⚠ {f['error'][:60]}" if f["error"] else ""))
+        print()
         return 0
 
     tipo, caso = a.tipo or "libre", " ".join(a.caso)
@@ -139,6 +190,21 @@ def main() -> int:
         if not puede:
             print(f"\nNo arranco: {por_que}.\n")
             return 1
+
+    if a.pedir:
+        # ENCOLAR es otro camino: la corre el daemon, no esta terminal. Sirve
+        # para probar exactamente lo que va a hacer la pantalla.
+        from lab.langgraph import cola
+        r = cola.encolar(tipo, caso, por="terminal")
+        if not r.get("ok"):
+            print(f"\nNo pude encolar: {r.get('error')}\n")
+            return 1
+        print(f"\nEncolado con el id {r['id']}"
+              + (" (ya estaba pedido)" if r.get("ya_estaba") else "")
+              + f".\nEl daemon lo levanta en la próxima pasada. Para verlo:\n"
+              f"   PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr "
+              f"--pedido {r['id']}\n")
+        return 0
 
     cerebro, medidor = (modelo.guionado(_GUION, veredicto=_VEREDICTO_DE_PRUEBA)
                         if a.guionado else modelo.real(a.modelo, detalle=pregunta_previa))

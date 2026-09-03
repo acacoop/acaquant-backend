@@ -63,6 +63,35 @@ de tocar la vista más usada de la app.
 | 9 | Limpiar el VALOR de `curvas.ticker` (sacar el sufijo D/C) | sí | pendiente |
 | 20 | Perf con EMISOR=CORPORATIVO + filtro de TEA + **ficha del bono** (§20) | sí | ✅ **hecho** (2026-08-28) |
 | 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
+| 24 | Layout de los dos modales de la vista: 50/50 en la FICHA DEL BONO, y la ficha sale del simulador (§24) | sí | ✅ **hecho** (2026-09-03) |
+
+### Paso 24 (2026-09-03) — los dos modales: cada dato en UN solo lugar y a la vista
+
+Cambio de LAYOUT, cero cálculo: no se tocó un endpoint, un service ni una
+fórmula. Las dos partes salen del mismo problema — **el mismo dato repetido, y
+el dato que importa fuera de pantalla.**
+
+**(a) La FICHA sale del modal SIMULAR INVERSIÓN.** El simulador cerraba con un
+panel `FICHA · <ticker>` idéntico al que ya muestra la FICHA DEL BONO. Un dato
+en dos pantallas es la REGLA #9 en versión chica: mientras coincidan no pasa
+nada, y el día que una se actualice sola nadie sabe cuál manda. Acá además no
+compraba nada — el simulador contesta *cuánto rinde y cuándo cobro*, y el emisor
+o la ley del papel no entran en esa cuenta. Se fue el panel y con él el armado
+de filas; el resto del modal quedó igual.
+
+**(b) La FICHA DEL BONO pasa a 50/50.** Los cuatro bloques iban apilados a todo
+el ancho —tasas, gráfico, cronograma, ficha— así que para leer la ficha había
+que scrollear, y al scrollear se perdía de vista el cronograma: **las dos cosas
+que se comparan nunca estaban juntas en pantalla**. Ahora las TASAS quedan
+arriba a todo el ancho (es el titular) y abajo el cuerpo se parte al medio: a la
+izquierda la FICHA en filas verticales label→valor ocupando toda la altura, con
+el rótulo escrito en vertical sobre el lomo; a la derecha el gráfico arriba y el
+cronograma abajo. Cada mitad scrollea por dentro, así el modal entero no se
+mueve. Debajo de `lg` se apila como antes (la ficha al final) y scrollea el
+modal.
+
+- **Archivos**: `bono-modal.tsx` y `simular-inversion-modal.tsx` en
+  `acaquant-frontend`. Nada en el backend.
 
 ### Paso 23 (2026-09-02) — la TNA de TASA FIJA pasa a la convención de 1816
 

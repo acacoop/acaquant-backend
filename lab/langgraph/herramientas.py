@@ -94,7 +94,12 @@ def buscar_en_repo(patron: str, carpeta: str = "") -> str:
         return f"la carpeta «{carpeta}» no existe"
     try:
         r = subprocess.run(
-            ["grep", "-rn", "--include=*.py", "--include=*.sql", "-E", patron, str(destino)],
+            # ⚠️ `.txt` y `.md` NO son opcionales: el crontab del repo
+            # (`deploy/crontab.txt`) es donde se ve QUÉ otro proceso corrió
+            # cerca del momento en que algo se rompió — y muchas veces la causa
+            # es otro proceso nuestro, no un bug.
+            ["grep", "-rn", "--include=*.py", "--include=*.sql",
+             "--include=*.txt", "--include=*.md", "-E", patron, str(destino)],
             capture_output=True, text=True, timeout=20)
     except subprocess.TimeoutExpired:
         return "la búsqueda tardó demasiado — probá un patrón más específico"

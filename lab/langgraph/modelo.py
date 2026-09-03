@@ -24,7 +24,9 @@ from dotenv import load_dotenv
 load_dotenv(pathlib.Path(__file__).resolve().parents[2] / ".env")
 
 URL = "https://api.deepseek.com"
-MODELO_DEFAULT = "deepseek-v4-flash"
+# PRO, no flash: esto no redacta, INVESTIGA — encadena cinco o seis
+# herramientas y tiene que sacar una conclusión de lo que leyó.
+MODELO_DEFAULT = "deepseek-v4-pro"
 
 
 def real(modelo: str = "", temperatura: float = 0.0):
@@ -38,7 +40,7 @@ def real(modelo: str = "", temperatura: float = 0.0):
             "Para probar el cableado sin clave: `--guionado`.")
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
-        model=modelo or os.getenv("AI_MODEL_FLASH") or MODELO_DEFAULT,
+        model=modelo or os.getenv("AI_MODEL_PRO") or MODELO_DEFAULT,
         api_key=clave,
         base_url=os.getenv("DEEPSEEK_BASE_URL") or URL,
         temperature=temperatura)

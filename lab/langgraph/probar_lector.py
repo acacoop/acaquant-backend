@@ -58,7 +58,9 @@ def main() -> int:
 
     with conn:
         # 2 — ¿lee lo que necesita?
-        for tabla in ("mercado.curvas", "mercado.market_snapshot", "agente.hallazgos"):
+        for tabla in ("mercado.curvas", "mercado.market_snapshot",
+                      "agente.hallazgos", "agente.reincidencias",
+                      "agente.acciones", "manager.job_runs"):
             try:
                 with conn.cursor() as cur:
                     cur.execute(f"SELECT count(*) FROM {tabla}")

@@ -141,4 +141,59 @@ def hallazgos_del_sujeto(sujeto: str) -> str:
                      f"ninguna habilidad lo mira.")
 
 
-HERRAMIENTAS_SQL = [ficha_del_bono, precio_del_simbolo, hallazgos_del_sujeto]
+@tool
+def reincidencias(sujeto: str = "") -> str:
+    """Devuelve las REINCIDENCIAS: cosas que el agente dio por arregladas y
+    volvieron. Trae qué arreglo se había aplicado, cuándo se cerró, cuándo
+    volvió y **cuántos días aguantó**. Sin `sujeto` trae las últimas; con
+    `sujeto` (un ticker, un job) trae las de eso.
+
+    Es la tabla que DEBERÍA estar vacía: cada fila es un arreglo que no sirvió,
+    y averiguar por qué no sirvió es distinto de volver a aplicarlo."""
+    filtro = " WHERE upper(sujeto) = upper(%s)" if sujeto.strip() else ""
+    params = (sujeto.strip(),) if sujeto.strip() else ()
+    r = _consultar(
+        "SELECT sujeto, habilidad, regla, arreglo_aplicado, "
+        "       to_char(resuelto_at,'YYYY-MM-DD HH24:MI') AS se_cerro, "
+        "       to_char(volvio_at,  'YYYY-MM-DD HH24:MI') AS volvio, "
+        "       round(dias_aguanto, 1) AS dias_aguanto, "
+        "       hallazgo_previo_id, hallazgo_id "
+        f"  FROM agente.reincidencias{filtro} "
+        " ORDER BY volvio_at DESC LIMIT 15", params)
+    return _tabla(r, "no hay reincidencias registradas"
+                     + (f" para «{sujeto}»" if sujeto.strip() else ""))
+
+
+@tool
+def acciones_sobre(sujeto: str) -> str:
+    """EL LIBRO: qué escribió el agente sobre algo, **de qué valor a qué valor**,
+    en qué tabla, quién lo pidió y si salió bien. Usar para saber qué se hizo
+    realmente, no qué se pensaba hacer — un arreglo que salió «ok» y no cambió
+    nada se ve acá y en ningún otro lado."""
+    r = _consultar(
+        "SELECT to_char(at,'YYYY-MM-DD HH24:MI') AS cuando, arreglo, regla, "
+        "       donde, campo, antes, despues, ok, error, por "
+        "  FROM agente.acciones WHERE upper(sujeto) = upper(%s) "
+        " ORDER BY at DESC LIMIT 15",
+        (sujeto.strip(),))
+    return _tabla(r, f"el agente nunca escribió nada sobre «{sujeto}»")
+
+
+@tool
+def corridas_del_job(tipo: str) -> str:
+    """Las últimas corridas de un job: cuándo arrancó, cuándo terminó, si salió
+    ok / partial / error. El `tipo` es el nombre del job, como 'cleanup_curvas'
+    o 'dolar_mep'. Usar para ubicar QUÉ corrió cerca del momento en que algo se
+    rompió — muchas veces la causa es otro proceso nuestro, no un bug."""
+    r = _consultar(
+        "SELECT tipo, to_char(started_at,'YYYY-MM-DD HH24:MI') AS arranco, "
+        "       to_char(finished_at,'YYYY-MM-DD HH24:MI') AS termino, status "
+        "  FROM manager.job_runs WHERE tipo ILIKE %s "
+        " ORDER BY started_at DESC LIMIT 12",
+        (f"%{tipo.strip()}%",))
+    return _tabla(r, f"no hay corridas registradas de «{tipo}». Ojo: puede que "
+                     f"el job se llame distinto, o que nunca haya corrido.")
+
+
+HERRAMIENTAS_SQL = [ficha_del_bono, precio_del_simbolo, hallazgos_del_sujeto,
+                    reincidencias, acciones_sobre, corridas_del_job]

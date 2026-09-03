@@ -29,7 +29,30 @@ router = APIRouter(prefix="/api/agente", tags=["agente"],
 def vista():
     """Todo el modal en UN request y con UNA sola noción de «ahora»."""
     from agente import vista as v
-    return v.vista()
+    d = v.vista()
+    _marcar_investigables(d)
+    return d
+
+
+def _marcar_investigables(d: dict) -> None:
+    """Le pone `investigable` a cada hallazgo. **Acá y no en el navegador.**
+
+    La pantalla dibuja el botón «investigar» sólo donde el backend sabe
+    investigar. Si el mapa estuviera en el front, habría DOS copias de la misma
+    verdad (REGLA #9): agregar una investigación no mostraría el botón y sacar
+    una dejaría uno que falla, sin que nada avise.
+
+    ⚠️ Va en el ROUTER y no en `agente/vista.py` a propósito: `agente/` no puede
+    depender del laboratorio. Si el lab no está o revienta, el modal se dibuja
+    igual — sin el botón, que es la degradación correcta.
+    """
+    try:
+        from lab.langgraph.investigaciones import tipo_de
+    except Exception:
+        return
+    for clave in ("ahora", "encontro"):
+        for f in (d.get(clave) or {}).get("filas") or []:
+            f["investigable"] = bool(tipo_de(f.get("habilidad", "")))
 
 
 @router.get("/ahora")

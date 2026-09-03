@@ -96,6 +96,11 @@ CREATE INDEX IF NOT EXISTS investigaciones_recientes
 GRANT USAGE ON SCHEMA lab TO lector_lab;
 GRANT SELECT ON lab.investigaciones TO lector_lab;
 
+-- ⚠️ Y las VISTAS del modal: la lista de «que se puede investigar» las lee para
+-- no inventar un tercer criterio de «lo que esta abierto» (REGLA #9). Sin este
+-- grant, la lista sale vacia y parece que no hay nada que investigar.
+GRANT SELECT ON agente.v_ahora, agente.v_encontro TO lector_lab;
+
 -- El ESCRITOR sólo escribe acá. Sin UPDATE ni DELETE: es un libro.
 GRANT USAGE ON SCHEMA lab TO escritor_lab;
 GRANT SELECT, INSERT ON lab.investigaciones TO escritor_lab;
@@ -115,13 +120,21 @@ GRANT USAGE, SELECT ON SEQUENCE lab.investigaciones_id_seq TO escritor_lab;
 -- las filas viejas se ven como un solo punto largo — que es exactamente lo que
 -- eran. Va adentro de un DO porque `ALTER ... TYPE` falla si el tipo ya es el
 -- nuevo, y este bloque se corre mas de una vez.
+-- ⚠️ La guarda pregunta el tipo REAL al catalogo (`atttypid::regtype`), que
+-- devuelve exactamente `text` o `text[]`. La primera version miraba
+-- `information_schema.columns.data_type` y se equivocaba: corria el ALTER
+-- sobre una columna que YA era arreglo y reventaba con «function btrim(text[])
+-- does not exist» — un error que habla de btrim y no del verdadero problema,
+-- que era la guarda.
 DO $mig$
-DECLARE c text;
+DECLARE c text; t text;
 BEGIN
   FOREACH c IN ARRAY ARRAY['que_paso','por_que','que_haria','lo_que_no_se'] LOOP
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_schema = 'lab' AND table_name = 'investigaciones'
-                  AND column_name = c AND data_type <> 'ARRAY') THEN
+    SELECT a.atttypid::regtype::text INTO t
+      FROM pg_attribute a
+     WHERE a.attrelid = 'lab.investigaciones'::regclass
+       AND a.attname = c AND NOT a.attisdropped;
+    IF t = 'text' THEN
       EXECUTE format(
         'ALTER TABLE lab.investigaciones ALTER COLUMN %I TYPE text[] '
         'USING CASE WHEN btrim(%I) = %L THEN ARRAY[]::text[] ELSE ARRAY[%I] END',

@@ -16,7 +16,7 @@ le falta información, pide otra herramienta y vuelve a pensar.
 ```bash
 cd /root/TradingAV                       # o tu checkout local
 python -m venv venv-lab
-venv-lab/bin/pip install langgraph langchain-google-genai
+venv-lab/bin/pip install langgraph langchain-openai
 PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr --guionado
 ```
 
@@ -25,7 +25,7 @@ cableado funciona (pide una herramienta, se ejecuta de verdad, el resultado
 vuelve). Para que piense en serio:
 
 ```bash
-export GOOGLE_API_KEY=...                # https://aistudio.google.com/apikey
+set -a && source .env && set +a       # carga DEEPSEEK_API_KEY
 PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr "¿por qué bono_sin_precio separa cuatro causas?"
 PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr    # modo conversación
 ```

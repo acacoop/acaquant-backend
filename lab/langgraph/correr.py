@@ -39,6 +39,10 @@ def _mostrar(evento: dict) -> None:
                     print(f"  🔧 pide  {tc['name']}({tc['args']})")
             elif m.__class__.__name__ == "ToolMessage":
                 print(f"  📄 {m.name} → {' '.join(str(m.content).split())[:150]}…")
+            elif nodo == "cortar":
+                print("\n  ⏳ se agotó el presupuesto de pasos — concluyo con "
+                      "lo que hay\n")
+                break
             elif nodo == "revisar_piso":
                 # El método frenándolo. Verlo es importante: es la diferencia
                 # entre «se le ocurrió mirar eso» y «tuvo que mirarlo».
@@ -62,6 +66,10 @@ _VEREDICTO_DE_PRUEBA = Veredicto(
     lo_que_no_se="Si el modelo elige bien las herramientas — eso el modo "
                  "guionado no lo prueba, sólo el cableado.",
     de_donde=["lab/langgraph/correr.py::_VEREDICTO_DE_PRUEBA"])
+# ⚠️ Queda como OBJETO, igual que lo que devuelve el modelo real: el que lo
+# convierte a datos planos es el grafo. Si se convirtiera acá, el modo guionado
+# probaría un camino que en producción no existe — y un modo de prueba que
+# recorre otro camino no prueba nada.
 
 _GUION = [
     AIMessage(content="", tool_calls=[
@@ -112,13 +120,26 @@ def main() -> int:
     print(f"\n[{inv.nombre}] {pregunta}\n")
     estado = {"messages": [HumanMessage(pregunta)], "investigacion": inv.nombre,
               "intentos": [], "faltan_del_piso": [], "vueltas_piso": 0,
-              "veredicto": None}
+              "vueltas": 0, "corto_por_presupuesto": False, "veredicto": None}
     # El `thread_id` es la CONVERSACIÓN: el checkpointer guarda el estado bajo
     # esa clave, y por eso el grafo puede frenarse y retomar sin perder nada.
+    # El límite de recursión de LangGraph es la RED, no el freno: el freno es
+    # `MAX_PASOS`, que corta y concluye. Se deja holgado para que el que actúe
+    # sea siempre el freno prolijo y no la red.
     config = {"configurable": {"thread_id": f"{inv.nombre}:{caso}"},
-              "recursion_limit": 40}
-    for evento in app.stream(estado, config, stream_mode="updates"):
-        _mostrar(evento)
+              "recursion_limit": 80}
+    try:
+        for evento in app.stream(estado, config, stream_mode="updates"):
+            _mostrar(evento)
+    except Exception as e:
+        # Un traceback de Python no es una respuesta. Si igual se llega acá, se
+        # dice qué pasó y con qué quedó — no se muere en silencio ni en jerga.
+        print(f"\n⚠  La investigación se cortó: {type(e).__name__}: "
+              f"{str(e).splitlines()[0][:200]}")
+        v = app.get_state(config).values
+        print(f"   Pensó {v.get('vueltas', 0)} vez/veces y usó "
+              f"{len(v.get('intentos', []))} herramienta(s).")
+        return 1
     return 0
 
 

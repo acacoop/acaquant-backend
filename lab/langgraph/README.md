@@ -35,7 +35,7 @@ PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr job dolar_mep
 
 | Archivo | Qué es | Concepto del curso |
 |---|---|---|
-| `herramientas.py` | 4 funciones de solo lectura sobre el repo | **tools** — el docstring ES el prompt |
+| `herramientas.py` | 5 funciones de solo lectura sobre el repo | **tools** — el docstring ES el prompt |
 | `datos.py` | 6 funciones de solo lectura sobre Postgres | **tools con riesgo** — tocan producción |
 | `investigaciones.py` | un tipo de caso por fila, con su **piso** | **el método** — lo que hay que mirar antes de concluir |
 | `veredicto.py` | la forma de la respuesta, declarada una vez | **salida estructurada** |

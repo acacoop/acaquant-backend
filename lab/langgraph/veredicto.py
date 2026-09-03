@@ -58,16 +58,23 @@ class Veredicto(BaseModel):
                     "su línea. Una afirmación sin fuente no vale.")
 
 
-def render(v: Veredicto, ancho: int = 62) -> str:
+def render(v: dict | Veredicto, ancho: int = 62) -> str:
     """Lo dibuja para la terminal. **Recorre los campos, no los nombra.**
 
     Por eso agregar un campo arriba lo hace aparecer acá solo, y por eso el día
     que esto se muestre en una pantalla web se cambia únicamente esta función.
+
+    ⚠️ Recibe DATOS PLANOS, no el objeto. El veredicto viaja por el estado del
+    grafo y ese estado se serializa para guardarse: LangGraph avisa que
+    deserializar una clase propia **va a estar bloqueado en una versión
+    futura**. Un dict no tiene ese problema, y encima es lo que va a consumir
+    la pantalla el día que esto salga de la terminal.
     """
+    datos = v if isinstance(v, dict) else v.model_dump()
     out = []
     for nombre, campo in Veredicto.model_fields.items():
         titulo = campo.title or nombre.upper()
-        valor = getattr(v, nombre)
+        valor = datos.get(nombre, "")
         # ⚠️ Se corta a lo ancho de la terminal. Un párrafo de 400 caracteres en
         # una sola línea es ilegible aunque el contenido sea correcto — y la
         # forma existe justamente para que se entienda.

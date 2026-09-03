@@ -90,6 +90,21 @@ cronograma abajo. Cada mitad scrollea por dentro, así el modal entero no se
 mueve. Debajo de `lg` se apila como antes (la ficha al final) y scrollea el
 modal.
 
+**(c) La cabecera comprimida y el flujo en DOS escalas** (misma entrega, segunda
+pasada). Dos cosas que sólo se ven con el modal ya armado:
+
+- **TASAS Y RIESGO pasa de cuadro a TIRA de una línea** (rótulo y valor inline en
+  vez de apilados). Medido: **de ~100 px a 30 px**. En un modal el alto es lo
+  único que no sobra — cada píxel de la cabecera se lo saca al cronograma, que es
+  el dato que se mira. La FICHA además se lleva **37% del ancho** (era 50): sus
+  filas son cortas y el que necesita ancho es el gráfico.
+- **El FLUJO pasa a DOS escalas** (capital arriba, renta abajo, mismo eje de
+  fechas) — el criterio que ya usaba SIMULAR INVERSIÓN, ahora también acá.
+  Apilado en una sola escala, en un bullet como AO28 la amortización (100)
+  aplasta al cupón (0,50): la renta se dibujaba pegada al cero y **el bono
+  parecía no pagar nada hasta el vencimiento**. El doble eje Y no era la salida
+  (misma unidad en dos escalas: el ojo compara alturas que no son comparables).
+
 - **Archivos**: `bono-modal.tsx` y `simular-inversion-modal.tsx` en
   `acaquant-frontend`. Nada en el backend.
 

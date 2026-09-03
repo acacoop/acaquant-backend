@@ -31,7 +31,34 @@ verdad**, y es exactamente donde un humano se equivoca.
 """
 from __future__ import annotations
 
+import os
+import pathlib
+
+from dotenv import load_dotenv
 from langchain_core.tools import tool
+
+load_dotenv(pathlib.Path(__file__).resolve().parents[2] / ".env")
+
+
+def _uri() -> str:
+    """La conexión del LECTOR, y **sin plan B**.
+
+    ⚠️ Si falta `POSTGRES_URI_LECTOR`, esto FALLA. No cae a `POSTGRES_URI` —
+    que es el superusuario— por más tentador que sea: un fallback silencioso
+    convierte la garantía en una intención. El día que alguien borre la
+    variable, el lab volvería a entrar con permiso de escritura y **nadie se
+    enteraría**, porque desde afuera se ve exactamente igual.
+
+    Es la misma ley que el ruteo fail-closed de `core/llm.py`: si el proveedor
+    que corresponde no está, la llamada no se hace — no se cae a otro.
+    """
+    uri = os.getenv("POSTGRES_URI_LECTOR", "").strip()
+    if not uri:
+        raise RuntimeError(
+            "falta POSTGRES_URI_LECTOR en el .env. El lab NO usa la conexión "
+            "de siempre a propósito: esa tiene permiso de escritura. "
+            "Armala con `python -m lab.langgraph.armar_lector`.")
+    return uri
 
 
 def _consultar(sql: str, params: tuple) -> tuple[list, list] | str:
@@ -40,10 +67,14 @@ def _consultar(sql: str, params: tuple) -> tuple[list, list] | str:
     Devolver texto en vez de levantar es a propósito: un error que corta el
     grafo deja al ayudante mudo. Un texto que dice «no pude leer la base» lo
     deja seguir razonando, y sobre todo **lo deja decírtelo**.
+
+    Abre y cierra la conexión en cada consulta. Es más lento que un pool, y
+    está bien: son unas pocas consultas por pregunta, y a cambio no hay una
+    conexión del lab colgada contra producción entre pregunta y pregunta.
     """
     try:
-        from core.postgres import get_pool
-        with get_pool().connection() as conn, conn.cursor() as cur:
+        import psycopg
+        with psycopg.connect(_uri(), connect_timeout=10) as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             return [d[0] for d in cur.description], cur.fetchall()
     except Exception as e:

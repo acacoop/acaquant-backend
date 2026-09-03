@@ -43,7 +43,22 @@ def real(modelo: str = "", temperatura: float = 0.0):
         model=modelo or os.getenv("AI_MODEL_PRO") or MODELO_DEFAULT,
         api_key=clave,
         base_url=os.getenv("DEEPSEEK_BASE_URL") or URL,
-        temperature=temperatura)
+        temperature=temperatura,
+        # ⚠️ **EL RAZONAMIENTO SE APAGA, Y NO ES POR AHORRAR.** Los v4 traen
+        # `thinking` ENCENDIDO por default, y cuando está encendido DeepSeek
+        # exige que le devuelvas su `reasoning_content` en cada llamada
+        # siguiente. LangChain no lo hace —es un campo propio de DeepSeek, no
+        # del dialecto OpenAI— así que la SEGUNDA vuelta del ciclo muere con
+        # **HTTP 400 «The `reasoning_content` in the thinking mode must be
+        # passed back to the API»**. O sea: un agente que encadena herramientas
+        # no puede correr con thinking encendido por este camino.
+        #
+        # El shape sale de `core/llm.py::_armar_body`, que ya lo tenía
+        # verificado contra la doc del proveedor: `{"thinking": {"type": ...}}`
+        # y el default es enabled, por eso los callers lo mandan SIEMPRE
+        # explícito. Es la segunda cosa en una hora que se resuelve mirando lo
+        # que este repo ya sabía.
+        extra_body={"thinking": {"type": "disabled"}})
 
 
 def guionado(respuestas: list, veredicto=None):

@@ -92,6 +92,27 @@ GRANT SELECT ON lab.investigaciones TO lector_lab;
 GRANT USAGE ON SCHEMA lab TO escritor_lab;
 GRANT SELECT, INSERT ON lab.investigaciones TO escritor_lab;
 GRANT USAGE, SELECT ON SEQUENCE lab.investigaciones_id_seq TO escritor_lab;
+
+-- ⚠️ SUPABASE PRENDE RLS SOLO EN LAS TABLAS NUEVAS, y sin politica no entra ni
+-- sale nada: el INSERT muere con «new row violates row-level security policy» y
+-- el SELECT devuelve CERO FILAS SIN ERROR — que es peor, porque «no hay nada» y
+-- «no puedo mirar» se ven iguales. Paso primero con todo `mercado` y despues
+-- con esta tabla. Por eso las politicas viven ACA, al lado del CREATE: un
+-- esquema al que hay que acordarse de agregarle algo despues no es un esquema.
+--
+-- `DROP ... IF EXISTS` antes de crear porque CREATE POLICY no acepta IF NOT
+-- EXISTS: sin eso, correr este bloque dos veces falla.
+DROP POLICY IF EXISTS escritor_lab_inserta ON lab.investigaciones;
+CREATE POLICY escritor_lab_inserta ON lab.investigaciones
+    FOR INSERT TO escritor_lab WITH CHECK (true);
+
+DROP POLICY IF EXISTS escritor_lab_lee ON lab.investigaciones;
+CREATE POLICY escritor_lab_lee ON lab.investigaciones
+    FOR SELECT TO escritor_lab USING (true);
+
+DROP POLICY IF EXISTS lector_lab_lee ON lab.investigaciones;
+CREATE POLICY lector_lab_lee ON lab.investigaciones
+    FOR SELECT TO lector_lab USING (true);
 """
 
 _CAMPOS = ("de_quien_es", "que_paso", "por_que", "que_haria", "lo_que_no_se",

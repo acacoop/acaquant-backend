@@ -133,8 +133,20 @@ def main() -> int:
                   f"{tipo} M31G6`")
             return 1
 
-    cerebro = (modelo.guionado(_GUION, veredicto=_VEREDICTO_DE_PRUEBA)
-               if a.guionado else modelo.real(a.modelo))
+    inv_previa = INVESTIGACIONES[tipo if tipo in INVESTIGACIONES else "libre"]
+    pregunta_previa = inv_previa.pregunta.format(caso=caso or "prueba")
+
+    # ⚠️ El presupuesto se consulta ANTES de arrancar, no en el medio: es lo
+    # único que puede decir «hoy no» sin dejar una investigación a la mitad.
+    if not a.guionado:
+        from lab.langgraph.medidor import hay_presupuesto
+        puede, por_que = hay_presupuesto()
+        if not puede:
+            print(f"\nNo arranco: {por_que}.\n")
+            return 1
+
+    cerebro, medidor = (modelo.guionado(_GUION, veredicto=_VEREDICTO_DE_PRUEBA)
+                        if a.guionado else modelo.real(a.modelo, detalle=pregunta_previa))
     app = grafo.construir(cerebro)
     inv = INVESTIGACIONES[tipo if tipo in INVESTIGACIONES else "libre"]
     pregunta = inv.pregunta.format(caso=caso or "una prueba del cableado")
@@ -169,6 +181,10 @@ def main() -> int:
         print(f"   Pensó {v.get('vueltas', 0)} vez/veces y usó "
               f"{len(v.get('intentos', []))} herramienta(s).")
         return 1
+    r = medidor.resumen()
+    if r["llamadas"]:
+        print(f"  ⛽ {r['llamadas']} llamadas al modelo · {r['tokens']:,} tokens "
+              f"({r['tokens_in']:,} de entrada + {r['tokens_out']:,} de salida)\n")
     return 0
 
 

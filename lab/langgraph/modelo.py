@@ -29,9 +29,18 @@ URL = "https://api.deepseek.com"
 MODELO_DEFAULT = "deepseek-v4-pro"
 
 
-def real(modelo: str = "", temperatura: float = 0.0):
-    """El modelo de verdad. Falla FUERTE si no hay clave: un agente que se cae
-    a un stub sin avisar es peor que uno que no arranca."""
+def real(modelo: str = "", temperatura: float = 0.0, *, usuario: str = "",
+         detalle: str = "") -> tuple:
+    """El modelo de verdad, **con el contador puesto**. Devuelve
+    `(modelo, medidor)`.
+
+    Falla FUERTE si no hay clave: un agente que se cae a un stub sin avisar
+    es peor que uno que no arranca.
+
+    ⚠️ El medidor viaja como CALLBACK de LangChain, así que el grafo y las
+    herramientas no se enteran de que existe. Anotar el gasto no puede ser
+    algo que cada nodo tenga que acordarse de hacer.
+    """
     clave = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not clave:
         raise RuntimeError(
@@ -39,9 +48,14 @@ def real(modelo: str = "", temperatura: float = 0.0):
             "⚠️ NO uses `source .env` — bash rompe los valores con `&` adentro.\n"
             "Para probar el cableado sin clave: `--guionado`.")
     from langchain_openai import ChatOpenAI
+
+    from lab.langgraph.medidor import Medidor
+    modelo_id = modelo or os.getenv("AI_MODEL_PRO") or MODELO_DEFAULT
+    medidor = Medidor(modelo_id, usuario=usuario, detalle=detalle)
     return ChatOpenAI(
-        model=modelo or os.getenv("AI_MODEL_PRO") or MODELO_DEFAULT,
+        model=modelo_id,
         api_key=clave,
+        callbacks=[medidor],
         base_url=os.getenv("DEEPSEEK_BASE_URL") or URL,
         temperature=temperatura,
         # ⚠️ **EL RAZONAMIENTO SE APAGA, Y NO ES POR AHORRAR.** Los v4 traen
@@ -58,10 +72,10 @@ def real(modelo: str = "", temperatura: float = 0.0):
         # y el default es enabled, por eso los callers lo mandan SIEMPRE
         # explícito. Es la segunda cosa en una hora que se resuelve mirando lo
         # que este repo ya sabía.
-        extra_body={"thinking": {"type": "disabled"}})
+        extra_body={"thinking": {"type": "disabled"}}), medidor
 
 
-def guionado(respuestas: list, veredicto=None):
+def guionado(respuestas: list, veredicto=None) -> tuple:
     """Un modelo de mentira que devuelve lo que le pusiste, en orden. Sirve para
     probar el GRAFO sin gastar un token: si una respuesta trae `tool_calls`, el
     grafo ejecuta esas herramientas de verdad.
@@ -88,4 +102,10 @@ def guionado(respuestas: list, veredicto=None):
         def with_structured_output(self, esquema, **kw):
             return _Fijo()
 
-    return _Guionado(responses=respuestas)
+    # Devuelve el MISMO par que `real()`: si el modo de prueba tuviera otra
+    # forma, el llamador tendría dos caminos y sólo uno estaría probado.
+    class _SinMedir:
+        def resumen(self):
+            return {"llamadas": 0, "tokens_in": 0, "tokens_out": 0, "tokens": 0}
+
+    return _Guionado(responses=respuestas), _SinMedir()

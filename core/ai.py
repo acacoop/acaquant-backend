@@ -86,6 +86,21 @@ _TAREAS: dict[str, dict] = {
     # tareas que nadie podía llamar, que es la peor clase de código muerto: hace
     # creer que el agente usa IA cuando no la usa.
     "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
+    # ⚠️ **EL TRANSPORTE DE ESTA TAREA NO ES `core/llm.py`.** El investigador
+    # (`lab/langgraph/`) habla con el proveedor a través de LangChain, que
+    # necesita un objeto-modelo y no una función. Así que NO pasa por
+    # `completar()` y esta config (tier/max_tokens/timeout) no la lee nadie:
+    # la fila existe para que la tarea esté DECLARADA en el mismo lugar que
+    # las demás, y para que su gasto no aparezca en las trazas como un nombre
+    # que nadie puede rastrear.
+    #
+    # Lo que sí comparte con todas: el PRESUPUESTO (se consulta antes de
+    # arrancar una investigación) y la TRAZA (una fila por llamada, escrita por
+    # `lab/langgraph/medidor.py` con `registrar()`).
+    #
+    # Quién mira su salida: la tab LAB del modal del AV AGENT.
+    "investigador": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
+                     "thinking": "disabled"},
     # Quién la mira: el botón «explicámelo» del panel de HABILIDADES del AV
     # AGENT (`agente/explicar.py`, §0.dh). Solo a pedido, nunca en una pasada,
     # y cacheada por hash del error: el mismo error no se paga dos veces.
@@ -278,6 +293,37 @@ def _trazar(
     except Exception as e:
         logger.warning("core.ai: no pude registrar la traza de %s (%s)", tarea, e)
         return None
+
+
+def registrar(
+    tarea: str,
+    *,
+    modelo: str,
+    usuario: str | None = None,
+    tokens_in: int | None = None,
+    tokens_out: int | None = None,
+    latencia_ms: int | None = None,
+    ok: bool = True,
+    error: str | None = None,
+    detalle: str | None = None,
+    respuesta: str | None = None,
+) -> int | None:
+    """Deja la traza de una llamada que el gateway NO transportó.
+
+    ⚠️ **Existe para un caller cuyo transporte no es `core/llm.py`** — hoy el
+    investigador, que usa LangChain porque necesita un objeto-modelo con
+    herramientas y no una función `completar()`. Sin esto, ese gasto no
+    aparecería en `ia.trazas`: ni cuánto, ni de qué tarea, ni de quién.
+
+    No es una puerta trasera: el presupuesto se sigue consultando con
+    `motivo_presupuesto()` antes de arrancar, y el ruteo de privacidad sigue
+    siendo responsabilidad del caller. Lo que esta función garantiza es que
+    **no haya gasto sin registro**.
+
+    Best-effort como `_trazar`: si la DB no responde, no rompe nada.
+    """
+    return _trazar(tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms,
+                   ok, error, detalle=detalle, respuesta=respuesta)
 
 
 def completar(

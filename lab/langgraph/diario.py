@@ -120,12 +120,18 @@ GRANT USAGE, SELECT ON SEQUENCE lab.investigaciones_id_seq TO escritor_lab;
 -- las filas viejas se ven como un solo punto largo — que es exactamente lo que
 -- eran. Va adentro de un DO porque `ALTER ... TYPE` falla si el tipo ya es el
 -- nuevo, y este bloque se corre mas de una vez.
--- ⚠️ La guarda pregunta el tipo REAL al catalogo (`atttypid::regtype`), que
--- devuelve exactamente `text` o `text[]`. La primera version miraba
--- `information_schema.columns.data_type` y se equivocaba: corria el ALTER
--- sobre una columna que YA era arreglo y reventaba con «function btrim(text[])
--- does not exist» — un error que habla de btrim y no del verdadero problema,
--- que era la guarda.
+-- ⚠️⚠️ **MIGRACION DE `text` A `text[]` SIN USAR `ALTER ... TYPE ... USING`.**
+--
+-- El camino corto era `ALTER COLUMN x TYPE text[] USING ARRAY[x]`, y fallo con
+-- **«function btrim(text[]) does not exist»** sobre una columna que era `text`:
+-- adentro del USING la referencia se resolvio con el tipo NUEVO. No se por que
+-- exactamente, asi que en vez de adivinar se evita el constructo.
+--
+-- Columna nueva → copiar → borrar la vieja → renombrar. Cuatro pasos que no
+-- dependen de como se resuelve nada, y el `IF t = 'text'` los saltea enteros si
+-- ya se corrio antes. El tipo se pregunta al CATALOGO (`atttypid::regtype`),
+-- que devuelve exactamente `text` o `text[]` — `information_schema` no sirve
+-- para esto.
 DO $mig$
 DECLARE c text; t text;
 BEGIN
@@ -135,10 +141,15 @@ BEGIN
      WHERE a.attrelid = 'lab.investigaciones'::regclass
        AND a.attname = c AND NOT a.attisdropped;
     IF t = 'text' THEN
+      EXECUTE format('ALTER TABLE lab.investigaciones ADD COLUMN %I text[]',
+                     c || '_arr');
       EXECUTE format(
-        'ALTER TABLE lab.investigaciones ALTER COLUMN %I TYPE text[] '
-        'USING CASE WHEN btrim(%I) = %L THEN ARRAY[]::text[] ELSE ARRAY[%I] END',
-        c, c, '', c);
+        'UPDATE lab.investigaciones SET %I = CASE WHEN btrim(%I) = %L '
+        'THEN ARRAY[]::text[] ELSE ARRAY[%I] END', c || '_arr', c, '', c);
+      EXECUTE format('ALTER TABLE lab.investigaciones DROP COLUMN %I', c);
+      EXECUTE format('ALTER TABLE lab.investigaciones RENAME COLUMN %I TO %I',
+                     c || '_arr', c);
+      EXECUTE format('ALTER TABLE lab.investigaciones ALTER COLUMN %I SET NOT NULL', c);
     END IF;
   END LOOP;
 END

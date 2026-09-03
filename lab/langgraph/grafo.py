@@ -57,6 +57,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from lab.langgraph import diario
 from lab.langgraph.herramientas import DETERMINISTAS, HERRAMIENTAS
 from lab.langgraph.investigaciones import INVESTIGACIONES
 from lab.langgraph.veredicto import Veredicto
@@ -113,6 +114,8 @@ class Estado(TypedDict):
     vueltas: int                            # cuántas veces pensó
     corto_por_presupuesto: bool
     veredicto: dict | None                  # datos planos, no el objeto
+    caso: str
+    guardado: dict
 
 
 def _clave(tc: dict) -> str:
@@ -165,6 +168,30 @@ def _ultima_tanda(mensajes: list) -> list[tuple[str, dict, str]]:
 def construir(modelo, con_memoria: bool = True):
     """Arma el grafo. `modelo` es cualquier cosa que sepa `.bind_tools()`."""
     cerebro = modelo.bind_tools(HERRAMIENTAS)
+
+    def antecedentes(estado: Estado) -> dict:
+        """LO QUE YA SE INVESTIGÓ de este mismo caso, si hay.
+
+        Es la mitad del sentido de guardar: sin esto el diario sería una tabla
+        que nadie lee, que es exactamente cómo murieron las tres features de IA
+        del sistema (`core/ai.py`: *«¿QUIÉN MIRA SU SALIDA?»*).
+
+        ⚠️ Se le pasan como ANTECEDENTES, no como respuesta. Un veredicto viejo
+        puede estar desactualizado —el mundo cambió, el código se arregló— así
+        que sirve para no empezar de cero, no para copiar.
+        """
+        previas = diario.anteriores(estado["investigacion"], estado.get("caso", ""))
+        if not previas:
+            return {}
+        lineas = [f"- {p['cuando']} (#{p['id']}, de_quien={p['de_quien_es']}"
+                  + ("" if p["piso_cubierto"] else ", NO cubrió el mínimo")
+                  + ("" if not p["corto_por_presupuesto"] else ", se quedó sin margen")
+                  + f"): {p['que_paso']}\n    quedó pendiente: {p['lo_que_no_se']}"
+                  for p in previas]
+        return {"messages": [SystemMessage(
+            "ESTO YA SE INVESTIGÓ ANTES. Puede estar desactualizado —el código "
+            "pudo cambiar—, así que verificá lo que uses. Sirve sobre todo "
+            "para arrancar por lo que quedó pendiente:\n" + "\n".join(lineas))]}
 
     ejecutor = ToolNode(HERRAMIENTAS)
 
@@ -314,15 +341,34 @@ def construir(modelo, con_memoria: bool = True):
                     "messages": [AIMessage(f"no pude armar el veredicto: {e}")]}
         return {"veredicto": v.model_dump()}
 
+    def anotar_en_el_diario(estado: Estado) -> dict:
+        """Deja la investigación en el libro. Con los HECHOS de la corrida al
+        lado del veredicto: qué herramientas usó de verdad, si cubrió el
+        mínimo, si se quedó sin margen. Eso es lo que después deja preguntar
+        «¿cuál de estas fue floja?» sin que el modelo opine de sí mismo."""
+        r = diario.guardar(
+            estado["investigacion"], estado.get("caso", ""),
+            estado.get("veredicto"),
+            herramientas=sorted(_herramientas_usadas(estado["messages"])),
+            piso_cubierto=not estado.get("faltan_del_piso"),
+            corto=bool(estado.get("corto_por_presupuesto")),
+            vueltas=int(estado.get("vueltas", 0)),
+            modelo=getattr(modelo, "model_name", "") or "",
+            por=estado.get("por", ""))
+        return {"guardado": r}
+
     g = StateGraph(Estado)
+    g.add_node("antecedentes", antecedentes)
     g.add_node("agente", agente)
     g.add_node("herramientas", herramientas)
     g.add_node("cortar", cortar)
     g.add_node("anotar", anotar)
     g.add_node("revisar_piso", revisar_piso)
     g.add_node("redactar", redactar)
+    g.add_node("diario", anotar_en_el_diario)
 
-    g.add_edge(START, "agente")
+    g.add_edge(START, "antecedentes")
+    g.add_edge("antecedentes", "agente")
     # Tres salidas después de pensar: ejecutar lo que pidió, cortar por
     # presupuesto, o pasar a que le revisen si miró lo mínimo.
     g.add_conditional_edges("agente", _despues_de_pensar,
@@ -333,6 +379,7 @@ def construir(modelo, con_memoria: bool = True):
     g.add_edge("anotar", "agente")
     g.add_conditional_edges("revisar_piso", _concluir_o_seguir,
                             {"agente": "agente", "redactar": "redactar"})
-    g.add_edge("redactar", END)
+    g.add_edge("redactar", "diario")
+    g.add_edge("diario", END)
 
     return g.compile(checkpointer=InMemorySaver() if con_memoria else None)

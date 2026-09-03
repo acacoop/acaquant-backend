@@ -5,6 +5,8 @@
     python -m lab.langgraph.correr job dolar_mep
     python -m lab.langgraph.correr libre "¿qué mira bono_sin_precio?"
     python -m lab.langgraph.correr --tipos                    # qué sabe investigar
+    python -m lab.langgraph.correr --historial                # lo que ya se investigó
+    python -m lab.langgraph.correr --sql                      # el SQL del diario
 
 ⚠️ **El caso entra por TIPO, no por prosa.** Un empleado no recibe una pregunta
 redactada: recibe un caso de una cola. Así el método queda determinado sin
@@ -20,7 +22,7 @@ import sys
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from lab.langgraph import grafo, modelo
+from lab.langgraph import diario, grafo, modelo
 from lab.langgraph.investigaciones import INVESTIGACIONES
 from lab.langgraph.veredicto import Veredicto, render
 
@@ -30,6 +32,14 @@ def _mostrar(evento: dict) -> None:
     cuando contesta mal hay que poder distinguir si eligió mal la herramienta,
     si la herramienta devolvió basura, o si tenía todo y razonó mal."""
     for nodo, salida in evento.items():
+        # ⚠️ Un nodo que no cambia nada del estado llega como `None`, no como
+        # `{}`. Sin esta guarda, la primera investigación sin antecedentes
+        # revienta con «NoneType has no attribute get».
+        salida = salida or {}
+        if g := salida.get("guardado"):
+            print(f"  💾 guardado en el diario, id {g['id']}" if g.get("ok")
+                  else f"  ⚠ NO se pudo guardar: {g.get('error', '')[:120]}")
+            continue
         if (v := salida.get("veredicto")) is not None:
             print("\n" + render(v))
             continue
@@ -39,6 +49,8 @@ def _mostrar(evento: dict) -> None:
                     print(f"  🔧 pide  {tc['name']}({tc['args']})")
             elif m.__class__.__name__ == "ToolMessage":
                 print(f"  📄 {m.name} → {' '.join(str(m.content).split())[:150]}…")
+            elif nodo == "antecedentes":
+                print(f"\n  📚 {' '.join(str(m.content).split())[:400]}\n")
             elif nodo == "cortar":
                 print("\n  ⏳ se agotó el presupuesto de pasos — concluyo con "
                       "lo que hay\n")
@@ -93,11 +105,21 @@ def main() -> int:
     ap.add_argument("--guionado", action="store_true",
                     help="modelo de mentira: prueba el grafo sin clave ni costo")
     ap.add_argument("--tipos", action="store_true", help="qué sabe investigar")
+    ap.add_argument("--historial", action="store_true",
+                    help="lo que ya se investigó (filtra por tipo y caso si los das)")
+    ap.add_argument("--sql", action="store_true",
+                    help="imprime el SQL del diario, para correrlo una vez en Supabase")
     ap.add_argument("--modelo", default="", help=f"default {modelo.MODELO_DEFAULT}")
     a = ap.parse_args()
 
     if a.tipos:
         _tipos()
+        return 0
+    if a.sql:
+        print(diario.SQL_ESQUEMA)
+        return 0
+    if a.historial:
+        print("\n" + diario.historial(a.tipo, " ".join(a.caso)) + "\n")
         return 0
 
     tipo, caso = a.tipo or "libre", " ".join(a.caso)
@@ -119,15 +141,22 @@ def main() -> int:
 
     print(f"\n[{inv.nombre}] {pregunta}\n")
     estado = {"messages": [HumanMessage(pregunta)], "investigacion": inv.nombre,
-              "intentos": [], "faltan_del_piso": [], "vueltas_piso": 0,
-              "vueltas": 0, "corto_por_presupuesto": False, "veredicto": None}
+              "caso": caso, "intentos": [], "faltan_del_piso": [],
+              "vueltas_piso": 0, "vueltas": 0, "corto_por_presupuesto": False,
+              "veredicto": None, "guardado": {}}
     # El `thread_id` es la CONVERSACIÓN: el checkpointer guarda el estado bajo
     # esa clave, y por eso el grafo puede frenarse y retomar sin perder nada.
     # El límite de recursión de LangGraph es la RED, no el freno: el freno es
     # `MAX_PASOS`, que corta y concluye. Se deja holgado para que el que actúe
     # sea siempre el freno prolijo y no la red.
-    config = {"configurable": {"thread_id": f"{inv.nombre}:{caso}"},
-              "recursion_limit": 80}
+    # ⚠️ El `thread_id` lleva la HORA. Sin eso, correr el mismo caso dos veces
+    # retomaba el estado de la corrida anterior en vez de empezar de nuevo — y
+    # el diario existe justamente para que cada investigación sea una fila
+    # aparte, no una continuación.
+    from datetime import datetime
+    config = {"configurable": {
+        "thread_id": f"{inv.nombre}:{caso}:{datetime.now():%Y%m%d%H%M%S}"},
+        "recursion_limit": 80}
     try:
         for evento in app.stream(estado, config, stream_mode="updates"):
             _mostrar(evento)

@@ -37,6 +37,8 @@ PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr job dolar_mep
 |---|---|---|
 | `herramientas.py` | 5 funciones de solo lectura sobre el repo | **tools** — el docstring ES el prompt |
 | `datos.py` | 6 funciones de solo lectura sobre Postgres | **tools con riesgo** — tocan producción |
+| `base.py` | las DOS conexiones, y nadie más las conoce | **fail-closed** — ninguna cae a la del sistema |
+| `diario.py` | el libro de investigaciones + su esquema SQL | **memoria persistente** |
 | `investigaciones.py` | un tipo de caso por fila, con su **piso** | **el método** — lo que hay que mirar antes de concluir |
 | `veredicto.py` | la forma de la respuesta, declarada una vez | **salida estructurada** |
 | `modelo.py` | de dónde sale el cerebro (Gemini o guionado) | **provider abstraction** |

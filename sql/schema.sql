@@ -5120,6 +5120,27 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
  ORDER BY h.dominio, h.nombre;
 
 
+-- ⚠️ **EL `DROP VIEW` DE ARRIBA SE LLEVA PUESTOS LOS GRANT.** Un permiso en
+-- Postgres cuelga del OBJETO, no del nombre: cuando estas tres vistas se
+-- dropean y se vuelven a crear en cada `apply_schema`, el objeto es OTRO y
+-- todo lo que se le había otorgado desaparece. Por eso `lector_lab` se quedó
+-- sin poder leerlas justo después de un deploy, sin que nadie hubiera tocado
+-- un permiso, y por eso otorgarlo A MANO en el editor de SQL no alcanza: dura
+-- hasta el próximo deploy. **El GRANT tiene que vivir al lado del CREATE.**
+--
+-- Va adentro de un DO porque el rol es OPCIONAL: en una base donde el lab no
+-- está instalado, `lector_lab` no existe y un GRANT suelto cortaría el deploy
+-- entero por una funcionalidad que esa base no usa.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lector_lab') THEN
+        GRANT USAGE ON SCHEMA agente TO lector_lab;
+        GRANT SELECT ON agente.v_ahora, agente.v_encontro, agente.v_habilidades
+            TO lector_lab;
+    END IF;
+END $$;
+
+
 -- ⚠️ **UN CHECK YA CREADO NO SE ACTUALIZA SOLO.** `CREATE TABLE IF NOT EXISTS`
 -- no toca la tabla que ya existe, así que agregar un valor al vocabulario de
 -- Python deja a la base rechazándolo — y el agente muere al sincronizar el

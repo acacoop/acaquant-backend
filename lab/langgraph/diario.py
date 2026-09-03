@@ -96,10 +96,12 @@ CREATE INDEX IF NOT EXISTS investigaciones_recientes
 GRANT USAGE ON SCHEMA lab TO lector_lab;
 GRANT SELECT ON lab.investigaciones TO lector_lab;
 
--- ⚠️ Y las VISTAS del modal: la lista de «que se puede investigar» las lee para
--- no inventar un tercer criterio de «lo que esta abierto» (REGLA #9). Sin este
--- grant, la lista sale vacia y parece que no hay nada que investigar.
-GRANT SELECT ON agente.v_ahora, agente.v_encontro TO lector_lab;
+-- ⚠️ Y las VISTAS del modal (`agente.v_ahora`, `agente.v_encontro`), que la
+-- lista de «que se puede investigar» lee para no inventar un tercer criterio de
+-- «lo que esta abierto» (REGLA #9): su GRANT **NO va aca**. Vive en
+-- `sql/schema.sql`, pegado al CREATE de las vistas, porque cada `apply_schema`
+-- las DROPEA y las vuelve a crear — y un permiso cuelga del objeto, no del
+-- nombre, asi que otorgarlo desde este bloque dura hasta el proximo deploy.
 
 -- El ESCRITOR sólo escribe acá. Sin UPDATE ni DELETE: es un libro.
 GRANT USAGE ON SCHEMA lab TO escritor_lab;

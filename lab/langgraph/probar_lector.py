@@ -25,6 +25,18 @@ TABLAS_QUE_LEE = ("mercado.curvas", "mercado.market_snapshot",
                   "agente.hallazgos", "agente.reincidencias",
                   "agente.acciones", "manager.job_runs")
 
+# ⚠️ LAS VISTAS VAN APARTE, y no por prolijidad: en una tabla de producción el
+# CERO es sospechoso (huele a RLS sin política), pero `v_ahora` vacía es una
+# respuesta LEGÍTIMA — quiere decir que hoy no pasó nada. Lo que se prueba acá
+# es que CONTESTEN, no cuánto traen. Meterlas en la lista de arriba habría dado
+# un ❌ cualquier día tranquilo, que es la forma más rápida de que nadie mire
+# más este script.
+#
+# Están en la lista porque el `DROP VIEW` de `sql/schema.sql` se lleva puestos
+# los GRANT en cada deploy: es el único permiso del lab que se puede caer solo,
+# sin que nadie toque nada.
+VISTAS_QUE_LEE = ("agente.v_ahora", "agente.v_encontro")
+
 
 def _fila(bien: bool, pregunta: str, detalle: str) -> bool:
     print(f"  {OK if bien else MAL}  {pregunta:38} {detalle}")
@@ -58,6 +70,17 @@ def _probar_lector() -> bool:
             except Exception as e:
                 conn.rollback()
                 todo &= _fila(False, f"¿lee {tabla}?", _primera_linea(e))
+
+        for vista in VISTAS_QUE_LEE:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f"SELECT count(*) FROM {vista}")
+                    n = cur.fetchone()[0]
+                todo &= _fila(True, f"¿lee {vista}?", f"contesta ({n} filas)")
+            except Exception as e:
+                conn.rollback()
+                todo &= _fila(False, f"¿lee {vista}?", _primera_linea(e)
+                              + "  ← ¿corriste apply_schema?")
 
         try:
             with conn.cursor() as cur:
@@ -93,7 +116,10 @@ def _probar_escritor() -> bool:
         return _fila(False, "¿conecta?", _primera_linea(e))
     todo = _fila(True, "¿conecta?", "entró")
 
-    fila = ("PRUEBA", "PRUEBA", "no_se", "prueba", "prueba", "prueba", "prueba")
+    # ⚠️ Las cuatro del medio son `text[]`, no `text`. Mandarles un string suelto
+    # hace fallar la prueba por el motivo equivocado y parece un permiso roto.
+    fila = ("PRUEBA", "PRUEBA", "no_se",
+            ["prueba"], ["prueba"], ["prueba"], ["prueba"])
     with conn:
         try:
             with conn.cursor() as cur:

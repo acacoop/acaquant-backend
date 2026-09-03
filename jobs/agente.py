@@ -47,10 +47,29 @@ def _parar(signum, _frame):
     _seguir = False
 
 
+def _atender_investigaciones() -> None:
+    """El INVESTIGADOR (`lab/langgraph/`) atiende su cola en un hilo aparte.
+
+    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE.** El agente es el que
+    detecta: si el laboratorio no está instalado, o se rompe, o le falta una
+    dependencia, la pasada tiene que seguir igual. Por eso el import va adentro
+    del try y no arriba del archivo — un `ImportError` al cargar el módulo
+    mataría el daemon entero al arrancar, que es exactamente lo contrario de
+    lo que este subsistema tiene que garantizar.
+    """
+    try:
+        from lab.langgraph import servicio
+        servicio.atender()
+    except Exception as e:
+        logger.debug("agente: el investigador no atendió (%s)", e)
+
+
 def _una_pasada() -> dict:
     from agente import motor
     r = motor.tick()
     motor.latir(r)
+    # Va DESPUÉS del tick: primero el trabajo del agente, después lo demás.
+    _atender_investigaciones()
     if r["corridas"]:
         logger.info("agente: %d habilidad(es) · %d nuevos · %d reincidencias · %dms",
                     len(r["corridas"]), r["nuevos"], r["reincidencias"], r["ms"])
@@ -158,6 +177,17 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, _parar)
     signal.signal(signal.SIGINT, _parar)
+
+    # Los pedidos de investigación que quedaron «corriendo» de una vida
+    # anterior: el hilo murió con el proceso y en la pantalla se ven como un
+    # spinner eterno, que es peor que un error porque no se distingue de «está
+    # tardando». Se cierran con el motivo y NO se reencolan solos.
+    try:
+        from lab.langgraph import servicio
+        servicio.recuperar_colgados()
+    except Exception as e:
+        logger.debug("agente: sin investigador (%s)", e)
+
     logger.info("agente: arrancado")
     while _seguir:
         t0 = time.monotonic()

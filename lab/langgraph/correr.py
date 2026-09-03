@@ -22,19 +22,26 @@ import sys
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from lab.langgraph import diario, grafo, modelo
+from lab.langgraph import diario, grafo, modelo, servicio
 from lab.langgraph.investigaciones import INVESTIGACIONES
 from lab.langgraph.veredicto import Veredicto, render
+
+# Cómo se dibuja cada clase de paso. La CLASE la decide `servicio.pasos_de`,
+# que es la misma que alimenta la pantalla: acá sólo se elige el ícono.
+_ICONO = {"pide": "🔧", "trajo": "📄", "repetido": "♻", "freno": "⛔",
+          "corte": "⏳", "antecedentes": "📚", "error": "⚠"}
 
 
 def _mostrar(evento: dict) -> None:
     """Imprime lo que va pasando. **Ver los pasos es la mitad del ejercicio**:
     cuando contesta mal hay que poder distinguir si eligió mal la herramienta,
-    si la herramienta devolvió basura, o si tenía todo y razonó mal."""
+    si la herramienta devolvió basura, o si tenía todo y razonó mal.
+
+    ⚠️ Traduce los eventos con `servicio.pasos_de`, la MISMA función que usa el
+    modal. Si cada pantalla tradujera por su cuenta, mostrarían cosas distintas
+    del mismo hecho y no habría forma de saber cuál miente.
+    """
     for nodo, salida in evento.items():
-        # ⚠️ Un nodo que no cambia nada del estado llega como `None`, no como
-        # `{}`. Sin esta guarda, la primera investigación sin antecedentes
-        # revienta con «NoneType has no attribute get».
         salida = salida or {}
         if g := salida.get("guardado"):
             print(f"  💾 guardado en el diario, id {g['id']}" if g.get("ok")
@@ -43,27 +50,12 @@ def _mostrar(evento: dict) -> None:
         if (v := salida.get("veredicto")) is not None:
             print("\n" + render(v))
             continue
-        for m in salida.get("messages", []):
-            if getattr(m, "tool_calls", None):
-                for tc in m.tool_calls:
-                    print(f"  🔧 pide  {tc['name']}({tc['args']})")
-            elif m.__class__.__name__ == "ToolMessage":
-                print(f"  📄 {m.name} → {' '.join(str(m.content).split())[:150]}…")
-            elif nodo == "antecedentes":
-                print(f"\n  📚 {' '.join(str(m.content).split())[:400]}\n")
-            elif nodo == "cortar":
-                print("\n  ⏳ se agotó el presupuesto de pasos — concluyo con "
-                      "lo que hay\n")
-                break
-            elif nodo == "revisar_piso":
-                # El método frenándolo. Verlo es importante: es la diferencia
-                # entre «se le ocurrió mirar eso» y «tuvo que mirarlo».
-                print(f"\n  ⛔ {m.content}\n")
-            elif m.content and nodo == "redactar":
-                # De `redactar` sólo sale texto cuando algo falló. La prosa del
-                # nodo `agente` no se imprime: el veredicto la reemplaza, y
-                # mostrar las dos deja al que lee sin saber cuál manda.
-                print(f"\n⚠  {m.content}\n")
+        for paso in servicio.pasos_de(nodo, salida):
+            icono = _ICONO.get(paso["clase"], "·")
+            que = f"{paso['que']}({paso['detalle']})" if paso["clase"] == "pide" \
+                else (f"{paso['que']} → {paso['detalle']}" if paso["que"]
+                      else paso["detalle"])
+            print(f"  {icono} {que[:190]}")
 
 
 # El veredicto del modo guionado: existe para que la prueba gratis cubra TAMBIÉN
@@ -116,7 +108,10 @@ def main() -> int:
         _tipos()
         return 0
     if a.sql:
+        # Los dos, en orden: la cola referencia al diario por FK.
+        from lab.langgraph import cola
         print(diario.SQL_ESQUEMA)
+        print(cola.SQL_ESQUEMA)
         return 0
     if a.historial:
         print("\n" + diario.historial(a.tipo, " ".join(a.caso)) + "\n")

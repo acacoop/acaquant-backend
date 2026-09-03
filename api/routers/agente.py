@@ -176,3 +176,65 @@ def explicar(body: Explicar, email: str = Depends(get_user_email)):
     """
     from agente import explicar as ex
     return ex.explicar(body.habilidad, por=email)
+
+
+# ── EL LABORATORIO (`lab/langgraph/`) ──────────────────────────────────────
+#
+# El INVESTIGADOR: cuando el agente detecta algo y se queda ahí —16 de sus 24
+# habilidades son avisos sin botón—, esto averigua por qué y propone qué hacer.
+#
+# ⚠️ **NO HAY UN ENDPOINT QUE INVESTIGUE Y DEVUELVA EL RESULTADO.** Una
+# investigación son 8 a 18 idas y vueltas al modelo: uno o dos minutos. El
+# proxy de Next corta a los 30 s (`maxDuration`) y ese corte se ve en pantalla
+# **idéntico a un backend caído**. Así que se PIDE (contesta en milisegundos con
+# un número) y después se PREGUNTA cómo va. Lo corre el daemon del agente.
+#
+# ⚠️ Estas rutas heredan `require_admin` del router, como todas. No hay que
+# acordarse: está puesto en el `APIRouter`, no en cada función.
+class Investigar(BaseModel):
+    tipo: str = Field(..., min_length=1, max_length=40)
+    caso: str = Field(..., min_length=1, max_length=120)
+
+
+@router.post("/lab/investigar")
+def lab_investigar(body: Investigar, email: str = Depends(get_user_email)):
+    """Encola una investigación. **No la corre**: devuelve el id para seguirla.
+
+    Si ya hay una igual sin terminar devuelve ESA en vez de encolar otra: dos
+    investigaciones del mismo caso a la vez son el mismo trabajo hecho dos
+    veces, y pagado dos veces.
+    """
+    from lab.langgraph import cola
+    from lab.langgraph.investigaciones import INVESTIGACIONES
+    if body.tipo not in INVESTIGACIONES:
+        return {"ok": False, "error": f"«{body.tipo}» no es un tipo de "
+                f"investigación. Hay: {', '.join(INVESTIGACIONES)}"}
+    return cola.encolar(body.tipo, body.caso.strip(), por=email)
+
+
+@router.get("/lab/pedido/{pedido_id}")
+def lab_pedido(pedido_id: int):
+    """Cómo va un pedido: su estado, los pasos hechos HASTA AHORA, y el
+    veredicto si ya terminó. Es lo que pollea la pantalla mientras corre."""
+    from lab.langgraph import cola
+    p = cola.ver(pedido_id)
+    return p or {"ok": False, "error": "ese pedido no existe"}
+
+
+@router.get("/lab")
+def lab(limite: int = 20):
+    """La tab LAB: los últimos pedidos y qué sabe investigar.
+
+    El catálogo viaja con la lista porque la pantalla **no puede inventarse los
+    tipos**: si los tuviera escritos en el navegador, agregar una investigación
+    nueva del lado del backend no aparecería, y sacar una dejaría un botón que
+    falla. Es la misma ley que el resto del modal — nada se deriva acá.
+    """
+    from lab.langgraph import cola
+    from lab.langgraph.investigaciones import INVESTIGACIONES
+    return {
+        "ok": True,
+        "pedidos": cola.ultimos(limite),
+        "tipos": [{"nombre": i.nombre, "que_es": i.que_es,
+                   "piso": list(i.piso)} for i in INVESTIGACIONES.values()],
+    }

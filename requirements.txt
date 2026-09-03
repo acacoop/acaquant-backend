@@ -33,6 +33,17 @@ pytest==9.0.3
 import-linter==2.13  # contratos de capas (.importlinter) — corre en CI como lint-imports
 pyinstrument==5.1.2  # profiling opt-in de requests (api/profiling.py, activado por API_PROFILING=1)
 
+# --- EL INVESTIGADOR (lab/langgraph) ---
+# ⚠️ Estas TRES son la primera dependencia de LLM del repo: hasta acá el gateway
+# (core/llm.py) hablaba HTTP crudo con `requests`. LangChain entra porque el
+# investigador necesita un OBJETO-modelo con herramientas, no una función.
+# El gasto igual pasa por core/ai.py (presupuesto + traza) vía el medidor.
+# Después de instalarlas conviene re-correr `python -m scripts.lock_deps` para
+# que queden pineadas también sus transitivas.
+langgraph==1.2.11
+langchain-core==1.6.1
+langchain-openai==1.6.0
+
 # --- transitivas (pineadas automáticamente) ---
 altair==4.2.2
 annotated-doc==0.0.4

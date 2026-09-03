@@ -76,7 +76,11 @@ CREATE TABLE IF NOT EXISTS lab.investigaciones (
     CONSTRAINT inv_que_paso  CHECK (btrim(que_paso) <> ''),
     CONSTRAINT inv_que_haria CHECK (btrim(que_haria) <> ''),
     CONSTRAINT inv_no_se     CHECK (btrim(lo_que_no_se) <> ''),
-    CONSTRAINT inv_fuentes   CHECK (array_length(de_donde, 1) > 0)
+    -- ⚠️ `cardinality`, NO `array_length`. `array_length('{}', 1)` devuelve
+    -- **NULL**, y un CHECK que da NULL PASA —solo falla con FALSE—, asi que
+    -- la restriccion era decorativa justo para el caso que venia a atajar:
+    -- un veredicto sin una sola fuente entraba igual. `cardinality` da 0.
+    CONSTRAINT inv_fuentes   CHECK (cardinality(de_donde) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS investigaciones_caso
@@ -102,6 +106,12 @@ GRANT USAGE, SELECT ON SEQUENCE lab.investigaciones_id_seq TO escritor_lab;
 --
 -- `DROP ... IF EXISTS` antes de crear porque CREATE POLICY no acepta IF NOT
 -- EXISTS: sin eso, correr este bloque dos veces falla.
+-- Si la tabla ya existia con el CHECK viejo (el de array_length), esto lo
+-- reemplaza. Es idempotente: en una tabla recien creada no hace nada.
+ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_fuentes;
+ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_fuentes
+    CHECK (cardinality(de_donde) > 0);
+
 DROP POLICY IF EXISTS escritor_lab_inserta ON lab.investigaciones;
 CREATE POLICY escritor_lab_inserta ON lab.investigaciones
     FOR INSERT TO escritor_lab WITH CHECK (true);

@@ -149,6 +149,20 @@ def _probar_escritor() -> bool:
         todo &= _fila(not toco, "¿puede tocar producción?",
                       "SÍ PUDO — el permiso está mal" if toco
                       else "NO — sólo escribe el diario")
+
+    # ⚠️ Y que la prueba no haya dejado basura. Todo lo de arriba va adentro de
+    # transacciones que se deshacen, pero eso es una afirmación sobre el código:
+    # esto la verifica contra la base, que es donde importa.
+    try:
+        with _conectar(ESCRITOR) as c2, c2.cursor() as cur:
+            cur.execute("SELECT count(*) FROM lab.investigaciones "
+                        " WHERE tipo = 'PRUEBA'")
+            quedaron = cur.fetchone()[0]
+        todo &= _fila(quedaron == 0, "¿la prueba dejó basura?",
+                      "NO — no quedó ninguna fila" if not quedaron
+                      else f"SÍ — quedaron {quedaron} fila(s) de prueba")
+    except Exception as e:
+        todo &= _fila(False, "¿la prueba dejó basura?", _primera_linea(e))
     return todo
 
 

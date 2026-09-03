@@ -1160,6 +1160,71 @@ Respeta el filtro por banco de la vista.
 
 ## Changelog
 
+- **2026-09-03 (3)** — ⚠️⚠️ **SE SELLABA COMO CIERRE UN SALDO QUE NO ERA UN CIERRE,
+  y el día más viejo de la base no se re-pedía nunca.** Lo levantó el back office
+  mirando CONCILIAR de BBVA · CC ARS 2820352686 el 02/09: *«el saldo al cierre da
+  −127.566,23 y el 01/09 daba 10.321,77, sin un solo movimiento — no hay de dónde
+  justificar esa diferencia»*. Eran **tres** problemas encimados y solo uno era el
+  que se veía.
+
+  **① El salto del 02/09 es REAL — lo que falta es el DETALLE.** El banco informa
+  `day_balance` −127.566,23 para el 02/09 y lo **confirma por un campo
+  independiente**: el `initial_operating_balance` del 03/09 dice exactamente lo
+  mismo. O sea que la cuenta se fue a descubierto de verdad; lo que Interbanking
+  **no** devolvió es el movimiento de 137.888 que lo explica. No es un error de
+  lectura nuestro: es un extracto incompleto del lado del banco.
+  · Y no se podía arreglar solo: **la ventana de ingesta pedía 1 día hábil hacia
+    atrás mientras la purga conservaba 3**. Ese desfasaje de una fecha hace que
+    *el día más viejo que tenemos sea uno que ya nunca se vuelve a pedir*: el
+    03/09 fue la última corrida que miró el 02/09, y si el banco publicaba el
+    movimiento después, no entraba **nunca**. No falla nada cuando pasa — la fila
+    existe, el job dice «ok», y «el banco no nos dio el detalle» se ve idéntico a
+    «ese día no hubo movimientos».
+  · **El arreglo**: `DIAS_ATRAS_DEFAULT = FECHAS_A_MANTENER − 1`, **derivado**, no
+    escrito. Se re-pide exactamente lo que se conserva, ni una fecha menos (queda
+    un día congelado) ni una más (se traen páginas que la purga borra en la misma
+    corrida). Los dos lados están congelados por test. **No cuesta llamadas**: el
+    rango entero viaja en la misma llamada por cuenta.
+  · ⚠️ El default estaba escrito **a mano en tres lugares** (`ventana()`, `run()`
+    y el `--dias` del CLI). REGLA #9: se corregía uno, el cron seguía llamando a
+    otro y el job corría en verde con la ventana vieja. Hay un test que compara
+    las tres firmas.
+
+  **② El cierre salía del saldo OPERATIVO, que es disponibilidad y no un cierre.**
+  Este es el bug de verdad, y apareció buscando el anterior. Con `saldo_dia` en
+  NULL (día quieto), `_SALDO_INFORMADO` caía directo a `saldo_operativo`
+  —`current_operating_balance`, **lo disponible ahora, con lo acreditado que
+  todavía no impactó**— salteándose el `countable_balance`, que estaba guardado
+  desde el día uno y **no lo usaba nadie**. Medido en el 03/09 de esa cuenta:
+  contable **−127.566,23** contra operativo **122.433,77** — **250.000 de
+  diferencia**.
+  · **Lo grave no es mostrarlo mal, es que se SELLA.** Ese número entra a
+    `bancos.cierres_diarios` y al día siguiente se lee como SALDO INICIO: un
+    saldo intradiario se convertía en la apertura del día siguiente y fabricaba
+    una diferencia de conciliación de 250.000 **contra un mayor que estaba bien**.
+  · **El arreglo**: `coalesce(saldo_dia, saldo_contable, saldo_operativo)`. La
+    regla en una línea — **primero el cierre del día, después el contable, y solo
+    entonces la disponibilidad**. El operativo sigue existiendo como último
+    recurso (sin ningún fallback la cuenta quieta vuelve a mostrar «—», el
+    agujero que la API de Saldos vino a tapar), pero deja de ser el primer
+    suplente. Congelado por test, incluido el ORDEN.
+
+  **③ Un NULL pisaba un número bueno.** `_persistir_saldos` hacía
+  `SET saldo_dia = EXCLUDED.saldo_dia`. Los dos bloques de la respuesta
+  (`historical_balances` y `balances`) son independientes y **cualquiera puede
+  faltar en una corrida**: cuando faltaba el histórico, la fila de la foto se
+  escribía con `day_balance = NULL` y **borraba el saldo del día que una corrida
+  anterior ya había guardado bien**. Pérdida de datos en silencio: la fila sigue
+  ahí, el job dice «ok», y el saldo se cae a un fallback peor. Ahora el upsert va
+  con `coalesce` campo por campo — un valor nuevo sigue pisando al viejo, lo que
+  ya no se puede es que la AUSENCIA de un dato se interprete como «ahora vale
+  NULL». `es_foto` sí se pisa siempre: es un hecho de esa corrida.
+
+  · **Qué mirar después de deployar**: el 03/09 de esa cuenta pasa de 122.433,77 a
+    −127.566,23 y deja de arrastrar los 250.000 al SALDO INICIO del 04/09. El
+    movimiento de 137.888 del 02/09 **sigue faltando hasta que el banco lo
+    publique** — la ventana nueva ya lo va a levantar solo cuando aparezca.
+
 - **2026-09-03 (2)** — ⚠️ **EL DIAG DEL SALDO AL CIERRE MENTÍA.**
   `scripts/diag_saldo_cierre.py` tenía la precedencia escrita **a mano** y era la
   VIEJA (`operativo` antes que `saldo_dia`), así que anunciaba «lo que compara la

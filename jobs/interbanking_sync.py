@@ -1,7 +1,8 @@
 """jobs/interbanking_sync.py — trae los extractos de Interbanking a `bancos.*`.
 
 ÚNICO writer del esquema `bancos`. Corre cada 2hs de 9 a 19 ART (ver
-deploy/crontab.txt) y en cada corrida re-sincroniza **el día hábil anterior y hoy**.
+deploy/crontab.txt) y en cada corrida re-sincroniza **exactamente las fechas que
+se conservan** (`FECHAS_A_MANTENER`, hoy 3 días hábiles contando el de hoy).
 
 ⚠️ **"Ayer" es HÁBIL, no calendario.** Los bancos no operan sábados, domingos ni
 feriados: un día no hábil no tiene extracto y no tiene movimientos. Restar un día
@@ -13,11 +14,11 @@ Gral. San Martín), la ventana pidió 17..18 y la vista mostró cero movimientos
 "ayer" que correspondía era el **viernes 14**. Lo mismo pasaba TODOS los lunes,
 donde la ventana caía en domingo y el viernes quedaba sin re-sincronizar.
 
-Por qué se re-pide el día anterior y no solo hoy: un movimiento puede aparecer o
-corregirse después del cierre del banco, y re-pedirlo es barato (una llamada por
-cuenta — el rango más ancho NO agrega llamadas, solo páginas si hay más de 100
-movimientos). La ingesta es idempotente, así que correrla diez veces deja el
-mismo resultado que correrla una.
+Por qué se re-piden los días anteriores y no solo hoy: un movimiento puede
+aparecer o corregirse después del cierre del banco, y re-pedirlo es barato (una
+llamada por cuenta — el rango más ancho NO agrega llamadas, solo páginas si hay
+más de 100 movimientos). La ingesta es idempotente, así que correrla diez veces
+deja el mismo resultado que correrla una.
 
 El rango SÍ incluye los días no hábiles que quedan en el medio (el finde entre el
 viernes y el lunes): van en la misma llamada, no cuestan nada y vienen vacíos.
@@ -35,14 +36,14 @@ Movimientos sería la misma data dos veces (medido: los dos endpoints devolviero
 segunda verdad para el saldo diario.
 
 Uso:
-    python -m jobs.interbanking_sync              # hábil anterior + hoy (lo del cron)
+    python -m jobs.interbanking_sync              # lo que conservamos (lo del cron)
     python -m jobs.interbanking_sync --dias 5     # 5 días HÁBILES hacia atrás
     python -m jobs.interbanking_sync --solo-cuentas
     python -m jobs.interbanking_sync --dry        # no escribe, solo reporta
 
-Costo: 4 llamadas para el maestro + ~1 de extracto por cuenta (más páginas si un
-día tuvo más de 100 movimientos) + 1 de saldo por cuenta. Con 38 cuentas son ~90
-llamadas por corrida, contra un límite de 100 **por minuto** — el cliente
+Costo: 4 llamadas para el maestro + ~1 de extracto por cuenta (más páginas si el
+rango tuvo más de 100 movimientos) + 1 de saldo por cuenta. Con 38 cuentas son
+~90 llamadas por corrida, contra un límite de 100 **por minuto** — el cliente
 throttlea a 80/min, así que la corrida se espacia sola y no lo agota.
 """
 from __future__ import annotations
@@ -69,6 +70,30 @@ LIMIT = 100          # el máximo que acepta la API por página
 # un archivo histórico — lo relevante es el último día hábil, y guardar meses de
 # extractos y movimientos es acumular por acumular.
 FECHAS_A_MANTENER = 3
+# ⚠️ **LA VENTANA ES EXACTAMENTE LO QUE CONSERVAMOS, y por eso se DERIVA.**
+#
+# Era 1 (día hábil anterior + hoy = 2 fechas) mientras la retención guardaba 3.
+# Ese desfasaje de una fecha es un agujero silencioso: **el día más viejo que
+# tenemos en la base es uno que ya nunca se vuelve a pedir**, así que si el banco
+# publica algo con dos días de atraso —o corrige un movimiento— lo tenemos en
+# pantalla para siempre incompleto y sin forma de enterarnos.
+#
+# Pasó con BBVA 2820352686 el 2026-09-02: el saldo del día decía −127.566,23
+# contra 10.321,77 del día anterior y el extracto de ese día no traía **un solo
+# movimiento** que explicara los 137.888. El salto es real —el banco lo confirma
+# por otro campo (`initial_operating_balance` del día siguiente)—, o sea que lo
+# que falta es el DETALLE. Con la ventana en 1, el 03/09 se pedía 02..03 (última
+# oportunidad) y el 04/09 ya se pedía 03..04: el 02/09 quedaba congelado sin
+# movimientos aunque el banco los publicara después.
+#
+# Derivarlo de `FECHAS_A_MANTENER` cierra el agujero por construcción y ata el
+# invariante: **se re-pide todo lo que se conserva, y no se trae nada que la
+# purga vaya a borrar en la misma corrida**. Si alguien sube la retención, la
+# ventana lo sigue sola.
+#
+# No cuesta llamadas: el rango entero viaja en la MISMA llamada por cuenta (solo
+# suma páginas si el rango junta más de 100 movimientos).
+DIAS_ATRAS_DEFAULT = FECHAS_A_MANTENER - 1
 MAX_PAGINAS = 50     # cortafuegos: 50 × 100 = 5.000 movimientos por cuenta y ventana
 
 
@@ -342,6 +367,18 @@ def _persistir_saldos(cuenta_id: int, r: dict) -> int:
       24/48hs). NO es una serie: se estampa solo en la fila del `row_date`, que
       es la fecha que declara la propia respuesta. Ponerlo en todos los días
       inventaría un proyectado de ayer que el banco nunca informó.
+
+    ⚠️ **UN NULL NO PISA UN NÚMERO** (el upsert va con `coalesce`). Los dos
+    bloques son independientes y **cualquiera puede faltar en una corrida**: si
+    hoy no hay entrada en `historical_balances`, esta función igual escribe la
+    fila de la foto con `day_balance = NULL`, y con el `SET` directo eso BORRABA
+    el saldo del día que una corrida anterior ya había guardado bien. Es una
+    pérdida de datos silenciosa: la fila sigue ahí, el job dice «ok», y el saldo
+    se cae a un fallback peor sin que nadie se entere.
+
+    El `coalesce` no tapa correcciones del banco —un valor nuevo pisa al viejo
+    igual que antes—; solo impide que la AUSENCIA de un dato se interprete como
+    «ahora vale NULL». `es_foto` sí se pisa siempre: es un hecho de esta corrida.
     """
     gd = r.get("general_data") or {}
     foto = _fecha(gd.get("row_date"))
@@ -372,14 +409,28 @@ def _persistir_saldos(cuenta_id: int, r: dict) -> int:
                       proyectado_24hs, proyectado_48hs, es_foto, raw, sincronizado_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb, now())
                    ON CONFLICT (cuenta_id, fecha) DO UPDATE SET
-                     saldo_dia           = EXCLUDED.saldo_dia,
-                     creditos_dia        = EXCLUDED.creditos_dia,
-                     debitos_dia         = EXCLUDED.debitos_dia,
-                     saldo_contable      = EXCLUDED.saldo_contable,
-                     saldo_operativo     = EXCLUDED.saldo_operativo,
-                     saldo_operativo_ini = EXCLUDED.saldo_operativo_ini,
-                     proyectado_24hs     = EXCLUDED.proyectado_24hs,
-                     proyectado_48hs     = EXCLUDED.proyectado_48hs,
+                     -- ⚠️ **UN NULL NO PISA UN NÚMERO.** Ver el comentario de
+                     -- abajo: el banco deja de mandar un bloque y esto lo
+                     -- interpretaba como «ahora vale NULL», borrando el saldo
+                     -- del día que ya teníamos bien.
+                     saldo_dia           = coalesce(EXCLUDED.saldo_dia,
+                                                    bancos.saldos.saldo_dia),
+                     creditos_dia        = coalesce(EXCLUDED.creditos_dia,
+                                                    bancos.saldos.creditos_dia),
+                     debitos_dia         = coalesce(EXCLUDED.debitos_dia,
+                                                    bancos.saldos.debitos_dia),
+                     saldo_contable      = coalesce(EXCLUDED.saldo_contable,
+                                                    bancos.saldos.saldo_contable),
+                     saldo_operativo     = coalesce(EXCLUDED.saldo_operativo,
+                                                    bancos.saldos.saldo_operativo),
+                     saldo_operativo_ini = coalesce(EXCLUDED.saldo_operativo_ini,
+                                                    bancos.saldos.saldo_operativo_ini),
+                     proyectado_24hs     = coalesce(EXCLUDED.proyectado_24hs,
+                                                    bancos.saldos.proyectado_24hs),
+                     proyectado_48hs     = coalesce(EXCLUDED.proyectado_48hs,
+                                                    bancos.saldos.proyectado_48hs),
+                     -- `es_foto` SÍ se pisa: es un hecho de ESTA corrida (¿esta
+                     -- fecha es el `row_date`?) y ayer dejó de serlo de verdad.
                      es_foto             = EXCLUDED.es_foto,
                      raw                 = EXCLUDED.raw,
                      sincronizado_at     = now()""",
@@ -466,7 +517,8 @@ def _log_sync(cuenta_id: int | None, desde: str, hasta: str, paginas: int,
 # --------------------------------------------------------------------------- #
 # Orquestación
 # --------------------------------------------------------------------------- #
-def ventana(dias_atras: int = 1, hoy: date | None = None) -> tuple[date, date]:
+def ventana(dias_atras: int = DIAS_ATRAS_DEFAULT,
+            hoy: date | None = None) -> tuple[date, date]:
     """(desde, hasta) de la corrida. `dias_atras` cuenta **días HÁBILES**.
 
     Es una función aparte y pura para poder testearla sin red ni base: la
@@ -479,6 +531,11 @@ def ventana(dias_atras: int = 1, hoy: date | None = None) -> tuple[date, date]:
     también los martes post-feriado (2026-08-18: el lunes 17 fue feriado y la
     ventana pidió 17..18, dos días sin nada, cuando el "ayer" real era el
     viernes 14).
+
+    ⚠️ **El default se DERIVA de `FECHAS_A_MANTENER`** (ver la constante): se
+    re-pide exactamente lo que se conserva. Con el 1 que había, la fecha más
+    vieja de la base nunca se volvía a pedir y un movimiento publicado con dos
+    días de atraso no entraba nunca.
 
     `hasta` es HOY aunque hoy no sea hábil: si alguien corre el job un domingo,
     la ventana igual tiene que llegar hasta la fecha de corrida. Los días no
@@ -511,7 +568,8 @@ def _dias_entre(desde: date, hasta: date) -> list[date]:
     return [desde + timedelta(days=i) for i in range((hasta - desde).days + 1)]
 
 
-def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -> dict:
+def run(*, dias_atras: int = DIAS_ATRAS_DEFAULT, solo_cuentas: bool = False,
+        dry: bool = False) -> dict:
     desde, hasta = ventana(dias_atras)
     d1, d2 = desde.isoformat(), hasta.isoformat()
 
@@ -610,9 +668,9 @@ def run(*, dias_atras: int = 1, solo_cuentas: bool = False, dry: bool = False) -
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Sincroniza extractos de Interbanking")
-    ap.add_argument("--dias", type=int, default=1,
+    ap.add_argument("--dias", type=int, default=DIAS_ATRAS_DEFAULT,
                     help="cuántos días HÁBILES hacia atrás "
-                         "(default 1 = día hábil anterior + hoy)")
+                         f"(default {DIAS_ATRAS_DEFAULT} = lo mismo que se conserva)")
     ap.add_argument("--solo-cuentas", action="store_true", help="solo el maestro de cuentas")
     ap.add_argument("--dry", action="store_true", help="no escribe nada")
     args = ap.parse_args()

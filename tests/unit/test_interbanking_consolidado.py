@@ -404,11 +404,12 @@ def test_si_el_dia_no_esta_sellado_se_sella_al_vuelo(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# CUÁL de los dos saldos de la API de Saldos es «el saldo del día»
+# CUÁL de los saldos de la API de Saldos es «el saldo del día»
 # --------------------------------------------------------------------------- #
-# `bancos.saldos` guarda dos números que el banco manda por bloques distintos:
+# `bancos.saldos` guarda tres números que el banco manda por bloques distintos:
 #   · `saldo_dia`       — una fila POR DÍA (`historical_balances`). Cuánto quedó
 #                         ese día: lo homogéneo con un cierre.
+#   · `saldo_contable`  — el saldo CONTABLE de la foto (`countable_balance`).
 #   · `saldo_operativo` — la foto de HOY (`balances.current_operating_balance`).
 #                         Lo DISPONIBLE ahora, no el cierre contable de una fecha.
 #
@@ -420,14 +421,32 @@ def test_si_el_dia_no_esta_sellado_se_sella_al_vuelo(monkeypatch):
 def test_manda_el_SALDO_DEL_DIA_y_no_el_operativo():
     """La decisión, congelada. Si se invierte, no falla nada: la columna muestra
     otro número y el ≠ aparece o desaparece sin que nadie lo pida."""
-    assert bancos._SALDO_INFORMADO == "coalesce(s.saldo_dia, s.saldo_operativo)"
+    assert bancos._SALDO_INFORMADO == (
+        "coalesce(s.saldo_dia, s.saldo_contable, s.saldo_operativo)")
+
+
+def test_el_CONTABLE_va_antes_que_el_operativo():
+    """⚠️ El orden del fallback, congelado (2026-09-03).
+
+    El operativo es DISPONIBILIDAD, no cierre. Medido en producción sobre BBVA
+    2820352686: el banco informaba contable −127.566,23 y operativo 122.433,77
+    —250.000 de diferencia, plata acreditada que no impactaba en el contable— y
+    la pantalla tomaba el segundo **y lo sellaba** como cierre, con lo cual al
+    día siguiente entraba como SALDO INICIO y fabricaba una diferencia de
+    conciliación de 250.000 contra un mayor que estaba bien.
+    """
+    orden = bancos._SALDO_INFORMADO
+    assert orden.index("saldo_dia") < orden.index("saldo_contable") < \
+        orden.index("saldo_operativo"), (
+            "el cierre del día manda, después el CONTABLE y solo al final la "
+            "disponibilidad: " + orden)
 
 
 def test_el_operativo_SIGUE_siendo_el_respaldo():
-    """El `coalesce` se conserva —al revés— y no es un detalle: una cuenta QUIETA
-    no tiene fila en `historical_balances`, así que su único saldo es el operativo
-    de la foto. Sin el fallback esa cuenta volvería a mostrar «—», que es
-    exactamente el agujero que la API de Saldos vino a tapar."""
+    """El `coalesce` se conserva —al final— y no es un detalle: una cuenta QUIETA
+    no tiene fila en `historical_balances`, así que sin ningún fallback volvería a
+    mostrar «—», que es exactamente el agujero que la API de Saldos vino a tapar.
+    Es el ÚLTIMO recurso, no el primer suplente."""
     assert "saldo_operativo" in bancos._SALDO_INFORMADO
 
 

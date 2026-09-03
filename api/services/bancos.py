@@ -1302,17 +1302,20 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # camino alternativo (`conciliar()`), que además sirve para una cuenta que todavía
 # no esté mapeada.
 
-# ⚠️ **CUÁL DE LOS DOS SALDOS DE LA API DE SALDOS ES «EL SALDO DEL DÍA».**
+# ⚠️ **CUÁL DE LOS SALDOS DE LA API DE SALDOS ES «EL SALDO DEL DÍA».**
 #
-# `bancos.saldos` guarda dos números que el banco manda por bloques distintos y
+# `bancos.saldos` guarda TRES números que el banco manda por bloques distintos y
 # que NO son lo mismo:
 #
 #   · `saldo_dia`       ← `historical_balances[].day_balance`. Una fila POR DÍA:
 #                          cuánto quedó ese día. Es lo homogéneo con un cierre.
+#   · `saldo_contable`  ← `balances.countable_balance`. El saldo CONTABLE de la
+#                          foto. Solo existe en la fila del `row_date`.
 #   · `saldo_operativo` ← `balances.current_operating_balance`. La foto de HOY,
 #                          estampada solo en la fila del `row_date` (`es_foto`).
-#                          Es el saldo OPERATIVO —lo disponible ahora—, no el
-#                          cierre contable de una fecha.
+#                          Es el saldo OPERATIVO —lo DISPONIBLE ahora, con lo
+#                          acreditado que todavía no impactó—, no el cierre
+#                          contable de una fecha.
 #
 # **Manda `saldo_dia`** (decisión del back office, 2026-09-01). Hasta esa fecha el
 # orden estaba al revés y el operativo le ganaba cuando existía, o sea justo en el
@@ -1320,17 +1323,30 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # el cierre del extracto contra el saldo OPERATIVO y cantaba como contradicción
 # del banco lo que era una diferencia de definición.
 #
-# El `coalesce` se conserva —al revés— y no es un detalle: una cuenta QUIETA no
-# tiene fila en `historical_balances`, así que su único saldo es el operativo de
-# la foto. Sin el fallback esa cuenta volvería a mostrar «—», que es exactamente
-# el agujero que esta API vino a tapar.
+# ⚠️⚠️ **EL CONTABLE VA ANTES QUE EL OPERATIVO** (2026-09-03). El fallback existe
+# porque una cuenta QUIETA no tiene fila en `historical_balances` y sin él
+# volvería a mostrar «—» —el agujero que la API de Saldos vino a tapar—, pero
+# **caer al OPERATIVO era caer en el número equivocado**: es disponibilidad, no
+# cierre, y acá se está contestando «cuánto cerró». Medido en producción sobre
+# BBVA 2820352686 el 2026-09-03: el banco informaba `countable_balance`
+# −127.566,23 y `current_operating_balance` 122.433,77 —**250.000 de diferencia**,
+# plata acreditada que todavía no impactaba en el contable— y la pantalla tomaba
+# el segundo. Peor que mostrarlo mal: **ese número se SELLA** en
+# `bancos.cierres_diarios` y al día siguiente se lee como SALDO INICIO, así que un
+# saldo intradiario se convertía en la apertura del día siguiente y fabricaba una
+# diferencia de conciliación de 250.000 contra un mayor que estaba bien.
+#
+# El operativo se conserva como ÚLTIMO recurso —si el banco no manda el contable,
+# sigue siendo preferible un saldo aproximado a un «—»—, pero deja de ser el
+# primer suplente. La regla en una línea: **primero el cierre del día, después el
+# contable, y solo entonces la disponibilidad.**
 #
 # ⚠️ Se declara ACÁ y lo usan las TRES pantallas que lo necesitan (el cierre, el
 # consolidado y DIFERENCIAS). Estaba copiado en las tres, y tres copias de una
 # regla sin árbitro es la REGLA #9: el día que alguien corrija una, las otras dos
 # siguen diciendo lo de antes y ninguna falla — muestran otro número.
 # Requiere que la tabla `bancos.saldos` venga aliaseada como `s`.
-_SALDO_INFORMADO = "coalesce(s.saldo_dia, s.saldo_operativo)"
+_SALDO_INFORMADO = "coalesce(s.saldo_dia, s.saldo_contable, s.saldo_operativo)"
 
 # Las dos fuentes entre las que el back office puede elegir. `manual` NO está: no
 # es una fuente del banco, es «esta cuenta no la informa nadie».

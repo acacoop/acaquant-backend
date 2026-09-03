@@ -13,10 +13,16 @@ Lo mismo pasaba todos los lunes, con el domingo.
 """
 from __future__ import annotations
 
+import inspect
 from datetime import date
 
 from api.services import bancos
-from jobs.interbanking_sync import ventana
+from jobs.interbanking_sync import (
+    DIAS_ATRAS_DEFAULT,
+    FECHAS_A_MANTENER,
+    run,
+    ventana,
+)
 
 
 def test_martes_post_feriado_retrocede_hasta_el_viernes():
@@ -50,6 +56,63 @@ def test_correr_un_domingo_igual_llega_hasta_hoy():
 
 def test_cero_dias_atras_es_solo_hoy():
     assert ventana(0, hoy=date(2026, 8, 18)) == (date(2026, 8, 18), date(2026, 8, 18))
+
+
+# --------------------------------------------------------------------------- #
+# LA VENTANA CUBRE EXACTAMENTE LO QUE SE CONSERVA (2026-09-03)
+# --------------------------------------------------------------------------- #
+# El bug: la ventana pedía 1 día hábil hacia atrás (2 fechas) mientras la purga
+# conservaba 3. Ese desfasaje de UNA fecha significa que **el día más viejo de la
+# base es uno que ya nunca se vuelve a pedir**: queda congelado con lo que hubiera
+# ese día y, si el banco publica un movimiento con atraso o lo corrige, no entra
+# nunca más.
+#
+# No falla nada cuando pasa. La fila existe, el job dice «ok», el saldo está — lo
+# único que falta es el DETALLE que lo explica, y eso en pantalla se ve igual que
+# «ese día no hubo movimientos».
+#
+# Caso real: BBVA 2820352686 el 02/09/2026. El saldo saltó de 10.321,77 a
+# −127.566,23 (el banco confirma el salto por otro campo) y el extracto de ese día
+# no traía UN SOLO movimiento. El 03/09 fue la última corrida que lo pidió.
+
+def test_la_ventana_cubre_TODAS_las_fechas_que_se_conservan():
+    """El invariante que cierra el agujero: se re-pide todo lo que se guarda.
+
+    Si `DIAS_ATRAS_DEFAULT` vuelve a quedar por debajo de `FECHAS_A_MANTENER − 1`,
+    la fecha más vieja de la base deja de re-sincronizarse y un movimiento
+    publicado con atraso no entra nunca.
+    """
+    assert DIAS_ATRAS_DEFAULT >= FECHAS_A_MANTENER - 1, (
+        f"la ventana ({DIAS_ATRAS_DEFAULT} hábiles = {DIAS_ATRAS_DEFAULT + 1} "
+        f"fechas) no llega a cubrir las {FECHAS_A_MANTENER} fechas que conserva "
+        "la purga: el día más viejo queda congelado sin poder corregirse")
+
+
+def test_la_ventana_no_trae_de_MAS_lo_que_la_purga_borra_en_la_misma_corrida():
+    """El otro lado del invariante. Traer más días de los que se conservan es
+    gastar páginas de API en datos que `purgar()` borra al final de la MISMA
+    corrida — y encima hace creer que hay historia donde no la hay."""
+    assert DIAS_ATRAS_DEFAULT <= FECHAS_A_MANTENER - 1, (
+        "la ventana trae fechas que la purga borra en la misma corrida")
+
+
+def test_el_default_de_la_ventana_es_el_MISMO_en_los_tres_lugares():
+    """⚠️ El default estaba escrito a mano en `ventana()`, en `run()` y en el
+    `--dias` del CLI. Tres copias de la misma decisión sin árbitro (REGLA #9):
+    se corrige una, el cron sigue llamando a otra y **no falla nada** — el job
+    corre en verde pidiendo la ventana vieja."""
+    assert inspect.signature(ventana).parameters["dias_atras"].default == \
+        DIAS_ATRAS_DEFAULT
+    assert inspect.signature(run).parameters["dias_atras"].default == \
+        DIAS_ATRAS_DEFAULT
+
+
+def test_con_la_ventana_nueva_el_dia_de_ANTEAYER_se_vuelve_a_pedir():
+    """El caso del 02/09 traducido a fechas: corriendo el viernes 04/09, el
+    miércoles 02/09 **tiene que seguir dentro** del rango que se le pide al banco.
+    Con el default viejo (1) la ventana era 03..04 y el 02 quedaba afuera."""
+    desde, hasta = ventana(hoy=date(2026, 9, 4))        # viernes
+    assert (desde, hasta) == (date(2026, 9, 2), date(2026, 9, 4))
 
 
 def test_el_tope_de_60_dias_es_de_CALENDARIO():

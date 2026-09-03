@@ -3841,12 +3841,19 @@ CREATE TABLE IF NOT EXISTS bancos.saldos (
     -- Del bloque `balances`: es la foto de HOY, no una serie. Solo se completa
     -- en la fila del `row_date` que declara la respuesta; en los días anteriores
     -- queda NULL, que es lo correcto — el banco no informa el proyectado de ayer.
+    --
+    -- ⚠️ **`saldo_contable` es el PRIMER SUPLENTE de `saldo_dia`** (2026-09-03).
+    -- Estaba guardado desde el día uno y no lo leía nadie: el fallback saltaba
+    -- directo al operativo. Ver el comentario de `_SALDO_INFORMADO`.
     saldo_contable      numeric,
-    -- ⚠️ El saldo OPERATIVO (`current_operating_balance`) es lo DISPONIBLE ahora,
-    -- no el cierre contable de una fecha. Es el RESPALDO de `saldo_dia`, no su
-    -- reemplazo: la cuenta QUIETA no tiene fila en `historical_balances` y este
-    -- es su único saldo. Preferirlo hacía que el badge ≠ del consolidado
-    -- comparara el cierre del extracto contra otro concepto.
+    -- ⚠️ El saldo OPERATIVO (`current_operating_balance`) es lo DISPONIBLE ahora
+    -- —incluye lo acreditado que todavía no impactó en el contable—, no el cierre
+    -- contable de una fecha. Es el ÚLTIMO recurso, después de `saldo_contable`:
+    -- la cuenta QUIETA no tiene fila en `historical_balances` y sin ningún
+    -- fallback volvería a mostrar «—». Preferirlo al contable hacía que se
+    -- SELLARA un saldo intradiario como cierre del día, y ese sellado es el SALDO
+    -- INICIO del día siguiente (medido: 250.000 de diferencia en BBVA 2820352686
+    -- el 2026-09-03).
     saldo_operativo     numeric,
     saldo_operativo_ini numeric,
     proyectado_24hs     numeric,

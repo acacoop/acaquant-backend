@@ -1160,6 +1160,27 @@ Respeta el filtro por banco de la vista.
 
 ## Changelog
 
+- **2026-09-03 (2)** — ⚠️ **EL DIAG DEL SALDO AL CIERRE MENTÍA.**
+  `scripts/diag_saldo_cierre.py` tenía la precedencia escrita **a mano** y era la
+  VIEJA (`operativo` antes que `saldo_dia`), así que anunciaba «lo que compara la
+  pantalla» **dos días después** de que la pantalla dejara de compararlo así.
+  · **Por qué importa más que un bug cualquiera**: a un diag se lo consulta justo
+    cuando nadie más sabe qué está pasando. Uno que miente no deja el problema
+    donde estaba — manda a buscarlo a otro lado.
+  · **El arreglo es el árbitro, no el número**: el «informado» sale de
+    `bancos._SALDO_INFORMADO` (dentro de la query) y la precedencia de
+    `bancos._cierre_del_banco()` —los MISMOS que dibujan la pantalla, elección
+    del back office incluida—. REGLA #9 aplicada al tooling.
+  · **Bloque nuevo: SALTOS SIN MOVIMIENTOS QUE LOS EXPLIQUEN.** Contesta la
+    pregunta que trajo el back office («el cierre da −127.566,23 y el día no
+    tiene un solo movimiento»), que ninguna comparación de las que había podía
+    contestar: todas miran ADENTRO de un día y el salto está ENTRE dos. Además
+    **nombra al sospechoso** — si ese día no tiene `saldo_dia`, el cierre está
+    saliendo de la FOTO INTRADIARIA (`saldo_operativo`), imprime qué decía el
+    `saldo_contable` y chequea si con ese el día cierra exacto.
+  · `--cuenta` ahora acepta el **número de cuenta**, que es lo único que se ve en
+    pantalla, además del id interno.
+
 - **2026-09-03** — ⚠️ **QUÉ SALDO VALE lo elige el back office**, no el código.
   Pedido del user: *«en los casos que el saldo al cierre hay dos, estaría bueno
   que ahí mismo permita al usuario elegir qué saldo quiere tomar y que eso se

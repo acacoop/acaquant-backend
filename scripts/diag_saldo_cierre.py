@@ -41,20 +41,36 @@ números:
       movimientos suman Y, la cabecera está describiendo otra cosa (otro período,
       otro extracto, un acumulado) y ahí no hay nada que comparar: hay que
       arreglar la ingesta.
+  (d) **EL SALDO SALTA Y NO HAY MOVIMIENTOS QUE LO EXPLIQUEN.** Es la pregunta que
+      trajo el back office el 2026-09-03 («el cierre da −127.566,23 y el día no
+      tiene un solo movimiento»). Se contesta al final, en su propio bloque, y con
+      el sospechoso nombrado: un día QUIETO no tiene fila en `historical_balances`,
+      así que su único saldo es el de la FOTO — y una foto intradiaria no es un
+      cierre.
 
 Por eso imprime **tres bloques por fila**, no dos: cabecera del extracto,
 cabecera de saldos, y el detalle guardado con su propia aritmética. Y dice quién
 no coincide con quién, que es la pregunta que la pantalla no puede contestar.
 
+⚠️ **El «informado» lo resuelve el ÁRBITRO, no una copia.** Este diag llegó a
+tener escrita a mano la precedencia vieja (`operativo` antes que `saldo_dia`), o
+sea que seguía anunciando «lo que compara la pantalla» **cuatro días después de
+que la pantalla dejara de compararlo así**. Un diag que miente es peor que no
+tenerlo: se lo usa justo cuando nadie más sabe qué está pasando. Ahora el valor
+sale de `bancos._SALDO_INFORMADO` (en la query) y la precedencia de
+`bancos._cierre_del_banco()` — los MISMOS que dibujan la pantalla. REGLA #9.
+
 Uso:
     python -m scripts.diag_saldo_cierre
     python -m scripts.diag_saldo_cierre --solo-diferencias
-    python -m scripts.diag_saldo_cierre --cuenta 12
+    python -m scripts.diag_saldo_cierre --cuenta 12            # por id
+    python -m scripts.diag_saldo_cierre --cuenta 2820352686    # o por nº de cuenta
 """
 from __future__ import annotations
 
 import argparse
 import json
+from itertools import pairwise
 
 from api.services import bancos as B
 
@@ -67,16 +83,22 @@ def _p(v) -> str:
     return "—" if v is None else f"{v:>18,.2f}"
 
 
-def _filas(cuenta: int | None) -> list[dict]:
+def _filas(cuenta: str | None) -> list[dict]:
     """Una fila por (cuenta, fecha) que exista en CUALQUIERA de las dos tablas.
 
     El universo de fechas es la UNIÓN y no una de las dos: si arrancara del
     extracto, las cuentas quietas —que son justo las que esta API vino a
     cubrir— no aparecerían nunca; si arrancara de saldos, se perderían los días
     que el banco informa por extracto y no por saldos.
+
+    `cuenta` acepta el **id** o el **número de cuenta**, que es lo único que se
+    ve en pantalla. Pedirle al que concilia que primero averigüe un id interno
+    es lo que hace que el diag no se use.
     """
-    where = "c.activa" if cuenta is None else "c.id = %s"
-    args: tuple = () if cuenta is None else (cuenta,)
+    where, args = "c.activa", ()
+    if cuenta is not None:
+        where = "(c.account_number = %s OR c.id::text = %s)"
+        args = (cuenta, cuenta)
     return B._q(
         f"""WITH dias AS (
                 SELECT cuenta_id, fecha FROM bancos.extracto_dia
@@ -90,18 +112,39 @@ def _filas(cuenta: int | None) -> list[dict]:
                    e.cierra, e.diferencia,
                    s.saldo_dia, s.creditos_dia, s.debitos_dia, s.saldo_contable,
                    s.saldo_operativo, s.saldo_operativo_ini, s.proyectado_24hs,
-                   s.proyectado_48hs, s.es_foto, s.raw,
+                   s.proyectado_48hs, s.es_foto, s.sincronizado_at, s.raw,
+                   -- El «informado» sale del ÁRBITRO, no de una copia escrita acá:
+                   -- es la MISMA expresión que usan el consolidado, el cierre y
+                   -- DIFERENCIAS. Si acá se resolviera distinto, el diag mentiría
+                   -- justo el día que se lo consulta. REGLA #9.
+                   {B._SALDO_INFORMADO} AS informado,
+                   p.fuente AS elegida,
                    -- LA TERCERA FUENTE: el detalle que de verdad guardamos. Es
                    -- lo único independiente de las dos cabeceras — si el header
                    -- del extracto no coincide con sus propios movimientos, el
                    -- sospechoso deja de ser un misterio.
-                   d2.n_movs, d2.cr_movs, d2.db_movs, d2.extractos
+                   d2.n_movs, d2.cr_movs, d2.db_movs, d2.extractos,
+                   -- Lo que se SELLÓ para ese día: es lo que mañana se lee como
+                   -- SALDO INICIO, así que un cierre malo no se queda quieto.
+                   cd.saldo AS sellado, cd.fuente AS sellado_fuente,
+                   -- Los manuales del día: nuestro saldo los suma, el del banco no.
+                   mm.ajuste AS ajuste_manual
               FROM dias d
               JOIN bancos.cuentas   c ON c.id = d.cuenta_id
               LEFT JOIN bancos.extracto_dia e
                      ON e.cuenta_id = d.cuenta_id AND e.fecha = d.fecha
               LEFT JOIN bancos.saldos       s
                      ON s.cuenta_id = d.cuenta_id AND s.fecha = d.fecha
+              LEFT JOIN bancos.fuente_elegida p
+                     ON p.cuenta_id = d.cuenta_id AND p.fecha = d.fecha
+              LEFT JOIN bancos.cierres_diarios cd
+                     ON cd.cuenta_id = d.cuenta_id AND cd.fecha = d.fecha
+              LEFT JOIN (SELECT cuenta_id, fecha,
+                                sum(CASE WHEN tipo = 'C' THEN abs(importe)
+                                         ELSE -abs(importe) END) AS ajuste
+                           FROM bancos.movimientos_manuales
+                          GROUP BY cuenta_id, fecha) mm
+                     ON mm.cuenta_id = d.cuenta_id AND mm.fecha = d.fecha
               LEFT JOIN (SELECT cuenta_id, fecha, count(*) AS n_movs,
                                 sum(CASE WHEN tipo = 'C' THEN abs(importe) ELSE 0 END)
                                   AS cr_movs,
@@ -116,9 +159,93 @@ def _filas(cuenta: int | None) -> list[dict]:
         args)
 
 
+def _cierre_efectivo(r: dict) -> tuple[float | None, str | None]:
+    """El cierre del banco de esa fila, con el MISMO árbitro que la pantalla.
+
+    No se recalcula la precedencia acá: se llama a `bancos._cierre_del_banco()`,
+    que es el único lugar donde está escrita. Un diag con su propia copia de la
+    regla puede decir que todo está bien mientras la pantalla muestra otra cosa.
+    """
+    return B._cierre_del_banco(_n(r["informado"]), _n(r["saldo_cierre"]),
+                               r.get("elegida"))
+
+
+def _saltos(filas: list[dict]) -> None:
+    """**Días donde el saldo salta y los movimientos no lo explican.**
+
+    La aritmética es la de la pantalla DIFERENCIAS:
+
+        sin_explicar  =  (cierre − cierre_previo)  −  Σ movimientos del día
+
+    y se calcula con el árbitro, no con una fuente elegida a mano. Lo que agrega
+    este bloque es **el sospechoso**: cuando el día no tiene `saldo_dia` y el
+    cierre está saliendo del `saldo_operativo`, el salto no es del banco — es
+    nuestro, porque estamos leyendo una FOTO INTRADIARIA como si fuera un cierre.
+    """
+    print("\n" + "=" * 100)
+    print("SALTOS SIN MOVIMIENTOS QUE LOS EXPLIQUEN")
+    print("=" * 100)
+    por_cuenta: dict[int, list[dict]] = {}
+    for r in filas:
+        por_cuenta.setdefault(r["id"], []).append(r)
+
+    hallados = 0
+    for rs in por_cuenta.values():
+        rs = sorted(rs, key=lambda x: x["fecha"])
+        for previa, hoy in pairwise(rs):
+            ayer_v, ayer_f = _cierre_efectivo(previa)
+            hoy_v, hoy_f = _cierre_efectivo(hoy)
+            if ayer_v is None or hoy_v is None:
+                continue
+            neto = round((_n(hoy["cr_movs"]) or 0.0) - (_n(hoy["db_movs"]) or 0.0), 2)
+            salto = round(hoy_v - ayer_v, 2)
+            sin_explicar = round(salto - neto, 2)
+            if abs(sin_explicar) < 0.01:
+                continue
+            hallados += 1
+            print(f"\n[{hoy['id']}] {hoy['bank_name']} {hoy['account_number']} "
+                  f"{hoy['currency']}   {previa['fecha']} → {hoy['fecha']}")
+            print(f"    cierre {previa['fecha']}  {_p(ayer_v)}  (fuente: {ayer_f})")
+            print(f"    cierre {hoy['fecha']}  {_p(hoy_v)}  (fuente: {hoy_f})")
+            print(f"    salto                 {_p(salto)}")
+            print(f"    Σ movimientos del día {_p(neto)}   ({hoy['n_movs'] or 0} movimientos)")
+            print(f"    SIN EXPLICAR          {_p(sin_explicar)}")
+            if hoy["ajuste_manual"] is not None:
+                print(f"    (ajuste manual del día: {_p(_n(hoy['ajuste_manual']))} — "
+                      "nuestro saldo lo suma, el del banco no)")
+
+            # EL SOSPECHOSO. Acá está la diferencia entre «el banco se
+            # contradice» y «le estamos preguntando otra cosa al banco».
+            if hoy_f == "saldo" and _n(hoy["saldo_dia"]) is None:
+                print("    ⚠️  SOSPECHOSO: ese día NO tiene `saldo_dia` — el banco no lo")
+                print("        informó en `historical_balances` (día quieto). El cierre")
+                print("        está saliendo del SALDO OPERATIVO, que es una FOTO")
+                print(f"        INTRADIARIA (es_foto={hoy['es_foto']}, "
+                      f"sincronizado {hoy['sincronizado_at']}), no un cierre contable.")
+                print(f"        saldo_contable de ese día: {_p(_n(hoy['saldo_contable']))}"
+                      "   ← ESTE sí es el saldo contable")
+                cont = _n(hoy["saldo_contable"])
+                if cont is not None and abs(round(cont - ayer_v - neto, 2)) < 0.01:
+                    print("        ✓ y con el CONTABLE el día cierra exacto contra el "
+                          "cierre anterior.")
+            elif _n(hoy["saldo_dia"]) is not None:
+                print("    → el salto viene del `saldo_dia` que informó el banco: acá el")
+                print("      sospechoso NO es la fuente, es el dato o un movimiento que")
+                print("      el banco imputó a otra fecha.")
+            if hoy["sellado"] is not None:
+                print(f"    sellado en cierres_diarios: {_p(_n(hoy['sellado']))} "
+                      f"(fuente {hoy['sellado_fuente']}) ← esto viaja al SALDO INICIO "
+                      "del día siguiente")
+
+    if not hallados:
+        print("\n  ✓ Ningún salto sin explicar en las fechas que hay en la base.")
+    print(f"\n  saltos sin explicar: {hallados}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--cuenta", type=int, default=None, help="acotar a UNA cuenta (id)")
+    ap.add_argument("--cuenta", default=None,
+                    help="acotar a UNA cuenta: id interno o nº de cuenta")
     ap.add_argument("--solo-diferencias", action="store_true",
                     help="solo las filas donde los dos números no coinciden")
     ap.add_argument("--raw", action="store_true",
@@ -140,8 +267,12 @@ def main() -> None:
         cierre = _n(r["saldo_cierre"])
         dia = _n(r["saldo_dia"])
         operativo = _n(r["saldo_operativo"])
-        # Exactamente lo que compara el consolidado para dibujar el ≠.
-        informado = operativo if operativo is not None else dia
+        # Exactamente lo que compara el consolidado para dibujar el ≠, resuelto
+        # por el ÁRBITRO (`_SALDO_INFORMADO`, en la query). Acá había una copia a
+        # mano de la precedencia VIEJA —`operativo` antes que `saldo_dia`—, o sea
+        # que el diag anunciaba «lo que compara la pantalla» cuatro días después
+        # de que la pantalla dejara de compararlo así.
+        informado = _n(r["informado"])
         dif = (None if cierre is None or informado is None
                else round(cierre - informado, 2))
         # La misma comparación pero contra el SALDO DEL DÍA, que es el número
@@ -188,7 +319,8 @@ def main() -> None:
         print(f"    saldo_operativo_ini {_p(_n(r['saldo_operativo_ini']))}")
         print(f"    proyectado 24 / 48  {_p(_n(r['proyectado_24hs']))} / "
               f"{_p(_n(r['proyectado_48hs']))}")
-        print(f"    es_foto             {r['es_foto']}")
+        print(f"    es_foto             {r['es_foto']}"
+              f"      sincronizado {r['sincronizado_at']}")
 
         # ③ El DETALLE. Es la única fuente independiente de las dos cabeceras:
         #    los movimientos que el banco mandó uno por uno y nosotros guardamos.
@@ -224,7 +356,8 @@ def main() -> None:
                   f"{_p(d_cr).strip()} de diferencia")
 
         print("  COMPARACIÓN DE SALDOS")
-        print(f"    lo que compara la pantalla   cierre − {'operativo' if operativo is not None else 'saldo_dia'}"
+        cual = "saldo_dia" if dia is not None else "operativo"
+        print(f"    lo que compara la pantalla   cierre − {cual}"
               f"  = {_p(dif)}")
         print(f"    contra el SALDO DEL DÍA      cierre − saldo_dia   = {_p(dif_dia)}")
         if hay_dif and dif_dia is not None and abs(dif_dia) < 0.01:
@@ -244,6 +377,10 @@ def main() -> None:
           "   ← diferencia de definición, no error")
     print(f"extractos que NO cierran (aritmética):     {ext_no_cierra}")
     print("=" * 100)
+
+    # El bloque (d): el salto que ninguna de las comparaciones de arriba ve,
+    # porque no está ADENTRO de un día sino ENTRE dos.
+    _saltos(filas)
 
 
 if __name__ == "__main__":

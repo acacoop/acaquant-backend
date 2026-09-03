@@ -8,12 +8,13 @@ integración no puede mover plata ni por error.
 
 Lo que SÍ escribe (desde 2026-08-18) va todo a tablas NUESTRAS: la clasificación
 de gastos (`gastos_reglas` / `gastos_overrides` / `gastos_baldes` /
-`movimientos_ignorados`), y lo manual
-(`movimientos_manuales` + las cuentas con `origen='manual'`). **Nada de eso toca
-el extracto del banco ni sale a internet.** Son 18 endpoints, todos detrás de
-`bancos.puede_escribir` (allowlist de Tesorería + admin) y todos auditados. Un
-test enumera exactamente cuáles son, así que uno nuevo no entra sin que alguien
-lo decida.
+`movimientos_ignorados`), lo manual
+(`movimientos_manuales` + las cuentas con `origen='manual'`) y, desde 2026-09-03,
+cuál de los dos saldos del banco vale como cierre (`fuente_elegida`). **Nada de
+eso toca el extracto del banco ni sale a internet.** Son 19 endpoints, todos
+detrás de `bancos.puede_escribir` (allowlist de Tesorería + admin) y todos
+auditados. Un test enumera exactamente cuáles son, así que uno nuevo no entra sin
+que alguien lo decida.
 
 Gate: se monta en `api/main.py` con `_BACK_OFFICE`, o sea `require_module(
 "back-office")`. **JAMÁS al portal invitado** (REGLA #8) — son los saldos
@@ -205,6 +206,33 @@ def _exigir_escritura(email: str) -> str:
     if not _svc.puede_escribir(email):
         raise HTTPException(403, "No tenés permiso para editar los gastos bancarios.")
     return email
+
+
+# ── CUÁL de los dos saldos del banco vale ─────────────────────────────────── #
+# Va bajo `/saldo/*` —y no colgado de `/gastos/*`— para que el proxy de Next lo
+# deje pasar por una regla explícita: es la escritura que mueve EL NÚMERO de la
+# columna, no una clasificación.
+@router.put("/saldo/fuente")
+def elegir_fuente_saldo(
+    cuenta_id: int = Body(..., embed=True),
+    fecha: date | None = Body(None, embed=True),
+    # `null` vuelve al AUTOMÁTICO (borra la elección). No es un tercer valor
+    # guardado: «auto» y «sin fila» serían dos formas de escribir lo mismo.
+    fuente: str | None = Body(None, embed=True),
+    email: str = Depends(get_user_email),
+) -> dict:
+    """Elige cuál de los DOS saldos que informa el banco es el cierre de ese día.
+
+    Solo tiene sentido cuando hay dos y no coinciden (el badge ≠ del
+    consolidado). Escribe en `bancos.fuente_elegida` —tabla NUESTRA— y re-sella
+    el día, así el número elegido viaja solo al SALDO INICIO de mañana, a
+    CONCILIAR y a DIFERENCIAS. Hacia Interbanking no sale nada.
+    """
+    try:
+        return _svc.elegir_fuente_saldo(
+            _exigir_escritura(email), cuenta_id, _fecha(fecha), fuente)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/gastos/reglas")

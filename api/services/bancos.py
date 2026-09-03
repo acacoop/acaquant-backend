@@ -1332,9 +1332,51 @@ def _gastos_de_movimientos(fecha: date, cuenta_id: int,
 # Requiere que la tabla `bancos.saldos` venga aliaseada como `s`.
 _SALDO_INFORMADO = "coalesce(s.saldo_dia, s.saldo_operativo)"
 
+# Las dos fuentes entre las que el back office puede elegir. `manual` NO está: no
+# es una fuente del banco, es «esta cuenta no la informa nadie».
+FUENTES_ELEGIBLES = ("saldo", "extracto")
+
+
+def _cierre_del_banco(informado: float | None, extracto: float | None,
+                      elegida: str | None) -> tuple[float | None, str | None]:
+    """CUÁL de los dos saldos que informa el banco ES el cierre de ese día.
+
+    ⚠️⚠️ **El único lugar donde se decide.** Lo usan `_saldos_banco()` (que
+    alimenta el consolidado, CONCILIAR y el sellado) y `diferencias()`. Estaba
+    escrito en los dos, y dos copias de una regla sin árbitro es la REGLA #9: el
+    día que una se corrige, la otra sigue diciendo lo de antes y **no falla
+    nada** — muestra otro número en otra pantalla.
+
+    El default (sin elección): **manda el SALDO INFORMADO** y el extracto es el
+    respaldo. El respaldo no es opcional — la API de Saldos puede no contestar
+    por una cuenta o por un día, y ahí el cierre del extracto es lo único que
+    hay.
+
+    ⚠️ **`elegida` LO DA VUELTA** (pedido del back office, 2026-09-03: *«no es
+    lineal, hay veces que vale uno y otras que vale otro»*). Cuando el banco
+    informa los dos y no coinciden, cuál vale es una decisión de negocio que se
+    toma mirando ESE día, así que se guarda por cuenta y por fecha
+    (`bancos.fuente_elegida`) y acá se aplica.
+
+    ⚠️ Si la fuente elegida **no tiene número**, se cae al default en vez de
+    devolver «—». Una elección vieja no puede borrar de la pantalla un saldo que
+    el banco sí informa; el que llama publica la elección aparte, así que la
+    diferencia entre «lo que elegí» y «lo que se aplicó» queda visible.
+    """
+    if elegida == "extracto" and extracto is not None:
+        return extracto, "extracto"
+    if elegida == "saldo" and informado is not None:
+        return informado, "saldo"
+    if informado is not None:
+        return informado, "saldo"
+    if extracto is not None:
+        return extracto, "extracto"
+    return None, None
+
+
 
 def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
-    """{cuenta_id: {"valor", "fuente", "ajuste"}} — **EL SALDO AL CIERRE**.
+    """{cuenta_id: {"valor", "fuente", "ajuste", "elegida"}} — **EL SALDO AL CIERRE**.
 
     ⚠️⚠️ **ESTE es el número que muestra la pantalla principal en la columna
     SALDO AL CIERRE, y es el MISMO que se sella y que al día siguiente se lee
@@ -1352,17 +1394,22 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
     banco ya trae adentro los movimientos de días anteriores y sumarlos otra vez
     los contaría dos veces.
 
-    El saldo del banco es el del extracto si lo hay, si no el que informa
-    `bancos.saldos`, y si la cuenta no la informa Interbanking es 0 (su saldo son
-    sus manuales).
+    **Cuál de los dos saldos del banco vale lo decide `_cierre_del_banco()`**: el
+    informado por default, el extracto de respaldo, y **lo que haya elegido el
+    back office para esa cuenta y ese día** por encima de los dos
+    (`bancos.fuente_elegida`). Si la cuenta no la informa Interbanking el saldo
+    del banco es 0 y su saldo son sus manuales.
 
     **`consolidado()` llama a esta misma función para dibujar la columna**, así
     que lo que se ve en pantalla y lo que se sella no pueden ser distintos. Eso
     fue un bug real: el consolidado calculaba una fórmula y el sellado otra, y el
-    SALDO INICIO del día siguiente salía de la segunda.
+    SALDO INICIO del día siguiente salía de la segunda. Por eso mismo **elegir
+    una fuente re-sella el día**: la elección viaja sola al SALDO INICIO de
+    mañana, sin que nadie tenga que acordarse.
 
     `fuente` usa las etiquetas que espera el frontend: `extracto` | `saldo` |
-    `manual`.
+    `manual`. `elegida` es lo que se ELIGIÓ a mano (o `None`), que puede no
+    coincidir con `fuente` si esa fuente se quedó sin número.
 
     `cuenta_id` acota a UNA cuenta —y entonces NO filtra por `activa`, porque el
     drill-down puede pedir una cuenta dada de baja que el tablero ya no lista.
@@ -1371,11 +1418,16 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
     sql = f"""
         SELECT c.id AS cuenta_id, c.origen, e.saldo_cierre,
                {_SALDO_INFORMADO} AS informado,
+               p.fuente AS elegida,
                coalesce(m.ajuste, 0) AS ajuste,
                coalesce(m.acumulado, 0) AS acumulado
           FROM bancos.cuentas c
           LEFT JOIN bancos.extracto_dia e ON e.cuenta_id = c.id AND e.fecha = %s
           LEFT JOIN bancos.saldos       s ON s.cuenta_id = c.id AND s.fecha = %s
+          -- Cuál de los dos saldos del banco eligió el back office para ESE día.
+          -- Va acá, en la query que ya corre, y no en un roundtrip aparte: contra
+          -- Supabase cada ida y vuelta cuesta ~8,5ms de peaje fijo.
+          LEFT JOIN bancos.fuente_elegida p ON p.cuenta_id = c.id AND p.fecha = %s
           -- El del DÍA (cuentas de Interbanking) y el ACUMULADO (cuentas
           -- `origen='manual'`, que no tienen saldo del banco). Ver el bucle.
           LEFT JOIN (SELECT cuenta_id,
@@ -1386,7 +1438,7 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
                       WHERE fecha <= %s
                       GROUP BY cuenta_id) m ON m.cuenta_id = c.id
          WHERE """
-    args = (fecha, fecha, fecha, fecha)
+    args = (fecha, fecha, fecha, fecha, fecha)
     if cuenta_id is None:
         filas = _q(sql + "c.activa", args)
     else:
@@ -1405,38 +1457,102 @@ def _saldos_banco(fecha: date, cuenta_id: int | None = None) -> dict[int, dict]:
             if not acumulado and not _f(r["ajuste"]):
                 continue
             out[r["cuenta_id"]] = {"valor": round(acumulado, 2),
-                                   "fuente": "manual", "ajuste": acumulado}
+                                   "fuente": "manual", "ajuste": acumulado,
+                                   # Acá no hay dos saldos del banco: no hay nada
+                                   # que elegir.
+                                   "elegida": None}
             continue
 
         # El resto: el saldo lo informa Interbanking y ya trae adentro los
         # movimientos de días anteriores, así que solo se suma el manual DEL DÍA.
         #
-        # ⚠️ **MANDA EL SALDO INFORMADO, no el cierre del extracto** (decisión del
-        # back office, 2026-09-01). Hasta esa fecha era al revés.
-        #
-        # El extracto queda de RESPALDO, y el fallback no es opcional: la API de
-        # Saldos puede no contestar por una cuenta o por un día, y ahí el cierre
-        # del extracto es lo único que hay. Sin él la cuenta mostraría «—»
-        # teniendo el dato.
+        # ⚠️ **CUÁL de los dos saldos del banco vale lo decide `_cierre_del_banco`**
+        # —el único árbitro— y ahí se aplica lo que ELIGIÓ el back office para esa
+        # cuenta y ese día (`bancos.fuente_elegida`). Sin elección manda el saldo
+        # informado y el extracto queda de respaldo.
         #
         # Cuando existen los dos y NO coinciden, la diferencia se sigue
         # publicando (`discrepancia` → el badge ≠ del consolidado). Elegir uno no
         # es tapar al otro: es dejar de mostrar en la columna un número que el
         # back office no reconoce, sin perder el hallazgo.
         ajuste = _f(r["ajuste"]) or 0.0
-        if r["informado"] is not None:
-            base, fuente = _f(r["informado"]), "saldo"
-        elif r["saldo_cierre"] is not None:
-            base, fuente = _f(r["saldo_cierre"]), "extracto"
-        elif ajuste:
-            base, fuente = 0.0, "manual"
-        else:
-            # Sin extracto, sin saldo y sin manuales no sabemos nada. «No
-            # sabemos» no es «cero».
-            continue
+        elegida = r.get("elegida")
+        base, fuente = _cierre_del_banco(_f(r["informado"]), _f(r["saldo_cierre"]),
+                                         elegida)
+        if base is None:
+            if ajuste:
+                base, fuente = 0.0, "manual"
+            else:
+                # Sin extracto, sin saldo y sin manuales no sabemos nada. «No
+                # sabemos» no es «cero».
+                continue
         out[r["cuenta_id"]] = {"valor": round((base or 0.0) + ajuste, 2),
-                               "fuente": fuente, "ajuste": ajuste}
+                               "fuente": fuente, "ajuste": ajuste,
+                               # LO QUE SE ELIGIÓ, que puede no ser lo que se
+                               # APLICÓ: si la fuente elegida se quedó sin
+                               # número, `fuente` cae al default y la pantalla
+                               # tiene que poder decirlo.
+                               "elegida": elegida}
     return out
+
+
+def elegir_fuente_saldo(email: str, cuenta_id: int, fecha: date,
+                        fuente: str | None) -> dict:
+    """**Cuál de los dos saldos del banco vale como cierre** de esa cuenta ese día.
+
+    ⚠️ Pedido del back office (2026-09-03): *«en los casos donde el saldo al
+    cierre hay dos, que ahí mismo el usuario elija cuál tomar y que eso se adapte
+    a todo — no es lineal, hay veces que vale uno y otras que vale otro»*.
+
+    `fuente` es `'saldo'` (el que informa la API de Saldos), `'extracto'` (el
+    cierre del extracto) o **`None` para volver al automático** — que borra la
+    fila, no guarda un tercer valor: «auto» y «sin fila» serían dos formas de
+    escribir lo mismo.
+
+    Es **por cuenta y por fecha**. Una preferencia pegajosa arrastraría al día
+    siguiente una decisión que se tomó mirando otro día.
+
+    ⚠️ **Se re-sella el día**, igual que cuando se carga un movimiento manual: el
+    cierre de hoy es el SALDO INICIO de mañana, así que sin esto la elección
+    quedaría solo en la pantalla de hoy y mañana la apertura leería el número
+    viejo. Eso es lo que hace que «se adapte a todo»: CONCILIAR, DIFERENCIAS y el
+    consolidado leen todos de `_saldos_banco()` / del sellado.
+    """
+    f = (fuente or "").strip().lower() or None
+    if f is not None and f not in FUENTES_ELEGIBLES:
+        raise ValueError(
+            "La fuente tiene que ser 'saldo' (el que informa el banco), "
+            "'extracto' (el cierre del extracto) o vacío para volver al automático.")
+    if not _q("SELECT 1 FROM bancos.cuentas WHERE id = %s", (cuenta_id,)):
+        raise ValueError("Esa cuenta no existe.")
+
+    if f is None:
+        _exec("DELETE FROM bancos.fuente_elegida WHERE cuenta_id = %s AND fecha = %s",
+              (cuenta_id, fecha))
+    else:
+        _exec(
+            """INSERT INTO bancos.fuente_elegida
+                 (cuenta_id, fecha, fuente, elegido_por)
+               VALUES (%s,%s,%s,%s)
+               ON CONFLICT (cuenta_id, fecha) DO UPDATE SET
+                 fuente = EXCLUDED.fuente, elegido_por = EXCLUDED.elegido_por,
+                 elegido_at = now()""",
+            (cuenta_id, fecha, f, email))
+
+    # El cierre de ese día cambió → se vuelve a sellar. `sellar_cierre` devuelve
+    # lo que acaba de guardar, así que el que llamó se entera del número nuevo sin
+    # volver a leer nada — y sin recalcularlo por su cuenta, que es como dos
+    # pantallas terminan diciendo dos cosas.
+    sellado = sellar_cierre(fecha).get(cuenta_id) or {}
+    _audit(email, "saldo_fuente_elegida",
+           {"cuenta_id": cuenta_id, "fecha": fecha, "fuente": f,
+            "saldo": sellado.get("valor")})
+    return {"cuenta_id": cuenta_id, "fecha": fecha.isoformat(),
+            "fuente_elegida": f,
+            # La que se APLICÓ. Puede no ser la elegida si esa fuente no tiene
+            # número ese día — y entonces la pantalla lo tiene que decir.
+            "fuente": sellado.get("fuente"),
+            "saldo_cierre": sellado.get("valor")}
 
 
 def sellar_cierre(fecha: date) -> dict[int, dict]:
@@ -1447,9 +1563,10 @@ def sellar_cierre(fecha: date) -> dict[int, dict]:
     cálculos raros»*. Esto es ese sellado.
 
     Se llama cada vez que el cierre de un día puede haber cambiado: cuando la
-    ingesta de Interbanking trae datos y cuando alguien carga o borra un
-    movimiento manual. Volver a sellar el mismo día pisa el valor anterior, así
-    que correrlo de más no rompe nada.
+    ingesta de Interbanking trae datos, cuando alguien carga o borra un
+    movimiento manual, y cuando alguien ELIGE cuál de los dos saldos del banco
+    vale (`elegir_fuente_saldo`). Volver a sellar el mismo día pisa el valor
+    anterior, así que correrlo de más no rompe nada.
     """
     saldos = _saldos_banco(fecha)
     filas = [(cid, fecha, v["valor"], v["fuente"], v["ajuste"])
@@ -2183,16 +2300,22 @@ def diferencias(email: str, fecha: date) -> dict:
              FROM bancos.cuentas WHERE activa
             ORDER BY bank_name, currency, account_type, account_number""")
 
-    # Los dos días en UNA query, y las dos fuentes de saldo en otra: el cierre
-    # sale del SALDO INFORMADO si lo hay y si no del extracto, la misma prioridad
-    # que usa el consolidado (ver `_cierre` acá abajo y `_saldos_banco`). Si acá
-    # eligiera distinto, dos pantallas dirían dos saldos para el mismo día.
+    # Los dos días en UNA query, y las dos fuentes de saldo en otra: cuál de las
+    # dos vale lo decide `_cierre_del_banco`, el MISMO árbitro que usa el
+    # consolidado —incluida la elección que haya hecho el back office para esa
+    # cuenta y ese día—. Si acá eligiera distinto, dos pantallas dirían dos
+    # saldos para el mismo día.
     ext = {(r["cuenta_id"], r["fecha"]): r for r in _q(
         """SELECT cuenta_id, fecha, saldo_apertura, saldo_cierre, cierra
              FROM bancos.extracto_dia WHERE fecha IN (%s, %s)""", (fecha, previa))}
     sal = {(r["cuenta_id"], r["fecha"]): _f(r["saldo"]) for r in _q(
         f"""SELECT s.cuenta_id, s.fecha, {_SALDO_INFORMADO} AS saldo
              FROM bancos.saldos s WHERE s.fecha IN (%s, %s)""", (fecha, previa))}
+    # La elección, para los DOS días: la variación es una resta entre dos cierres
+    # y cada uno se arma con la fuente que se eligió para SU día.
+    elegidas = {(r["cuenta_id"], r["fecha"]): r["fuente"] for r in _q(
+        """SELECT cuenta_id, fecha, fuente
+             FROM bancos.fuente_elegida WHERE fecha IN (%s, %s)""", (fecha, previa))}
 
     movs = {r["cuenta_id"]: (_f(r["neto"]) or 0.0, r["n"]) for r in _q(
         """SELECT cuenta_id,
@@ -2206,14 +2329,15 @@ def diferencias(email: str, fecha: date) -> dict:
     manuales = _ajuste_manual(fecha)
 
     def _cierre(cid: int, f: date) -> float | None:
-        """La MISMA prioridad que `_saldos_banco`: manda el saldo informado y el
-        extracto es el respaldo. Si acá eligiera distinto, esta pantalla y el
-        consolidado mostrarían dos cierres para el mismo día."""
-        informado = sal.get((cid, f))
-        if informado is not None:
-            return informado
-        e = ext.get((cid, f))
-        return None if e is None else _f(e.get("saldo_cierre"))
+        """El MISMO árbitro que `_saldos_banco`: `_cierre_del_banco`, con la
+        elección de esa cuenta y ese día. Si acá se resolviera con una copia de
+        la regla, esta pantalla y el consolidado mostrarían dos cierres para el
+        mismo día y ninguna de las dos fallaría."""
+        e = ext.get((cid, f)) or {}
+        valor, _fuente = _cierre_del_banco(sal.get((cid, f)),
+                                           _f(e.get("saldo_cierre")),
+                                           elegidas.get((cid, f)))
+        return valor
 
     filas: list[dict] = []
     for c in cuentas:
@@ -2277,8 +2401,14 @@ def consolidado(email: str, fecha: date) -> dict:
 
     Las dos fuentes NO se suman ni se promedian: por cuenta gana una sola y la
     respuesta dice cuál. Si el banco informa un cierre de extracto distinto del
-    saldo del día, eso es un HALLAZGO de conciliación (`discrepancia`), no un
-    número a elegir por nosotros.
+    saldo del día, eso es un HALLAZGO de conciliación (`discrepancia`) y se sigue
+    publicando **aunque se haya elegido uno**: elegir no es tapar el otro.
+
+    ⚠️ **Cuál de los dos vale lo puede decidir el back office** desde esta misma
+    pantalla (`elegir_fuente_saldo` → `fuente_elegida`). No es un capricho de la
+    UI: cuál de los dos números es el saldo bueno depende del día, y el que lo
+    sabe es el que concilia. Lo que NO se hace es que la elección la invente el
+    código promediando o cruzando las dos fuentes.
 
     **Sin subtotales por banco ni totales por moneda** (los sacó el back office:
     no los usaba). Los bancos siguen agrupando las cuentas, que es lo que hace
@@ -2360,6 +2490,13 @@ def consolidado(email: str, fecha: date) -> dict:
             # cifras del mensaje no daban la resta.
             "saldo_extracto": _f(r.get("saldo_cierre")),
             "discrepancia": discrepancia,
+            # ⚠️ Lo que el back office ELIGIÓ para esta cuenta y este día
+            # (`bancos.fuente_elegida`), o `null` si está en automático. Viaja
+            # aparte de `fuente` —la que se APLICÓ— porque las dos pueden
+            # diferir: si la fuente elegida se quedó sin número ese día, el
+            # cierre cae al default y la pantalla tiene que poder decirlo en vez
+            # de mostrar un rótulo que miente.
+            "fuente_elegida": (cierre or {}).get("elegida"),
             # None mientras la regla no esté definida — «no sabemos» no es 0.
             "gastos_bancarios": (gastos.get(r["id"]) or {}).get("total"),
             # El desglose viaja COMPLETO; qué columnas dibujar lo decide la vista

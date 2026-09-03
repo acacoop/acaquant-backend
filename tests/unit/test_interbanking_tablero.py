@@ -261,9 +261,12 @@ def test_saldos_banco_pide_los_manuales_del_dia(monkeypatch):
     _, sql, params = _saldos(monkeypatch, {"saldo_cierre": 1_000_000})
     assert "bancos.movimientos_manuales" in sql
     assert "AS ajuste" in sql
-    # El día PREVIO (para leer su cierre sellado) y después cinco veces la
-    # fecha: extracto, saldos, movimientos del banco, manual del día y acumulado.
-    assert params == (FECHA, FECHA, FECHA, FECHA)
+    # La fecha, CINCO veces: extracto, saldos informados, la FUENTE ELEGIDA por el
+    # back office para ese día, el manual del día y el acumulado.
+    assert params == (FECHA, FECHA, FECHA, FECHA, FECHA)
+    assert "bancos.fuente_elegida" in sql, (
+        "la elección del back office tiene que venir en la MISMA query: un "
+        "roundtrip aparte contra Supabase cuesta ~8,5ms por nada")
 
 
 def test_saldos_banco_suma_el_ajuste_al_extracto(monkeypatch):

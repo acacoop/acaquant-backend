@@ -57,7 +57,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `home` | market_quotes, news_headlines |
 | `agente` | **EL AV AGENT** (`docs/AGENT.md`): habilidades (el catálogo + cuándo corrió cada una), hallazgos, reincidencias (la que DEBE estar vacía), acciones (el libro). Más avisos_dirigidos, db_peso, latido, silenciados, tasa_1816 |
 | `research` | bcra_series, bcra_variables, bcra_watch, fred_series, fred_observations, fred_watch, mkt_1816_instrumentos, mkt_1816_series, mkt_1816_watch, documentos |
-| `bancos` | Interbanking (`docs/INTERBANKING.md`): cuentas, saldos, movimientos, movimientos_manuales, movimientos_ignorados, extracto_dia, cierres_diarios, conciliacion_pendientes, mayor_movimientos, mayor_sync_log, presencia, sync_log, audit_lecturas + los 5 de gastos_* |
+| `bancos` | Interbanking (`docs/INTERBANKING.md`): cuentas, saldos, movimientos, movimientos_manuales, movimientos_ignorados, extracto_dia, cierres_diarios, fuente_elegida (cuál de los dos saldos del banco vale ese día), conciliacion_pendientes, mayor_movimientos, mayor_sync_log, presencia, sync_log, audit_lecturas + los 5 de gastos_* |
 | `ap5` | Postrade A3/ACyRSA (`docs/POSTRADE.md`): cuentas, contratos, portfolio, margenes, activo_integrado |
 | `aca` | Vista `/aca` (`docs/ACA.md`): activos, series, historico, periodos, clase_destacada, emisor_destacado, moneda_regla, audit |
 | `ext` | **API EXTERNA para accionistas** (`docs/API_EXTERNA.md`) — superficie hacia AFUERA: api_keys, clientes, cuentas_autorizadas, requests_log |

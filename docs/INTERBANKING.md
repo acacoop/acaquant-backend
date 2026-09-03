@@ -895,6 +895,12 @@ SALDO AL CIERRE(F)   =  saldo del banco(F)  +  movimientos manuales de F
 SALDO AL INICIO(F)   =  SALDO AL CIERRE(F−1), leído de la tabla
 ```
 
+⚠️ **«El saldo del banco» son DOS números y a veces no coinciden** — el cierre
+del extracto y el que informa la API de Saldos. Cuál de los dos vale lo decide
+`_cierre_del_banco()`, **el único árbitro**: por default manda el informado y el
+extracto queda de respaldo, salvo que el back office haya **elegido** otra cosa
+para esa cuenta y ese día. Ver «QUÉ SALDO VALE» más abajo.
+
 ⚠️ **EXCEPCIÓN — las cuentas con `bancos.cuentas.origen = 'manual'`.** Esas no
 las informa Interbanking: su saldo del banco sería siempre 0. Ahí el ajuste es
 **ACUMULADO**, o sea que el saldo ES la suma de todo lo cargado a mano hasta esa
@@ -939,17 +945,70 @@ WHERE fecha = <día hábil anterior>`.
 #### La tabla es DINÁMICA
 
 Si mañana se carga un movimiento manual con fecha del 20, el cierre del 20 cambia
-y **se vuelve a sellar solo**. Los tres puntos donde se actualiza:
+y **se vuelve a sellar solo**. Los cuatro puntos donde se actualiza:
 
 | Cuándo | Dónde |
 |---|---|
 | se carga un manual | `crear_movimiento_manual()` → `sellar_cierre(fecha)` |
 | se borra un manual | `borrar_movimiento_manual()` → `sellar_cierre(fecha)` |
+| **se elige qué saldo vale** | `elegir_fuente_saldo()` → `sellar_cierre(fecha)` |
 | llega data de Interbanking | `jobs/interbanking_sync` (antes de purgar) |
 
 Más el sellado **al vuelo** si una pantalla pide un día que no está sellado, y
 `python -m scripts.sellar_cierres` para sembrar el histórico. Re-sellar pisa el
 valor anterior: correrlo de más no rompe nada.
+
+### QUÉ SALDO VALE — la elección la hace el back office (2026-09-03)
+
+**El banco informa el cierre de un día por DOS vías** (el extracto y la API de
+Saldos) y a veces no coinciden. Eso ya se detectaba y se avisaba con el badge ≠.
+Lo que faltaba era poder **hacer algo** con el aviso:
+
+> «en los casos que el saldo al cierre hay dos, estaría bueno que ahí mismo
+> permita al usuario elegir qué saldo quiere tomar y que eso se adapte a todo.
+> Ya que no es lineal, hay veces que vale uno y otras que vale otro.»
+
+Eso es lo que cambia: **cuál de los dos números es el saldo bueno dejó de ser una
+constante del código y pasó a ser un dato del negocio.** El que lo sabe es el que
+concilia, no el que programa — y la prueba es que la respuesta cambia de un día
+para el otro.
+
+- **Es por CUENTA y por FECHA** (`bancos.fuente_elegida`, PK `cuenta_id, fecha`).
+  Una preferencia pegajosa por cuenta arrastraría al día siguiente una decisión
+  que se tomó mirando OTRO día — que es justamente lo que el user dijo que no
+  pasa.
+- **Se elige la FUENTE, no un número.** Si mañana el banco corrige ese extracto,
+  la elección sigue valiendo y el saldo se actualiza solo. Guardar el importe
+  congelaría un valor que el banco ya cambió.
+- **Sin fila = automático** (manda el informado, el extracto de respaldo).
+  «Volver al automático» **borra la fila**: un `fuente='auto'` sería otra forma de
+  escribir «no hay fila», con dos representaciones para el mismo estado.
+- ⚠️ **Elegir NO tapa el otro número.** La `discrepancia` se sigue publicando, el
+  ≠ sigue en la celda (pasa a decir «≠ elegido») y los dos candidatos siguen
+  viajando al front. Esconder el que perdió sería convertir una decisión en un
+  hallazgo perdido.
+- ⚠️ **Si la fuente elegida se queda SIN NÚMERO ese día, se cae al default.** Una
+  elección vieja no puede borrar de la pantalla un saldo que el banco sí informa.
+  Por eso viajan separadas la **elegida** y la **aplicada** (`fuente_elegida` vs
+  `fuente`): si difieren, la pantalla lo puede decir en vez de rotular un origen
+  que no es.
+- **«Se adapta a todo» es literal, y sale gratis por cómo ya estaba armado**: la
+  elección se aplica en `_cierre_del_banco()`, que usa `_saldos_banco()` —o sea la
+  columna, CONCILIAR y el SELLADO— y `diferencias()`. Y como elegir **re-sella el
+  día**, el número viaja solo al SALDO AL INICIO de mañana sin que nadie tenga que
+  acordarse.
+
+⚠️⚠️ **`_cierre_del_banco()` es el ÚNICO árbitro, y esto es REGLA #9.** La
+precedencia estaba escrita en DOS lugares (`_saldos_banco` y el `_cierre` de
+DIFERENCIAS) y por eso el 2026-09-01 hubo que invertirla a mano en las dos. Con
+la elección arriba, dos copias significan que **una pantalla respeta lo que
+eligió el back office y la otra no** — y ninguna falla: muestran otro número.
+Congelado por test (`test_el_arbitro_es_UNO_SOLO`).
+
+**Permiso**: `PUT /api/back-office/interbanking/saldo/fuente`, detrás de
+`bancos.puede_escribir` (allowlist de Tesorería + admin) y auditado en
+`bancos.gastos_audit` con el valor resultante. El proxy de Next lo deja pasar por
+una regla explícita (`saldo` en `ESCRITURA`).
 
 #### Los tres intentos, porque cada uno falló distinto
 
@@ -1100,6 +1159,35 @@ La pantalla arranca mostrando **solo las cuentas con diferencia**, con un
 Respeta el filtro por banco de la vista.
 
 ## Changelog
+
+- **2026-09-03** — ⚠️ **QUÉ SALDO VALE lo elige el back office**, no el código.
+  Pedido del user: *«en los casos que el saldo al cierre hay dos, estaría bueno
+  que ahí mismo permita al usuario elegir qué saldo quiere tomar y que eso se
+  adapte a todo. Ya que no es lineal, hay veces que vale uno y otras que vale
+  otro»*.
+  · **Qué cambia**: el badge ≠ dejó de ser solo un aviso y es el **botón** que
+    abre el selector. Muestra los dos candidatos con su valor, cuál está en uso y
+    cuál se eligió, y tiene «volver al automático».
+  · **Dónde vive**: `bancos.fuente_elegida` (PK `cuenta_id, fecha`) — por cuenta
+    y por DÍA, porque la respuesta cambia de un día para el otro. Sin fila =
+    automático; volver al automático BORRA la fila.
+  · **Se elige la FUENTE, no el número**: si el banco corrige ese extracto, la
+    elección sigue valiendo y el saldo se actualiza solo.
+  · ⚠️ **Se adapta a todo porque re-sella el día**: la columna, CONCILIAR,
+    DIFERENCIAS y el SALDO AL INICIO de mañana leen todos de `_saldos_banco()` /
+    del cierre sellado.
+  · ⚠️ **La precedencia se mudó a UN árbitro** (`_cierre_del_banco`). Estaba
+    escrita en dos lugares y con la elección arriba eso significaba que una
+    pantalla respetara al back office y la otra no, sin fallar. Congelado por
+    test.
+  · **Elegir no tapa el otro**: la `discrepancia` se sigue publicando y el ≠
+    sigue apareciendo («≠ elegido»). Y si la fuente elegida se queda sin número
+    ese día, se cae al default en vez de mostrar «—»: por eso viajan separadas la
+    elegida y la aplicada.
+  · **El tooltip del ≠ del front seguía usando `saldo_cierre`** (NUESTRO saldo,
+    ajuste manual incluido) donde tenía que decir `saldo_extracto`: el backend ya
+    publicaba el campo desde el 2026-09-01 pero la vista no lo usaba, así que las
+    tres cifras del mensaje no daban la resta. Queda arreglado de paso.
 
 - **2026-09-01 (3)** — ⚠️ **MANDA EL SALDO INFORMADO, no el cierre del extracto**
   (decisión del back office). Era al revés desde el principio.

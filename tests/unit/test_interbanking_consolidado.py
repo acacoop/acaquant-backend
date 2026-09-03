@@ -50,6 +50,9 @@ def sin_base(monkeypatch):
                 return [{"cuenta_id": f["id"], "origen": f.get("origen"),
                          "saldo_cierre": f.get("saldo_cierre"),
                          "informado": f.get("saldo_banco"),
+                         # Cuál de los dos saldos eligió el back office para este
+                         # día (`bancos.fuente_elegida`). Sin elección, `None`.
+                         "elegida": f.get("elegida"),
                          "ajuste": 0, "acumulado": 0}
                         for f in filas]
             if "c.bank_number" in t:
@@ -442,3 +445,131 @@ def test_la_regla_se_declara_UNA_sola_vez():
         "`_SALDO_INFORMADO`:\n  " + "\n  ".join(s.strip() for s in sueltas))
     # la declaración + sus tres usos
     assert src.count("_SALDO_INFORMADO") >= 4
+
+
+# --------------------------------------------------------------------------- #
+# CUÁL DE LOS DOS SALDOS VALE — lo elige el back office (2026-09-03)
+# --------------------------------------------------------------------------- #
+# Pedido del user: «en los casos donde el saldo al cierre hay dos, que ahí mismo
+# permita elegir cuál tomar y que eso se adapte a todo — no es lineal, hay veces
+# que vale uno y otras que vale otro».
+#
+# ⚠️ Esto falla EN SILENCIO si se hace mal: la columna muestra un número, se
+# sella, y mañana ese número es el SALDO INICIO. Nada explota — la mesa concilia
+# contra un saldo que nadie eligió.
+
+def test_sin_eleccion_manda_el_informado():
+    """El default, congelado: la elección es una EXCEPCIÓN, no la regla."""
+    assert bancos._cierre_del_banco(140.0, 150.0, None) == (140.0, "saldo")
+
+
+def test_la_eleccion_DA_VUELTA_la_precedencia():
+    """Lo que pidió el back office. Si esto se rompe, la pantalla ignora la
+    elección sin decir nada y sigue mostrando el otro número."""
+    assert bancos._cierre_del_banco(140.0, 150.0, "extracto") == (150.0, "extracto")
+    assert bancos._cierre_del_banco(140.0, 150.0, "saldo") == (140.0, "saldo")
+
+
+def test_una_eleccion_SIN_NUMERO_cae_al_default_y_no_a_guion():
+    """⚠️ Una elección vieja no puede borrar de la pantalla un saldo que el banco
+    SÍ informa: si la fuente elegida no tiene número ese día, se cae al default.
+    Devolver «—» escondería el único dato que hay."""
+    assert bancos._cierre_del_banco(140.0, None, "extracto") == (140.0, "saldo")
+    assert bancos._cierre_del_banco(None, 150.0, "saldo") == (150.0, "extracto")
+
+
+def test_sin_ninguna_de_las_dos_no_se_inventa_nada():
+    assert bancos._cierre_del_banco(None, None, "extracto") == (None, None)
+
+
+def test_el_arbitro_es_UNO_SOLO():
+    """⚠️ REGLA #9. La precedencia estaba escrita en DOS lugares (`_saldos_banco`
+    y el `_cierre` de DIFERENCIAS) y por eso el 2026-09-01 hubo que invertir las
+    dos a mano. Con la elección arriba, dos copias significan que una pantalla
+    respeta lo que eligió el back office y la otra no — y ninguna falla."""
+    src = pathlib.Path(bancos.__file__).read_text(encoding="utf-8")
+    # la declaración + su uso en `_saldos_banco` + su uso en `diferencias`
+    assert src.count("_cierre_del_banco") >= 3
+    assert 'elif r["saldo_cierre"] is not None' not in src, (
+        "volvió a aparecer la precedencia escrita a mano adentro de `_saldos_banco`")
+
+
+def test_elegir_el_EXTRACTO_cambia_la_columna(sin_base):
+    """El caso de la pantalla: el banco informa 140 y el extracto cierra en 150;
+    el back office dice que ese día vale el extracto."""
+    sin_base([_cuenta(saldo_apertura=100, saldo_cierre=150, saldo_banco=140,
+                      elegida="extracto")])
+    c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
+    assert c["saldo_cierre"] == 150, "manda lo que eligió el back office"
+    assert c["fuente"] == "extracto"
+    assert c["fuente_elegida"] == "extracto"
+
+
+def test_elegir_NO_tapa_el_hallazgo(sin_base):
+    """Elegir uno no es esconder al otro: el ≠ sigue apareciendo y los dos
+    números siguen viajando, que es lo que deja al back office cambiar de idea."""
+    sin_base([_cuenta(saldo_cierre=150, saldo_banco=140, elegida="extracto")])
+    c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
+    assert c["discrepancia"] == 10
+    assert c["saldo_extracto"] == 150 and c["saldo_banco"] == 140
+
+
+def test_lo_ELEGIDO_y_lo_APLICADO_viajan_por_separado(sin_base):
+    """Si la fuente elegida se quedó sin número, el cierre cae al default. La
+    pantalla tiene que poder decirlo en vez de rotular un origen que no es."""
+    sin_base([_cuenta(saldo_banco=140, elegida="extracto")])
+    c = bancos.consolidado("x@y", FECHA)["bancos"][0]["cuentas"][0]
+    assert c["saldo_cierre"] == 140
+    assert c["fuente"] == "saldo", "lo que se APLICÓ"
+    assert c["fuente_elegida"] == "extracto", "lo que se ELIGIÓ"
+
+
+def _mock_eleccion(monkeypatch):
+    """Aísla `elegir_fuente_saldo`: devuelve las escrituras que emitió."""
+    escrituras: list[str] = []
+
+    def _q(sql, params=None):
+        t = " ".join(str(sql).split())
+        if "FROM bancos.cuentas WHERE id" in t:
+            return [{"?column?": 1}]
+        if "AS informado" in t:
+            return [{"cuenta_id": 1, "origen": "interbanking", "saldo_cierre": 150.0,
+                     "informado": 140.0, "elegida": "extracto",
+                     "ajuste": 0, "acumulado": 0}]
+        return []
+
+    monkeypatch.setattr(bancos, "_q", _q)
+    monkeypatch.setattr(bancos, "_exec",
+                        lambda sql, params=None: escrituras.append(
+                            " ".join(str(sql).split())) or 1)
+    return escrituras
+
+
+def test_elegir_RE_SELLA_el_dia(monkeypatch):
+    """⚠️ Lo que hace que «se adapte a todo». El cierre de hoy es el SALDO INICIO
+    de mañana: sin re-sellar, la elección viviría solo en la pantalla de hoy y
+    mañana la apertura leería el número viejo — que es exactamente el bug que el
+    sellado vino a resolver."""
+    escrituras = _mock_eleccion(monkeypatch)
+    out = bancos.elegir_fuente_saldo("x@y", 1, FECHA, "extracto")
+    assert any("fuente_elegida" in e and "INSERT" in e for e in escrituras)
+    assert any("cierres_diarios" in e for e in escrituras), "tiene que re-sellar"
+    assert out["saldo_cierre"] == 150.0 and out["fuente_elegida"] == "extracto"
+
+
+def test_volver_al_automatico_BORRA_la_fila(monkeypatch):
+    """«Auto» no es un tercer valor guardado: sería otra forma de escribir «no hay
+    fila», con dos representaciones para el mismo estado."""
+    escrituras = _mock_eleccion(monkeypatch)
+    bancos.elegir_fuente_saldo("x@y", 1, FECHA, None)
+    assert any(e.startswith("DELETE FROM bancos.fuente_elegida") for e in escrituras)
+
+
+def test_solo_se_puede_elegir_una_de_las_DOS_fuentes(monkeypatch):
+    """Se valida SERVER-SIDE: es la columna que decide qué número ve la mesa, no
+    un campo de texto."""
+    _mock_eleccion(monkeypatch)
+    with pytest.raises(ValueError):
+        bancos.elegir_fuente_saldo("x@y", 1, FECHA, "manual")
+    with pytest.raises(ValueError):
+        bancos.elegir_fuente_saldo("x@y", 1, FECHA, "el que a mí me guste")

@@ -4032,6 +4032,45 @@ CREATE INDEX IF NOT EXISTS ix_bancos_cierres_fecha
     ON bancos.cierres_diarios (fecha);
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- CUÁL DE LOS DOS SALDOS VALE — la elección del back office (2026-09-03)
+--
+-- El banco informa el cierre de un día por DOS vías (el extracto y la API de
+-- Saldos) y a veces no coinciden. Hasta hoy la precedencia era una constante del
+-- código: manda el informado, el extracto es el respaldo. **Pedido del back
+-- office: «no es lineal, hay veces que vale uno y otras que vale otro»** — o sea
+-- que cuál de los dos es el saldo bueno es un dato del NEGOCIO, y el que lo sabe
+-- es la persona que mira la conciliación, no el que programa.
+--
+-- Por eso la elección es **por CUENTA y por FECHA** y no una preferencia
+-- pegajosa por cuenta: el día que el extracto llegó incompleto vale el
+-- informado, y el día que la API contestó un saldo viejo vale el extracto. Una
+-- preferencia por cuenta arrastraría al día siguiente una decisión que se tomó
+-- mirando OTRO día.
+--
+-- Sin fila = el default de siempre (manda el informado). Borrar la fila es
+-- volver al automático, y por eso «volver al automático» es un DELETE y no un
+-- tercer valor: un `fuente='auto'` sería otra forma de escribir «no hay fila»,
+-- con dos representaciones para el mismo estado.
+--
+-- ⚠️ Lo que se elige es la **fuente**, no un número. Si mañana el banco corrige
+-- ese extracto, la elección sigue valiendo y el saldo se actualiza solo. Guardar
+-- el importe congelaría un valor que el banco ya cambió.
+CREATE TABLE IF NOT EXISTS bancos.fuente_elegida (
+    cuenta_id    bigint NOT NULL REFERENCES bancos.cuentas(id) ON DELETE CASCADE,
+    fecha        date NOT NULL,
+    -- 'saldo' = el que informa la API de Saldos · 'extracto' = el cierre del
+    -- extracto. El CHECK está acá y no solo en Python: es la columna que decide
+    -- qué número ve la mesa.
+    fuente       text NOT NULL CHECK (fuente IN ('saldo', 'extracto')),
+    elegido_por  text,
+    elegido_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (cuenta_id, fecha)
+);
+
+CREATE INDEX IF NOT EXISTS ix_bancos_fuente_elegida_fecha
+    ON bancos.fuente_elegida (fecha);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- DESGLOSE de los gastos — en qué columna cae cada gasto
 --
 -- El total de gastos no alcanza: el back office necesita ver cuánto es IVA,

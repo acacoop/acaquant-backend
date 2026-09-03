@@ -71,6 +71,11 @@ ESCRITURAS_PERMITIDAS = {
     ("DELETE", "/api/back-office/interbanking/gastos/desglose/{clave}"),
     ("POST", "/api/back-office/interbanking/gastos/desglose/matchers"),
     ("DELETE", "/api/back-office/interbanking/gastos/desglose/matchers/{matcher_id}"),
+    # ⚠️ Esta NO clasifica: cambia EL NÚMERO de la columna SALDO AL CIERRE
+    # eligiendo cuál de los dos saldos que informa el banco vale ese día. Escribe
+    # en `bancos.fuente_elegida` (tabla nuestra) y re-sella el cierre. Sigue sin
+    # tocar el extracto y sin salir a internet.
+    ("PUT", "/api/back-office/interbanking/saldo/fuente"),
 }
 
 

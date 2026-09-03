@@ -32,7 +32,8 @@ def _cuenta(**kw):
             "account_label": "ACA", "activa": True, "origen": "interbanking", **kw}
 
 
-def _mock(monkeypatch, *, extractos=(), saldos=(), movs=(), manuales=(), previa=AYER):
+def _mock(monkeypatch, *, extractos=(), saldos=(), movs=(), manuales=(), previa=AYER,
+          elegidas=()):
     def _q(sql, params=None):
         t = " ".join(str(sql).split())
         if "max(fecha)" in t:
@@ -41,6 +42,10 @@ def _mock(monkeypatch, *, extractos=(), saldos=(), movs=(), manuales=(), previa=
             return [_cuenta()]
         if "FROM bancos.extracto_dia" in t:
             return list(extractos)
+        # ⚠️ Antes de `bancos.saldos`: cuál de los dos saldos eligió el back
+        # office para ese día. Es la MISMA decisión que aplica el consolidado.
+        if "FROM bancos.fuente_elegida" in t:
+            return list(elegidas)
         if "FROM bancos.saldos" in t:
             return list(saldos)
         if "movimientos_manuales" in t:
@@ -129,6 +134,26 @@ def test_el_cierre_cae_a_bancos_saldos_igual_que_el_consolidado(monkeypatch):
               movs=[])
     f = _fila(s.diferencias("x@y", HOY))
     assert f["cierre"] == 500.0
+    assert f["sin_explicar"] == 0.0
+
+
+def test_la_ELECCION_del_back_office_tambien_manda_aca(monkeypatch):
+    """⚠️ El back office puede elegir cuál de los dos saldos del banco vale ese
+    día (`bancos.fuente_elegida`), y esta pantalla resta CIERRES: si acá no se
+    respetara, DIFERENCIAS restaría un número que el consolidado no muestra y la
+    variación sería de una cuenta que nadie ve. Ninguna de las dos fallaría."""
+    s = _mock(monkeypatch,
+              extractos=[{"cuenta_id": 1, "fecha": HOY, "saldo_apertura": 900.0,
+                          "saldo_cierre": 1000.0, "cierra": True},
+                         {"cuenta_id": 1, "fecha": AYER, "saldo_apertura": 0.0,
+                          "saldo_cierre": 900.0, "cierra": True}],
+              # El banco informa OTRO número por la API de Saldos, que es el que
+              # ganaría por default.
+              saldos=[{"cuenta_id": 1, "fecha": HOY, "saldo": 7777.0}],
+              elegidas=[{"cuenta_id": 1, "fecha": HOY, "fuente": "extracto"}],
+              movs=[{"cuenta_id": 1, "neto": 100.0, "n": 1}])
+    f = _fila(s.diferencias("x@y", HOY))
+    assert f["cierre"] == 1000.0, "manda el extracto porque el back office lo eligió"
     assert f["sin_explicar"] == 0.0
 
 

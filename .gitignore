@@ -78,3 +78,6 @@ discovery_*.txt
 
 # Backups de scripts de borrado (CSV de tablas antes de un DROP) — nunca al repo
 backups/
+
+# laboratorio LangGraph — venv aparte, NO se pinea con las deps de prod
+venv-lab/

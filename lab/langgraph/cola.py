@@ -185,39 +185,54 @@ def ultimos(limite: int = 20) -> dict:
             "pedidos": [dict(zip(cols, f, strict=True)) for f in filas]}
 
 
-def investigables(limite: int = 60) -> dict:
-    """**QUÉ SE PUEDE INVESTIGAR AHORA**, derivado de lo que el agente encontró.
+def investigables(limite: int = 80) -> dict:
+    """**QUÉ SE PUEDE INVESTIGAR AHORA — leído de las MISMAS vistas que el modal.**
 
-    ⚠️ Esto reemplaza al campo de texto libre donde había que adivinar qué
-    escribir. No es una lista de ejemplos: son **las cosas que realmente están
-    abiertas ahora mismo** — las reincidencias vivas y los hallazgos abiertos
-    cuya habilidad sabemos investigar.
+    ⚠️⚠️ **NO SE INVENTA UN CRITERIO PROPIO, Y ESA ES TODA LA REGLA.** La
+    primera versión consultaba `agente.hallazgos` con su propio `WHERE` y
+    ofrecía 60 casos mientras la pantalla mostraba 3 y 3: había TRES
+    definiciones de «lo que está abierto» conviviendo sin árbitro (REGLA #9).
 
-    Se DERIVA del estado del agente y no de una lista escrita a mano: mañana
-    aparece un hallazgo nuevo y aparece solo acá, y el día que se resuelve
-    desaparece solo. Una lista a mano tendría que acordarse de las dos cosas.
+        AHORA      `v_ahora`     abierto + SIN LEER + detectado HOY (hora ARG)
+        ENCONTRÓ   `v_encontro`  abierto + TIENE ARREGLO
+        esta lista  ...           abierto, y nada más   ← el tercero, de más
+
+    Ahora se leen **`agente.v_ahora` y `agente.v_encontro`**, que son las que
+    dibujan las tabs. Si mañana cambia lo que la pantalla considera abierto,
+    esta lista cambia con ella: no puede quedar desincronizada porque no tiene
+    una copia del criterio.
+
+    Las REINCIDENCIAS van aparte y primero: es la tabla que debería estar vacía.
     """
     from lab.langgraph.investigaciones import DE_LA_HABILIDAD
 
-    habilidades = sorted(DE_LA_HABILIDAD)
+    habs = sorted(DE_LA_HABILIDAD)
     r = leer(
-        # Las REINCIDENCIAS primero y aparte: son la tabla que debería estar
-        # vacía, así que si hay alguna es lo primero que hay que mirar.
-        "SELECT 'reincidencia' AS origen, r.sujeto, r.habilidad, r.regla, "
-        "       to_char(r.volvio_at,'YYYY-MM-DD HH24:MI') AS cuando, "
-        "       'volvió después de «' || coalesce(r.arreglo_aplicado,'?') "
-        "         || '», aguantó ' || round(r.dias_aguanto,1) || ' días' AS que "
-        "  FROM agente.reincidencias r "
-        "  JOIN agente.hallazgos h ON h.id = r.hallazgo_id "
-        " WHERE h.estado = ANY(%s) "
-        "UNION ALL "
-        "SELECT 'hallazgo', f.sujeto, f.habilidad, f.regla, "
-        "       to_char(f.detectado_at,'YYYY-MM-DD HH24:MI'), left(f.problema, 140) "
-        "  FROM agente.hallazgos f "
-        " WHERE f.estado = ANY(%s) AND f.habilidad = ANY(%s) "
-        " ORDER BY 1, 5 DESC LIMIT %s",
-        (["nuevo", "en_curso", "reincidio", "ignorado"],
-         ["nuevo", "en_curso", "reincidio"], habilidades, int(limite)))
+        # `DISTINCT ON` con el `orden` adelante: un hallazgo puede estar en las
+        # dos vistas (abierto, con arreglo Y de hoy) y en el desplegable tiene
+        # que aparecer UNA vez, con el origen más importante.
+        "SELECT DISTINCT ON (habilidad, sujeto, regla) "
+        "       origen, sujeto, habilidad, regla, cuando, que, orden "
+        "  FROM ("
+        "    SELECT 0 AS orden, 'reincidencia' AS origen, r.sujeto, r.habilidad, "
+        "           r.regla, to_char(r.volvio_at,'YYYY-MM-DD HH24:MI') AS cuando, "
+        "           'volvió después de «' || coalesce(r.arreglo_aplicado,'?') "
+        "             || '», aguantó ' || round(r.dias_aguanto,1) || ' días' AS que "
+        "      FROM agente.reincidencias r "
+        "      JOIN agente.hallazgos h ON h.id = r.hallazgo_id "
+        "     WHERE h.estado = ANY(%s) AND r.habilidad = ANY(%s) "
+        "    UNION ALL "
+        "    SELECT 1, 'encontro', e.sujeto, e.habilidad, e.regla, "
+        "           to_char(e.detectado_at,'YYYY-MM-DD HH24:MI'), left(e.problema,160) "
+        "      FROM agente.v_encontro e WHERE e.habilidad = ANY(%s) "
+        "    UNION ALL "
+        "    SELECT 2, 'ahora', a.sujeto, a.habilidad, a.regla, "
+        "           to_char(a.detectado_at,'YYYY-MM-DD HH24:MI'), left(a.problema,160) "
+        "      FROM agente.v_ahora a WHERE a.habilidad = ANY(%s) "
+        "  ) t "
+        " ORDER BY habilidad, sujeto, regla, orden "
+        " LIMIT %s",
+        (["nuevo", "en_curso", "reincidio"], habs, habs, habs, int(limite)))
     if isinstance(r, str):
         return {"ok": False, "error": r, "casos": []}
     cols, filas = r
@@ -229,4 +244,8 @@ def investigables(limite: int = 60) -> dict:
         # que esté y abra la investigación equivocada.
         if d["tipo"]:
             casos.append(d)
+    # El orden final lo pone Python porque el `DISTINCT ON` obliga a ordenar
+    # por la clave: reincidencias primero, después lo más reciente.
+    casos.sort(key=lambda c: (c["orden"], c["cuando"]), reverse=False)
+    casos.sort(key=lambda c: c["orden"])
     return {"ok": True, "error": "", "casos": casos}

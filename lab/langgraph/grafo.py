@@ -39,23 +39,38 @@ from __future__ import annotations
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from lab.langgraph.herramientas import HERRAMIENTAS
+from lab.langgraph.veredicto import Veredicto
 
-SISTEMA = """Sos un asistente que conoce el repo de TradingAV, una plataforma
-quant de una mesa de capitales argentina. Te preguntan sobre el AV AGENT (el
-subsistema de integridad que vigila motores, jobs, precios y datos).
+SISTEMA = """Sos el investigador del sistema TradingAV, una plataforma quant de
+una mesa de capitales argentina. Cuando algo falla, tu trabajo es averiguar qué
+pasó y proponer qué hacer.
 
 REGLAS:
-- **Leé, no adivines.** Si no lo viste con una herramienta, decí que no lo sabés.
-- Usá las herramientas todas las veces que haga falta antes de contestar.
-- Citá el archivo y la línea de donde sacaste cada cosa.
-- Contestá en castellano rioplatense, corto y concreto."""
+- **Leé, no adivines.** Si no lo viste con una herramienta, no lo afirmes.
+- Juntá evidencia ANTES de concluir. Usá las herramientas todas las veces que
+  haga falta; pedí varias juntas cuando sepas que las vas a necesitar.
+- Muchas veces la causa no es un bug sino **dos procesos nuestros que se
+  contradicen**. Mirá qué otra cosa corrió cerca del momento en que se rompió.
+- Citá el archivo y la línea, o la tabla, de donde sacaste cada cosa.
+- Castellano rioplatense, concreto, sin relleno."""
+
+# Lo que se le pide al final, cuando ya juntó todo. Va aparte del SISTEMA
+# porque son dos trabajos distintos: uno es investigar, el otro es redactar el
+# veredicto — y mezclarlos hace que empiece a redactar antes de terminar de mirar.
+REDACCION = """Con TODO lo que averiguaste, completá el veredicto.
+
+- `que_paso` son HECHOS con fecha y hora, sin interpretación.
+- `que_haria` es una acción concreta, no «revisar». Si además de lo que te
+  preguntaron quedó algo pendiente, decilo igual: para eso te contrataron.
+- `lo_que_no_se` NUNCA va vacío. Siempre hay algo que no miraste.
+- `de_donde` son las tablas y los archivos con su línea. Sin fuente no vale."""
 
 
 class Estado(TypedDict):
@@ -67,6 +82,10 @@ class Estado(TypedDict):
     confunde al principio y es la mitad de por qué el framework existe.
     """
     messages: Annotated[list, add_messages]
+    # El resultado final, ya con forma. Es lo que dibuja la pantalla — y por eso
+    # NO se deriva del último mensaje: derivarlo sería adivinar dónde termina la
+    # investigación y dónde empieza la conclusión.
+    veredicto: Veredicto | None
 
 
 def construir(modelo, con_memoria: bool = True):
@@ -82,8 +101,28 @@ def construir(modelo, con_memoria: bool = True):
         """
         return {"messages": [cerebro.invoke([SystemMessage(SISTEMA)] + estado["messages"])]}
 
+    def redactar(estado: Estado) -> dict:
+        """EL NODO QUE CONCLUYE. Corre UNA vez, cuando el modelo dejó de pedir
+        herramientas.
+
+        `with_structured_output` no es un pedido amable: el modelo devuelve los
+        campos o la llamada falla. Es la misma idea que el CHECK de la base que
+        no deja guardar un hallazgo sin `que_hacer` — la forma la garantiza el
+        sistema, no la buena voluntad de quien escribe.
+        """
+        escritor = modelo.with_structured_output(Veredicto)
+        try:
+            v = escritor.invoke([SystemMessage(SISTEMA)] + estado["messages"]
+                                + [SystemMessage(REDACCION)])
+        except Exception as e:
+            # No se inventa un veredicto ni se esconde el fallo: se dice.
+            return {"veredicto": None,
+                    "messages": [AIMessage(f"no pude armar el veredicto: {e}")]}
+        return {"veredicto": v}
+
     g = StateGraph(Estado)
     g.add_node("agente", agente)
+    g.add_node("redactar", redactar)
     # `ToolNode` ejecuta las herramientas que el modelo pidió y devuelve un
     # ToolMessage por cada una. Es lo único "prefabricado" que usamos.
     g.add_node("herramientas", ToolNode(HERRAMIENTAS))
@@ -91,10 +130,14 @@ def construir(modelo, con_memoria: bool = True):
     g.add_edge(START, "agente")
     # ⚠️ LA ARISTA CONDICIONAL — acá vive la decisión. `tools_condition` mira el
     # último mensaje: si trae `tool_calls` manda a "herramientas", si no, al END.
+    # Cuando el modelo deja de pedir herramientas NO se termina: se pasa a
+    # concluir. Esa es la única diferencia con el grafo de antes, y es la que
+    # convierte «una charla» en «una investigación con resultado».
     g.add_conditional_edges("agente", tools_condition,
-                            {"tools": "herramientas", END: END})
+                            {"tools": "herramientas", END: "redactar"})
     # Y la vuelta: lo que la herramienta devolvió entra de nuevo al modelo.
     # ESTA arista es el ciclo. Sin ella sería una cadena lineal, no un agente.
     g.add_edge("herramientas", "agente")
+    g.add_edge("redactar", END)
 
     return g.compile(checkpointer=InMemorySaver() if con_memoria else None)

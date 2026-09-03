@@ -14,12 +14,18 @@ import sys
 from langchain_core.messages import AIMessage, HumanMessage
 
 from lab.langgraph import grafo, modelo
+from lab.langgraph.veredicto import Veredicto, render
 
 
 def _mostrar(evento: dict) -> None:
     """Imprime lo que va pasando. **Ver los pasos es la mitad del ejercicio**:
-    un agente que sólo muestra la respuesta final es imposible de depurar."""
-    for _nodo, salida in evento.items():
+    un agente que sólo muestra la respuesta final es imposible de depurar —
+    cuando contesta mal hay que poder distinguir si eligió mal la herramienta,
+    si la herramienta devolvió basura, o si tenía todo bien y razonó mal."""
+    for nodo, salida in evento.items():
+        if (v := salida.get("veredicto")) is not None:
+            print("\n" + render(v))
+            continue
         for m in salida.get("messages", []):
             if getattr(m, "tool_calls", None):
                 for tc in m.tool_calls:
@@ -27,8 +33,11 @@ def _mostrar(evento: dict) -> None:
             elif m.__class__.__name__ == "ToolMessage":
                 cuerpo = str(m.content).replace("\n", " ")[:160]
                 print(f"  📄 {m.name} → {cuerpo}…")
-            elif m.content:
-                print(f"\n🤖 {m.content}\n")
+            elif m.content and nodo == "redactar":
+                # La prosa del nodo `agente` NO se imprime: el veredicto la
+                # reemplaza, y mostrar las dos deja al que lee sin saber cuál
+                # manda. De `redactar` sólo sale texto cuando algo falló.
+                print(f"\n⚠  {m.content}\n")
 
 
 # El guion del modo `--guionado`: dos turnos. Primero pide una herramienta,
@@ -36,10 +45,23 @@ def _mostrar(evento: dict) -> None:
 _GUION = [
     AIMessage(content="", tool_calls=[
         {"name": "listar_habilidades", "args": {}, "id": "t1"}]),
-    AIMessage(content="(modelo guionado) Leí el catálogo con la herramienta: "
-                      "el cableado funciona — pidió una tool, se ejecutó de "
-                      "verdad, y el resultado volvió al modelo."),
+    AIMessage(content="(modelo guionado) el cableado funciona: pidió una "
+                      "herramienta, se ejecutó de verdad, y el resultado "
+                      "volvió al modelo."),
 ]
+
+
+# El veredicto que devuelve el modo guionado. Existe para que la prueba gratis
+# cubra TAMBIÉN el nodo que concluye, que es donde vive la forma de la respuesta.
+_VEREDICTO_DE_PRUEBA = Veredicto(
+    que_paso="(guionado) el grafo corrió entero: pidió una herramienta, se "
+             "ejecutó, volvió al modelo y llegó hasta el nodo que concluye.",
+    por_que="No hay causa que investigar: es una corrida de prueba sin modelo.",
+    de_quien_es="no_se",
+    que_haria="Nada. Para una investigación de verdad, correlo sin --guionado.",
+    lo_que_no_se="Si el modelo elige bien las herramientas — eso el modo "
+                 "guionado no lo puede probar, sólo el cableado.",
+    de_donde=["lab/langgraph/correr.py::_VEREDICTO_DE_PRUEBA"])
 
 
 def main() -> int:
@@ -50,8 +72,8 @@ def main() -> int:
     ap.add_argument("--modelo", default="", help=f"default {modelo.MODELO_DEFAULT}")
     a = ap.parse_args()
 
-    cerebro = (modelo.guionado(_GUION) if a.guionado
-               else modelo.real(a.modelo))
+    cerebro = (modelo.guionado(_GUION, veredicto=_VEREDICTO_DE_PRUEBA)
+               if a.guionado else modelo.real(a.modelo))
     app = grafo.construir(cerebro)
     # El `thread_id` es la CONVERSACIÓN: el checkpointer guarda el estado bajo
     # esa clave, y por eso el segundo mensaje se acuerda del primero.

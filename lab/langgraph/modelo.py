@@ -46,14 +46,31 @@ def real(modelo: str = "", temperatura: float = 0.0):
         temperature=temperatura)
 
 
-def guionado(respuestas: list):
+def guionado(respuestas: list, veredicto=None):
     """Un modelo de mentira que devuelve lo que le pusiste, en orden. Sirve para
     probar el GRAFO sin gastar un token: si una respuesta trae `tool_calls`, el
-    grafo ejecuta esas herramientas de verdad."""
+    grafo ejecuta esas herramientas de verdad.
+
+    ⚠️ `veredicto` es lo que devuelve cuando el grafo le pide una respuesta
+    ESTRUCTURADA. Sin eso, el modo guionado dejaba de cubrir el último nodo — y
+    un modo de prueba que cubre el 80% del camino es peor que ninguno: da
+    tranquilidad sobre la parte que no probó.
+    """
     from langchain_core.language_models import FakeMessagesListChatModel
 
+    class _Fijo:
+        def invoke(self, *_a, **_kw):
+            if veredicto is None:
+                raise RuntimeError("el modo guionado no trae veredicto de prueba")
+            return veredicto
+
     class _Guionado(FakeMessagesListChatModel):
+        # El grafo llama a las dos. Un modelo de mentira las ignora, pero tiene
+        # que aceptarlas o el cableado no se puede probar.
         def bind_tools(self, tools, **kw):
             return self
+
+        def with_structured_output(self, esquema, **kw):
+            return _Fijo()
 
     return _Guionado(responses=respuestas)

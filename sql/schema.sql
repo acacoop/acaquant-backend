@@ -5131,6 +5131,12 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
 -- Va adentro de un DO porque el rol es OPCIONAL: en una base donde el lab no
 -- está instalado, `lector_lab` no existe y un GRANT suelto cortaría el deploy
 -- entero por una funcionalidad que esa base no usa.
+--
+-- Y AVISA en vez de cortar si no tiene con qué otorgar: el LAB es opcional, la
+-- mesa no. Que el deploy de toda la plataforma muera por un permiso de una
+-- herramienta interna sería el mismo error que ya está prohibido del otro lado
+-- (el agente sobrevive a un lab roto). El WARNING sale en la salida del deploy,
+-- y `python -m lab.langgraph.probar_lector` lo vuelve a cantar.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lector_lab') THEN
@@ -5138,6 +5144,8 @@ BEGIN
         GRANT SELECT ON agente.v_ahora, agente.v_encontro, agente.v_habilidades
             TO lector_lab;
     END IF;
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE WARNING 'no pude otorgarle las vistas de agente a lector_lab: %', SQLERRM;
 END $$;
 
 

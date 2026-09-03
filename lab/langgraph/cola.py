@@ -166,12 +166,20 @@ def ver(pedido_id: int) -> dict | None:
     return dict(zip(cols, filas[0], strict=True))
 
 
-def ultimos(limite: int = 20) -> list[dict]:
-    """La lista de la tab LAB: qué se pidió, cuándo y cómo terminó."""
+def ultimos(limite: int = 20) -> dict:
+    """La lista de la tab LAB: qué se pidió, cuándo y cómo terminó.
+
+    ⚠️ **DEVUELVE SI PUDO MIRAR, NO SÓLO LAS FILAS.** La primera versión
+    devolvía una lista y `[]` significaba las dos cosas: «no hay pedidos» y «no
+    pude leer la base». Con la tabla sin crear, la terminal decía tranquila «No
+    hay pedidos» — que es exactamente la confusión que este subsistema entero
+    existe para atajar, cometida adentro de él.
+    """
     r = leer("SELECT id, at, tipo, caso, por, estado, terminado_at, "
              "       investigacion_id, error "
              "  FROM lab.pedidos ORDER BY at DESC LIMIT %s", (int(limite),))
     if isinstance(r, str):
-        return []
+        return {"ok": False, "error": r, "pedidos": []}
     cols, filas = r
-    return [dict(zip(cols, f, strict=True)) for f in filas]
+    return {"ok": True, "error": "",
+            "pedidos": [dict(zip(cols, f, strict=True)) for f in filas]}

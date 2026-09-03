@@ -232,9 +232,12 @@ def lab(limite: int = 20):
     """
     from lab.langgraph import cola
     from lab.langgraph.investigaciones import INVESTIGACIONES
+    r = cola.ultimos(limite)
     return {
-        "ok": True,
-        "pedidos": cola.ultimos(limite),
+        # `ok` viene de si se pudo LEER, no se pone a mano: una lista vacía y
+        # una lectura fallida no se pueden ver iguales en la pantalla.
+        "ok": r["ok"], "error": r["error"],
+        "pedidos": r["pedidos"],
         "tipos": [{"nombre": i.nombre, "que_es": i.que_es,
                    "piso": list(i.piso)} for i in INVESTIGACIONES.values()],
     }

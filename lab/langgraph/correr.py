@@ -155,9 +155,13 @@ def main() -> int:
         return _ver_pedido(a.pedido)
     if a.cola:
         from lab.langgraph import cola
-        filas = cola.ultimos()
+        r = cola.ultimos()
+        if not r["ok"]:
+            print(f"\nNo pude LEER la cola: {r['error']}\n")
+            return 1
+        filas = r["pedidos"]
         if not filas:
-            print("\nNo hay pedidos.\n")
+            print("\nNo hay pedidos. (La cola se leyó bien: está vacía.)\n")
             return 0
         print(f"\n{'ID':>4}  {'CUÁNDO':17} {'TIPO':14} {'CASO':12} {'ESTADO':10} INV")
         for f in filas:

@@ -11,6 +11,17 @@ OpenAI apuntándole a otra URL.
 from __future__ import annotations
 
 import os
+import pathlib
+
+from dotenv import load_dotenv
+
+# ⚠️ **EL .env SE LEE ACÁ, NO EN LA TERMINAL.** Es el mismo patrón que
+# `core/postgres.py` y `core/llm.py`, y no es cosmético: un `source .env` de
+# bash ROMPE los valores con `&` o `$` adentro — el `&` lo interpreta como
+# "mandá esto al fondo" y corta la línea ahí. Un connection string
+# (`...?sslmode=require&...`) llega mutilado y el error que ves después habla
+# de una contraseña mal, no de un `&`. Costó una sesión entera de diagnóstico.
+load_dotenv(pathlib.Path(__file__).resolve().parents[2] / ".env")
 
 URL = "https://api.deepseek.com"
 MODELO_DEFAULT = "deepseek-v4-flash"
@@ -22,9 +33,8 @@ def real(modelo: str = "", temperatura: float = 0.0):
     clave = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not clave:
         raise RuntimeError(
-            "falta DEEPSEEK_API_KEY.\n"
-            "  · en el Droplet ya está en /root/TradingAV/.env\n"
-            "  · para cargarla:  set -a && source .env && set +a\n"
+            "falta DEEPSEEK_API_KEY: no está en el .env de la raíz del repo.\n"
+            "⚠️ NO uses `source .env` — bash rompe los valores con `&` adentro.\n"
             "Para probar el cableado sin clave: `--guionado`.")
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(

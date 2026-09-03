@@ -26,8 +26,9 @@ vuelve). Para que piense en serio:
 
 ```bash
 set -a && source .env && set +a       # carga DEEPSEEK_API_KEY
-PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr "¿por qué bono_sin_precio separa cuatro causas?"
-PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr    # modo conversación
+PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr --tipos          # qué sabe investigar
+PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr reincidencia M31G6
+PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr job dolar_mep
 ```
 
 ## Los cuatro archivos
@@ -35,7 +36,9 @@ PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr    # modo conversación
 | Archivo | Qué es | Concepto del curso |
 |---|---|---|
 | `herramientas.py` | 4 funciones de solo lectura sobre el repo | **tools** — el docstring ES el prompt |
-| `datos.py` | 3 funciones de solo lectura sobre Postgres | **tools con riesgo** — tocan producción |
+| `datos.py` | 6 funciones de solo lectura sobre Postgres | **tools con riesgo** — tocan producción |
+| `investigaciones.py` | un tipo de caso por fila, con su **piso** | **el método** — lo que hay que mirar antes de concluir |
+| `veredicto.py` | la forma de la respuesta, declarada una vez | **salida estructurada** |
 | `modelo.py` | de dónde sale el cerebro (Gemini o guionado) | **provider abstraction** |
 | `grafo.py` | 40 líneas: estado, nodos, aristas, ciclo | **el agent loop** |
 | `correr.py` | el CLI, que muestra cada paso | **observabilidad** |

@@ -110,6 +110,12 @@ def _probar_escritor() -> bool:
             todo &= _fila(False, "¿escribe el diario?", _primera_linea(e))
 
         # EL CHECK: un veredicto sin fuentes NO puede entrar.
+        #
+        # ⚠️ **NO ALCANZA CON QUE FALLE: TIENE QUE FALLAR POR EL CHECK.** La
+        # primera versión daba ✅ cuando la tabla ni existía —falló, luego está
+        # bien— que es el mismo error que este laboratorio existe para cazar:
+        # «no pude mirar» disfrazado de «está todo bien». Se exige que el error
+        # NOMBRE la restricción.
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -118,14 +124,17 @@ def _probar_escritor() -> bool:
                     " piso_cubierto, corto_por_presupuesto, vueltas) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,true,false,1)",
                     (*fila, []))
-            entro = True
-        except Exception:
+            entro, motivo = True, "SÍ ENTRÓ — el CHECK no está"
+        except Exception as e:
             entro = False
+            fue_el_check = "inv_fuentes" in str(e)
+            motivo = ("NO — la rechaza el CHECK inv_fuentes" if fue_el_check
+                      else "falló por OTRA cosa, no probó el CHECK: "
+                           + _primera_linea(e))
         finally:
             conn.rollback()
-        todo &= _fila(not entro, "¿entra un veredicto SIN fuentes?",
-                      "SÍ ENTRÓ — el CHECK no está" if entro
-                      else "NO — la base lo rechaza")
+        todo &= _fila(not entro and "inv_fuentes" in motivo,
+                      "¿entra un veredicto SIN fuentes?", motivo)
 
         try:
             with conn.cursor() as cur:

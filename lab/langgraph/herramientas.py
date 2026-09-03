@@ -120,4 +120,12 @@ def leer_diario(entrada: str) -> str:
 
 # El REGISTRO. El modelo sólo puede llamar a lo que esté en esta lista —
 # es la allowlist, y es lo que hace que "el modelo elige" no sea peligroso.
-HERRAMIENTAS = [listar_habilidades, codigo_de, buscar_en_repo, leer_diario]
+#
+# Se juntan las que leen ARCHIVOS (acá arriba) con las que leen la BASE
+# (`datos.py`). Para el modelo son todas iguales: una lista de cosas que puede
+# pedir. Están en dos archivos porque tienen riesgos distintos — las de la base
+# tocan producción, aunque sea de solo lectura.
+from lab.langgraph.datos import HERRAMIENTAS_SQL  # noqa: E402
+
+HERRAMIENTAS = [listar_habilidades, codigo_de, buscar_en_repo, leer_diario,
+                *HERRAMIENTAS_SQL]

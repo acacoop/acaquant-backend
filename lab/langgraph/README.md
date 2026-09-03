@@ -16,7 +16,7 @@ le falta información, pide otra herramienta y vuelve a pensar.
 ```bash
 cd /root/TradingAV                       # o tu checkout local
 python -m venv venv-lab
-venv-lab/bin/pip install langgraph langchain-openai
+venv-lab/bin/pip install langgraph langchain-openai "psycopg[binary]" psycopg-pool python-dotenv
 PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr --guionado
 ```
 
@@ -35,6 +35,7 @@ PYTHONPATH=. venv-lab/bin/python -m lab.langgraph.correr    # modo conversación
 | Archivo | Qué es | Concepto del curso |
 |---|---|---|
 | `herramientas.py` | 4 funciones de solo lectura sobre el repo | **tools** — el docstring ES el prompt |
+| `datos.py` | 3 funciones de solo lectura sobre Postgres | **tools con riesgo** — tocan producción |
 | `modelo.py` | de dónde sale el cerebro (Gemini o guionado) | **provider abstraction** |
 | `grafo.py` | 40 líneas: estado, nodos, aristas, ciclo | **el agent loop** |
 | `correr.py` | el CLI, que muestra cada paso | **observabilidad** |

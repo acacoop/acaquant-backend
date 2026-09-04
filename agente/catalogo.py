@@ -99,6 +99,14 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
     # familia; la lista se tilda en ENCONTRÓ. La segunda regla no tiene
     # arreglo a propósito: corregir un símbolo o apagar un papel lo decide la
     # mesa en Manager, no un botón.
+    # ⚠️ **SIN `sujeto_es`, Y TAMPOCO ES UN OLVIDO.** Un CEDEAR no es un bono:
+    # no está en `mercado.curvas` ni en el catálogo de 1816, así que el
+    # verificador de bonos contestaría «no sé» para todos. Y un tipo `cedear`
+    # propio necesitaría una partida de defunción que hoy sería CIRCULAR: la
+    # única señal de baja disponible es que Primary no lo liste, que es
+    # exactamente lo que esta habilidad REPORTA como hallazgo — usarla para
+    # caducar haría que el detector se cerrara sus propios hallazgos.
+    # Además su sujeto es mixto: una FAMILIA en una regla y un ticker en la otra.
     Habilidad(
         nombre="cedear_faltante", tipo="detector", dominio="MERCADO",
         que_mira="CEDEARs que Primary lista (por ficha) y no tenemos, y los nuestros que Primary no lista",

@@ -39,6 +39,71 @@ def _serializar(f: dict) -> dict:
 
 
 # ── AHORA ──────────────────────────────────────────────────────────────────
+def _con_historial(filas: list[dict]) -> list[dict]:
+    """Le suma a cada hallazgo **cuántas veces apareció el mismo problema** en
+    los últimos 30 días. Doc: `AGENT.md` §6.10.
+
+    ⚠️⚠️ **ES LA PREGUNTA QUE DECIDE QUÉ HACER, y hasta hoy no se hacía.**
+
+    El agente miraba cada hallazgo AISLADO, así que un job que no escribe se ve
+    igual la primera vez que la trigésima — y las dos terminaban en «relanzá el
+    job». Para la primera está bien. Para la trigésima, relanzar ES el parche:
+    lo que hay que revisar es el umbral, el cron, o si el job sigue haciendo
+    falta. El user lo dijo así: *«el agente debe poder buscar mejoras, no dejar
+    todo como está y parchear»*.
+
+    Un EPISODIO es una vez que el problema **nació**, no una vez que se lo vio:
+    un problema que persiste no crea fila nueva (sube `veces`). Tres episodios
+    son tres veces que apareció, se fue y volvió — que es justo lo que un
+    incidente aislado NO hace.
+
+    **UNA query para toda la lista**, no una por fila: AHORA puede traer
+    cuarenta y cuarenta consultas para contestar lo mismo es cómo una pantalla
+    se vuelve lenta sin que nadie sepa por qué. Va por el índice
+    `hallazgos_problema (habilidad, sujeto, regla, detectado_at DESC)`, que ya
+    existía.
+
+    ⚠️ El trío viaja en TRES listas paralelas por `unnest`, no pegado en un
+    string: un sujeto puede ser `mercado.market_snapshot` o `/api/x/{id}`, y
+    cualquier separador es una apuesta a que no aparezca en los datos.
+
+    Si la consulta falla, cada fila queda con `episodios = None` — **«no sé»,
+    que no es lo mismo que «es la primera vez»**. Una pantalla que dice «1ª vez»
+    porque no pudo contar es el invariante 1 disfrazado de dato.
+    """
+    from agente import tipos
+
+    if not filas:
+        return filas
+    trios = {(f["habilidad"], f["sujeto"], f["regla"]) for f in filas}
+    cuenta: dict[tuple, tuple] = {}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT d.hab, d.suj, d.reg, count(*)::int, min(h.detectado_at) "
+                "  FROM unnest(%s::text[], %s::text[], %s::text[]) "
+                "         AS d(hab, suj, reg) "
+                "  JOIN agente.hallazgos h ON h.habilidad = d.hab "
+                "   AND h.sujeto = d.suj AND h.regla = d.reg "
+                " WHERE h.detectado_at > now() - make_interval(days => %s) "
+                " GROUP BY d.hab, d.suj, d.reg",
+                ([t[0] for t in trios], [t[1] for t in trios],
+                 [t[2] for t in trios], tipos.VENTANA_CRONICO_D))
+            cuenta = {(r[0], r[1], r[2]): (r[3], r[4]) for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("vista: no pude contar los episodios (%s) — las filas van "
+                       "sin historial, que NO es «es la primera vez»", e)
+
+    for f in filas:
+        n, desde = cuenta.get((f["habilidad"], f["sujeto"], f["regla"]), (None, None))
+        f["episodios"] = n
+        f["episodios_desde"] = desde.isoformat() if desde is not None else None
+        # `None` (no pude contar) NO es crónico: ante la duda, la rama que no
+        # afirma nada.
+        f["cronico"] = bool(n is not None and n >= tipos.EPISODIOS_CRONICO)
+    return filas
+
+
 def ahora() -> dict:
     """Lo de HOY, sin leer, sin resolver. **Un COUNT sobre tres condiciones.**
 
@@ -50,7 +115,8 @@ def ahora() -> dict:
     un problema que persiste NO crea fila nueva (sube `veces`), así que su
     `detectado_at` sigue siendo el del día que apareció.
     """
-    filas = [_serializar(f) for f in _filas("SELECT * FROM agente.v_ahora")]
+    filas = _con_historial([_serializar(f) for f in
+                            _filas("SELECT * FROM agente.v_ahora")])
     return {"total": len(filas), "filas": filas}
 
 
@@ -94,7 +160,8 @@ def encontro() -> dict:
     """
     from agente import arreglos as arr
 
-    filas = [_serializar(f) for f in _filas("SELECT * FROM agente.v_encontro")]
+    filas = _con_historial([_serializar(f) for f in
+                            _filas("SELECT * FROM agente.v_encontro")])
     cat = {a["id"]: a for a in arr.catalogo()}
     for f in filas:
         f["arreglo_titulo"] = (cat.get(f["arreglo"]) or {}).get("titulo", "")

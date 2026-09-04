@@ -81,6 +81,33 @@ TIPOS = ("detector", "consulta", "accion")
 SUJETOS = ("bono",)
 
 
+# ── AGUDO vs CRÓNICO — la pregunta que decide QUÉ hacer con un hallazgo ────
+#
+# ⚠️⚠️ **UN PROBLEMA QUE PASA TODOS LOS DÍAS NO ES UN INCIDENTE: ES UNA
+# CONFIGURACIÓN MAL PUESTA.** Y arreglarlo todas las veces es taparlo.
+#
+# Pedido del user (2026-09-04), y es la crítica correcta al agente de hoy:
+#
+#   *«capaz está mal que el cron diga 14hs — el agente debe poder buscar
+#    mejoras y potenciar lo que puede llegar a haber mal, no dejar todo como
+#    está y parchear»*
+#
+# Hoy el agente mira cada hallazgo AISLADO y por eso todo termina en «relanzá el
+# job». Para la primera vez está bien; para la vez número treinta, relanzar ES
+# el parche — lo que hay que revisar es el umbral, el cron, o si el job sigue
+# haciendo falta.
+#
+# Un EPISODIO es una vez que el problema NACIÓ. No cuenta las veces que el
+# detector lo vio: un problema que persiste no crea fila nueva (sube `veces`).
+# Así que tres episodios son tres veces que apareció, se fue, y volvió — que es
+# exactamente lo que un incidente aislado NO hace.
+VENTANA_CRONICO_D = 30
+# TRES y no dos: dos veces en un mes puede ser casualidad, tres ya es un ritmo.
+# El número está acá y no en una vista para que haya UNA sola definición de
+# «crónico» (REGLA #9) — la calcula `agente/vista._con_historial`.
+EPISODIOS_CRONICO = 3
+
+
 class SinDatos(Exception):
     """«No pude mirar». La levanta un detector que no pudo leer su fuente.
 

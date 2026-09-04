@@ -1292,6 +1292,62 @@ el veredicto al lado del hallazgo: uno que vive en otra tab no lo lee nadie.
 
 ---
 
+### 6.10 AGUDO vs CRÓNICO — la pregunta que decide qué hacer (2026-09-04)
+
+El agente miraba **cada hallazgo aislado**. Por eso un job que no escribió HOY y
+uno que no escribe TODOS LOS DÍAS se veían idénticos, y los dos terminaban en la
+misma frase: *«Relanzar `jobs.interbanking_sync`»*.
+
+Para el primero está bien. **Para el segundo, relanzar ES el parche.**
+
+> *«capaz está mal que el cron diga 14hs — el agente debe poder buscar mejoras y
+> potenciar lo que puede llegar a haber mal, no dejar todo como está y
+> parchear»* — el user, 2026-09-04.
+
+#### Un EPISODIO no es una VISTA
+
+| | Qué cuenta |
+|---|---|
+| `veces` | cuántas veces el detector VIO este problema (sube en cada pasada) |
+| `episodios` | cuántas veces el problema **NACIÓ** en 30 días |
+
+La diferencia importa: un problema que persiste **no crea fila nueva** (sube
+`veces`). Así que tres episodios son tres veces que **apareció, se fue y
+volvió** — que es exactamente lo que un incidente aislado NO hace. Confundirlos
+daría «crónico» a cualquier cosa que lleve un rato abierta.
+
+**Tres, y no dos**: dos veces en un mes puede ser casualidad; tres ya es un
+ritmo. El umbral vive en `agente/tipos.py` y en ningún otro lado — un test
+prohíbe que se copie al schema o al diag (REGLA #9).
+
+#### Qué cambia con esto
+
+```
+        aparece un hallazgo
+                ↓
+      ¿AGUDO o CRÓNICO?
+        │            │
+     AGUDO        CRÓNICO
+   es un          NO es un incidente: es una configuración mal puesta.
+   incidente      Relanzarlo lo TAPA. Lo que hay que revisar es el
+   → arreglar     umbral, el cron, o si el job sigue haciendo falta
+```
+
+Hoy sólo se MUESTRA (`⚠ crónico · 27× en 30d` en AHORA y ENCONTRÓ, y el ranking
+completo en `scripts/diag_agente`). **No cambia ningún comportamiento todavía** —
+y eso es a propósito: no se puede decidir si dejar que el agente arregle solo
+hasta saber si arreglar es lo correcto para ese problema.
+
+#### La guarda
+
+⚠️ **«No pude contar» NO es «es la primera vez».** Si la consulta del historial
+falla, `episodios` queda en `None`, `cronico` en `False`, y el front **no dibuja
+nada** — no un «1ª vez». Poner un número porque no se pudo contar sería afirmar
+lo contrario de la verdad justo cuando el sistema está más ciego: el invariante
+1, aplicado a la pantalla.
+
+---
+
 ## 7. Los umbrales salen del código
 
 Hoy están desparramados en 6 archivos y ninguno se puede tocar sin deploy:

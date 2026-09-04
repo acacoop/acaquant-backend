@@ -3051,3 +3051,101 @@ def test_el_tipo_de_investigacion_no_se_declara_dos_veces():
 
     daemon = _codigo((RAIZ / "jobs" / "agente.py").read_text())
     assert "tipo_de(" in daemon, "el tipo sale del lab, no del catálogo"
+
+
+# ── AGUDO vs CRÓNICO (2026-09-04) ──────────────────────────────────────────
+
+def test_un_problema_cronico_no_se_ve_igual_que_uno_nuevo():
+    """**La pregunta que decide QUÉ hacer con un hallazgo**, y que el agente no
+    se hacía.
+
+    Miraba cada hallazgo AISLADO, así que un job que no escribió HOY y uno que
+    no escribe TODOS LOS DÍAS se veían idénticos — y los dos terminaban en
+    «relanzá el job». Para el primero está bien; para el segundo, relanzar ES el
+    parche: lo que hay que revisar es el umbral, el cron, o si el job sigue
+    haciendo falta. El user (2026-09-04): *«el agente debe poder buscar mejoras
+    y potenciar lo que puede llegar a haber mal, no dejar todo como está y
+    parchear»*.
+
+    Un EPISODIO es una vez que el problema NACIÓ, no una vez que se lo VIO
+    (eso es `veces`, y sube sin crear fila). Confundirlos daría «crónico» a
+    cualquier problema que lleve un rato abierto.
+    """
+    from datetime import UTC, datetime
+    from unittest.mock import MagicMock, patch
+
+    from agente import tipos, vista
+
+    assert tipos.EPISODIOS_CRONICO >= 3, (
+        "dos veces en un mes puede ser casualidad; el piso es tres")
+    assert tipos.VENTANA_CRONICO_D >= 7
+
+    filas = [{"habilidad": "tabla_quieta", "sujeto": s, "regla": "sin_escribir"}
+             for s in ("cronica", "repetida", "nueva")]
+    cur = MagicMock()
+    cur.fetchall.return_value = [
+        ("tabla_quieta", "cronica", "sin_escribir", 27, datetime(2026, 8, 6, tzinfo=UTC)),
+        ("tabla_quieta", "repetida", "sin_escribir", 2, datetime(2026, 8, 6, tzinfo=UTC)),
+        ("tabla_quieta", "nueva", "sin_escribir", 1, datetime(2026, 9, 4, tzinfo=UTC)),
+    ]
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value = conn
+
+    with patch.object(vista, "get_pool", return_value=pool):
+        r = {f["sujeto"]: f for f in vista._con_historial([dict(f) for f in filas])}
+    assert r["cronica"]["cronico"] and r["cronica"]["episodios"] == 27
+    assert not r["repetida"]["cronico"], "dos no alcanza"
+    assert not r["nueva"]["cronico"]
+    assert r["nueva"]["episodios_desde"], "sin la fecha no se sabe desde cuándo viene"
+
+    # Y se cuenta con UNA query para toda la lista, no una por fila: AHORA puede
+    # traer cuarenta, y cuarenta consultas para lo mismo es cómo una pantalla se
+    # vuelve lenta sin que nadie sepa por qué.
+    assert cur.execute.call_count == 1
+
+
+def test_no_poder_contar_los_episodios_no_es_decir_que_es_la_primera_vez():
+    """**El invariante 1, en la pantalla.**
+
+    Si la consulta del historial falla, cada fila queda con `episodios = None` y
+    `cronico = False` — y el front NO dibuja nada. Poner «1ª vez» porque no se
+    pudo contar sería afirmar lo contrario de la verdad justo cuando el sistema
+    está más ciego, que es la mentira más cara que puede decir una herramienta
+    de integridad.
+
+    Y no puede tirar abajo la pantalla: el resto de la fila ya estaba.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from agente import vista
+
+    roto = MagicMock()
+    roto.connection.side_effect = RuntimeError("Supabase caído")
+    filas = [{"habilidad": "x", "sujeto": "y", "regla": "z", "problema": "algo"}]
+    with patch.object(vista, "get_pool", return_value=roto):
+        r = vista._con_historial(filas)
+    assert r[0]["episodios"] is None, "«no sé» no puede ser un número"
+    assert r[0]["cronico"] is False, "ante la duda, la rama que no afirma nada"
+    assert r[0]["problema"] == "algo", "la fila sigue entera"
+
+    # Y el front lo respeta: sin dato, no dibuja el indicador.
+    front = (RAIZ.parent / "acaquant-frontend" / "src" / "components" / "agente"
+             / "evidencia.tsx")
+    if front.exists():
+        assert "episodios == null" in front.read_text(), (
+            "el componente tiene que saltear el caso «no pude contar»")
+
+
+def test_el_umbral_de_cronico_vive_en_un_solo_lugar():
+    """REGLA #9: si el número estuviera también en una vista SQL y en el diag,
+    el día que se cambie uno la pantalla y el diag dirían cosas distintas sobre
+    el mismo problema — y ninguno fallaría."""
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    assert "EPISODIOS_CRONICO" not in sql and "make_interval(days => 30)" not in sql, (
+        "el umbral no se copia al schema: lo calcula `vista._con_historial`")
+
+    diag = (RAIZ / "scripts" / "diag_agente.py").read_text()
+    assert "tipos.EPISODIOS_CRONICO" in diag and "tipos.VENTANA_CRONICO_D" in diag, (
+        "el diag lee las constantes, no las repite")

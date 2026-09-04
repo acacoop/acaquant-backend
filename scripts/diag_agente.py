@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from agente import tipos
 from core.postgres import get_pool
 
 
@@ -229,7 +230,42 @@ def main() -> int:
                 print(f"      motivo: {mot}")
         print("\n  → se administra desde la base: una fila silencia, borrarla revive.")
 
-    # ── 5. EL LIBRO ────────────────────────────────────────────────────────
+    # ── 5. LO CRÓNICO ──────────────────────────────────────────────────────
+    _titulo("LO CRÓNICO — lo que pasa SIEMPRE, y por lo tanto no es un incidente")
+    print("  Un EPISODIO = una vez que el problema NACIÓ (no las veces que se lo vio:")
+    print("  un problema que persiste no crea fila nueva). Tres episodios son tres")
+    print(f"  veces que apareció, se fue y volvió → desde {tipos.EPISODIOS_CRONICO} es CRÓNICO.\n")
+    cronicos = _filas(
+        "SELECT habilidad, sujeto, regla, count(*)::int AS episodios, "
+        "       min(detectado_at) AS desde, max(detectado_at) AS ultima, "
+        "       count(*) FILTER (WHERE estado = ANY(%s))::int AS abiertos "
+        "  FROM agente.hallazgos "
+        " WHERE detectado_at > now() - make_interval(days => %s) "
+        " GROUP BY habilidad, sujeto, regla "
+        "HAVING count(*) >= %s "
+        " ORDER BY count(*) DESC LIMIT 25",
+        (list(tipos.ABIERTOS), tipos.VENTANA_CRONICO_D, tipos.EPISODIOS_CRONICO))
+    if not cronicos:
+        print("  Ninguno. Todo lo que apareció en 30 días es puntual — no hay nada")
+        print("  que se esté tapando arreglándolo una y otra vez.")
+    else:
+        print(f"  {'EPIS':>5}  {'HABILIDAD':<20} {'SUJETO':<26} {'REGLA':<22} "
+              f"{'desde':<11} última")
+        for hab, suj, reg, n, desde, ultima, abiertos in cronicos:
+            # ● = lo tiene abierto AHORA. Un crónico que paró hace tres semanas
+            # no se atiende igual que uno que sigue pasando hoy.
+            marca = " ●" if abiertos else "  "
+            print(f"  {n:>5}{marca} {hab:<20} {str(suj)[:26]:<26} {str(reg)[:22]:<22} "
+                  f"{str(desde)[:10]:<11} {str(ultima)[:16]}")
+        print(f"\n  {len(cronicos)} problema(s) crónico(s). ● = tiene un hallazgo ABIERTO ahora.")
+        print("\n  ⚠️ **ACÁ ES DONDE ESTÁN LAS MEJORAS, no en el botón de arreglar.**")
+        print("  Un job que no escribe UNA vez es un incidente: se relanza. Uno que no")
+        print("  escribe treinta veces en un mes no se arregla relanzándolo — o el umbral")
+        print("  está mal, o el cron está mal, o el job ya no hace falta. Arreglarlo cada")
+        print("  vez lo TAPA, y es exactamente lo que el agente hacía hasta hoy porque")
+        print("  miraba cada hallazgo aislado y nunca el patrón.")
+
+    # ── 6. EL LIBRO ────────────────────────────────────────────────────────
     _titulo("LO ÚLTIMO QUE ESCRIBIÓ")
     libro = _filas("SELECT at, arreglo, sujeto, campo, antes, despues, ok, error "
                    "  FROM agente.acciones ORDER BY id DESC LIMIT 15")

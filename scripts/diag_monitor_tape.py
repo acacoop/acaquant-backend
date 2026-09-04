@@ -8,7 +8,7 @@ puede contestar desde el repo: **cuántos ticks hay por rueda y cuánto tarda
 agregarlos**. Sin ese número, elegir la ventana (¿1 rueda? ¿5?) es adivinar —
 y adivinar acá se paga con una pantalla que tarda 4 segundos en abrir.
 
-Mide TRES cosas, y las separa a propósito:
+Mide CUATRO cosas, y las separa a propósito:
 
   **(1) Qué hay guardado, de verdad.** `mercado.timesales` (renta fija) declara
   retención de 7 días corridos (`prune_native` en `engines/valores.py`, que
@@ -28,6 +28,15 @@ Mide TRES cosas, y las separa a propósito:
   agregan server-side a ~360 filas en 80 ms, la ventana de 5 ruedas sale gratis;
   si tarda un segundo, la tab arranca en HOY y el multi-rueda espera.
 
+  **(4) El ARCHIVO de barras de 1 minuto.** `mercado.cedears_bars_1m` es la
+  ÚNICA historia de renta variable que existe: el tape de CEDEARs se trunca
+  todas las noches, así que sin este archivo la tab no puede mostrar NADA
+  multi-rueda. Y como es un archivo y no un tape, **se puede medir con el
+  mercado cerrado** — que es justo lo que los pasos 2 y 3 no permiten.
+  ⚠️ La barra de 1 minuto no guarda el precio de cada trade: el perfil se
+  deriva del **precio típico** `(high+low+close)/3`, una barra = un bucket.
+  Es una APROXIMACIÓN del tape, y por eso se mide aparte.
+
 ⚠️ **El único agregado que escanearía la tabla entera** (la foto por fecha del
 paso 1) se saltea solo si la tabla es grande: primero se lee la estimación de
 `pg_class.reltuples` —que es gratis— y recién con ese número se decide. Es la
@@ -42,6 +51,8 @@ Uso:
     python -m scripts.diag_monitor_tape --dias 7           # ventana a mirar
     python -m scripts.diag_monitor_tape --rf AL30,GD30     # otros bonos
     python -m scripts.diag_monitor_tape --rv NVDA,AAPL     # otros CEDEARs
+    python -m scripts.diag_monitor_tape --ruedas 20        # ruedas del archivo 1m
+    python -m scripts.diag_monitor_tape --rf ""            # solo renta variable
     python -m scripts.diag_monitor_tape --global           # + foto por fecha
 """
 from __future__ import annotations
@@ -63,7 +74,7 @@ TZ_ART_SQL = "America/Argentina/Buenos_Aires"
 # y se saltea salvo --global. La estimación sale de pg_class (gratis).
 MAX_FILAS_PARA_ESCANEO = 5_000_000
 
-RF_DEFAULT = "AL30,GD30,TX26,S30J6"
+RF_DEFAULT = "AL30,GD30,TX26"
 RV_DEFAULT = "NVDA,AAPL,TSLA,MELI"
 
 
@@ -125,7 +136,7 @@ def _inicio(dias: int, tz_aware: bool):
 
 
 def medir(cur, *, tabla: str, col_k: str, col_ts: str, tz_aware: bool,
-          clave: str, etiqueta: str, dias: int, buckets: int) -> None:
+          clave: str, etiqueta: str, dias: int, buckets: int) -> bool:
     ini = _inicio(dias, tz_aware)
     fecha_sql = (f"date_trunc('minute', {col_ts} AT TIME ZONE '{TZ_ART_SQL}')"
                  if tz_aware else f"date_trunc('minute', {col_ts})")
@@ -141,7 +152,7 @@ def medir(cur, *, tabla: str, col_k: str, col_ts: str, tz_aware: bool,
     if not total:
         print(f"      sin trades desde {ini}  ({ms_cnt:.0f} ms) — ¿no cotizó, o "
               f"la clave no es la correcta?")
-        return
+        return False
     detalle = "  ".join(f"{f['fecha']}:{f['n']}" for f in filas)
     print(f"      ticks: {total:,} en {len(filas)} rueda(s)   ({ms_cnt:.0f} ms)"
           .replace(",", "."))
@@ -194,6 +205,110 @@ def medir(cur, *, tabla: str, col_k: str, col_ts: str, tz_aware: bool,
         poc = max(perfil, key=lambda f: f["vol"] or 0)
         print(f"      POC de la ventana: {poc['px_lo']}–{poc['px_hi']}  "
               f"vol {poc['vol']}  ({poc['trades']} trades)")
+    return True
+
+
+# ── (4) el ARCHIVO de barras de 1 minuto — la única historia de CEDEARs ──────
+#
+# `mercado.cedears_time_sales` se trunca todas las noches, así que el tape NO
+# puede contestar nada multi-rueda de renta variable. La historia vive en
+# `mercado.cedears_bars_1m` (ventana móvil de 60 ruedas, jobs/cedears_bars_1m.py
+# 20:20 UTC). Es un ARCHIVO: se puede medir con el mercado cerrado, que es
+# justamente lo que el tape no permite.
+#
+# ⚠️ La barra de 1 minuto NO guarda el lado ni el precio de cada trade: para el
+# perfil hay que elegir UN precio por barra. Se usa el PRECIO TÍPICO
+# (high+low+close)/3 — la convención estándar cuando se deriva un perfil de
+# volumen de barras OHLCV. Es una APROXIMACIÓN, y por eso se mide aparte del
+# tape: con HOY los dos conviven y hay que saber cuánto se pierde al cambiar.
+
+def cobertura_barras(cur, forzar: bool) -> None:
+    tabla = "mercado.cedears_bars_1m"
+    est = _reltuples(cur, tabla)
+    print(f"\n── {tabla}   (el archivo, 60 ruedas)")
+    print(f"   filas (estimación pg_class): {est:,.0f}".replace(",", "."))
+
+    filas, ms = _q(cur, f"SELECT min(minuto) AS lo, max(minuto) AS hi FROM {tabla}")
+    lo, hi = filas[0]["lo"], filas[0]["hi"]
+    if lo is None:
+        print("   ⚠️  VACÍA — el archivo de barras NO existe: renta variable NO tiene "
+              "historia. La tab arranca HOY-only y no hay multi-rueda que pedir.")
+        return
+    print(f"   ventana real: {lo}  →  {hi}     ({ms:.0f} ms)")
+
+    if est > MAX_FILAS_PARA_ESCANEO and not forzar:
+        print("   (foto por rueda SALTEADA: la tabla es grande. Forzar con --global)")
+        return
+    filas, ms = _q(cur, f"""
+        SELECT (minuto AT TIME ZONE '{TZ_ART_SQL}')::date AS fecha,
+               count(*) AS n, count(DISTINCT ticker_corto) AS tickers
+        FROM {tabla} GROUP BY 1 ORDER BY 1 DESC LIMIT 10
+    """)
+    print(f"   últimas ruedas archivadas ({ms:.0f} ms):")
+    for f in filas:
+        print(f"      {f['fecha']}   {f['n']:>8,} barras   {f['tickers']:>4} tickers"
+              .replace(",", "."))
+    cnt, ms = _q(cur, f"""
+        SELECT count(*) AS n FROM (
+            SELECT DISTINCT (minuto AT TIME ZONE '{TZ_ART_SQL}')::date FROM {tabla}
+        ) x
+    """)
+    print(f"   → {cnt[0]['n']} ruedas archivadas en total")
+
+
+def medir_barras(cur, *, ticker: str, ruedas: int, buckets: int) -> bool:
+    tabla = "mercado.cedears_bars_1m"
+    print(f"\n   {ticker}")
+    # El corte se saca de las FECHAS que existen, no de un `now() - N days`:
+    # el archivo tiene ruedas, no días corridos, y un feriado correría todo.
+    fechas, ms_f = _q(cur, f"""
+        SELECT DISTINCT (minuto AT TIME ZONE '{TZ_ART_SQL}')::date AS f
+        FROM {tabla} WHERE ticker_corto = %s
+        ORDER BY f DESC LIMIT %s
+    """, (ticker, ruedas))
+    if not fechas:
+        print(f"      sin barras archivadas  ({ms_f:.0f} ms)")
+        return False
+    ini = datetime.combine(fechas[-1]["f"], datetime.min.time(), tzinfo=ART)
+    print(f"      {len(fechas)} ruedas archivadas, desde {fechas[-1]['f']}  ({ms_f:.0f} ms)")
+
+    serie, ms_serie = _q(cur, f"""
+        SELECT minuto, open, high, low, close, volume, trades
+        FROM {tabla}
+        WHERE ticker_corto = %s AND minuto >= %s
+        ORDER BY minuto
+    """, (ticker, ini))
+
+    perfil, ms_perfil = _q(cur, f"""
+        WITH b AS (
+            SELECT (high + low + close) / 3 AS px, COALESCE(volume, 0) AS vol
+            FROM {tabla}
+            WHERE ticker_corto = %s AND minuto >= %s
+              AND close IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL
+        ), r AS (SELECT min(px) AS lo, max(px) AS hi FROM b)
+        SELECT width_bucket(b.px, r.lo,
+                            CASE WHEN r.hi > r.lo THEN r.hi + (r.hi - r.lo) / 1000
+                                 ELSE r.lo + 1 END,
+                            %s)          AS bucket,
+               min(b.px)                 AS px_lo,
+               max(b.px)                 AS px_hi,
+               sum(b.vol)                AS vol,
+               count(*)                  AS barras
+        FROM b, r
+        GROUP BY 1 ORDER BY 1
+    """, (ticker, ini, buckets))
+
+    vol_total = sum((f["volume"] or 0) for f in serie)
+    trades = sum((f["trades"] or 0) for f in serie)
+    print(f"      barras: {len(serie):,} · {trades:,} trades · vol {vol_total:,}"
+          .replace(",", "."))
+    print(f"      serie x minuto: {len(serie):>5} filas devueltas   {ms_serie:>7.0f} ms")
+    print(f"      perfil x precio:{len(perfil):>5} filas devueltas   {ms_perfil:>7.0f} ms")
+    if perfil:
+        poc = max(perfil, key=lambda f: f["vol"] or 0)
+        print(f"      POC de la ventana: {poc['px_lo']}–{poc['px_hi']}  "
+              f"vol {poc['vol']}  ({poc['barras']} barras)")
+    return True
 
 
 def resolver_rf(cur, cortos: list[str]) -> list[tuple[str, str]]:
@@ -218,6 +333,8 @@ def main() -> int:
     ap.add_argument("--buckets", type=int, default=26, help="buckets de precio del perfil")
     ap.add_argument("--rf", default=RF_DEFAULT, help="CSV de tickers cortos de renta fija")
     ap.add_argument("--rv", default=RV_DEFAULT, help="CSV de ticker_corto de CEDEARs")
+    ap.add_argument("--ruedas", type=int, default=20,
+                    help="ruedas del ARCHIVO de barras 1m a medir (default 20)")
     ap.add_argument("--global", dest="forzar", action="store_true",
                     help="forzar la foto por fecha aunque la tabla sea grande")
     args = ap.parse_args()
@@ -245,23 +362,50 @@ def main() -> int:
         print("─" * 78)
 
         print("\n RENTA FIJA  ·  mercado.timesales  ·  clave = símbolo de mercado")
-        for corto, simbolo in resolver_rf(cur, rf):
-            medir(cur, tabla="mercado.timesales", col_k="ticker", col_ts="ts",
-                  tz_aware=False, clave=simbolo, etiqueta=f"{corto}  ({simbolo})",
-                  dias=args.dias, buckets=args.buckets)
+        rf_resueltos = resolver_rf(cur, rf)
+        rf_con_datos = False
+        for corto, simbolo in rf_resueltos:
+            rf_con_datos |= medir(
+                cur, tabla="mercado.timesales", col_k="ticker", col_ts="ts",
+                tz_aware=False, clave=simbolo, etiqueta=f"{corto}  ({simbolo})",
+                dias=args.dias, buckets=args.buckets)
 
         print("\n RENTA VARIABLE  ·  mercado.cedears_time_sales  ·  clave = ticker_corto")
+        rv_con_datos = False
         for corto in rv:
-            medir(cur, tabla="mercado.cedears_time_sales", col_k="ticker_corto", col_ts="ts",
-                  tz_aware=True, clave=corto, etiqueta=corto,
-                  dias=args.dias, buckets=args.buckets)
+            rv_con_datos |= medir(
+                cur, tabla="mercado.cedears_time_sales", col_k="ticker_corto", col_ts="ts",
+                tz_aware=True, clave=corto, etiqueta=corto,
+                dias=args.dias, buckets=args.buckets)
+
+        print("\n" + "\u2500" * 78)
+        print("(4) EL ARCHIVO DE BARRAS 1m — la ÚNICA historia de renta variable")
+        print("\u2500" * 78)
+        cobertura_barras(cur, args.forzar)
+        print("\n POR TICKER  ·  perfil derivado del precio típico (high+low+close)/3")
+        for corto in rv:
+            medir_barras(cur, ticker=corto, ruedas=args.ruedas, buckets=args.buckets)
+
+        # El aviso mira SOLO los dos tapes: el archivo del paso 4 tiene datos
+        # aunque el mercado esté cerrado, así que incluirlo taparía justo el
+        # caso que este aviso existe para nombrar.
+        if not rv_con_datos and not rf_con_datos:
+            print("\n \u26a0\ufe0f  NADA tuvo datos en la ventana, ni renta fija ni renta variable.")
+            print("     Los dos tapes los escriben motores DISTINTOS, así que no puede ser")
+            print("     casualidad: o la corrida fue antes de que arrancaran (13:20 UTC =")
+            print("     10:20 ART) o los motores no están levantados. Verificar con")
+            print("     `systemctl status motor_rofex motor_cedears` antes de sacar conclusiones")
+            print("     sobre los datos.")
 
     print("\n" + "=" * 78)
     print("CÓMO SE LEE:")
     print("  · 'ventana real' del paso 1 = lo que HAY, no lo que la retención declara.")
     print("  · 'ticks' del paso 2 = el volumen crudo que la tab NO baja (agrega en el server).")
-    print("  · los ms del paso 3 son el costo de abrir la tab con esa ventana.")
+    print("  · los ms de los pasos 3 y 4 son el costo de abrir la tab con esa ventana.")
     print("    Referencia: por debajo de ~150 ms la ventana entra sin que se note.")
+    print("  · los pasos 2 y 3 solo hablan EN RUEDA (el tape está vacío fuera de ella);")
+    print("    el paso 4 habla siempre, porque es un archivo. Para renta variable,")
+    print("    el paso 4 es el que decide si existe el multi-rueda.")
     print("=" * 78)
     return 0
 

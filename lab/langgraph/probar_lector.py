@@ -13,6 +13,18 @@ Varias de las pruebas **tienen que fallar** para que esté bien. Un ✅ al lado 
 ⚠️ Todo lo que escribe va adentro de una transacción que se DESHACE pase lo que
 pase: el script que averigua si los permisos están bien no puede ser el que
 ensucie la base mientras lo averigua.
+
+⚠️⚠️ **Y AHORA MIDE EL TECHO, NO SÓLO EL PISO.**
+Durante un tiempo esto comprobó que el lector PUEDE leer sus seis tablas y que
+NO puede leer `clientes.comitentes`. Las dos cosas están bien y ninguna alcanza:
+**nunca comprobaba que pueda leer SÓLO esas seis.** Un `GRANT SELECT ON ALL
+TABLES IN SCHEMA mercado` otorgado un martes apurado pasaba los chequeos en
+verde para siempre, y la única forma de enterarse era ir a mirar el catálogo.
+
+Por eso el paso «¿lee de MÁS?» de abajo le pregunta al catálogo de Postgres por
+**todo** lo que el rol puede leer y lo compara contra la lista declarada en
+`sql/lab.sql`. Un permiso de más se canta con nombre y apellido — y correr
+`apply_schema` lo saca, porque ese archivo revoca antes de otorgar.
 """
 from __future__ import annotations
 
@@ -21,9 +33,25 @@ import sys
 from lab.langgraph.base import ESCRITOR, LECTOR, _conectar, _uri
 
 OK, MAL = "✅", "❌"
+# ⚠️ **ESTA LISTA ES EL ESPEJO DE `sql/lab.sql`**, y sirve para las dos mitades:
+# el piso (¿puede leerlas?) y el TECHO (¿puede leer algo MÁS que esto?). Si una
+# herramienta nueva necesita otra tabla, se agrega en los dos lados — el archivo
+# SQL la otorga y esta lista la espera. Divergir hace fallar el chequeo, que es
+# exactamente lo que queremos: dos listas que no se hablan es la REGLA #9.
 TABLAS_QUE_LEE = ("mercado.curvas", "mercado.market_snapshot",
                   "agente.hallazgos", "agente.reincidencias",
                   "agente.acciones", "manager.job_runs")
+
+# Lo que el LECTOR puede tocar además de producción: su propio esquema.
+LAB_QUE_LEE = ("lab.investigaciones", "lab.pedidos")
+
+# ⚠️ **EL NEGOCIO, QUE NO PUEDE VER NI DE CASUALIDAD.** Antes se probaba con UNA
+# sola tabla (`clientes.comitentes`) — como probar que la casa está cerrada
+# tocando el picaporte de adelante y no mirar las ventanas. Estas son las cuatro
+# familias que la REGLA #8 llama «el negocio de la mesa»: quién es el cliente,
+# cuánto tiene, qué operó y quién puede qué.
+NEGOCIO_PROHIBIDO = ("clientes.comitentes", "portafolio.tenencia",
+                     "operaciones.operaciones", "manager.manager_users")
 
 # ⚠️ LAS VISTAS VAN APARTE, y no por prolijidad: en una tabla de producción el
 # CERO es sospechoso (huele a RLS sin política), pero `v_ahora` vacía es una
@@ -94,17 +122,59 @@ def _probar_lector() -> bool:
             conn.rollback()
         todo &= _fila(not escribio, "¿puede ESCRIBIR en producción?", motivo)
 
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT count(*) FROM clientes.comitentes")
-            vio = True
-        except Exception:
-            conn.rollback()
-            vio = False
-        todo &= _fila(not vio, "¿ve datos del negocio?",
-                      "SÍ VE clientes/ — revisá el alcance" if vio
-                      else "NO — clientes/ le es invisible")
+        # ⚠️ LAS CUATRO FAMILIAS DEL NEGOCIO, no una. Cada una se prueba aparte
+        # porque «no ve clientes» no dice nada sobre si ve las tenencias.
+        for tabla in NEGOCIO_PROHIBIDO:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(f"SELECT count(*) FROM {tabla}")
+                vio = True
+            except Exception:
+                conn.rollback()
+                vio = False
+            todo &= _fila(not vio, f"¿NO ve {tabla}?",
+                          "LA VE — revisá el alcance" if vio else "invisible")
+
+        todo &= _probar_techo(conn)
     return todo
+
+
+def _probar_techo(conn) -> bool:
+    """¿Lee ALGO MÁS de lo declarado? El chequeo que faltaba.
+
+    Le pregunta al catálogo por todo lo que `lector_lab` puede SELECTear y lo
+    resta contra la lista declarada. Sin esto, un permiso otorgado a mano vivía
+    para siempre y ningún chequeo lo veía — el script decía que todo estaba bien
+    porque sólo miraba las puertas que esperaba encontrar abiertas.
+
+    Se lee del catálogo y no probando tabla por tabla, porque probar exige saber
+    de antemano qué buscar: justo lo que no se puede saber de un permiso que
+    nadie escribió.
+    """
+    declarado = {*TABLAS_QUE_LEE, *LAB_QUE_LEE,
+                 "agente.v_ahora", "agente.v_encontro", "agente.v_habilidades"}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT table_schema || '.' || table_name"
+                "  FROM information_schema.table_privileges"
+                " WHERE grantee = 'lector_lab' AND privilege_type = 'SELECT'"
+                " ORDER BY 1")
+            puede = {f[0] for f in cur.fetchall()}
+    except Exception as e:
+        conn.rollback()
+        # No poder mirar el catálogo NO es un ✅: es no haber mirado. La misma
+        # regla que rige adentro del agente (invariante #1).
+        return _fila(False, "¿lee de MÁS que lo declarado?",
+                     "NO PUDE VERIFICARLO — " + _primera_linea(e))
+    de_mas = sorted(puede - declarado)
+    if not puede:
+        return _fila(False, "¿lee de MÁS que lo declarado?",
+                     "el catálogo no devolvió NADA — ¿es este el rol?")
+    return _fila(not de_mas, "¿lee de MÁS que lo declarado?",
+                 f"SÍ, {len(de_mas)}: {', '.join(de_mas[:4])}"
+                 f"{'…' if len(de_mas) > 4 else ''}  ← `python -m scripts.apply_schema` "
+                 f"lo revoca" if de_mas else f"no — exactamente las {len(puede)} declaradas")
 
 
 def _probar_escritor() -> bool:

@@ -1101,6 +1101,114 @@ habilidades, editable sin deploy.
 
 ---
 
+## L. EL INVESTIGADOR — el agente que SÍ decide (`lab/langgraph/`)
+
+> **Por qué existe esta sección.** El investigador entró a producción, corre
+> adentro del daemon del agente, lee producción, gasta tokens todos los días y
+> tiene dos roles propios de Postgres — y durante días **ningún doc de `docs/`
+> lo nombraba**. Cero menciones. Su único manual era el README de su carpeta,
+> que además describía la versión anterior. Por la REGLA #10 (nada nuevo queda
+> suelto) eso era trabajo a medio terminar: corre adentro de este agente, así
+> que se documenta en el doc de este agente.
+
+### L.1 Qué es, y en qué se diferencia del agente
+
+El AV AGENT **detecta**: un catálogo de reglas deterministas, un ritmo
+declarado, y un motor que pregunta a quién le toca. Nadie elige nada — su
+`motor._agenda()` es un `sorted()`.
+
+El INVESTIGADOR **averigua por qué**: se le da un caso y **el modelo decide solo
+qué herramientas usar** hasta poder concluir. Es un agente en el sentido
+estricto (loop + tools elegidas + memoria), construido sobre LangGraph.
+
+| | `agente/` | `lab/langgraph/` |
+|---|---|---|
+| Qué hace | detecta y verifica | investiga y propone |
+| Cómo decide | catálogo + ritmo declarado | el modelo elige |
+| Escribe en producción | sí, por `registro.py`, con libro | **no — la base se lo impide** |
+| Quién lo califica | el detector, en la próxima pasada | `scripts/eval_investigador.py` |
+
+**La línea que no se cruza:** un LLM nunca puede ser la pieza que devuelve `ok`
+con lista vacía. Si el modelo no contestó es `sin_datos`, y entonces no se
+cierra nada — el invariante #1, intacto.
+
+**Y el #12 tampoco se toca:** el eval NO es un LLM-juez. Compara, de forma
+determinista, lo que el veredicto propuso contra el `arreglo_aplicado` que
+cerró ese hallazgo. La verdad de campo la escribió el agente determinista, no
+el modelo opinando de sí mismo.
+
+### L.2 Dónde corre
+
+En un **hilo aparte del daemon `agente.service`**, después del `tick()`. No en
+la pasada: una investigación tarda uno o dos minutos y la pasada es de treinta
+segundos — colgarla ahí apagaría el monitoreo justo cuando alguien está mirando
+un problema. **Uno por vez**: dos en paralelo duplican el gasto sin que nadie
+las haya pedido a la vez.
+
+Nada del investigador puede tirar abajo al agente: el import va adentro de un
+`try` (`jobs/agente.py::_atender_investigaciones`) y hay un test que lo congela.
+
+La pantalla no espera: pide, recibe un número y pregunta cómo va — el proxy de
+Next corta a los 30 s y ese corte se ve **idéntico** a un backend caído.
+
+### L.3 La jaula — dos identidades, y el alcance vive en el repo
+
+    lector_lab    lee seis tablas de producción y el esquema `lab`.
+                  **La base NO lo deja escribir.** En ningún lado.
+    escritor_lab  escribe SÓLO en `lab.*`. Producción le es INVISIBLE.
+
+Ninguna cae a `POSTGRES_URI` — esa es la del sistema y puede todo; un fallback
+silencioso convertiría la garantía en una intención.
+
+⚠️ **El alcance se declara en `sql/lab.sql`, y ese archivo REVOCA antes de
+otorgar.** No describe lo que el lab puede leer: lo impone. Antes de existir,
+los `GRANT` sobre producción se habían dado a mano en el editor de Supabase y no
+estaban escritos en ninguna parte del repo — no se podían auditar leyendo el
+proyecto, no se reproducían en una base nueva, y no tenían techo: un
+`GRANT ... ON ALL TABLES` otorgado un martes apurado pasaba todos los chequeos
+en verde para siempre.
+
+`probar_lector` verifica **las dos mitades**: que pueda leer lo declarado, y que
+no pueda leer nada más (le pregunta al catálogo, no adivina).
+
+**Lo único a mano, una vez:** crear los dos roles. `CREATE ROLE` lleva
+contraseña y una contraseña no va a un repo. Desde ahí sus permisos los manda
+`sql/lab.sql`, que aplica `deploy/deploy.sh` en cada deploy — y sus fallos
+**avisan sin cortar**: el lab es opcional, la mesa no.
+
+### L.4 Las dos piezas que no trae ningún framework
+
+**`revisar_piso` — el método.** Cuando el modelo deja de pedir herramientas NO
+concluye: se verifica que haya mirado el mínimo que su tipo de caso declara
+(`investigaciones.py`), y si falta algo vuelve **con el faltante nombrado**. Se
+mide contra las herramientas que se ejecutaron de verdad, **no contra lo que el
+modelo dice que miró**. Es el invariante #1 aplicado a una investigación.
+
+**`anotar` — la memoria de trabajo.** Una línea por herramienta ejecutada, que
+viaja aparte de la conversación. Sin ella el modelo repetía la misma búsqueda
+con el patrón apenas cambiado: cinco veces en una sola corrida. Y la lista sola
+no alcanzó — **el nodo `herramientas` DEDUPLICA de verdad** y le devuelve el
+resultado que ya tenía. Pedir por favor no obliga; es la misma diferencia que
+entre «confío en que no va a escribir» y «la base no lo deja».
+
+### L.5 Lo que falta, en orden
+
+1. **Checkpointer en Postgres.** Hoy es `InMemorySaver`: el progreso vive en la
+   RAM del proceso y un reinicio del daemon lo borra (`recuperar_colgados()` lo
+   cierra con el motivo y **no lo reencola** — un reintento automático es cómo
+   se hace un bucle que gasta tokens toda la noche).
+2. **`interrupt` antes de escribir** — el `PROPONER → OK → APLICAR` que el modal
+   ya hace a mano, formalizado en el grafo. ⚠️ **Va DESPUÉS del punto 1, no
+   antes**: una aprobación humana puede tardar horas o quedar de un día para el
+   otro, y con la memoria en RAM cualquier reinicio en el medio de esa espera
+   pierde la investigación.
+3. **Los 8 arreglos de `agente/arreglos.py` como tools.** Ya tienen `preview()`,
+   allowlist y libro de auditoría: son tools de producción esperando un selector.
+
+Detalle de implementación: `lab/langgraph/README.md`.
+
+---
+
 ---
 
 # PARTE B — EL DIARIO ⟨HISTÓRICO⟩

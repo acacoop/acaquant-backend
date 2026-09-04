@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **522 endpoints** montados en `api.main.app`, en **33 routers**.
-- **195 escriben** (POST/PUT/PATCH/DELETE); 327 son de solo lectura.
+- **525 endpoints** montados en `api.main.app`, en **33 routers**.
+- **196 escriben** (POST/PUT/PATCH/DELETE); 329 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -48,13 +48,13 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 12 | 6 | `ia` + `require_admin` | `ia` |  |
+| `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
+| `/api/agente` | 15 | 7 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
 | `/api/back-office` | 64 | 37 | `back-office` · 32 rutas con gate extra | `back-office` |  |
-| `/api/back-office/interbanking` | 27 | 18 | `back-office` · 23 rutas con gate extra | `back-office` |  |
+| `/api/back-office/interbanking` | 27 | 18 | `back-office` | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -63,13 +63,13 @@
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 139 | 68 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 10 | 5 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 56 | 8 | `operaciones` · 24 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 12 rutas con gate extra | `portfolios` |  |
 | `/api/pulso` | 1 | 1 | —`require_no_invitado` | — |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
@@ -2309,6 +2309,31 @@ nadie lo miraba.
 - **La vista RESEARCH** — el mail de 1816 se guarda crudo y se muestra tal cual.
   BCRA, FRED y las series de 1816 son ingestas de API, sin modelo en el medio.
 
+> ⚠️ **La excepción, y es la única: el INVESTIGADOR** (`lab/langgraph/`). Es el
+> primer y único consumo de LLM del producto que **razona en varios pasos**: se
+> le da un caso y el modelo elige qué herramientas usar hasta poder concluir.
+> Vive al lado del agente, corre en un hilo de su daemon y **no puede escribir en
+> producción** —la base se lo impide con un rol propio, no el código portándose
+> bien—. Su alcance está declarado en `sql/lab.sql`, que revoca antes de otorgar.
+> Documentación: `docs/AGENT.md` §L.
+>
+> **Tres endpoints, todos `require_admin` heredado del router de `/api/agente`:**
+>
+> | Endpoint | Qué hace |
+> |---|---|
+> | `POST /api/agente/lab/investigar` | encola un pedido y devuelve su id. **No espera**: una investigación son 1-2 minutos y el proxy de Next corta a los 30 s — ese corte se ve idéntico a un backend caído |
+> | `GET /api/agente/lab/pedido/{id}` | cómo va, con **los pasos EN VIVO** (qué herramienta pidió, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
+> | `GET /api/agente/lab` | el libro: las últimas investigaciones con su veredicto |
+>
+> El botón de investigar **aparece sólo en los hallazgos cuya habilidad está
+> mapeada** a un tipo de investigación (`investigaciones.DE_LA_HABILIDAD`). Ese
+> mapa vive en el backend a propósito: en el front, agregar un tipo no
+> aparecería y sacar uno dejaría un botón que falla.
+>
+> ¿Acierta? `python -m scripts.eval_investigador` lo compara contra el arreglo
+> que cerró el hallazgo de verdad — determinista, sin un modelo juzgando a otro
+> (invariante #12).
+
 ### RBAC del prefijo `/api/ia`
 
 Queda un endpoint (`/briefing`) y **el invariante de REGLA #8 sigue congelado**:
@@ -2435,7 +2460,7 @@ normaliza a `'manual'`). Congelado por test. Ver `docs/ACA.md` §5.
 
 | Gate | Dónde vive | Dónde se aplica (verificado) | Qué exige |
 |---|---|---|---|
-| `require_admin` | `api/auth.py:398` | **Las 11 rutas de `/api/agente`** (el AV AGENT entero) + `GET /api/scanner/day-trading`, `GET /api/scanner/companeros/{ticker}`, `POST /api/back-office/senebis/proximo-id` — **14 rutas** (medido con `api/superficie.py`; las 5 de `/api/ia` se borraron el 2026-08-28) | `get_user_role(email) == "admin"` **directo, sin mirar la matriz** → **no delegable** desde el panel. Rechaza guest siempre |
+| `require_admin` | `api/auth.py:398` | **Las 15 rutas de `/api/agente`** (el AV AGENT entero **+ las 3 del INVESTIGADOR**, que heredan el gate del router) + `GET /api/scanner/day-trading`, `GET /api/scanner/companeros/{ticker}`, `POST /api/back-office/senebis/proximo-id`, `POST /api/mesa-dinero/retorno/import` — **19 rutas** (medido con `api/superficie.py`; las 5 de `/api/ia` se borraron el 2026-08-28) | `get_user_role(email) == "admin"` **directo, sin mirar la matriz** → **no delegable** desde el panel. Rechaza guest siempre |
 | `require_control_comercial` | `api/auth.py:425` | Las 5 rutas `/api/operaciones/comercial/control/*` (objetivos GET+PATCH, objetivos-vs-actual, por-operador, totales) — **incluidas las de lectura** | Permiso **PER-USUARIO**: `admin` **o** flag `control_comercial=true` en `manager.manager_users` (tildado en Manager → Usuarios). Cache 60s. Rechaza guest |
 | `require_no_invitado` | `api/auth.py:442` | Las **5 PATCH** de `/api/derivados/agro/*` | Bloquea www en escrituras que caen dentro de un módulo que el invitado SÍ tiene |
 | `require_lectura_mesa` | `mesa_dinero.py` → `mesa_dinero.puede_ver` | **Las 9 rutas** de `/api/mesa-dinero` (montado a nivel router en `api/main.py`) | Permiso **PER-USUARIO**: admin **o** email en `mesa_dinero_lectores` ∪ `mesa_dinero_escritores`. Cache 60s. **Reemplazó al gate de módulo `operaciones`** (2026-08-11) |

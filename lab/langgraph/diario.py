@@ -33,160 +33,33 @@ entra**, igual que un hallazgo sin `que_hacer`.
 from __future__ import annotations
 
 import logging
+import pathlib
 
 from lab.langgraph.base import escribir, leer
 
 logger = logging.getLogger(__name__)
 
-# El esquema vive ACÁ, al lado de las queries que lo usan. Separarlos es cómo se
-# llega a una tabla que la mitad del código cree que tiene una columna que no
-# tiene. Se aplica a mano una vez (`--sql` lo imprime).
-SQL_ESQUEMA = """
-CREATE SCHEMA IF NOT EXISTS lab;
+# ⚠️ **EL ESQUEMA YA NO VIVE ACÁ: vive en `sql/lab.sql`.**
+#
+# Vivía en esta constante «al lado de las queries que lo usan», y el argumento
+# era bueno — pero se pagaba caro: se aplicaba COPIANDO EL TEXTO al editor de
+# Supabase, así que `deploy.sh` no lo tocaba nunca. Media DDL del lab se
+# autocuraba en cada deploy (los GRANT de las vistas, que viven en
+# `sql/schema.sql`) y la otra media dependía de que alguien se acordara. Un
+# `ALTER` nuevo anda local y en producción no existe, con un error que habla de
+# otra cosa.
+#
+# Ahora `scripts/apply_schema.py` lo aplica en cada deploy, y `--sql` lo lee del
+# MISMO archivo — una sola fuente (REGLA #9), no dos que pueden divergir.
+_SQL_LAB = pathlib.Path(__file__).resolve().parents[2] / "sql" / "lab.sql"
 
-CREATE TABLE IF NOT EXISTS lab.investigaciones (
-    id                    bigserial PRIMARY KEY,
-    at                    timestamptz NOT NULL DEFAULT now(),
 
-    -- LA IDENTIDAD
-    tipo                  text NOT NULL,
-    caso                  text NOT NULL,
-
-    -- EL VEREDICTO
-    titulo                text NOT NULL DEFAULT '',
-    de_quien_es           text NOT NULL,
-    -- ⚠️ ARREGLOS, no texto: un campo que ENUMERA cosas (una cronologia, tres
-    -- acciones, cuatro dudas) en un `text` vuelve un parrafo de ochenta
-    -- palabras que nadie lee. El tipo es la regla.
-    que_paso              text[] NOT NULL,
-    por_que               text[] NOT NULL,
-    que_haria             text[] NOT NULL,
-    lo_que_no_se          text[] NOT NULL,
-    de_donde              text[] NOT NULL,
-
-    -- LA CALIDAD DE LA CORRIDA. Hechos, no opiniones del modelo.
-    herramientas_usadas   text[] NOT NULL DEFAULT '{}',
-    piso_cubierto         boolean NOT NULL,
-    corto_por_presupuesto boolean NOT NULL,
-    vueltas               integer NOT NULL,
-
-    modelo                text NOT NULL DEFAULT '',
-    por                   text NOT NULL DEFAULT '',
-
-    -- Sin esto no entra. Es lo que impide que en dos meses la mitad de las
-    -- filas sean prosa vacia.
-    CONSTRAINT inv_de_quien CHECK (
-        de_quien_es IN ('nuestro','dato','proveedor','no_se')),
-    CONSTRAINT inv_que_paso  CHECK (cardinality(que_paso) > 0),
-    CONSTRAINT inv_que_haria CHECK (cardinality(que_haria) > 0),
-    CONSTRAINT inv_no_se     CHECK (cardinality(lo_que_no_se) > 0),
-    -- ⚠️ `cardinality`, NO `array_length`. `array_length('{}', 1)` devuelve
-    -- **NULL**, y un CHECK que da NULL PASA —solo falla con FALSE—, asi que
-    -- la restriccion era decorativa justo para el caso que venia a atajar:
-    -- un veredicto sin una sola fuente entraba igual. `cardinality` da 0.
-    CONSTRAINT inv_fuentes   CHECK (cardinality(de_donde) > 0)
-);
-
-CREATE INDEX IF NOT EXISTS investigaciones_caso
-    ON lab.investigaciones (tipo, caso, at DESC);
-CREATE INDEX IF NOT EXISTS investigaciones_recientes
-    ON lab.investigaciones (at DESC);
-
--- El LECTOR puede leer el diario (para no repetir una investigación).
-GRANT USAGE ON SCHEMA lab TO lector_lab;
-GRANT SELECT ON lab.investigaciones TO lector_lab;
-
--- ⚠️ Y las VISTAS del modal (`agente.v_ahora`, `agente.v_encontro`), que la
--- lista de «que se puede investigar» lee para no inventar un tercer criterio de
--- «lo que esta abierto» (REGLA #9): su GRANT **NO va aca**. Vive en
--- `sql/schema.sql`, pegado al CREATE de las vistas, porque cada `apply_schema`
--- las DROPEA y las vuelve a crear — y un permiso cuelga del objeto, no del
--- nombre, asi que otorgarlo desde este bloque dura hasta el proximo deploy.
-
--- El ESCRITOR sólo escribe acá. Sin UPDATE ni DELETE: es un libro.
-GRANT USAGE ON SCHEMA lab TO escritor_lab;
-GRANT SELECT, INSERT ON lab.investigaciones TO escritor_lab;
-GRANT USAGE, SELECT ON SEQUENCE lab.investigaciones_id_seq TO escritor_lab;
-
--- ⚠️ SUPABASE PRENDE RLS SOLO EN LAS TABLAS NUEVAS, y sin politica no entra ni
--- sale nada: el INSERT muere con «new row violates row-level security policy» y
--- el SELECT devuelve CERO FILAS SIN ERROR — que es peor, porque «no hay nada» y
--- «no puedo mirar» se ven iguales. Paso primero con todo `mercado` y despues
--- con esta tabla. Por eso las politicas viven ACA, al lado del CREATE: un
--- esquema al que hay que acordarse de agregarle algo despues no es un esquema.
---
--- `DROP ... IF EXISTS` antes de crear porque CREATE POLICY no acepta IF NOT
--- EXISTS: sin eso, correr este bloque dos veces falla.
--- ⚠️ MIGRACION DE LOS CAMPOS QUE PASARON DE `text` A `text[]`.
--- Convierte lo que ya hay en un arreglo de UN elemento: no se pierde nada, y
--- las filas viejas se ven como un solo punto largo — que es exactamente lo que
--- eran. Va adentro de un DO porque `ALTER ... TYPE` falla si el tipo ya es el
--- nuevo, y este bloque se corre mas de una vez.
--- ⚠️⚠️ **MIGRACION DE `text` A `text[]` SIN USAR `ALTER ... TYPE ... USING`.**
---
--- El camino corto era `ALTER COLUMN x TYPE text[] USING ARRAY[x]`, y fallo con
--- **«function btrim(text[]) does not exist»** sobre una columna que era `text`:
--- adentro del USING la referencia se resolvio con el tipo NUEVO. No se por que
--- exactamente, asi que en vez de adivinar se evita el constructo.
---
--- Columna nueva → copiar → borrar la vieja → renombrar. Cuatro pasos que no
--- dependen de como se resuelve nada, y el `IF t = 'text'` los saltea enteros si
--- ya se corrio antes. El tipo se pregunta al CATALOGO (`atttypid::regtype`),
--- que devuelve exactamente `text` o `text[]` — `information_schema` no sirve
--- para esto.
-DO $mig$
-DECLARE c text; t text;
-BEGIN
-  FOREACH c IN ARRAY ARRAY['que_paso','por_que','que_haria','lo_que_no_se'] LOOP
-    SELECT a.atttypid::regtype::text INTO t
-      FROM pg_attribute a
-     WHERE a.attrelid = 'lab.investigaciones'::regclass
-       AND a.attname = c AND NOT a.attisdropped;
-    IF t = 'text' THEN
-      EXECUTE format('ALTER TABLE lab.investigaciones ADD COLUMN %I text[]',
-                     c || '_arr');
-      EXECUTE format(
-        'UPDATE lab.investigaciones SET %I = CASE WHEN btrim(%I) = %L '
-        'THEN ARRAY[]::text[] ELSE ARRAY[%I] END', c || '_arr', c, '', c);
-      EXECUTE format('ALTER TABLE lab.investigaciones DROP COLUMN %I', c);
-      EXECUTE format('ALTER TABLE lab.investigaciones RENAME COLUMN %I TO %I',
-                     c || '_arr', c);
-      EXECUTE format('ALTER TABLE lab.investigaciones ALTER COLUMN %I SET NOT NULL', c);
-    END IF;
-  END LOOP;
-END
-$mig$;
-
-ALTER TABLE lab.investigaciones ADD COLUMN IF NOT EXISTS titulo text NOT NULL DEFAULT '';
-
-ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_que_paso;
-ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_que_paso
-    CHECK (cardinality(que_paso) > 0);
-ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_que_haria;
-ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_que_haria
-    CHECK (cardinality(que_haria) > 0);
-ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_no_se;
-ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_no_se
-    CHECK (cardinality(lo_que_no_se) > 0);
-
--- Si la tabla ya existia con el CHECK viejo (el de array_length), esto lo
--- reemplaza. Es idempotente: en una tabla recien creada no hace nada.
-ALTER TABLE lab.investigaciones DROP CONSTRAINT IF EXISTS inv_fuentes;
-ALTER TABLE lab.investigaciones ADD CONSTRAINT inv_fuentes
-    CHECK (cardinality(de_donde) > 0);
-
-DROP POLICY IF EXISTS escritor_lab_inserta ON lab.investigaciones;
-CREATE POLICY escritor_lab_inserta ON lab.investigaciones
-    FOR INSERT TO escritor_lab WITH CHECK (true);
-
-DROP POLICY IF EXISTS escritor_lab_lee ON lab.investigaciones;
-CREATE POLICY escritor_lab_lee ON lab.investigaciones
-    FOR SELECT TO escritor_lab USING (true);
-
-DROP POLICY IF EXISTS lector_lab_lee ON lab.investigaciones;
-CREATE POLICY lector_lab_lee ON lab.investigaciones
-    FOR SELECT TO lector_lab USING (true);
-"""
+def sql_esquema() -> str:
+    """El DDL del lab, leído de `sql/lab.sql`. Lo imprime `correr.py --sql`."""
+    try:
+        return _SQL_LAB.read_text(encoding="utf-8")
+    except OSError as e:
+        return f"-- no pude leer {_SQL_LAB}: {e}"
 
 # Los campos del veredicto que van a la base, EN EL ORDEN del INSERT. Se
 # derivan del modelo para que agregar un campo arriba no obligue a acordarse

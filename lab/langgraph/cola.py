@@ -40,49 +40,8 @@ logger = logging.getLogger(__name__)
 
 PENDIENTE, CORRIENDO, LISTO, ERROR = "pendiente", "corriendo", "listo", "error"
 
-SQL_ESQUEMA = """
-CREATE TABLE IF NOT EXISTS lab.pedidos (
-    id               bigserial PRIMARY KEY,
-    at               timestamptz NOT NULL DEFAULT now(),
-    tipo             text NOT NULL,
-    caso             text NOT NULL,
-    por              text NOT NULL DEFAULT '',
-
-    estado           text NOT NULL DEFAULT 'pendiente',
-    arrancado_at     timestamptz,
-    terminado_at     timestamptz,
-
-    -- Los pasos EN VIVO. Se van agregando mientras corre.
-    pasos            jsonb NOT NULL DEFAULT '[]'::jsonb,
-
-    -- El resultado NO vive aca: vive en el diario, y aca queda apuntado.
-    investigacion_id bigint REFERENCES lab.investigaciones(id),
-    error            text NOT NULL DEFAULT '',
-
-    CONSTRAINT pedidos_estado CHECK (
-        estado IN ('pendiente','corriendo','listo','error'))
-);
-
-CREATE INDEX IF NOT EXISTS pedidos_pendientes
-    ON lab.pedidos (at) WHERE estado = 'pendiente';
-CREATE INDEX IF NOT EXISTS pedidos_recientes ON lab.pedidos (at DESC);
-
--- ⚠️ Aca el escritor SI tiene UPDATE, al reves que en el diario. No es una
--- inconsistencia: el diario es un LIBRO (lo escrito no se reescribe) y la cola
--- es ESTADO (pendiente → corriendo → listo). Cosas distintas, permisos
--- distintos.
-GRANT SELECT, INSERT, UPDATE ON lab.pedidos TO escritor_lab;
-GRANT USAGE, SELECT ON SEQUENCE lab.pedidos_id_seq TO escritor_lab;
-GRANT SELECT ON lab.pedidos TO lector_lab;
-
-ALTER TABLE lab.pedidos ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS escritor_lab_pedidos ON lab.pedidos;
-CREATE POLICY escritor_lab_pedidos ON lab.pedidos
-    FOR ALL TO escritor_lab USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS lector_lab_pedidos ON lab.pedidos;
-CREATE POLICY lector_lab_pedidos ON lab.pedidos
-    FOR SELECT TO lector_lab USING (true);
-"""
+# El esquema de `lab.pedidos` vive en `sql/lab.sql`, junto con el del diario y
+# los permisos de los dos roles. Ver el comentario de `diario.sql_esquema()`.
 
 
 def encolar(tipo: str, caso: str, por: str = "") -> dict:

@@ -15,6 +15,9 @@ import pathlib
 
 RAIZ = pathlib.Path(__file__).resolve().parents[2]
 LAB = RAIZ / "lab" / "langgraph"
+# El DDL y —sobre todo— el ALCANCE del lab sobre producción. Ver §L.3 de
+# `docs/AGENT.md`: este archivo no describe qué puede leer, lo impone.
+LAB_SQL = RAIZ / "sql" / "lab.sql"
 
 
 def test_el_lab_no_conoce_la_conexion_del_sistema():
@@ -96,10 +99,80 @@ def test_una_sola_traduccion_de_los_pasos():
 def test_el_diario_no_acepta_un_veredicto_sin_fuentes():
     """El CHECK con `cardinality`, NO con `array_length`: `array_length('{}',1)`
     devuelve NULL y un CHECK que da NULL **pasa**. La primera versión era
-    decorativa justo para el caso que venía a atajar."""
-    t = (LAB / "diario.py").read_text(encoding="utf-8")
+    decorativa justo para el caso que venía a atajar.
+
+    ⚠️ Se lee de `sql/lab.sql` porque el DDL se mudó ahí: vivía en una constante
+    de `diario.py` que se aplicaba copiando el texto a Supabase, así que el
+    deploy no lo tocaba nunca."""
+    t = LAB_SQL.read_text(encoding="utf-8")
     assert "cardinality(de_donde) > 0" in t
     assert "array_length(de_donde" not in t
+
+
+def test_el_ddl_del_lab_tiene_UNA_sola_fuente():
+    """El esquema del lab vive en `sql/lab.sql` y en ningún otro lado.
+
+    Estuvo duplicado en dos constantes `SQL_ESQUEMA` (una en `diario.py`, otra
+    en `cola.py`) que se aplicaban a mano. Dos copias del mismo DDL sin árbitro
+    es la REGLA #9, y encima ninguna de las dos la aplicaba el deploy: un
+    `ALTER` nuevo andaba local y en producción no existía."""
+    assert LAB_SQL.exists(), "falta sql/lab.sql"
+    for f in LAB.glob("*.py"):
+        assert "SQL_ESQUEMA" not in f.read_text(encoding="utf-8"), (
+            f"{f.name} volvió a embeber el DDL: la fuente es sql/lab.sql")
+
+
+def test_el_deploy_aplica_el_esquema_del_lab():
+    """Sin esto, media DDL del lab se autocura en cada deploy (los GRANT de las
+    vistas, que viven en `sql/schema.sql`) y la otra media depende de que
+    alguien se acuerde de pegar el texto."""
+    t = (RAIZ / "scripts" / "apply_schema.py").read_text(encoding="utf-8")
+    assert "lab.sql" in t, "apply_schema tiene que aplicar sql/lab.sql"
+
+
+def test_el_alcance_del_lab_esta_declarado_en_el_repo():
+    """**Qué puede leer el investigador se audita leyendo el proyecto.**
+
+    Los GRANT sobre producción se habían dado a mano en el editor de Supabase:
+    no estaban en el repo, no se reproducían en una base nueva, y no había forma
+    de contestar «¿a qué tiene acceso esto?» sin entrar a la base.
+
+    Y REVOCA antes de otorgar: si sólo otorgara, un permiso de más puesto a mano
+    sobreviviría para siempre y ningún chequeo lo vería."""
+    t = LAB_SQL.read_text(encoding="utf-8")
+    for tabla in ("mercado.curvas", "mercado.market_snapshot", "agente.hallazgos",
+                  "agente.reincidencias", "agente.acciones", "manager.job_runs"):
+        assert f"GRANT SELECT ON {tabla}" in t, f"falta declarar el acceso a {tabla}"
+    assert "REVOKE ALL ON ALL TABLES IN SCHEMA" in t, (
+        "sin el REVOKE previo, este archivo describe el alcance en vez de imponerlo")
+
+
+def test_la_prueba_de_permisos_mide_el_techo_y_no_solo_el_piso():
+    """Comprobar que PUEDE leer sus tablas no dice nada sobre si puede leer
+    otras. Un `GRANT ... ON ALL TABLES` otorgado un martes apurado pasaba todos
+    los chequeos en verde."""
+    t = (LAB / "probar_lector.py").read_text(encoding="utf-8")
+    assert "information_schema.table_privileges" in t, (
+        "el techo se pregunta al catálogo: probar tabla por tabla exige saber "
+        "de antemano qué buscar, que es justo lo que no se sabe")
+    assert "NEGOCIO_PROHIBIDO" in t
+    # Las cuatro familias del negocio (REGLA #8), no una sola.
+    for tabla in ("clientes.comitentes", "portafolio.tenencia",
+                  "operaciones.operaciones", "manager.manager_users"):
+        assert tabla in t, f"{tabla} no se prueba: el negocio se cierra entero"
+
+
+def test_el_eval_no_usa_un_modelo_para_juzgar_al_modelo():
+    """Invariante #12: el agente no se autoevalúa. Un juez que es el mismo
+    modelo que contestó mide su propio estilo, no su acierto. La verdad de campo
+    es `agente.hallazgos.arreglo_aplicado`, que escribió el agente
+    determinista."""
+    t = (RAIZ / "scripts" / "eval_investigador.py").read_text(encoding="utf-8")
+    assert "arreglo_aplicado" in t, "sin la verdad de campo no hay eval"
+    for prohibido in ("core.ai", "core.llm", "langchain", "ChatOpenAI"):
+        assert prohibido not in t, f"el eval no puede llamar a un modelo ({prohibido})"
+    # Tres resultados, no dos: lo que no se pudo comparar no cuenta como error.
+    assert "INDECIDIBLE" in t
 
 
 def test_el_piso_de_cada_investigacion_nombra_herramientas_que_existen():

@@ -29,6 +29,21 @@ from core.postgres import connect
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 
+# ⚠️ **EL LAB VA DESPUÉS, Y SUS ERRORES NO CUENTAN.** `sql/lab.sql` trae el
+# esquema del INVESTIGADOR y, sobre todo, el ALCANCE de sus dos roles sobre
+# producción (revoca y vuelve a otorgar). Va acá y no pegado a mano porque
+# antes se aplicaba copiando texto al editor de Supabase: media DDL del lab se
+# autocuraba en cada deploy (los GRANT de las vistas, que viven en schema.sql)
+# y la otra media dependía de que alguien se acordara. Un `ALTER` nuevo andaba
+# local y en producción no existía, con un error que hablaba de otra cosa.
+#
+# Va DESPUÉS porque otorga permisos sobre tablas que `schema.sql` crea, y sus
+# fallos se reportan aparte SIN cambiar el código de salida: **el lab es
+# opcional, la mesa no**. Que el deploy de toda la plataforma quede en rojo por
+# una herramienta interna sería el mismo error que ya está prohibido del otro
+# lado (el agente sobrevive a un lab roto).
+LAB_PATH = Path(__file__).resolve().parent.parent / "sql" / "lab.sql"
+
 
 def _statements(sql: str) -> list[str]:
     """Parte el script en statements respetando bloques dollar-quoted ($$ ... $$,
@@ -71,36 +86,42 @@ def _statements(sql: str) -> list[str]:
     return out
 
 
+def _aplicar(cur, stmts: list[str]) -> tuple[int, list[str]]:
+    """Ejecuta los statements y devuelve (cuántos anduvieron, los que fallaron)."""
+    ok, fallidos = 0, []
+    for s in stmts:
+        try:
+            cur.execute(s)
+            ok += 1
+        except Exception as e:  # idempotente: la mayoría de "ya existe" ni llega acá
+            fallidos.append(f"{s.splitlines()[0][:80]} → {type(e).__name__}: {e}")
+    return ok, fallidos
+
+
 def main(dry: bool) -> int:
     # encoding EXPLÍCITO: schema.sql tiene comentarios con acentos y el default
     # del sistema no es UTF-8 en todos lados (en Windows revienta con
     # UnicodeDecodeError y no se puede ni validar el archivo antes de subirlo).
     sql = SCHEMA_PATH.read_text(encoding="utf-8")
     stmts = _statements(sql)
-    print(f"schema.sql: {len(stmts)} statements\n")
+    lab = _statements(LAB_PATH.read_text(encoding="utf-8")) if LAB_PATH.exists() else []
+    print(f"schema.sql: {len(stmts)} statements   ·   lab.sql: {len(lab)} statements\n")
 
     if dry:
-        for s in stmts:
+        for s in stmts + lab:
             primera = s.splitlines()[0][:90]
             print(f"  {primera}")
         return 0
 
-    ok = errores = 0
-    fallidos: list[str] = []
     # Autocommit: cada DDL se confirma sola; un statement que falle no aborta el resto.
     conn = connect()
     conn.autocommit = True
     with conn.cursor() as cur:
-        for s in stmts:
-            try:
-                cur.execute(s)
-                ok += 1
-            except Exception as e:  # idempotente: la mayoría de "ya existe" ni llega acá
-                errores += 1
-                fallidos.append(f"{s.splitlines()[0][:80]} → {type(e).__name__}: {e}")
+        ok, fallidos = _aplicar(cur, stmts)
+        ok_lab, fallidos_lab = _aplicar(cur, lab)
     conn.close()
 
-    print(f"OK: {ok}   Errores: {errores}")
+    print(f"OK: {ok}   Errores: {len(fallidos)}")
     if fallidos:
         print("\nStatements con error (revisar — pueden ser inofensivos):")
         for f in fallidos:
@@ -108,7 +129,20 @@ def main(dry: bool) -> int:
     else:
         print("\nTodo aplicado. Las tablas faltantes (dias_habiles, dolar, series_macro, "
               "portfolio_snapshot, operaciones.*, etc.) ahora existen.")
-    return 1 if errores else 0
+
+    if lab:
+        print(f"\nlab.sql (el INVESTIGADOR): OK {ok_lab}   Errores: {len(fallidos_lab)}")
+        for f in fallidos_lab:
+            print(f"  ⚠ {f}")
+        if fallidos_lab:
+            # AVISA y no cuenta: el lab es opcional, la mesa no. Si el usuario
+            # del deploy no puede otorgar, o los roles no existen todavía, eso
+            # NO puede dejar en rojo el deploy de toda la plataforma.
+            print("  ↳ el lab quedó a medias. La mesa NO está afectada.")
+            print("  ↳ para ver qué falta: python -m lab.langgraph.probar_lector")
+
+    # El código de salida lo define SOLO schema.sql (ver el comentario de LAB_PATH).
+    return 1 if fallidos else 0
 
 
 if __name__ == "__main__":

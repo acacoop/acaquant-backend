@@ -135,7 +135,7 @@ def main() -> int:
                     help="cómo va un pedido encolado")
     ap.add_argument("--cola", action="store_true", help="los últimos pedidos")
     ap.add_argument("--sql", action="store_true",
-                    help="imprime el SQL del diario, para correrlo una vez en Supabase")
+                    help="imprime sql/lab.sql (el deploy ya lo aplica; esto es para mirarlo)")
     ap.add_argument("--modelo", default="", help=f"default {modelo.MODELO_DEFAULT}")
     a = ap.parse_args()
 
@@ -143,10 +143,10 @@ def main() -> int:
         _tipos()
         return 0
     if a.sql:
-        # Los dos, en orden: la cola referencia al diario por FK.
-        from lab.langgraph import cola
-        print(diario.SQL_ESQUEMA)
-        print(cola.SQL_ESQUEMA)
+        # UNA sola fuente: `sql/lab.sql`, el mismo archivo que aplica el deploy.
+        # Antes eran dos constantes en dos módulos, y lo que se imprimía acá
+        # podía divergir de lo que había en la base sin que nada avisara.
+        print(diario.sql_esquema())
         return 0
     if a.historial:
         print("\n" + diario.historial(a.tipo, " ".join(a.caso)) + "\n")

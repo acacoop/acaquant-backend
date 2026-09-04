@@ -389,7 +389,13 @@ def main() -> int:
         # El aviso mira SOLO los dos tapes: el archivo del paso 4 tiene datos
         # aunque el mercado esté cerrado, así que incluirlo taparía justo el
         # caso que este aviso existe para nombrar.
-        if not rv_con_datos and not rf_con_datos:
+        #
+        # ⚠️ Y solo cuenta lo que SE MIRÓ. Con `--rf ""` no hay renta fija que
+        # medir, y sin esta guarda el aviso salía igual: "nada tuvo datos"
+        # cuando la verdad era "no miré". Es el mismo error que el invariante #1
+        # del agente prohíbe — una corrida ciega no puede afirmar nada.
+        mirados = bool(rf_resueltos) or bool(rv)
+        if mirados and not rv_con_datos and not rf_con_datos:
             print("\n \u26a0\ufe0f  NADA tuvo datos en la ventana, ni renta fija ni renta variable.")
             print("     Los dos tapes los escriben motores DISTINTOS, así que no puede ser")
             print("     casualidad: o la corrida fue antes de que arrancaran (13:20 UTC =")

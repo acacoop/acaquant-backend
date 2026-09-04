@@ -729,7 +729,7 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 
 ### Vista: TRADING (ruta frontend: `/trading`)
 - **Módulo RBAC**: `trading` — **solo `admin`** en el default. Es módulo normal (no `require_admin`) → un admin PODRÍA delegarlo desde el panel. **SIN VERIFICAR** si en prod está asignado a otro rol.
-- **Archivos front**: `trading-shell.tsx` → `trading-view.tsx`, `intraday-view.tsx`, `pnl-historico-view.tsx`; sub-componentes `trading-radar-panel.tsx` (→ movers / volumen / pivot-radar), `live-intraday-chart.tsx`, `cedears-scanner-table.tsx` (reusada en modo `compact` + `soloCedear`). Proxy: `/api/trading/[...path]` (GET+POST).
+- **Archivos front**: `trading-shell.tsx` → `trading-view.tsx`, **`monitor-view.tsx`**, `intraday-view.tsx`, `pnl-historico-view.tsx`; sub-componentes `trading-radar-panel.tsx` (→ movers / volumen / pivot-radar), `live-intraday-chart.tsx`, `cedears-scanner-table.tsx` (reusada en modo `compact` + `soloCedear`). Proxy: `/api/trading/[...path]` (GET+POST).
 - **Router**: `trading.py`, con `_TRADING = [verify_api_key, require_module("trading")]` (el router no declara gate propio).
 
 > **⚠️ REFACTOR 2026-09-01 — la pantalla se partió 50/50 y se le sacaron cuatro cosas.**

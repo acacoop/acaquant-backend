@@ -45,6 +45,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 from core.instrumentos_validos import validos
@@ -56,6 +57,8 @@ from core.postgres import get_pool
 # El único motivo del que el job es DUEÑO. Lo que la mesa marcó a mano lleva otro
 # motivo y no se toca: alguien que sabe que el papel se rescató anticipadamente
 # sabe algo que la fecha de vencimiento no dice.
+logger = logging.getLogger(__name__)
+
 MOTIVO_JOB = "vencido"
 
 ART_OFFSET = timedelta(hours=-3)
@@ -77,7 +80,10 @@ def _a_fecha(v) -> date | None:
 
 
 def decidir_vigencia(rows: list[dict], hoy: date) -> list[dict]:
-    """`[{unidad, vigente, motivo}]` con SÓLO los que hay que cambiar. PURA.
+    """`[{unidad, vigente, motivo}]` con SÓLO los que hay que cambiar.
+
+    PURA en lo que importa: recibe las filas y devuelve la decisión — no lee ni
+    escribe la base. (Logea una contradicción, que es reportar, no decidir.)
 
     Dos direcciones, porque una fecha mal cargada se corrige y el título tiene que
     poder volver:
@@ -86,13 +92,53 @@ def decidir_vigencia(rows: list[dict], hoy: date) -> list[dict]:
       · apagado por el job y la fecha ya no está vencida → volver a encender
 
     Nunca toca una fila cuyo `vigencia_motivo` no sea el del job.
+
+    ⚠️⚠️ **SI LAS DOS FECHAS SE CONTRADICEN, NO SE APAGA NADA** (2026-09-04).
+
+    Antes esto era `vencimiento or fecha_vencimiento`: **el catálogo le ganaba al
+    master y la del master era un fallback**. Con lo cual una fecha mal tipeada a
+    mano en `assets` apagaba un título que el master declara vivo, y el job
+    quedaba convencido de haber hecho lo correcto.
+
+    Medido en producción: GMCGO. `assets.vencimiento` decía 2026-06-28 y
+    `mercado.curvas.fecha_vencimiento` dice **2028-01-28** — confirmado por la
+    mesa: manda el master. El job lo apagó con motivo `vencido` sobre un bono al
+    que le faltan más de dos años, y el AV AGENT lo dio por muerto a partir de esa
+    marca.
+
+    **No se cambia la precedencia, que sería otra apuesta sin medir**: se exige
+    ACUERDO. Sólo se apaga cuando alguna fecha afirma que venció **y ninguna
+    afirma lo contrario** — una fecha futura es una afirmación tan válida como una
+    pasada. Es la misma regla que rige en `agente/vigencia.py`, y por el mismo
+    motivo: dos copias sin árbitro no habilitan a decidir.
+
+    Y como la contradicción cae en la rama de «no está vencida», **el job
+    DESHACE su propio apagado**: GMCGO vuelve a `vigente` solo en la próxima
+    corrida, sin backfill y sin que nadie toque la base. Eso ya estaba en el
+    diseño (*«una fecha mal cargada se corrige y el título tiene que poder
+    volver»*), sólo que la contradicción nunca llegaba a esa rama.
+
+    La divergencia en sí NO la arregla este job —no sabe cuál copia es la buena—:
+    está declarada en `core/duplicados.DUPLICADOS` y la canta el agente.
     """
     cambios = []
     for r in rows:
         motivo = (r.get("vigencia_motivo") or "").strip()
         if motivo and motivo != MOTIVO_JOB:
             continue                                    # marca humana: no se pisa
-        vto = _a_fecha(r.get("vencimiento")) or _a_fecha(r.get("fecha_vencimiento"))
+        fechas = [f for f in (_a_fecha(r.get("vencimiento")),
+                              _a_fecha(r.get("fecha_vencimiento"))) if f]
+        # Lo que NO parsea ya quedó afuera: no es una fecha vencida, es un dato
+        # sin cargar. De lo que sí parsea, se exige que no se contradigan.
+        afirman_muerto = [f for f in fechas if f < hoy]
+        afirman_vivo = [f for f in fechas if f >= hoy]
+        if afirman_muerto and afirman_vivo:
+            logger.warning(
+                "vigencia %s: las dos fechas se contradicen (catálogo %s · master "
+                "%s) — no lo apago. La divergencia se declara en core/duplicados "
+                "y la canta el agente", r["unidad"], r.get("vencimiento"),
+                r.get("fecha_vencimiento"))
+        vto = afirman_muerto[0] if (afirman_muerto and not afirman_vivo) else None
         vigente_ahora = r.get("vigente") is not False
         if vto and vto < hoy:
             if vigente_ahora:

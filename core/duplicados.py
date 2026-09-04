@@ -225,6 +225,54 @@ DUPLICADOS: tuple[Duplicado, ...] = (
                        "Primero se pide la pata (adhoc, se ve en 5s) para saber si "
                        "cotiza; con ese dato se decide el reinicio."),
     Duplicado(
+        id="vencimiento_master_vs_assets",
+        que="CUÁNDO VENCE el título — la fecha que decide si todavía existe",
+        a="mercado.curvas.fecha_vencimiento (el master, date)",
+        b="portafolio.assets.vencimiento (el catálogo, text, carga la mesa)",
+        arbitro="el MASTER. Confirmado por la mesa el 2026-09-04 sobre GMCGO: "
+                "`curvas` decía 2028-01-28 y `assets` 2026-06-28, y la fecha "
+                "buena es la del master. Es coherente con el origen de cada "
+                "copia — la del master entra con el alta de la curva (1816), la "
+                "del catálogo se tipea a mano",
+        rompe="`jobs.validar_instrumentos` apagaba el título (`vigente=false`, "
+              "motivo `vencido`) con la fecha del CATÁLOGO, que le ganaba al "
+              "master. Con eso un bono con DOS AÑOS de vida por delante quedaba "
+              "marcado como vencido, el AV AGENT lo daba por muerto a partir de "
+              "esa marca, y `cleanup_curvas` —que mira sólo el master— no lo "
+              "borraba nunca: el título quedaba MUERTO en una mitad del sistema "
+              "y VIVO en la otra, con un hallazgo abierto que nadie podía "
+              "cerrar. Y `assets.vencimiento` además se muestra en /aca y en los "
+              "flujos, así que la fecha equivocada se lee en pantalla",
+        # ⚠️ Sólo se comparan los `vencimiento` que parsean como ISO — el MISMO
+        # criterio que `validar_instrumentos._a_fecha`, que hace
+        # `date.fromisoformat(str(v)[:10])`. Lo que no parsea no es una fecha
+        # distinta: es un dato sin cargar, y no hay divergencia que declarar.
+        # Reimplementar el parseo acá con otro criterio sería exactamente el
+        # defecto que este módulo persigue.
+        sql=r"""
+            SELECT a.unidad,
+                   to_char(c.fecha_vencimiento, 'YYYY-MM-DD'),
+                   left(btrim(a.vencimiento), 10)
+            FROM portafolio.assets a
+            JOIN mercado.curvas c ON c.ticker = a.ticker
+            WHERE c.fecha_vencimiento IS NOT NULL
+              AND btrim(coalesce(a.vencimiento, '')) ~ '^\d{4}-\d{2}-\d{2}'
+              AND left(btrim(a.vencimiento), 10)
+                  <> to_char(c.fecha_vencimiento, 'YYYY-MM-DD')
+            ORDER BY a.unidad
+        """,
+        # **SIN `arreglo_sql` a propósito, y no por prudencia genérica.** El
+        # árbitro está confirmado para UN caso, no medido para todos, y
+        # `assets.vencimiento` no es un campo interno: lo leen `titulos_flujos` y
+        # la vista `/aca`. Un UPDATE masivo cambiaría lo que se muestra en
+        # pantalla apoyado en una sola confirmación — REGLA #4. Primero se mira
+        # la lista; si son todos la misma forma, ahí se agrega el arreglo con la
+        # evidencia al lado.
+        arreglo_manual="Manager → TÍTULOS · ASSETS → corregir VENCIMIENTO con la "
+                       "fecha del master. `validar_instrumentos` vuelve a "
+                       "encender solo lo que él mismo había apagado.",
+        gana="a"),
+    Duplicado(
         id="emisor_curvas_vs_assets",
         que="el emisor del papel",
         a="mercado.curvas.emisor",

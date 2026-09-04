@@ -16,6 +16,10 @@ from jobs.validar_instrumentos import (
 
 # ── Vigencia — un título que amortizó no es un símbolo mal escrito ────────────
 
+# ⚠️ El caso GMCGO (2026-09-04) vive abajo, en
+# `test_dos_fechas_que_se_contradicen_no_apagan_nada`: es el bug que hizo que un
+# bono con dos años de vida por delante quedara marcado `vencido`.
+
 _HOY = date(2026, 8, 15)
 
 
@@ -91,3 +95,75 @@ def test_se_remarcan_TODOS_los_validos_no_solo_los_que_cambian():
 
 def test_no_procesa_dos_veces_el_mismo_simbolo():
     assert decidir_validacion(["A", "A", "A"], set()) == ([], ["A"])
+
+
+# ── La contradicción entre las DOS fechas (2026-09-04) ───────────────────────
+
+def test_dos_fechas_que_se_contradicen_no_apagan_nada():
+    """**El caso GMCGO, medido en producción.**
+
+    `assets.vencimiento` decía 2026-06-28 y `mercado.curvas.fecha_vencimiento`
+    dice 2028-01-28. La mesa confirmó que manda el MASTER: al bono le faltan más
+    de dos años. Pero el job hacía `vencimiento or fecha_vencimiento` —el
+    catálogo le ganaba al master, la del master era un fallback— así que una
+    fecha mal tipeada a mano lo apagó con motivo `vencido`, y el AV AGENT lo dio
+    por muerto a partir de esa marca.
+
+    No se invierte la precedencia (sería otra apuesta sin medir): se exige
+    ACUERDO. Una fecha futura es una afirmación tan válida como una pasada, y dos
+    copias que se contradicen no habilitan a decidir. Misma regla que
+    `agente/vigencia.py`.
+    """
+    # El caso exacto: catálogo dice que venció, master dice que vive.
+    assert decidir_vigencia(
+        [_asset("[1] GMCGO", vencimiento="2026-06-28",
+                fecha_vencimiento=date(2028, 1, 28))], _HOY) == []
+
+    # Y al revés: el catálogo dice que vive y el master que venció. Tampoco.
+    assert decidir_vigencia(
+        [_asset("[1] X", vencimiento="2030-01-01",
+                fecha_vencimiento=date(2024, 1, 1))], _HOY) == []
+
+
+def test_una_contradiccion_deshace_el_apagado_que_hizo_el_job():
+    """**GMCGO vuelve solo, sin backfill y sin tocar la base.**
+
+    Ya estaba en el diseño —*«una fecha mal cargada se corrige y el título tiene
+    que poder volver»*— pero la contradicción nunca llegaba a esa rama: el
+    catálogo ganaba y el título quedaba apagado para siempre.
+
+    Sólo deshace lo que apagó ÉL (`vigencia_motivo == 'vencido'`): una marca
+    humana no se toca ni acá ni en ningún otro caso.
+    """
+    cambios = decidir_vigencia(
+        [_asset("[1] GMCGO", vencimiento="2026-06-28",
+                fecha_vencimiento=date(2028, 1, 28),
+                vigente=False, vigencia_motivo=MOTIVO_JOB)], _HOY)
+    assert cambios == [{"unidad": "[1] GMCGO", "vigente": True, "motivo": None}]
+
+    # Marca humana con la misma contradicción: no se toca.
+    assert decidir_vigencia(
+        [_asset("[1] GMCGO", vencimiento="2026-06-28",
+                fecha_vencimiento=date(2028, 1, 28),
+                vigente=False, vigencia_motivo="manual")], _HOY) == []
+
+
+def test_cuando_las_dos_fechas_coinciden_no_cambia_nada_de_lo_de_antes():
+    """La contradicción es lo ÚNICO que cambió: con las dos de acuerdo, o con una
+    sola cargada, el job decide exactamente igual que antes."""
+    # las dos vencidas → apaga
+    assert decidir_vigencia(
+        [_asset("[1] A", vencimiento="2024-01-01",
+                fecha_vencimiento=date(2024, 1, 2))], _HOY)[0]["vigente"] is False
+    # las dos vivas → no toca
+    assert decidir_vigencia(
+        [_asset("[1] B", vencimiento="2030-01-01",
+                fecha_vencimiento=date(2030, 1, 2))], _HOY) == []
+    # sólo el master, vencido → apaga (era el fallback y sigue funcionando)
+    assert decidir_vigencia(
+        [_asset("[1] C", fecha_vencimiento=date(2024, 1, 1))],
+        _HOY)[0]["vigente"] is False
+    # sólo el catálogo, vencido → apaga
+    assert decidir_vigencia(
+        [_asset("[1] D", vencimiento="2024-01-01")],
+        _HOY)[0]["vigente"] is False

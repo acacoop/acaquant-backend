@@ -51,9 +51,16 @@ sin mirar si otra fuente afirmaba lo contrario, así que daba por muerto un tít
 que el master declara vivo. **Corregido**: contradicción = «no sé», y no se
 cierra nada. Ver `test_dos_fuentes_que_se_contradicen_no_caducan_nada`.
 
-**Lo que falta decidir es cuál de las dos fechas manda** — eso no lo puede
-resolver el código: lo sabe la mesa. El lugar donde se declara es
-`core/duplicados.DUPLICADOS`.
+**RESUELTO el 2026-09-04: manda el MASTER.** La mesa confirmó que GMCGO vence el
+2028-01-28. De ahí salieron tres cosas:
+
+  · el árbitro está DECLARADO en `core/duplicados.DUPLICADOS`
+    (`vencimiento_master_vs_assets`) → el agente lo mira todas las noches
+  · `validar_instrumentos` ya NO apaga cuando las dos fechas se contradicen, y
+    **deshace su propio apagado** → GMCGO vuelve a `vigente` solo
+  · la fecha equivocada sigue en `assets` y hay que corregirla a mano (Manager →
+    TÍTULOS · ASSETS): NO hay arreglo automático, porque ese campo se muestra en
+    /aca y en los flujos y un UPDATE masivo apoyado en un solo caso es REGLA #4.
 
 Cuando el tema cierre, este archivo se borra (REGLA #5).
 """
@@ -182,7 +189,7 @@ def main() -> int:
                     dx = "master SIN fecha → cleanup_curvas no lo borra nunca"
                 elif vive_el_master:
                     contradicen += 1
-                    dx = "⚠ SE CONTRADICEN: el master lo declara VIVO"
+                    dx = "⚠ SE CONTRADICEN — MANDA EL MASTER: está VIVO"
                 else:
                     dx = "el master ya lo da por vencido: sale en el próximo cleanup"
                 vc = f"{venc_c or '— NULL —'}"
@@ -192,11 +199,14 @@ def main() -> int:
             print(f"\n  {len(zombis)} título(s) que `portafolio.assets` da de baja y "
                   f"siguen en `mercado.curvas`.")
             if contradicen:
-                print(f"  ⚠⚠ {contradicen} con las DOS fechas cargadas y en desacuerdo "
-                      "— REGLA #9 pura.\n    No es un bug de un job: es que nadie "
-                      "declaró cuál copia manda.\n    El agente NO los caduca (una "
-                      "contradicción es «no sé»), y va a seguir\n    sin caducarlos "
-                      "hasta que se decida. Se declara en `core/duplicados`.")
+                print(f"  ⚠⚠ {contradicen} con las DOS fechas cargadas y en desacuerdo. "
+                      "MANDA EL MASTER\n    (declarado en `core/duplicados` →"
+                      " `vencimiento_master_vs_assets`).\n"
+                      "    · el agente NO los caduca: una contradicción es «no sé»\n"
+                      "    · `validar_instrumentos` ya no los apaga, y DESHACE el "
+                      "apagado que hizo él\n    · falta corregir la fecha en "
+                      "`assets` a mano (Manager → TÍTULOS · ASSETS):\n      no hay "
+                      "arreglo automático porque ese campo se lee en /aca y en flujos")
             if sin_fecha:
                 print(f"  ⚠ {sin_fecha} SIN `fecha_vencimiento` en el master: "
                       "`cleanup_curvas` sólo borra\n    con esa columna, y sin fecha "

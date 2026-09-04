@@ -121,6 +121,13 @@ REGLAS DURAS (si no podés cumplirlas, contestá con `no_se` y `que_hacer` vací
 - Nombrá lo concreto que aparece en la evidencia (la tabla, el ticker, el job,
   el proveedor). Si el aviso no requiere hacer nada, decilo y decí QUÉ MIRAR la
   próxima vez, con el nombre del dato.
+- **NO ESCALES.** Tu texto REEMPLAZA al que está hoy y tiene que decir lo MISMO
+  que él sobre si hay o no algo que hacer: si el de hoy dice que no hay nada que
+  hacer, el tuyo tampoco puede mandar a hacer nada — sólo decir mejor qué mirar.
+  Nunca propongas borrar, purgar, archivar, vaciar ni truncar datos: no sos vos
+  quien decide eso y no tenés cómo saber qué depende de esa tabla.
+- No nombres las secciones de este pedido («la evidencia», «el error crudo»,
+  «los hechos»): el que lee sólo ve el aviso y no sabe qué le dieron a vos.
 - Prohibido: «revisar», «verificar», «monitorear», «parece que», «es posible
   que», «se recomienda», y cualquier frase que sirva igual para otro aviso.
 - No repitas lo que ya dice «QUÉ ENCONTRÓ»: eso ya está arriba en la pantalla.
@@ -153,10 +160,20 @@ def hechos(fila: dict) -> str:
         f"QUÉ ENCONTRÓ: {fila.get('problema', '')}",
     ]
     if fila.get("detalle"):
-        partes.append(f"ERROR CRUDO, TAL CUAL: {fila['detalle']}")
+        # ⚠️ **EL RÓTULO NO PUEDE AFIRMAR QUE ES UN ERROR.** `detalle` es el
+        # error crudo cuando lo hay (`proveedor_caido`) y el DESGLOSE cuando no
+        # (`db_peso` mete ahí el top de tablas). Llamarlo «ERROR CRUDO» para
+        # todos hizo que el primer texto real dijera «las cinco tablas que
+        # figuran en el error crudo»: el modelo repitió el rótulo, y el rótulo
+        # era mentira. Un nombre neutro, y prohibido nombrarlo (ver _SYSTEM).
+        partes.append(f"DETALLE (tal cual lo ve el que lee): {fila['detalle']}")
     partes.append("EVIDENCIA (JSON): " + json.dumps(
         ev or {}, ensure_ascii=False, default=str)[:_MAX_EV])
-    partes.append(f"TEXTO FIJO QUE HAY HOY (el piso, mejoralo o no lo toques): "
+    # ⚠️ «mejoralo» invitaba a ESCALAR. El primer texto real convirtió un
+    # «Nada: es el número del día» en «purgá o archivá las cinco tablas»: el
+    # modelo leyó «mejorar» como «pedir más». Se enuncia como lo que es —lo que
+    # el aviso dice HOY— y la regla de no escalar vive en el system.
+    partes.append(f"LO QUE EL AVISO DICE HOY (tu texto lo reemplaza): "
                   f"{fila.get('que_hacer', '')}")
     return "\n".join(partes)
 
@@ -168,7 +185,14 @@ def hechos(fila: dict) -> str:
 # ninguna sabe de qué detector viene el hallazgo — por eso valen para las 16.
 
 _NUM = re.compile(r"\d+")
-_MARCAS = ("```", "**", "##", "`", "\n\n", '{"', '"}')
+# Lo que se BORRA sin rechazar: son marcas de formato, no errores de contenido.
+# Tirar un texto correcto porque encerró el nombre de una tabla entre backticks
+# es pagar la llamada y quedarse con el piso por una comilla — pasó 2 de 4 veces
+# en la primera corrida real. Lo que sí se rechaza es lo que cambia el SENTIDO.
+# ⚠️ El `_` NO entra: `mercado.market_snapshot` quedaría `marketsnapshot` y
+# el nombre de la tabla —lo único que sirve del texto— dejaría de existir.
+_COSMETICO = re.compile(r"[`*#]+")
+_MARCAS = ("```", "\n\n", '{"', '"}')
 _MULETILLAS = (
     "parece que", "es posible", "podría ser", "podria ser", "se recomienda",
     "sería conveniente", "seria conveniente", "en caso de que", "revisar el",
@@ -178,11 +202,31 @@ _MULETILLAS = (
 )
 
 
+def limpiar(crudo: str) -> str:
+    """Saca el formato y **corta por oración entera**, no por carácter.
+
+    Un texto de 269 con tope 260 no está mal: le sobra una frase. Cortarlo a
+    cuchillo deja media oración —peor que la frase de molde— y rechazarlo
+    entero paga la llamada para no mostrar nada. Se queda con las oraciones
+    que entran; si ni la primera entra, `_v_largo` lo rechaza y va el piso.
+    """
+    t = " ".join(_COSMETICO.sub("", crudo or "").split())
+    if len(t) <= MAX_CHARS:
+        return t
+    salida = ""
+    for frase in re.split(r"(?<=[.;])\s+", t):
+        if len(salida) + len(frase) + 1 > MAX_CHARS:
+            break
+        salida = f"{salida} {frase}".strip()
+    return salida or t
+
+
 def _v_largo(texto: str, _h: str, _f: dict) -> str:
     if len(texto) < MIN_CHARS:
         return f"muy corto ({len(texto)} caracteres)"
     if len(texto) > MAX_CHARS:
-        return f"muy largo ({len(texto)} caracteres, tope {MAX_CHARS})"
+        return (f"ni la primera oración entra ({len(texto)} caracteres, "
+                f"tope {MAX_CHARS})")
     return ""
 
 
@@ -235,7 +279,34 @@ def _v_calco(texto: str, _h: str, fila: dict) -> str:
     return ""
 
 
-VALIDADORES = (_v_largo, _v_formato, _v_muletillas, _v_numeros, _v_calco)
+_DESTRUIR = ("purg", "borr", "elimin", "archiv", "trunc", "drop", "vaci",
+             "depur", "limpi la tabla", "limpiá la tabla")
+
+
+def _v_manda_destruir(texto: str, _h: str, _f: dict) -> str:
+    """**El modelo NO puede mandar a destruir datos. Nunca.**
+
+    No es prudencia genérica: es estructural. Acá sólo llegan hallazgos SIN
+    arreglo — si hubiera algo que ejecutar sería un botón, escrito por alguien
+    que sabe qué depende de esa tabla. Un texto que ordena purgar es, por
+    construcción, algo que este subsistema no puede afirmar.
+
+    Y no es hipotético: el PRIMER texto real que salió a producción convirtió
+    un «Nada: es el número del día» en «purgá o archivá las cinco tablas» —
+    que eran las cinco tablas más grandes del sistema, no basura. Los otros
+    cuatro validadores lo dejaron pasar porque miraban la FORMA (largo,
+    markdown, muletillas, números) y esto está mal por lo que DICE.
+    """
+    bajo = texto.lower()
+    for v in _DESTRUIR:
+        if v in bajo:
+            return (f"manda a destruir datos («{v}…»): un aviso sin arreglo no "
+                    f"puede ordenar una acción")
+    return ""
+
+
+VALIDADORES = (_v_largo, _v_formato, _v_muletillas, _v_numeros, _v_calco,
+               _v_manda_destruir)
 
 
 def revisar(texto: str, hechos_txt: str, fila: dict) -> str:
@@ -294,7 +365,7 @@ def redactar_uno(fila: dict) -> dict:
     if dato is None:
         return {"texto": "", "rechazo": "no contestó un JSON", "traza": traza}
 
-    texto = " ".join(str(dato.get("que_hacer") or "").split())
+    texto = limpiar(str(dato.get("que_hacer") or ""))
     no_se = str(dato.get("no_se") or "").strip()
     if not texto:
         return {"texto": "", "traza": traza,

@@ -3270,7 +3270,10 @@ def test_la_validacion_rechaza_lo_berreta():
     malos = {
         "número inventado": "Creció 37 por ciento contra la semana pasada.",
         "muletilla": "Se recomienda monitorear el crecimiento de las tablas.",
-        "markdown": "El salto lo puso `mercado.market_snapshot` de la lista.",
+        # ⚠️ Los backticks sueltos YA NO se rechazan: los borra `limpiar()`.
+        # Tirar un texto correcto por una comilla es pagar la llamada para
+        # mostrar el piso. Lo que sí se rechaza es lo que cambia el sentido.
+        "bloque de código": "El salto lo puso ```mercado.market_snapshot```.",
         "muy corto": "Creció.",
         "calco del problema": "La base pesa 12 GB en 190 tablas.",
         "el piso de vuelta": "Nada: es el numero del dia.",
@@ -3278,8 +3281,55 @@ def test_la_validacion_rechaza_lo_berreta():
     for caso, texto in malos.items():
         assert redactar.revisar(texto, h, fila), f"dejó pasar: {caso} → {texto!r}"
 
-    largo = "mercado.market_snapshot " * 20
-    assert "largo" in redactar.revisar(largo, h, fila)
+    largo = "mercado.market_snapshot " * 20      # una sola «oración» de 480
+    assert "entra" in redactar.revisar(largo, h, fila)
+
+
+def test_no_manda_a_destruir_datos_ni_escala_un_aviso():
+    """**El primer texto que salió a producción, congelado como test.**
+
+    El modelo convirtió un «Nada: es el número del día» en *«purgá o archivá
+    las cinco tablas»* — que eran las cinco más GRANDES del sistema, no basura.
+    Los otros cuatro validadores lo dejaron pasar porque miran la FORMA (largo,
+    markdown, muletillas, números) y esto está mal por lo que DICE.
+
+    Es estructural, no prudencia: acá sólo llegan hallazgos SIN arreglo. Si
+    hubiera algo que ejecutar sería un botón, escrito por alguien que sabe qué
+    depende de esa tabla.
+    """
+    fila = {"habilidad": "db_peso", "sujeto": "la base", "regla": "peso_total_16",
+            "problema": "la base pesa 1.4 GB en 247 tablas",
+            "que_hacer": "Nada: es el número del día.",
+            "evidencia": {"crecio": [{"tabla": "mercado.market_snapshot"}]}}
+    h = redactar.hechos(fila)
+    real = ("Purgá o archivá las cinco tablas que figuran abajo; si el peso no "
+            "baja, compará contra el corte de mañana.")
+    assert "destruir" in redactar.revisar(real, h, fila)
+    for verbo in ("Borrá la tabla vieja de a poco.",
+                  "Conviene truncar mercado.market_snapshot esta noche.",
+                  "Eliminá lo que sobra en mercado.market_snapshot.",
+                  "Archivá mercado.market_snapshot fuera de la base."):
+        assert redactar.revisar(verbo, h, fila), f"dejó pasar: {verbo!r}"
+    # Y lo que SÍ puede decir: nombrar la que se movió y qué mirar.
+    ok = ("Lo que se movió es mercado.market_snapshot; si mañana vuelve a "
+          "encabezar, mirar qué la escribe fuera de rueda.")
+    assert redactar.revisar(ok, h, fila) == ""
+
+
+def test_lo_cosmetico_se_limpia_en_vez_de_tirar_la_respuesta():
+    """Dos de las primeras cuatro corridas reales se perdieron por FORMA:
+    backticks y 269 caracteres contra un tope de 260. Pagar la llamada y
+    quedarse con el piso por una comilla es tirar plata; cortar a cuchillo deja
+    media oración, que es peor que la frase de molde."""
+    assert redactar.limpiar("Creció `mercado.market_snapshot` **fuerte**.") == (
+        "Creció mercado.market_snapshot fuerte.")
+    # ⚠️ el `_` NO se toca: sin él el nombre de la tabla deja de existir, y es
+    # lo único que sirve del texto.
+    assert "market_snapshot" in redactar.limpiar("`mercado.market_snapshot`")
+    largo = "Primera oración, corta y entera. " + "palabra " * 80
+    corto = redactar.limpiar(largo)
+    assert corto == "Primera oración, corta y entera."
+    assert len(corto) <= redactar.MAX_CHARS
 
 
 def test_lo_que_no_contesta_deja_el_piso_y_dice_por_que():

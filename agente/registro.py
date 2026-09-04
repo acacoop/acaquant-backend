@@ -171,6 +171,27 @@ def guardar_texto_ia(hallazgo_id: int, *, texto: str, rechazo: str = "",
             (texto, texto, (rechazo or "")[:200], traza, int(hallazgo_id)))
 
 
+def borrar_textos_ia(habilidad: str = "") -> int:
+    """Borra lo redactado de los avisos ABIERTOS para que se vuelva a escribir.
+
+    **No es una limpieza de una vez: es la contracara de tocar el prompt o un
+    validador.** Un texto se escribe UNA vez por hallazgo, así que un cambio en
+    cómo se redacta no alcanza a lo que ya está en pantalla — y lo que está en
+    pantalla es justamente lo que hizo falta cambiar. Sin esto, la única forma
+    de aplicar una corrección era esperar a que el hallazgo cerrara y volviera.
+
+    Tampoco toca `que_hacer`: lo que queda mientras se rehace es el piso.
+    """
+    donde = " AND habilidad = %s" if habilidad else ""
+    args = (list(tipos.ABIERTOS), habilidad) if habilidad else (list(tipos.ABIERTOS),)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE agente.hallazgos SET ia_texto = '', ia_rechazo = '', "
+            "  ia_at = NULL, ia_intentos = 0 "
+            "WHERE estado = ANY(%s) AND arreglo = ''" + donde, args)
+        return cur.rowcount
+
+
 def _silenciados(conn, habilidad: str) -> set[tuple[str, str]]:
     """Lo que esta habilidad tiene silenciado, **de una sola query**.
 

@@ -220,6 +220,10 @@ def main() -> int:
     ap.add_argument("--skill", default="", help="corre UNA habilidad")
     ap.add_argument("--sync", action="store_true",
                     help="solo sincroniza el catálogo con el código")
+    ap.add_argument("--reredactar", action="store_true",
+                    help="borra el texto de IA de los avisos abiertos para que "
+                         "se vuelva a escribir (usar al cambiar el prompt o un "
+                         "validador; el texto fijo nunca se toca)")
     ap.add_argument("--estado", action="store_true",
                     help="qué sabe hacer el agente y cuándo miró cada cosa")
     a = ap.parse_args()
@@ -231,6 +235,13 @@ def main() -> int:
     r = catalogo.sincronizar()
     logger.info("agente: catálogo sincronizado — %d habilidades", r["habilidades"])
     if a.sync:
+        return 0
+
+    if a.reredactar:
+        from agente import registro
+        n = registro.borrar_textos_ia(a.skill)
+        print(f"listo: {n} aviso(s) vuelven a redactarse (mientras tanto "
+              f"muestran su texto fijo)")
         return 0
 
     if a.skill:

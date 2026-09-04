@@ -4792,3 +4792,59 @@ tiene, o esa regla necesita más evidencia antes de poder explicarse.
 **En la pantalla**: la tab AHORA dibuja el texto del modelo con una marca `ia` y
 la hora; el determinista queda en el `title` para poder comparar los dos sin
 gastar pixeles. Ninguna tab nueva.
+
+#### LA PRIMERA CORRIDA REAL — 4 de 66, y el único texto que salió estaba mal
+
+El diag hizo lo suyo el primer día. De 4 intentos: 1 texto, 3 rechazos.
+
+```
+▸ db_peso/peso_total_16 · la base
+  PISO   : Nada: es el número del día. Si el salto de la semana no se explica
+           con las cinco de arriba, mirar qué creció.
+  MODELO : Purgá o archivá las cinco tablas que figuran en el error crudo; si
+           el peso no baja a 1.3 GB, compará contra el corte de las 16:00 de
+           mañana.
+```
+
+**Tres fallas, y dos son del pedido, no del modelo:**
+
+1. **Convirtió un «no hay nada que hacer» en «borrá datos»** — y las cinco
+   tablas eran las cinco más GRANDES del sistema, no basura. Los cuatro
+   validadores lo dejaron pasar porque miraban la FORMA (largo, markdown,
+   muletillas, números) y esto está mal **por lo que dice**. Arreglo:
+   `_v_manda_destruir`, que es estructural y no prudencia genérica — acá sólo
+   llegan hallazgos SIN arreglo, así que un texto que ordena una acción es, por
+   construcción, algo que este subsistema no puede afirmar. Y la regla «NO
+   ESCALES» en el prompt: *tu texto reemplaza al de hoy y tiene que decir lo
+   mismo que él sobre si hay algo que hacer*. Lo anterior decía «el piso,
+   **mejoralo**», que se lee como «pedí más».
+2. **«el error crudo» es el nombre de una sección de MI pedido** — y encima era
+   mentira: `detalle` es el error crudo en `proveedor_caido` y el DESGLOSE en
+   `db_peso`. Rotularlo igual para todos hizo que el modelo repitiera un nombre
+   que el lector nunca ve. Arreglo: rótulo neutro + prohibido nombrar las
+   secciones del pedido.
+3. **No nombró una sola tabla — y no podía.** Esta es la lección que vale más
+   que las dos anteriores: **la evidencia no traía la respuesta**. `db_peso`
+   mandaba `top` = las cinco más grandes (casi siempre las mismas, casi nunca
+   las que se movieron) y del pasado sólo el TOTAL, teniendo `peso.referencia()`
+   la foto vieja **tabla por tabla**. La pregunta que su propio `que_hacer`
+   dejaba abierta no se podía contestar ni a mano. Arreglo: `crecio` en la
+   evidencia, aparte de `top`, porque son dos preguntas distintas.
+
+> **Cuando el texto no sirve, mirar primero la EVIDENCIA.** Un prompt no puede
+> inventar un dato que no está, y si se lo pide igual, lo inventa — que es
+> exactamente lo que hay que evitar. De las tres fallas, la única que importaba
+> se arregló en el detector.
+
+**Los dos rechazos cosméticos** (backticks ×2, 269 caracteres contra un tope de
+260) eran plata tirada: se pagó la llamada para mostrar el piso por una comilla.
+Ahora `limpiar()` **borra** el formato y **corta por oración entera** — sólo se
+rechaza lo que cambia el sentido. ⚠️ El `_` no se toca: sin él
+`mercado.market_snapshot` queda en `marketsnapshot` y el nombre de la tabla,
+que es lo único que sirve del texto, deja de existir.
+
+**`python -m jobs.agente --reredactar`** borra lo escrito de los avisos abiertos
+para que se vuelva a redactar. No es una limpieza de una vez: **es la contracara
+de tocar el prompt o un validador**, porque el texto se escribe UNA vez por
+hallazgo y una corrección no alcanza sola a lo que ya está en pantalla. Acepta
+`--skill` para una sola habilidad.

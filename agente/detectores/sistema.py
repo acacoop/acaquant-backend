@@ -1206,6 +1206,18 @@ def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
         delta = " · es la primera medición: el próximo aviso ya compara"
 
     top = sorted(hoy.items(), key=lambda x: -x[1])[:5]
+    # ⚠️ **LA QUE CRECIÓ NO ES LA QUE PESA.** El aviso pedía «mirar qué creció»
+    # y la evidencia sólo traía las cinco MÁS GRANDES — que son casi siempre las
+    # mismas y casi nunca las que se movieron. Con eso, la pregunta que el propio
+    # texto deja abierta no se podía contestar ni a mano: lo confirmó el primer
+    # texto redactado por el modelo (§0.dn), que no nombró una sola tabla porque
+    # el dato no estaba. `peso.referencia()` YA devuelve la foto vieja tabla por
+    # tabla y se estaba usando sólo para sumarla.
+    #
+    # Va APARTE de `top` a propósito: son dos preguntas distintas —«qué es
+    # grande» y «qué se movió»— y juntarlas en una lista fue el error original.
+    crecio = [(t, hoy[t] - vieja.get(t, 0)) for t in hoy] if vieja else []
+    crecio = sorted((x for x in crecio if x[1] > 0), key=lambda x: -x[1])[:5]
     # ⚠️ **EL SUJETO ES LA BASE; LA FRANJA VA EN LA REGLA.**
     #
     # La primera versión ponía `sujeto=franja` y tenía que escribir el `nombre`
@@ -1220,12 +1232,15 @@ def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
     return [Hallazgo(
         sujeto="la base", regla=f"peso_total_{franja[:2]}", severidad="baja",
         problema=f"la base pesa {peso.mb(total)} en {len(hoy)} tablas{delta}",
-        detalle=" · ".join(f"{t} {peso.mb(b)}" for t, b in top),
+        detalle=(" · ".join(f"{t} +{peso.mb(d)}" for t, d in crecio) if crecio
+                 else " · ".join(f"{t} {peso.mb(b)}" for t, b in top)),
         que_hacer=("Nada: es el número del día. Si el salto de la semana no se "
-                   "explica con las cinco de arriba, mirar qué creció."),
+                   "explica con las que crecieron, mirar qué las escribe."),
         evidencia={"bytes": total, "tablas": len(hoy), "franja": franja,
                    "bytes_hace_7d": antes,
-                   "top": [{"tabla": t, "bytes": b} for t, b in top]})]
+                   "top": [{"tabla": t, "bytes": b} for t, b in top],
+                   "crecio": [{"tabla": t, "crecio_mb": peso.mb(d)}
+                              for t, d in crecio]})]
 
 
 # ═══ actividad ═════════════════════════════════════════════════════════════

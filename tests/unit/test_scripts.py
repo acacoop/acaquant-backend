@@ -115,6 +115,10 @@ HERRAMIENTAS: dict[str, str] = {
                              "en cero y el total dando bien, así que la pantalla no la distingue de «hoy no "
                              "hubo ese impuesto». Muestra el catálogo con `repr` (espacios y acentos rotos), "
                              "dónde vive un texto de verdad y qué gastos caen en RESTO.",
+    "diag_monitor_tape":     "el número que decide la ventana de la tab MONITOR: cuántos ticks hay "
+                             "por rueda en los dos tapes y cuánto tardan las DOS queries agregadas "
+                             "que la tab va a pedir. Elegir 1 rueda o 5 sin medir esto es adivinar "
+                             "(2026-09-04, abierto).",
     "diag_ctas_ops":         "mide cuánto cambia CTAS OPS del INFORME si el número pasa a salir de "
                              "operaciones.operaciones (para que las cuentas OTC cuenten como operativas). Sin este número la decisión se toma a ciegas.",
 }

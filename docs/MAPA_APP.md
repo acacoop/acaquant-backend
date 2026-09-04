@@ -37,7 +37,7 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **527 endpoints** montados en `api.main.app`, en **33 routers**.
+- **525 endpoints** montados en `api.main.app`, en **33 routers**.
 - **196 escriben** (POST/PUT/PATCH/DELETE); 329 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
@@ -78,7 +78,7 @@
 | `/api/risk` | 5 | 0 | `operar` | `operar` |  |
 | `/api/scanner` | 7 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
 | `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
-| `/api/trading` | 8 | 1 | `trading` | `trading` |  |
+| `/api/trading` | 6 | 0 | `trading` | `trading` |  |
 | `/api/valuaciones` | 8 | 0 | `portfolios` · 8 rutas con gate extra | — |  |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
@@ -146,7 +146,7 @@ páginas.
 |---|---|---|---|---|---|
 | 1 | **HOME** | `/` | `home` | admin, trader, sales, asistente_comercial, back_office, invitado | Terminal de apertura: watchlist live (Argentina + índices/futuros/UST + curva DLR + bonos offshore), noticias RSS con reader inline, chart TradingView y modal de briefing. |
 | 2 | **OPERAR** | `/operar` | `operar` | **solo admin** | Única pantalla transaccional: manda y cancela órdenes REALES contra ROFEX (títulos, FCI, brackets) y ejecuta la operativa Dólar MEP de 2 patas. |
-| 3 | **TRADING** | `/trading` | `trading` | **solo admin** | Escritorio intradía: pivots Floor Trader por activo, radares (movers/volumen/pivotes/contexto), order book, charts live + zonas del ADR, monitor FIFO del día y cuaderno manual de PnL. |
+| 3 | **TRADING** | `/trading` | `trading` | **solo admin** | Escritorio intradía: pivots Floor Trader por activo, radares (movers/volumen/pivotes/contexto), order book, charts live + zonas del ADR, volumen operado por precio (MONITOR) y monitor FIFO del día. **Read-only: no escribe nada.** |
 | 4 | **RESEARCH** | `/research` | `research` | admin, invitado | Laboratorio de research: spreads/series 1816, análisis de sensibilidad precio×TIR (ex vista ESTRATEGIA), reportes escritos (mails + PDFs), BCRA, FRED y el tablero/screener de renta variable internacional (feed Reuters/Eikon). |
 | 5 | **AGRO** | `/agro` | `agro` | admin, trader, sales, asistente_comercial, invitado (sin tab DATOS) | Mesa de agro: pases TRIGO/MAÍZ/SOJA vs futuros MATBA, cobertura del productor (ON/Pagaré/Sintético), mejoras de precio disponible, opciones agro con simulador y tablero CBOT. |
 | 6 | **DERIVADOS** | `/derivados` | `derivados` | admin, trader, sales, asistente_comercial, invitado | Chain de opciones de GGAL con griegas, armado de estrategias multi-pata, payoff, escenarios y post-trade lab. |
@@ -187,7 +187,7 @@ páginas.
 | `agro` | `/agro` | Solo las **5 PATCH** de `/api/derivados/agro/*` (`require_module("agro")` + `require_no_invitado`) |
 | `sinteticos` | `/sinteticos` | **NINGUNO** — `derivados_sinteticos.router` va `_PUBLIC` bajo `/api/derivados` |
 | `renta-variable` | `/renta-variable` | `/api/scanner/*` (9 rutas) |
-| `trading` | `/trading` | `/api/trading/*` (8) |
+| `trading` | `/trading` | `/api/trading/*` (6) |
 | `operar` | `/operar` + envío de órdenes | `/api/ordenes`, `/api/operativa`, `/api/operar`, `/api/risk` (22) |
 | `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos` | `/api/operaciones`, `/api/cuentas` (46) — **`/mesa-dinero` salió del módulo el 2026-08-11**: allowlist per-usuario |
 | `portfolios` | `/aum`, `/valuaciones` | `/api/portfolio`, `/api/valuaciones` (18) |
@@ -407,7 +407,7 @@ vacío donde se montaba — se limpió el 2026-08-31.
 |---|---|---|---|
 | `/` HOME | *sin tabs de vista*. Watchlist: **General** · FUTUROS ROFEX · NOTICIAS. Panel derecho: noticias + chart | — | La tab FUTUROS ROFEX solo aparece si el endpoint devolvió filas |
 | `/operar` | **DÓLAR MEP** · TÍTULOS Y FCI | no persistida; deep-link `?tab=` | Sub-tabs MEP: **COMPRA** · VENTA (estado compartido). TÍTULOS Y FCI: TÍTULOS · FCI |
-| `/trading` | **PIVOTS** · INTRADAY · PNL HISTÓRICO | `trading.tab` (keep-alive) | Radar interno: UNA tabla con **MOVERS ±4%** · VOLUMENES ACCIONES · PIVOTES (refactor 2026-09-01) |
+| `/trading` | **PIVOTS** · MONITOR · INTRADAY | `trading.tab` (keep-alive) | Radar interno: UNA tabla con **MOVERS ±4%** · VOLUMENES ACCIONES · PIVOTES (refactor 2026-09-01) |
 | `/research` | **RENTA FIJA ARGENTINA** · ANÁLISIS SENSIBILIDAD · REPORTES FINANCIEROS · BCRA · DATOS INTERNACIONALES · RENTA VARIABLE INTERNACIONAL | no persistida (keep-alive) | RV Internacional tiene sub-vista propia persistida: **COTIZACIONES** · FUNDAMENTALS, + FICHA de empresa |
 | `/agro` | **Mercado** · Mejoras Precio Dispo · Chicago · Datos | deep-link `?tab=` | **Datos oculta al invitado** (y si quedó seleccionada, se fuerza a Mercado) |
 | `/derivados` | *sin tabs de vista* | — | Tabs dentro de paneles: **CALL** · PUT · ESTRAT.; y PAYOFF · ESCENARIOS · LAB |
@@ -729,7 +729,7 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 
 ### Vista: TRADING (ruta frontend: `/trading`)
 - **Módulo RBAC**: `trading` — **solo `admin`** en el default. Es módulo normal (no `require_admin`) → un admin PODRÍA delegarlo desde el panel. **SIN VERIFICAR** si en prod está asignado a otro rol.
-- **Archivos front**: `trading-shell.tsx` → `trading-view.tsx`, **`monitor-view.tsx`**, `intraday-view.tsx`, `pnl-historico-view.tsx`; sub-componentes `trading-radar-panel.tsx` (→ movers / volumen / pivot-radar), `live-intraday-chart.tsx`, `cedears-scanner-table.tsx` (reusada en modo `compact` + `soloCedear`). Proxy: `/api/trading/[...path]` (GET+POST).
+- **Archivos front**: `trading-shell.tsx` → `trading-view.tsx`, **`monitor-view.tsx`**, `intraday-view.tsx`; sub-componentes `trading-radar-panel.tsx` (→ movers / volumen / pivot-radar), `live-intraday-chart.tsx`, `cedears-scanner-table.tsx` (reusada en modo `compact` + `soloCedear`). Proxy: `/api/trading/[...path]` (**GET-only** desde el 2026-09-04: el único POST era el del cuaderno de PnL).
 - **Router**: `trading.py`, con `_TRADING = [verify_api_key, require_module("trading")]` (el router no declara gate propio).
 
 > **⚠️ REFACTOR 2026-09-01 — la pantalla se partió 50/50 y se le sacaron cuatro cosas.**
@@ -756,14 +756,12 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 | **PIVOTS** → charts LIVE 1 y 2 (mitad derecha) | Dos charts idénticos: precio intradía por minuto (área) con líneas de los 7 pivots + VWAP; si hay override, las líneas siguen la edición. Cada uno tiene **✕** para liberarlo (el próximo activo elegido entra ahí) | `GET /api/trading/intraday?ticker` | Zoom/pan; auto-reencuadre si el usuario no interactuó | Ninguna |
 | **MONITOR** (tab nueva 2026-09-04) | Volumen operado **por precio**. Filtro madre **RENTA FIJA / RENTA VARIABLE** (nunca se mezclan: cambian universo, unidades y ventanas). Izquierda 20 % el universo de la clase; derecha 50/50: precio del tape arriba (con VWAP y último) y abajo el histograma de nominales por precio, con **POC** (más operado), **VAL** (piso del 70 %) y **VAH** (techo del 70 %), cada uno como KPI propio y nombrado — en el gráfico son siglas sueltas. El volumen **no se parte por lado** | `GET /api/trading/monitor/universo?clase=`, `GET /api/trading/monitor?clase&ticker&ventana&buckets` | **Clase** (rv def) · **curva** en renta fija (TASA FIJA/CER/TAMAR/…, def TODAS; el catálogo y el conteo los manda el backend, y un dual aparece en las DOS) · **ventana** (rv: HOY/5R/20R · rf: HOY/3R/5R; **abre en la más larga — 20R en rv, 5R en rf**, y el default lo declara el BACKEND en `POR_DEFECTO`, no el front) · buscador del rail · buckets 8-60 (def 26) | Ninguna |
 | **INTRADAY** | Monitor FIFO del día: se sube el **CSV de boletos** (export ROFEX/Aunesa, **latin-1**) y consolida por (cuenta, especie): posición neta, precio ponderado, PnL realizado/no realizado, intereses+IVA, costo en book, detalle por posición y simulador en drawer | `POST /api/operaciones/intraday/{analizar,recalcular,marks}` (**módulo `operaciones`, NO `trading`**) | **Selector de cuenta**; **tilde por especie**; **tilde por trade individual** (re-FIFO en backend); **override manual de mark**; **multiplicador de contrato** (1 acción/CEDEAR, 100 derivado); simulador con escalones ±0.25/0.5/0.75/1/1.25/1.5/2 % | POSTs de cálculo **efímeros: NO persisten en DB**. Todo vive en sessionStorage/localStorage (`intraday_fifo_v2`, `intraday_excl_v1`, `trd-fx-intraday-posiciones-v1`) |
-| **PNL HISTÓRICO** | Cuaderno **MANUAL** de PnL diario: días hábiles desde el 1-jul-2026 hasta fin del mes en curso, monto tipeado por día, acumulado total y mensual, subtotal por mes y 2 gráficos de línea | `GET`/`POST /api/trading/pnl-historico` | **Selector de cuenta** (etiqueta libre, def `General`; el GET devuelve la lista) | **SÍ ESCRIBE**: tipear un monto hace `POST` (upsert en `valuaciones.pnl_historico`); dejar la celda vacía **BORRA** la fila. **Sin allowlist propia** — el gate es el módulo `trading` |
 
 #### Endpoints
-**`trading.py`** (8 rutas): `GET /pivots` (`tickers` CSV; resuelve CEDEAR vs bono por el master de RF;
+**`trading.py`** (6 rutas): `GET /pivots` (`tickers` CSV; resuelve CEDEAR vs bono por el master de RF;
 devuelve `{ticker,last,vwap,cash,fecha,high,low,close,pivots{pp,r1..r3,s1..s3}}` o `{sin_datos:true}`;
 `cash` = plata operada hoy, `None` en bonos) · `GET /intraday` · `GET /pivot-radar` (`ttl=2`, cada item
-suma `cash`) · `GET /universo` · `GET /pnl-historico?cuenta=` ·
-**`POST /pnl-historico`** (`{fecha, monto: float|null, cuenta}`; `monto` null → **DELETE** de la fila) ·
+suma `cash`) · `GET /universo` ·
 `GET /monitor/universo?clase=rv|rf` (devuelve `{clase, ventanas[], curvas[], items[]}` — **las ventanas y las
 curvas las manda el backend**, así el selector no puede ofrecer una que el service rechace ni clasificar un bono
 distinto que la tab CURVAS: la taxonomía sale de `curvas_vista.pills_del_master()`, el mismo lugar. Un bono sin
@@ -779,8 +777,8 @@ RENTA FIJA del radar, sacado hace meses) y `get_trades()` (el tape/LIBRO, sin ro
 `mercado.cedears_ohlc_daily` (`jobs/cedears_ohlc_daily.py` 20:15 UTC — lee el SNAPSHOT, no el tape) ·
 `mercado.bonos_ohlc_daily` (20:16) · `cedears_snapshot` / `market_snapshot` (last y vwap live) ·
 `cedears_time_sales` / `timesales` · `mercado.curvas` · `mercado.dias_habiles` (arma las filas del
-cuaderno) · **`valuaciones.pnl_historico`** (PK fecha+cuenta — **única tabla que esta vista escribe**) ·
-**`mercado.cedears_bars_1m`** (MONITOR multi-rueda, ver abajo).
+cuaderno) · **`mercado.cedears_bars_1m`** (MONITOR multi-rueda, ver abajo).
+**La vista no escribe NINGUNA tabla** desde que se borró PNL HISTÓRICO (2026-09-04).
 
 #### Notas / rarezas
 - Los pivots se calculan **dos veces**: el backend en `/pivots` y el frontend (`calcPivots`) cuando el usuario edita máx/mín/cierre. Si divergieran, el chart mostraría líneas distintas a las cards.
@@ -2629,11 +2627,12 @@ GET `/cedears` · `/ccl` · `/cedears/trades` · `/cedears/intraday` · `/return
 — **ninguno escribe**
 
 ### `trading.py` — `/api/trading`, módulo `trading` (6)
-GET `/pivots` · `/intraday` · `/pivot-radar` · `/universo` · `/pnl-historico`
-| **POST** | `/pnl-historico` | **✍** (upsert/DELETE en `valuaciones.pnl_historico`) |
+GET `/pivots` · `/intraday` · `/pivot-radar` · `/universo` · `/monitor/universo` · `/monitor`
+— **ninguno escribe**
 
 (`/trades`, `/renta-fija` y `/adr-zonas` se borraron el 2026-09-01 con el refactor de la vista;
-el router `estrategia.py` desapareció entero en el mismo cambio.)
+el router `estrategia.py` desapareció entero en el mismo cambio. `/pnl-historico` (GET+POST) se
+borró el 2026-09-04 con su tab: era la ÚNICA escritura de toda la vista TRADING.)
 
 ### `derivados_agro.py` — `/api/derivados/agro`, `_PUBLIC` + gates por ruta (17)
 GET `/agro` · `/agro/opciones/{commodity}` · `/agro/camara` · `/agro/camara-bahia` ·
@@ -2895,8 +2894,6 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
 22. **`POST /api/back-office/tenencia-hd/precio` y las 3 de alquiler NO tienen allowlist**: cualquier rol
     con el módulo `back-office` (que incluye `sales` en el default) puede **editar a mano el PRECIO de una
     unidad** y recalcular la valuación de las 3 cuentas propias.
-23. **`POST /api/trading/pnl-historico` tampoco tiene allowlist** (el gate es el módulo `trading`), y
-    dejar la celda vacía **BORRA** la fila.
 24. **`PATCH /api/cotizaciones/opciones/tasa` cambia la tasa risk-free GLOBAL** de toda la mesa (afecta
     los Greeks de todos). Está admin-only y el proxy es GET-only, así que hoy **solo se puede llamar por
     fuera del front**.

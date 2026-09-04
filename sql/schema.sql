@@ -1543,18 +1543,12 @@ CREATE TABLE IF NOT EXISTS valuaciones.pnl_totales_cache (
     computed_at timestamptz DEFAULT now()
 );
 
--- valuaciones.pnl_historico — cuaderno de PnL diario de carga MANUAL (vista TRADING
--- → PNL HISTÓRICO). NO lo alimenta el motor de PnL: el usuario tipea el PnL de cada
--- día hábil y el acumulado (total desde el 1-jul-2026 + mensual) se calcula al leer.
--- `cuenta` es etiqueta LIBRE ('General' por defecto); cada cuenta es su propio
--- cuaderno → clave (fecha, cuenta). Borrar el monto = borrar la fila.
-CREATE TABLE IF NOT EXISTS valuaciones.pnl_historico (
-    fecha        date        NOT NULL,
-    cuenta       text        NOT NULL DEFAULT 'General',
-    monto        numeric     NOT NULL,
-    actualizado  timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (fecha, cuenta)
-);
+-- valuaciones.pnl_historico — BORRADA (2026-09-04) junto con la tab PNL HISTÓRICO
+-- de la vista TRADING, que era su único lector y su único escritor. Era un
+-- cuaderno de carga MANUAL: el usuario tipeaba el PnL de cada día hábil.
+-- ⚠️ Sacar el CREATE de acá NO la borra de la base: `apply_schema` solo crea.
+-- El DROP lo hace `scripts/drop_pnl_historico.py`, a mano y con confirmación,
+-- porque adentro hay datos tipeados que nadie puede reconstruir.
 
 -- Valuaciones.Dolar — feed MEP (timestamp, mep). get_mep_for_date: último mep <= eod(fecha).
 CREATE TABLE IF NOT EXISTS valuaciones.dolar (

@@ -3,6 +3,9 @@
 Pivots Floor Trader sobre el CEDEAR (ARS), la serie intradía del chart LIVE, el
 radar de proximidad a pivote, el catálogo para el selector de las cards y la tab
 MONITOR (volumen operado por precio).
+
+El router es 100 % READ-ONLY desde el 2026-09-04: se borró la tab PNL HISTÓRICO
+(su `POST /pnl-historico` era la ÚNICA escritura de toda la vista TRADING).
 Lógica pura en api/services/trading_pivots.py. Ver [[project_vista_trading]].
 
 Refactor 2026-09-01: se fue `/adr-zonas` (el chart ZONAS ADR salió de la vista;
@@ -12,10 +15,8 @@ Renta Variable) y el router `/api/estrategia` completo (tab ESTRATEGIA).
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
 
 from api.services import monitor_sql as monitor_svc
-from api.services import pnl_historico as pnl_hist_svc
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as svc
 
@@ -101,23 +102,3 @@ def monitor(
                                        ventana=ventana, buckets=buckets)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-# ── PNL HISTÓRICO (cuaderno manual, ver api/services/pnl_historico.py) ──────────
-class PnlHistIn(BaseModel):
-    fecha: str                       # 'YYYY-MM-DD' (día hábil)
-    monto: float | None = None       # None/vacío borra la celda
-    cuenta: str = "General"
-
-
-@router.get("/pnl-historico")
-def pnl_historico(cuenta: str = Query("General", description="cuenta libre; default General")):
-    """Días hábiles desde el 1-jul-2026 hasta fin del mes actual, con el PnL
-    manual de la cuenta + acumulado total y mensual. Ver el service para el shape."""
-    return pnl_hist_svc.listar(cuenta=cuenta)
-
-
-@router.post("/pnl-historico")
-def pnl_historico_guardar(payload: PnlHistIn):
-    """Carga/edita el PnL de un día. monto vacío → borra la fila."""
-    return pnl_hist_svc.guardar(fecha=payload.fecha, monto=payload.monto, cuenta=payload.cuenta)

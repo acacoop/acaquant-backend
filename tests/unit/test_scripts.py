@@ -62,6 +62,11 @@ HERRAMIENTAS: dict[str, str] = {
                              "deja el panel vacío EN SILENCIO. Tiene --strict; debería estar en CI.",
     "diag_entorno":          "instalado vs. pineado en requirements.txt. Un drift acá no falla: cambia el "
                              "comportamiento y nadie lo ve.",
+    "agente_umbral":         "cambia un umbral del agente sin deploy (`agente.habilidades.umbrales` "
+                             "pisa al código). Ajustar cuán sensible es un detector no es programar, "
+                             "y hasta que existió esto la única forma era SQL a mano — así que "
+                             "«editable en caliente» era una frase. Rechaza una clave que el código "
+                             "no declara: escribirla no haría nada y nadie se enteraría.",
     "diag_caducidad":        "el ANTES de la caducidad del agente (AGENT.md §6.8): a qué hallazgos "
                              "abiertos les pegaría, con qué fundamento y de qué fuente, sin escribir "
                              "una fila. Un cierre automático que no se puede mirar antes es fe, no "

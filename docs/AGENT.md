@@ -4666,10 +4666,22 @@ reporte no puede ser parte del problema.
 Llega por el **mismo** `POST /api/pulso` con `tipo: "tilde"` y a la misma tabla
 (`agente.pulso_cliente` gana `tipo`, `ms` y `datos`), y por lo tanto hereda su
 retención. Una ruta nueva habría partido en dos lugares la única pregunta que
-importa: «¿por qué esta pantalla no anda?». `latencia` gana la regla
-**`pantalla_tildada`** — agrupa por vista, dice cuántas veces y la peor, y en el
-`que_hacer` **manda a mirar el navegador y no la API**, que es donde el bug no
-está. Sin arreglo, y declarado: el agente no puede tocar la pestaña de nadie.
+importa: «¿por qué esta pantalla no anda?». La habilidad **`pantalla_tildada`**
+agrupa por vista, dice cuántas veces y la peor, y en el `que_hacer` **manda a
+mirar el navegador y no la API**, que es donde el bug no está. Sin arreglo, y
+declarado: el agente no puede tocar la pestaña de nadie.
+
+**Y por qué es una HABILIDAD PROPIA y no una regla más de `latencia`** — nació
+ahí, estuvo mal media hora y lo cantó el primer `pytest`. `latencia` mira TRES
+cosas de tres fuentes distintas; con el tilde adentro, no poder leer **una**
+tabla nueva la dejaba entera en «no pude mirar», y con eso se apagaban la
+degradación de endpoints y los 5xx, que son lo importante y se leen de otro
+lado. (En el test la tabla ni siquiera existía todavía: el `apply_schema` no
+había corrido.) Es el invariante 1 leído al revés: **si «no pude mirar» no puede
+cerrar nada, tampoco puede ser CONTAGIOSO**. Una habilidad = una fuente que
+puede faltar. Va con el ritmo de `latencia` (10') pero con ventana de 60': una
+ceguera es AHORA, un tilde es un episodio de segundos que hay que juntar para
+que el patrón se vea — uno solo no dice nada, seis en una hora sí.
 
 **Lo que NO se afirma.** Que este sea el bug que vio el user está **sin
 verificar** (REGLA #2): no hay acceso al navegador de la mesa. Lo que sí está

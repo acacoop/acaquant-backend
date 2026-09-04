@@ -183,19 +183,29 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
 
     Habilidad(
         nombre="latencia", tipo="detector", dominio="SISTEMA",
-        que_mira=("endpoints degradados contra SU PROPIA normalidad, los 5xx, "
-                  "las vistas ciegas y las pantallas que se TILDAN"),
+        que_mira="endpoints degradados contra SU PROPIA normalidad, los 5xx, y las vistas ciegas",
         cada_segundos=10 * _M, ventana="siempre",
         correr=sistema.latencia,
-        # Las DOS reglas que miran el navegador, y son mitades distintas del
-        # mismo «se me colgó la app» (§0.dg y §0.dm):
-        #   `vista_ciega`      → los pedidos fallan y el navegador anda bien.
-        #   `pantalla_tildada` → el navegador NO responde y nada falla. Eso no
-        #                        pasa por el servidor nunca: sin el aviso del
-        #                        propio navegador, acá no se entera nadie.
-        # Ventanas distintas a propósito: una ceguera es AHORA (10'), un tilde
-        # es un episodio corto que hay que juntar para que se vea el patrón.
-        umbrales={"pulso_ventana_min": 10, "tilde_ventana_min": 60}),
+        # `vista_ciega` (§0.dg): el pulso que manda una pantalla que no puede
+        # refrescar. Su hermana `pantalla_tildada` es una habilidad APARTE (y no
+        # una regla más de acá) para que no poder leer una fuente no apague las
+        # otras dos que esta habilidad sí puede ver — ver §0.dm.
+        umbrales={"pulso_ventana_min": 10}),
+
+    # La OTRA mitad de «se me colgó la app», y la que no pasa por el servidor
+    # NUNCA: el navegador trabado. Nada falla, no hay request ni excepción — si
+    # no lo cuenta el propio navegador (`lib/tilde.ts` → `POST /api/pulso` con
+    # `tipo='tilde'`), acá no se entera nadie. Sin arreglo, y declarado: el
+    # agente no puede tocar la pestaña de nadie. Doc: §0.dm.
+    Habilidad(
+        nombre="pantalla_tildada", tipo="detector", dominio="SISTEMA",
+        que_mira="pantallas donde el NAVEGADOR se clavó: cuánto, cuántas veces y si fue JS",
+        cada_segundos=10 * _M, ventana="siempre",
+        correr=sistema.pantalla_tildada,
+        # Ventana más larga que la del pulso a propósito: una ceguera es AHORA
+        # (10'), un tilde es un episodio de segundos que hay que JUNTAR para que
+        # se vea el patrón — uno solo no dice nada, seis en una hora sí.
+        umbrales={"tilde_ventana_min": 60}),
 
     Habilidad(
         nombre="proveedor_caido", tipo="detector", dominio="SISTEMA",

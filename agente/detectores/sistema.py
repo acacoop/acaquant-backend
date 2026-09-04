@@ -863,7 +863,7 @@ def latencia(u: dict) -> list[Hallazgo]:
     except Exception as e:
         raise SinDatos(f"no pude leer la telemetría: {e}") from e
 
-    out = _vistas_ciegas(u) + _pantallas_tildadas(u)
+    out = _vistas_ciegas(u)
     for c in casos:
         if c["roto"]:
             out.append(Hallazgo(
@@ -944,7 +944,8 @@ def _vistas_ciegas(u: dict) -> list[Hallazgo]:
     return out
 
 
-def _pantallas_tildadas(u: dict) -> list[Hallazgo]:
+# ═══ pantalla_tildada ══════════════════════════════════════════════════════
+def pantalla_tildada(u: dict) -> list[Hallazgo]:
     """**La pantalla que no responde** — el otro «se me colgó la app» (§0.dm).
 
     `vista_ciega` cubre la mitad que el servidor puede ver de refilón: los
@@ -957,6 +958,15 @@ def _pantallas_tildadas(u: dict) -> list[Hallazgo]:
 
     Lo mide `lib/tilde.ts` en el navegador (hueco entre latidos + `longtask`) y
     llega por el mismo `POST /api/pulso` con `tipo = 'tilde'`.
+
+    ⚠️ **HABILIDAD PROPIA, y no una regla más adentro de `latencia`.** Nació
+    ahí y estuvo mal media hora: `latencia` mira TRES cosas y, con el tilde
+    adentro, no poder leer **una** tabla nueva la dejaba entera en «no pude
+    mirar» — o sea, la degradación de endpoints y los 5xx, que son lo importante
+    y se leen de otro lado, se apagaban por una fuente secundaria. Lo cantó
+    `test_vista_ciega_...` en el primer `pytest`, y la lección es la del
+    invariante 1 puesta al revés: si «no pude mirar» no puede cerrar nada,
+    tampoco puede ser CONTAGIOSO. Una habilidad = una fuente que puede faltar.
 
     ⚠️ **No tiene arreglo, y eso está declarado**: el agente no puede tocar el
     navegador de nadie. Es un aviso — vive en AHORA, no en ENCONTRÓ.

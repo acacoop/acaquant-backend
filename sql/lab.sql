@@ -26,15 +26,18 @@
 -- acá **avisa en vez de cortar**: el lab es opcional, la mesa no. Es la misma
 -- decisión que ya rige del otro lado (el agente sobrevive a un lab roto).
 --
--- LO QUE **NO** VA ACÁ
--- ====================
--- El `GRANT` de las tres vistas de `agente` (`v_ahora`, `v_encontro`,
--- `v_habilidades`) vive en `sql/schema.sql`, PEGADO a su `CREATE`. No es una
--- excepción caprichosa: cada `apply_schema` las DROPEA y las vuelve a crear, y
--- un permiso en Postgres cuelga del OBJETO y no del nombre — otorgarlo desde
--- este archivo duraría hasta el próximo deploy. Está en UN solo lugar a
--- propósito (REGLA #9): dos bloques que otorgan lo mismo son dos fuentes sin
--- árbitro.
+-- ⚠️ **TODOS LOS PERMISOS DEL LAB VIVEN ACÁ. TODOS.** Las tres vistas de
+-- `agente` (`v_ahora`, `v_encontro`, `v_habilidades`) incluidas, aunque
+-- `schema.sql` sea quien las crea. El motivo lo enseñó un deploy real: el
+-- `REVOKE ALL ON ALL TABLES` de abajo **incluye las vistas**, y este archivo
+-- corre DESPUÉS de `schema.sql` — así que un grant puesto allá lo deshacía este
+-- de acá, cada vez. Un permiso otorgado en dos archivos donde uno pisa al otro
+-- es la REGLA #9 con la peor forma posible: los dos bloques son correctos por
+-- separado y el resultado está mal.
+--
+-- EL INVARIANTE QUE ESTO NECESITA: `apply_schema` aplica este archivo DESPUÉS
+-- de `sql/schema.sql`. Lo congela `tests/unit/test_lab.py`, porque al revés las
+-- vistas todavía no existirían y el lector quedaría sin ellas.
 --
 -- LOS ROLES NO SE CREAN ACÁ
 -- =========================
@@ -290,7 +293,28 @@ BEGIN
                 -- El diario, para no repetir una investigación ya hecha, y la
                 -- cola, para que la pantalla vea en qué anda.
                 'lab.investigaciones',
-                'lab.pedidos']
+                'lab.pedidos',
+                -- ⚠️⚠️ **LAS TRES VISTAS VAN ACÁ, Y ANTES NO.** Su GRANT vivía
+                -- en `sql/schema.sql`, pegado al CREATE, porque cada
+                -- `apply_schema` las DROPEA y las vuelve a crear y un permiso
+                -- cuelga del OBJETO, no del nombre. El razonamiento era
+                -- correcto y aun así quedó mal: **`REVOKE ALL ON ALL TABLES`
+                -- incluye las VISTAS**, y este archivo corre DESPUÉS de
+                -- `schema.sql` — o sea que el revoke de arriba deshacía, cada
+                -- deploy, el grant que `schema.sql` acababa de dar.
+                --
+                -- Se detectó en producción, no razonándolo: `probar_lector`
+                -- cantó «permission denied for view v_ahora» justo después del
+                -- primer deploy. No lo agarró la prueba en sandbox porque ahí
+                -- las vistas nunca se crearon.
+                --
+                -- Por eso ahora los permisos del lab viven en UN solo archivo:
+                -- el que corre último. El invariante que lo sostiene —que
+                -- `apply_schema` aplique este archivo DESPUÉS de `schema.sql`—
+                -- lo congela `tests/unit/test_lab.py`.
+                'agente.v_ahora',
+                'agente.v_encontro',
+                'agente.v_habilidades']
         LOOP
             IF to_regclass(r) IS NOT NULL THEN
                 EXECUTE format('GRANT SELECT ON %s TO lector_lab', r);
@@ -298,8 +322,6 @@ BEGIN
                 RAISE WARNING 'lab: no existe % — el lector queda sin esa herramienta', r;
             END IF;
         END LOOP;
-        -- Las tres vistas de `agente` NO van acá: su GRANT vive en
-        -- `sql/schema.sql`, pegado al CREATE. Ver el encabezado.
     END IF;
 
     -- ── (c) EL ESCRITOR ────────────────────────────────────────────────────

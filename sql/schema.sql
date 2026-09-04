@@ -5129,31 +5129,23 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
 
 -- ⚠️ **EL `DROP VIEW` DE ARRIBA SE LLEVA PUESTOS LOS GRANT.** Un permiso en
 -- Postgres cuelga del OBJETO, no del nombre: cuando estas tres vistas se
--- dropean y se vuelven a crear en cada `apply_schema`, el objeto es OTRO y
--- todo lo que se le había otorgado desaparece. Por eso `lector_lab` se quedó
--- sin poder leerlas justo después de un deploy, sin que nadie hubiera tocado
--- un permiso, y por eso otorgarlo A MANO en el editor de SQL no alcanza: dura
--- hasta el próximo deploy. **El GRANT tiene que vivir al lado del CREATE.**
+-- dropean y se vuelven a crear en cada `apply_schema`, el objeto es OTRO y todo
+-- lo que se le había otorgado desaparece. Por eso `lector_lab` se quedó sin
+-- poder leerlas justo después de un deploy, sin que nadie hubiera tocado un
+-- permiso, y por eso otorgarlo a mano en el editor de SQL no alcanza: dura
+-- hasta el próximo deploy.
 --
--- Va adentro de un DO porque el rol es OPCIONAL: en una base donde el lab no
--- está instalado, `lector_lab` no existe y un GRANT suelto cortaría el deploy
--- entero por una funcionalidad que esa base no usa.
+-- ⚠️⚠️ **Y AUN ASÍ EL GRANT NO VA ACÁ — VA EN `sql/lab.sql`.** Estuvo acá, con
+-- el razonamiento de arriba, que es correcto. Lo que faltaba ver es que
+-- `sql/lab.sql` corre DESPUÉS (lo aplica `scripts/apply_schema.py`) y arranca
+-- con un `REVOKE ALL ON ALL TABLES`, **que en Postgres incluye las VISTAS**:
+-- el grant de este bloque quedaba deshecho un segundo más tarde, en cada
+-- deploy. Los dos bloques eran correctos por separado y el resultado estaba mal
+-- — la REGLA #9 en su peor forma.
 --
--- Y AVISA en vez de cortar si no tiene con qué otorgar: el LAB es opcional, la
--- mesa no. Que el deploy de toda la plataforma muera por un permiso de una
--- herramienta interna sería el mismo error que ya está prohibido del otro lado
--- (el agente sobrevive a un lab roto). El WARNING sale en la salida del deploy,
--- y `python -m lab.langgraph.probar_lector` lo vuelve a cantar.
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lector_lab') THEN
-        GRANT USAGE ON SCHEMA agente TO lector_lab;
-        GRANT SELECT ON agente.v_ahora, agente.v_encontro, agente.v_habilidades
-            TO lector_lab;
-    END IF;
-EXCEPTION WHEN insufficient_privilege THEN
-    RAISE WARNING 'no pude otorgarle las vistas de agente a lector_lab: %', SQLERRM;
-END $$;
+-- Lo cazó `probar_lector` en producción («permission denied for view v_ahora»)
+-- justo después del primer deploy. Todos los permisos del lab viven ahora en
+-- UN archivo: el que corre último.
 
 
 -- ⚠️ **UN CHECK YA CREADO NO SE ACTUALIZA SOLO.** `CREATE TABLE IF NOT EXISTS`

@@ -122,12 +122,37 @@ def test_el_ddl_del_lab_tiene_UNA_sola_fuente():
             f"{f.name} volvió a embeber el DDL: la fuente es sql/lab.sql")
 
 
-def test_el_deploy_aplica_el_esquema_del_lab():
-    """Sin esto, media DDL del lab se autocura en cada deploy (los GRANT de las
-    vistas, que viven en `sql/schema.sql`) y la otra media depende de que
-    alguien se acuerde de pegar el texto."""
+def test_el_deploy_aplica_el_esquema_del_lab_DESPUES_del_schema():
+    """El orden no es un detalle: es lo que hace correcto al diseño.
+
+    `sql/lab.sql` arranca revocándole todo a los dos roles y después otorga lo
+    declarado. Si corriera ANTES de `sql/schema.sql`, las tres vistas de
+    `agente` todavía no existirían (schema.sql las DROPEA y las recrea) y el
+    lector quedaría sin ellas.
+
+    Y al revés también importa: mientras el GRANT de las vistas vivía en
+    `schema.sql`, el REVOKE de `lab.sql` lo deshacía un segundo más tarde —
+    `REVOKE ALL ON ALL TABLES` **incluye las vistas**. Se descubrió en un deploy
+    real, no razonándolo."""
     t = (RAIZ / "scripts" / "apply_schema.py").read_text(encoding="utf-8")
     assert "lab.sql" in t, "apply_schema tiene que aplicar sql/lab.sql"
+    i_schema = t.index("_aplicar(cur, stmts)")
+    i_lab = t.index("_aplicar(cur, lab)")
+    assert i_schema < i_lab, "sql/lab.sql se aplica DESPUÉS de sql/schema.sql"
+
+
+def test_los_permisos_del_lab_viven_en_UN_solo_archivo():
+    """Las tres vistas de `agente` las crea `schema.sql` pero las otorga
+    `lab.sql`. Tenerlo en los dos lados es peor que en ninguno: los dos bloques
+    son correctos por separado y el segundo pisa al primero."""
+    lab = LAB_SQL.read_text(encoding="utf-8")
+    schema = (RAIZ / "sql" / "schema.sql").read_text(encoding="utf-8")
+    for vista in ("agente.v_ahora", "agente.v_encontro", "agente.v_habilidades"):
+        assert f"'{vista}'" in lab, f"sql/lab.sql tiene que otorgar {vista}"
+    assert "GRANT SELECT ON agente.v_ahora" not in schema, (
+        "el GRANT volvió a schema.sql: el REVOKE de lab.sql lo va a deshacer")
+    assert "TO lector_lab" not in schema, (
+        "schema.sql no otorga nada al lab — todos sus permisos viven en sql/lab.sql")
 
 
 def test_el_alcance_del_lab_esta_declarado_en_el_repo():

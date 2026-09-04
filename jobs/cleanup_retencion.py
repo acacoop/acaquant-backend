@@ -77,7 +77,7 @@ TABLAS: tuple[Retencion, ...] = (
     Retencion("manager.role_audit", "ts", 365,
               "sin TTL en el schema → AUDITORÍA: 365d (más conservador que el default)"),
     Retencion("agente.pulso_cliente", "at", 30,
-              "el pulso de una pantalla ciega vale para el incidente del día; 30d alcanza"),
+              "lo que reporta el navegador (pantalla ciega y TILDE) vale para el incidente del día; 30d alcanza"),
 )
 
 _TABLAS_POR_NOMBRE = {r.tabla: r for r in TABLAS}

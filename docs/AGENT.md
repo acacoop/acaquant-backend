@@ -4595,3 +4595,86 @@ reinicio se hace fuera de rueda; `deploy.sh` no reinicia motores.
 cargándose en Manager, y el alta nunca los pisa. No siembra `mercado.especies`
 ni `portafolio.assets`: un CEDEAR entra al AuM sólo cuando una cuenta lo
 tiene, y de eso se ocupa `assets_autofill` como con cualquier título.
+
+---
+
+### 0.dm SE TILDA Y CON F5 ANDA — el pedido colgado que congelaba la pantalla para siempre (2026-09-04)
+
+> *«estoy detectando algo nuevo en la app que no pasaba… como que se tilda,
+> esto no pasaba, empezó a pasar desde hace 1 o 2 días… hay que actualizar la
+> página y ahí funciona lo más bien»* (user).
+
+**El defecto, y por qué era invisible.** El 2026-08-31 las 30 vistas que se
+refrescan solas pasaron al hook `usePoll`, que **comparte el pedido en vuelo
+por URL**: si dos componentes piden lo mismo en el mismo instante, sale un solo
+request. La idea es correcta y ahorra la mitad del tráfico del endpoint más
+caro. Lo que faltaba es que **el navegador no le pone timeout a `fetch`**: un
+request puede quedar pendiente minutos —o no volver nunca— cuando la función de
+Vercel no contesta, la notebook durmió o cambió la red.
+
+Las dos cosas juntas dejan de ser inocentes. La promesa colgada quedaba en el
+mapa de «en vuelo» y **cada tick siguiente se colgaba de ella**: ese endpoint no
+se volvía a pedir en toda la vida de la pestaña. Y como una promesa que no
+resuelve tampoco rechaza, no entraba al `catch`, no marcaba ciego y **la barra
+ni siquiera decía SIN ACTUALIZAR** (§0.dg). La pantalla se quedaba quieta,
+mostrando datos viejos, sin un solo error. El único arreglo era F5 — que es
+exactamente lo que hacía la mesa.
+
+Es el mismo modo de falla que persigue la REGLA #9: **cuando esto se rompe no
+falla nada**. Por eso costó dos días notarlo y ninguna pantalla lo explicaba.
+
+**Lo que se arregló (frontend).**
+
+- **Techo de 20 s a cada poll** (`lib/use-poll.ts`): el pedido se aborta, el
+  tick lo cuenta como fallo con motivo «sin respuesta en 20 s», marca ciego →
+  SIN ACTUALIZAR en la barra → pulso al agente, y el **siguiente** tick
+  reintenta de verdad. Se recupera solo y, si no, se ve.
+- La limpieza del mapa de «en vuelo» cuelga ahora de la **propia promesa**, no
+  del `await` de quien llamó: se borra igual si el componente se desmontó en el
+  medio.
+- **El poll del propio AV AGENT no se superpone consigo mismo** (`agente/
+  datos.tsx`): era un `setInterval` pelado, y con el modal abierto (20 s) un
+  `/vista` más lento que eso apilaba pedidos — cada uno arma seis consultas y
+  ocupa otra conexión del pool web, justo cuando la API ya venía lenta. Ahora el
+  timer se re-arma al terminar, con techo de 25 s a las lecturas, y **con la
+  pestaña de fondo no pide** (al volver, pide en el acto).
+
+**Y lo que faltaba para no volver a adivinar: EL TILDE.** «Se me colgó la app»
+son dos problemas distintos que llegan como la misma frase y se arreglan en
+lugares opuestos:
+
+| | qué pasa | quién se entera hoy |
+|---|---|---|
+| **ciega** (§0.dg) | los pedidos fallan, el navegador anda bien | `usePoll` → pulso |
+| **tilde** (esto) | el navegador **no responde**, nada falla | nadie |
+
+Un hilo principal bloqueado no deja request, no tira excepción y no llega nunca
+al servidor. `lib/tilde.ts` lo mide desde adentro: un latido cada 500 ms, y si
+entre dos latidos pasó mucho más que eso, ese tiempo el navegador no pudo hacer
+**nada** —tampoco atender un click—. En paralelo un `PerformanceObserver
+('longtask')` dice si el hueco lo explica una tarea de JS:
+
+    hueco grande + longtask parecida  → JS de esta app (render, parse, tabla)
+    hueco grande + ningún longtask    → no fue JS: memoria, GC o la máquina
+
+Tres guardas contra el falso positivo, y las tres hacen falta: **pestaña de
+fondo no cuenta** (el navegador estrangula sus timers hasta 1 por minuto: ahí un
+hueco de 60 s es lo normal), **un hueco enorme es la máquina suspendida** y se
+descarta, y **como mucho un aviso por minuto** — si la app se traba en loop, el
+reporte no puede ser parte del problema.
+
+Llega por el **mismo** `POST /api/pulso` con `tipo: "tilde"` y a la misma tabla
+(`agente.pulso_cliente` gana `tipo`, `ms` y `datos`), y por lo tanto hereda su
+retención. Una ruta nueva habría partido en dos lugares la única pregunta que
+importa: «¿por qué esta pantalla no anda?». `latencia` gana la regla
+**`pantalla_tildada`** — agrupa por vista, dice cuántas veces y la peor, y en el
+`que_hacer` **manda a mirar el navegador y no la API**, que es donde el bug no
+está. Sin arreglo, y declarado: el agente no puede tocar la pestaña de nadie.
+
+**Lo que NO se afirma.** Que este sea el bug que vio el user está **sin
+verificar** (REGLA #2): no hay acceso al navegador de la mesa. Lo que sí está
+verificado es que el defecto existe leyendo el código, y que producía
+exactamente ese síntoma. Para decidirlo con un dato y no con una hipótesis está
+`scripts/diag_congelamiento.py`, que lee lo que ya se viene registrando: los
+pulsos de las pantallas, los tildes y `manager.latencia_endpoints` (qué endpoint
+se degradó, desde cuándo y cuánto lo piden).

@@ -222,16 +222,44 @@ def latidos() -> dict[str, dict] | None:
 # ── EL PULSO DEL CLIENTE ───────────────────────────────────────────────────
 def pulsos(minutos: int = 10) -> list[dict] | None:
     """Los pulsos de los últimos `minutos` (`agente.pulso_cliente`, §0.dg):
-    pantallas que no pudieron refrescar. `None` = no pude leer."""
+    pantallas que no pudieron refrescar. `None` = no pude leer.
+
+    ⚠️ **Solo `tipo = 'ciega'`.** La misma tabla guarda los TILDES (el navegador
+    trabado, `tipo = 'tilde'`), que son otro problema y se arreglan en otro
+    lado: mezclarlos haría que una pestaña clavada se reporte como «la vista
+    está ciega» y mande a revisar el backend, que es justo donde no está.
+    """
     def _leer():
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT at, email, vista, endpoint, motivo, desde_at "
                         "FROM agente.pulso_cliente "
-                        "WHERE at >= now() - make_interval(mins => %s) ORDER BY at",
+                        "WHERE at >= now() - make_interval(mins => %s) "
+                        "  AND tipo = 'ciega' ORDER BY at",
                         (int(minutos),))
             return [{"at": r[0], "email": r[1], "vista": r[2], "endpoint": r[3],
                      "motivo": r[4], "desde_at": r[5]} for r in cur.fetchall()]
     return _una_vez(f"pulsos_{int(minutos)}", lambda: _leer())
+
+
+def tildes(minutos: int = 30) -> list[dict] | None:
+    """Los TILDES de los últimos `minutos`: pantallas donde el NAVEGADOR se
+    clavó (`tipo = 'tilde'`, 2026-09-04). `None` = no pude leer.
+
+    Es lo único que le cuenta al servidor algo que nunca pasa por el servidor:
+    un hilo principal bloqueado no falla, no tira excepción y no deja request.
+    `ms` es cuánto duró; `datos` trae la peor tarea larga y la memoria, que es
+    lo que separa «un render caro» de «la pestaña se está quedando sin memoria».
+    """
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT at, email, vista, motivo, ms, datos "
+                        "FROM agente.pulso_cliente "
+                        "WHERE at >= now() - make_interval(mins => %s) "
+                        "  AND tipo = 'tilde' ORDER BY at",
+                        (int(minutos),))
+            return [{"at": r[0], "email": r[1], "vista": r[2], "motivo": r[3],
+                     "ms": r[4], "datos": dict(r[5] or {})} for r in cur.fetchall()]
+    return _una_vez(f"tildes_{int(minutos)}", lambda: _leer())
 
 
 # ── LO QUE LA CASA TIENE ───────────────────────────────────────────────────

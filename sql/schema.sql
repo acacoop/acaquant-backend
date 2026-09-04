@@ -4873,6 +4873,31 @@ UPDATE agente.habilidades SET sujeto_es = '' WHERE sujeto_es IS NULL;
 ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET DEFAULT '';
 ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET NOT NULL;
 
+-- EL TEXTO DEL AVISO ESCRITO POR EL MODELO (`agente/redactar.py`, §0.dn).
+--
+-- ⚠️ **`que_hacer` NO SE TOCA.** El texto determinista del detector es el PISO
+-- y sigue donde estaba: lo del modelo vive acá al lado, en columnas propias.
+-- Por eso el CHECK `hallazgos_que_hacer` sigue valiendo, apagar la IA
+-- (`AGENTE_REDACTA=0`) no deja un solo aviso sin texto, y se puede comparar
+-- una cosa con la otra sin haber perdido ninguna de las dos.
+--
+-- `ia_rechazo` es la mitad que se olvida: guarda POR QUÉ se descartó lo que
+-- escribió (número inventado, muletilla, calco del problema). Sin eso, «no
+-- contestó» y «contestó una macana que tiré» se ven iguales en la tabla.
+-- `ia_traza` apunta a `ia.trazas` (modelo, tokens, latencia): el costo no se
+-- copia acá — se referencia, que es lo que pide la REGLA #9.
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_texto text NOT NULL DEFAULT '';
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_at timestamptz;
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_rechazo text NOT NULL DEFAULT '';
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_intentos smallint NOT NULL DEFAULT 0;
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_traza bigint;
+-- Los pendientes de redactar: abiertos, SIN arreglo (un aviso), sin texto y
+-- con intentos de sobra. Parcial y chico — lo consulta el daemon en cada pasada.
+CREATE INDEX IF NOT EXISTS hallazgos_sin_texto_ia
+    ON agente.hallazgos (detectado_at DESC)
+    WHERE estado IN ('nuevo','en_curso','reincidio')
+      AND arreglo = '' AND ia_texto = '';
+
 -- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
 -- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
 --
@@ -5096,6 +5121,10 @@ CREATE OR REPLACE VIEW agente.v_ahora AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
        f.visto_ultima_vez, f.veces, hab.dominio,
+       -- El texto del modelo y CUÁNDO lo escribió. Van los dos: un texto sin
+       -- hora rompe el invariante #3, y la pantalla tiene que poder decir «esto
+       -- lo escribió la IA» sin que el que lee lo tenga que adivinar.
+       f.ia_texto, f.ia_at,
        (f.arreglo <> '') AS accionable
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad

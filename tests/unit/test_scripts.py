@@ -67,6 +67,12 @@ HERRAMIENTAS: dict[str, str] = {
                              "y hasta que existió esto la única forma era SQL a mano — así que "
                              "«editable en caliente» era una frase. Rechaza una clave que el código "
                              "no declara: escribirla no haría nada y nadie se enteraría.",
+    "diag_redaccion":        "la ÚNICA forma de juzgar si el texto que el modelo le escribe a los "
+                             "avisos (AGENT.md §0.di) sirve o es berreta: pone el piso determinista "
+                             "y el texto del modelo uno debajo del otro, y agrupa lo que la "
+                             "validación rechazó por MOTIVO. Un test congela que el mecanismo no "
+                             "pueda hacer daño; si el texto informa o no lo dice una persona "
+                             "leyéndolo, y para eso hay que poder verlo.",
     "diag_caducidad":        "el ANTES de la caducidad del agente (AGENT.md §6.8): a qué hallazgos "
                              "abiertos les pegaría, con qué fundamento y de qué fuente, sin escribir "
                              "una fila. Un cierre automático que no se puede mirar antes es fe, no "

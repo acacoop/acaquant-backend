@@ -131,7 +131,7 @@ problema más grave del agente viejo.**
 | `nombre` | guardado |
 | `tipo` | guardado — `detector` · `consulta` · `accion` |
 | `que_mira` | guardado — en castellano |
-| `usa_ia` | guardado |
+| `usa_ia` | guardado — **es «¿DETECTA con IA?», y es `no` en las 24**. Desde §0.dn el agente sí usa el gateway, pero sólo para REDACTAR el texto de los avisos (`agente/redactar.py`): ningún hallazgo se abre ni se cierra por lo que diga un modelo, y un test lo congela. |
 | `cada_cuanto` | guardado — su propio ritmo |
 | `ventana` | guardado — cuándo tiene sentido mirar |
 | `activa` | guardado — se puede apagar sin tocar código |
@@ -4678,3 +4678,105 @@ exactamente ese síntoma. Para decidirlo con un dato y no con una hipótesis est
 `scripts/diag_congelamiento.py`, que lee lo que ya se viene registrando: los
 pulsos de las pantallas, los tildes y `manager.latencia_endpoints` (qué endpoint
 se degradó, desde cuándo y cuánto lo piden).
+### 0.dn EL TEXTO DEL AVISO — el único entregable que estaba escrito a mano (2026-09-04)
+
+**Qué había.** De las 24 habilidades, **16 no tienen ningún arreglo**. Todo lo
+que producen es un aviso, y en un aviso el TEXTO es el entregable entero: no hay
+botón, no hay nada que apretar, lo único que le queda al que lee es la frase.
+Esa frase se escribía a mano en el detector, así que era **la misma para todos
+los casos de esa regla**:
+
+```python
+que_hacer=("Nada: es el número del día. Si el salto de la semana no se "
+           "explica con las cinco de arriba, mirar qué creció.")
+```
+
+Y le devuelve el trabajo al que lee. *«Mirar qué creció»* es exactamente la
+pregunta que la evidencia YA contesta —`top`, `bytes`, `bytes_hace_7d`— y que
+nadie mira porque vive adentro de un JSON. Es el mismo defecto que el user marcó
+sobre SALUD (*«es todo muy mecánico, no va»*, `api/services/salud.py`) y sobre el
+`que_hacer` de los proveedores (`agente/tipos.py`: *«un texto que no cambia con
+el caso no informa: entrena a saltearlo»*). Tercera vez, mismo modo de falla.
+
+**Qué se pidió** (user, 2026-09-04): *«me cansé de cosas hardcodeadas, quiero LLM
+en este tipo de avisos. El tema es cómo lo hacemos para que tampoco sea una
+respuesta o algo berreta»* — y, sobre la forma: *«hacelo para todo pero hacelo
+con un patrón de diseño que sea escalable, no puede haber cosas que sirvan sólo
+para algo»*.
+
+**La respuesta a «que no sea berreta» no es el prompt.** Berreta lo hace pedirle
+al modelo que escriba SOBRE algo que no le diste. Acá no describe el problema:
+**contesta la pregunta que el texto fijo deja abierta, con la evidencia
+adelante**, y todo lo que dice se verifica antes de mostrarse. Cinco decisiones,
+en orden de importancia:
+
+1. **NO DECIDE NADA.** El detector ya dijo que hay un problema, cuál es la
+   severidad y cuál es la evidencia. El modelo sólo REDACTA. Ningún hallazgo se
+   abre, se cierra ni se reabre por lo que diga: el invariante #1 sigue siendo
+   verificable justamente porque «no pude mirar» nunca pasa a ser una opinión.
+   `usa_ia` sigue en **False en las 24**, y `test_ninguna_habilidad_detecta_con_ia`
+   lo congela — lo que cambió no es que el agente decida con IA, es que explica
+   con IA.
+2. **EL PISO NO SE PISA.** `que_hacer` —el texto determinista— sigue en su
+   columna, intacto; lo del modelo vive en `ia_texto`, al lado. Si el gateway no
+   contesta, si no hay presupuesto o si la validación rechaza, el aviso muestra
+   lo de siempre. **Meter un modelo acá no puede agregar un modo de falla
+   nuevo**, sólo puede mejorar el texto — y apagarlo es `AGENTE_REDACTA=0`, no
+   un revert. `test_el_piso_nunca_se_pisa` prohíbe que el UPDATE toque una sola
+   columna que no sea `ia_*`.
+3. **SE VALIDA MECÁNICAMENTE, no «a ojo».** `redactar.VALIDADORES` es una cadena
+   de funciones y la que importa es `_v_numeros`: **todo número del texto tiene
+   que estar copiado de los hechos que se le dieron**. Si inventó uno, se
+   descarta la respuesta entera. Un texto lindo con un número inventado es
+   estrictamente peor que la frase de molde: la frase de molde no informa, el
+   número inventado **desinforma con la autoridad de un dato**. Las otras cuatro
+   frenan lo que hace berreta a un texto de IA: largo, markdown, muletillas
+   («se recomienda revisar», «monitorear», «parece que») y el calco del
+   `problema` que ya está dibujado dos renglones arriba.
+4. **EL ALCANCE SE DERIVA, no se lista.** Se redacta lo que NO tiene arreglo, y
+   el filtro vive en la query de `registro.pendientes_de_texto` (`arreglo = ''`).
+   Una habilidad nueva sin botón entra sola; una con botón queda afuera sola —
+   ahí el texto ES el botón y el modelo sólo podría contradecirlo. **No hay una
+   lista de 16 nombres** que alguien se olvide de actualizar: es la REGLA #10, y
+   `test_solo_los_avisos_se_redactan` la recorre entera.
+5. **UN SOLO PROMPT PARA LAS 24, Y PARA LA 25.** Lo que varía lo aportan el
+   hallazgo (`problema`, `detalle`, `evidencia`) y el catálogo (`que_mira`, ya
+   declarado en castellano por la REGLA #10). Un prompt por habilidad sería la
+   misma frase de molde de vuelta, escrita en otro archivo y encima pagándola;
+   `test_el_redactor_no_escribe_ni_conoce_detectores` prohíbe que el módulo
+   nombre una sola habilidad.
+
+**Dónde vive cada mitad**, con el mismo corte que el triage:
+
+| Pieza | Qué hace | Qué NO sabe |
+|---|---|---|
+| `agente/redactar.py` | arma el pedido, llama al gateway, **valida** | que existe una base y que existe un daemon (es puro: sin SQL) |
+| `agente/registro.py` | lee los pendientes y escribe `ia_*` | que existe un modelo |
+| `jobs/agente.py::_redactar_avisos` | cuándo corre y cuánto se gasta | cómo se redacta |
+
+`registro.py` escribe porque es **la puerta única** (invariante #5) y hay un
+test que prohíbe el resto; que el redactor sea puro es lo que hace que se lo
+pueda testear entero sin base, que es donde vive la mitad del valor.
+
+**Las tres guardas de plata**, todas declaradas: el alcance en la query,
+`TOPE_POR_PASADA = 4` llamadas por vuelta del daemon, y `MAX_INTENTOS = 2` por
+hallazgo — sin este último, un aviso cuya evidencia no alcanza para escribir
+nada se pagaría en cada pasada para siempre.
+
+**`ia_rechazo` es la mitad que se olvida.** Guarda POR QUÉ se descartó lo que
+escribió (número inventado, muletilla, calco). Sin eso, «el proveedor no
+contestó» y «contestó una macana y la tiré» se ven idénticos en la tabla — que
+es el invariante #1 aplicado al propio redactor. `ia_traza` apunta a
+`ia.trazas` (modelo, tokens, latencia): el costo no se copia, se referencia
+(REGLA #9).
+
+**Cómo se juzga si sirve.** Un test puede congelar que el mecanismo no haga
+daño; que el texto informe o no lo tiene que decir una persona leyéndolo. Para
+eso está `python -m scripts.diag_redaccion`: pone el piso y el texto del modelo
+uno debajo del otro, y agrupa lo rechazado **por motivo**. Si un motivo se
+repite, no es ruido: o el prompt pide algo que la evidencia de esa habilidad no
+tiene, o esa regla necesita más evidencia antes de poder explicarse.
+
+**En la pantalla**: la tab AHORA dibuja el texto del modelo con una marca `ia` y
+la hora; el determinista queda en el `title` para poder comparar los dos sin
+gastar pixeles. Ninguna tab nueva.

@@ -117,6 +117,60 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
             "silenciados": silenciados}
 
 
+# ── EL TEXTO DE LA IA ──────────────────────────────────────────────────────
+#
+# Vive acá y no en `agente/redactar.py` por el invariante #5: **una función
+# escribe hallazgos y un test prohíbe el resto**. El redactor es puro (arma el
+# pedido, llama al gateway, valida) y no sabe que existe una base; la escritura
+# entra por la misma puerta que todo lo demás.
+
+def pendientes_de_texto(limite: int) -> list[dict]:
+    """Los AVISOS abiertos que todavía no tienen texto del modelo.
+
+    El filtro `arreglo = ''` es el alcance entero, y es DERIVADO: lo que tiene
+    botón no se redacta porque su texto es el botón. No hay una lista de
+    habilidades acá ni en ningún lado — una habilidad nueva sin arreglo entra
+    sola, que es lo que pide la REGLA #10.
+    """
+    from agente import redactar
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT f.id, f.habilidad, f.sujeto, f.regla, f.problema, f.detalle, "
+            "       f.que_hacer, f.evidencia, h.que_mira "
+            "  FROM agente.hallazgos f "
+            "  LEFT JOIN agente.habilidades h ON h.nombre = f.habilidad "
+            " WHERE f.estado = ANY(%s) AND f.arreglo = '' "
+            "   AND f.ia_texto = '' AND f.ia_intentos < %s "
+            " ORDER BY f.detectado_at DESC LIMIT %s",
+            (list(tipos.ABIERTOS), redactar.MAX_INTENTOS, int(limite)))
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def guardar_texto_ia(hallazgo_id: int, *, texto: str, rechazo: str = "",
+                     traza: int | None = None) -> None:
+    """Escribe lo que redactó el modelo — **y NO toca `que_hacer`.**
+
+    El texto determinista es el PISO: se conserva entero, así apagar la IA no
+    deja un aviso mudo y se puede comparar una cosa con la otra. Tampoco toca
+    `severidad`, `estado`, `arreglo` ni nada que DECIDA: el modelo explica, no
+    resuelve.
+
+    `ia_intentos` sube SIEMPRE, salga bien o mal. Es lo que impide que un
+    hallazgo cuya evidencia no alcanza se pague en cada pasada del daemon para
+    siempre: dos intentos y se queda con el piso.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE agente.hallazgos SET "
+            "  ia_texto = %s, "
+            "  ia_at = CASE WHEN %s <> '' THEN now() ELSE ia_at END, "
+            "  ia_rechazo = %s, ia_traza = COALESCE(%s, ia_traza), "
+            "  ia_intentos = ia_intentos + 1 "
+            "WHERE id = %s",
+            (texto, texto, (rechazo or "")[:200], traza, int(hallazgo_id)))
+
+
 def _silenciados(conn, habilidad: str) -> set[tuple[str, str]]:
     """Lo que esta habilidad tiene silenciado, **de una sola query**.
 

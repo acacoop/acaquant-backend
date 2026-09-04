@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from agente import arreglos, catalogo, registro, rehacer, tipos
+from agente import arreglos, catalogo, redactar, registro, rehacer, tipos
 from agente.detectores import catalogo as cat_det
 from agente.detectores import datos, mercado, sistema
 
@@ -744,15 +744,20 @@ def test_ningun_modulo_del_agente_decide_en_silencio_que_no_hay_nada():
         f"el detector levanta `SinDatos`")
 
 
-def test_no_quedan_tareas_de_ia_del_agente_viejo():
-    """AGENT 2.0 no usa IA en ninguna habilidad. Dejar la CONFIG de tres tareas
-    que nadie puede invocar hace creer lo contrario al que lee el gateway.
+def test_ninguna_habilidad_detecta_con_ia():
+    """**DETECTAR sigue siendo determinista. REDACTAR no.** La línea importa.
 
-    ⚠️ El gateway (`core/ai.py` + `core/llm.py`) EXISTE pero **no tiene ninguna
-    tarea productiva** desde el 2026-08-28: se conservó el núcleo a propósito
-    —transporte, ruteo fail-closed, presupuesto y traza— y se borró todo lo que
-    lo usaba. Este test cubre las dos mitades: que el agente no declare `usa_ia`,
-    y que no reaparezca la config de las tareas del agente viejo.
+    Desde §0.dn el agente SÍ usa el gateway: `agente/redactar.py` le pide al
+    modelo el texto de los avisos. Lo que este test congela es la mitad que no
+    se negocia — **ninguna habilidad decide con IA**. `usa_ia` significa «esta
+    habilidad usa un modelo para saber si hay un problema», y eso sigue en
+    False en las 24: si un modelo pudiera abrir o cerrar un hallazgo, el
+    invariante #1 (una corrida que no pudo mirar no cierra nada) dejaría de ser
+    verificable, porque «no pudo mirar» pasaría a ser una opinión.
+
+    Y sigue prohibida la config de las tres tareas del agente VIEJO
+    (`av_agent_*`): eran tareas que nadie podía invocar, y dejar su config hace
+    creer al que lee el gateway que el agente hace algo que no hace.
     """
     import re
     src = (RAIZ / "core" / "ai.py").read_text()
@@ -3169,3 +3174,155 @@ def test_hay_UNA_definicion_de_cronico_y_la_leen_todos():
         assert k in _codigo(vista.cronicos), (
             f"`cronicos()` tiene que devolver «{k}»: si el front lo hardcodea, "
             "el día que cambie el umbral la leyenda va a mentir")
+
+
+# ── EL REDACTOR (§0.dn) ────────────────────────────────────────────────────
+#
+# Lo que estos tests sostienen no es que el texto salga lindo —eso no lo puede
+# afirmar un test— sino las cuatro cosas que hacen que un texto feo no cueste
+# nada: que el modelo no decida, que el piso no se pise, que el alcance se
+# derive y que la salida se valide antes de mostrarse.
+
+def test_solo_los_avisos_se_redactan():
+    """**El alcance se DERIVA, no se lista** (REGLA #10).
+
+    Un hallazgo con arreglo ya dice qué hacer: apretar el botón. Ahí el modelo
+    no puede agregar nada y sí puede contradecirlo, que es peor que no estar.
+    Una lista de nombres se desactualiza el día que alguien suma una habilidad;
+    esta regla no puede.
+    """
+    con, sin = [], []
+    for h in catalogo.HABILIDADES.values():
+        for regla, arreglo in (h.arreglos or {}).items():
+            assert not redactar.alcanza(h.nombre, regla), (
+                f"{h.nombre}/{regla} tiene el arreglo «{arreglo}» y aun así "
+                f"entraría al redactor")
+            con.append(regla)
+        if not h.arreglos:
+            sin.append(h.nombre)
+    # Y al revés: una habilidad sin ningún arreglo tiene que entrar, o el
+    # mecanismo no sirve para las 16 que son puro aviso.
+    assert sin, "el catálogo no tiene habilidades sin arreglo: el test no mide nada"
+    for nombre in sin:
+        assert redactar.alcanza(nombre, "cualquier_regla"), (
+            f"{nombre} no tiene arreglo y no se redactaría")
+    assert con, "ninguna habilidad declara arreglo: el test no mide nada"
+
+
+def test_el_piso_nunca_se_pisa():
+    """`que_hacer` es el texto determinista y **se conserva entero**.
+
+    Es lo que hace que meter un modelo acá no pueda agregar un modo de falla:
+    si el gateway no contesta, si no hay presupuesto o si la validación
+    rechaza, el aviso muestra lo de siempre. Un diseño donde el modelo escribe
+    ENCIMA convierte cada caída del proveedor en una fila muda.
+    """
+    src = inspect.getsource(registro.guardar_texto_ia)
+    update = src[src.index("UPDATE agente.hallazgos"):]
+    for prohibida in ("que_hacer", "severidad", "estado", "arreglo",
+                      "cerrado", "evidencia", "problema"):
+        assert prohibida not in update, (
+            f"el redactor escribe `{prohibida}`: sólo puede tocar columnas ia_*")
+    assert "ia_intentos = ia_intentos + 1" in update, (
+        "sin contar los intentos, un hallazgo que siempre se rechaza se paga "
+        "en cada pasada para siempre")
+
+
+def test_el_redactor_no_escribe_ni_conoce_detectores():
+    """Un solo prompt para las 24, y para la 25.
+
+    Un prompt por habilidad sería la misma frase de molde de vuelta, escrita en
+    otro archivo y encima pagándola. Lo que varía lo aportan el hallazgo y el
+    `que_mira` del catálogo, que ya está declarado en castellano.
+    """
+    # ⚠️ El CÓDIGO, no la prosa: el docstring del módulo cita
+    # `api/services/salud.py`, y «salud» es el nombre de una habilidad. Un test
+    # que grepea el archivo entero castiga documentar (ver `_codigo`).
+    src = _codigo((RAIZ / "agente" / "redactar.py").read_text())
+    for nombre in catalogo.HABILIDADES:
+        assert nombre not in src, (
+            f"el redactor nombra la habilidad «{nombre}»: eso lo vuelve un "
+            f"parche por detector en vez de un mecanismo")
+    assert "detectores" not in src, "el redactor importa detectores"
+    # La escritura entra por la puerta única (invariante #5); acá sólo se deja
+    # explícito que este módulo es PURO.
+    assert "get_pool" not in src and "cur.execute" not in src, (
+        "el redactor toca la base: eso es de registro.py")
+
+
+def test_la_validacion_rechaza_lo_berreta():
+    """**La guarda que hace la diferencia**: se valida contra los MISMOS hechos
+    que vio el modelo.
+
+    Un texto lindo con un número inventado es peor que la frase de molde: la
+    frase de molde no informa, el número inventado desinforma con la autoridad
+    de un dato.
+    """
+    fila = {"habilidad": "db_peso", "sujeto": "la base", "regla": "peso_total_11",
+            "problema": "la base pesa 12 GB en 190 tablas",
+            "que_hacer": "Nada: es el número del día.",
+            "evidencia": {"top": [{"tabla": "mercado.market_snapshot", "bytes": 4400}]}}
+    h = redactar.hechos(fila)
+
+    bueno = "El salto lo puso mercado.market_snapshot, que sola pesa 4400 de los 12 GB."
+    assert redactar.revisar(bueno, h, fila) == "", "rechaza un texto correcto"
+
+    malos = {
+        "número inventado": "Creció 37 por ciento contra la semana pasada.",
+        "muletilla": "Se recomienda monitorear el crecimiento de las tablas.",
+        "markdown": "El salto lo puso `mercado.market_snapshot` de la lista.",
+        "muy corto": "Creció.",
+        "calco del problema": "La base pesa 12 GB en 190 tablas.",
+        "el piso de vuelta": "Nada: es el numero del dia.",
+    }
+    for caso, texto in malos.items():
+        assert redactar.revisar(texto, h, fila), f"dejó pasar: {caso} → {texto!r}"
+
+    largo = "mercado.market_snapshot " * 20
+    assert "largo" in redactar.revisar(largo, h, fila)
+
+
+def test_lo_que_no_contesta_deja_el_piso_y_dice_por_que():
+    """«No contestó» y «contestó una macana que tiré» no se pueden ver iguales.
+
+    Es el invariante #1 aplicado al propio redactor: sin `rechazo`, una
+    habilidad cuyo texto se descarta siempre se vería idéntica a una que el
+    proveedor nunca atendió, y nadie sabría cuál de las dos arreglar.
+    """
+    fila = {"habilidad": "db_peso", "regla": "peso_total_11", "sujeto": "la base",
+            "problema": "x", "que_hacer": "y", "evidencia": {}}
+    import agente.redactar as r
+    from core import ai as _ai
+    orig = _ai.completar_con_traza
+    try:
+        _ai.completar_con_traza = lambda *a, **k: (None, None)
+        out = r.redactar_uno(fila)
+        assert out["texto"] == "" and out["rechazo"], "no dijo por qué no hay texto"
+
+        _ai.completar_con_traza = lambda *a, **k: (
+            '{"que_hacer": "Se recomienda revisar el crecimiento.", "no_se": ""}', 7)
+        out = r.redactar_uno(fila)
+        assert out["texto"] == "", "dejó pasar una muletilla"
+        assert "muletilla" in out["rechazo"] and out["traza"] == 7
+    finally:
+        _ai.completar_con_traza = orig
+
+
+def test_el_redactor_se_apaga_sin_deploy(monkeypatch):
+    """`AGENTE_REDACTA=0` y no se hace una sola llamada. Apagarlo no deja un
+    aviso mudo: deja el texto determinista, que nunca se borró."""
+    monkeypatch.setenv("AGENTE_REDACTA", "0")
+    assert not redactar.encendido()
+    out = redactar.redactar_uno({"habilidad": "db_peso", "regla": "peso_total_11",
+                                 "sujeto": "la base", "problema": "x",
+                                 "que_hacer": "y", "evidencia": {}})
+    assert out["texto"] == "" and "apagado" in out["rechazo"]
+
+
+def test_el_alcance_del_redactor_lo_pone_la_query():
+    """Que sólo se redacten avisos no puede depender de que el llamador se
+    acuerde: el filtro vive en la query de pendientes."""
+    src = inspect.getsource(registro.pendientes_de_texto)
+    assert "arreglo = ''" in src, "la query no limita a los avisos"
+    assert "ia_intentos < %s" in src, "la query no respeta el tope de intentos"
+    assert "estado = ANY(%s)" in src, "redactaría hallazgos ya cerrados"

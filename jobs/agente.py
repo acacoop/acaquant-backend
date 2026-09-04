@@ -125,6 +125,40 @@ def _disparar_investigaciones() -> None:
         logger.debug("agente: el triage no corrió (%s)", e)
 
 
+def _redactar_avisos() -> None:
+    """**EL TEXTO DE LOS AVISOS**, escrito con la evidencia adelante. §0.dn.
+
+    Vive acá por la misma razón que el triage: es el único lugar que conoce
+    las dos mitades. `agente/redactar.py` REDACTA y no sabe que existe una base
+    ni un daemon; `agente/registro.py` ESCRIBE y no sabe que existe un modelo.
+
+    Las tres guardas, y ninguna es opcional:
+
+      · el ALCANCE lo pone la query (`arreglo = ''`): sólo avisos
+      · `TOPE_POR_PASADA`, techo de plata declarado
+      · `MAX_INTENTOS` por hallazgo, para que uno que la validación rechaza
+        siempre no se pague eternamente
+
+    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que las dos de
+    arriba. Y si falla, no hay hueco: el aviso muestra su texto determinista,
+    que nunca se borró.
+    """
+    try:
+        from agente import redactar, registro
+        if not redactar.encendido():
+            return
+        filas = registro.pendientes_de_texto(redactar.TOPE_POR_PASADA)
+        for f in filas:
+            r = redactar.redactar_uno(f)
+            registro.guardar_texto_ia(f["id"], texto=r["texto"],
+                                      rechazo=r["rechazo"], traza=r["traza"])
+            if r["texto"]:
+                logger.info("redacté %s/%s «%s» → %s", f["habilidad"], f["regla"],
+                            f["sujeto"], r["texto"][:100])
+    except Exception as e:
+        logger.debug("agente: no redacté avisos (%s)", e)
+
+
 def _una_pasada() -> dict:
     from agente import motor
     r = motor.tick()
@@ -134,6 +168,9 @@ def _una_pasada() -> dict:
     # se levante en esta pasada y no en la próxima.
     _disparar_investigaciones()
     _atender_investigaciones()
+    # Último: el texto es lo que se LEE de un hallazgo, así que se escribe
+    # cuando el hallazgo ya está guardado y con su evidencia de esta pasada.
+    _redactar_avisos()
     if r["corridas"]:
         logger.info("agente: %d habilidad(es) · %d nuevos · %d reincidencias · %dms",
                     len(r["corridas"]), r["nuevos"], r["reincidencias"], r["ms"])

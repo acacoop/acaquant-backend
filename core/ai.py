@@ -106,6 +106,19 @@ _TAREAS: dict[str, dict] = {
     # y cacheada por hash del error: el mismo error no se paga dos veces.
     "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
                        "thinking": "disabled"},
+    # Quién la mira: **el texto de todo aviso del AV AGENT** —el `que_hacer` de
+    # los hallazgos que NO tienen botón— en la tab AHORA del modal
+    # (`agente/redactar.py`, §0.dn). Es la primera tarea del sistema que corre
+    # SOLA, sin que nadie apriete nada, así que trae las guardas que las de a
+    # pedido no necesitan: alcance derivado (sólo avisos), tope por pasada,
+    # tope de intentos por hallazgo, validación mecánica de la salida, y un
+    # PISO determinista que se muestra si algo de eso falla. Nunca DECIDE: el
+    # detector ya dijo que hay un problema, esto sólo lo explica.
+    #
+    # 400 tokens porque la salida es un JSON de dos claves con un texto de 260
+    # caracteres: darle más es invitarlo a escribir de más.
+    "agente_texto": {"tier": "flash", "max_tokens": 400, "timeout_s": 45,
+                     "thinking": "disabled"},
     # ⚠️ `research_destilar` se fue el 2026-08-28 con su job: era la ÚLTIMA tarea
     # productiva del sistema. Se probó cuatro días (14-17/07), se apagó el 17/07
     # y ninguna pantalla llegó a dibujar su salida. Con ella, `smoke` quedó como

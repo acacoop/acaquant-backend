@@ -28,6 +28,7 @@ from api.cache import cached
 from api.services._sql import _f, _q
 from api.services.renta_fija_sql import _METRIC_COLS, _tc_breakeven
 from core import curvas_ejes as ce
+from core import curvas_sql
 from quant.tasas import tna_plazo_remanente
 
 # Duration mínima para publicar TEA/TNA. Debajo de esto la tasa es RUIDO, no un
@@ -202,6 +203,31 @@ def _fijados_cortos() -> set[str]:
     from api.services.renta_fija import _bonos_cer_fijados
     return {t.split(" - ")[2].strip() if " - " in t else t.strip()
             for t in (_bonos_cer_fijados() or [])}
+
+
+@cached(ttl=300)
+def pills_del_master() -> dict[str, tuple[str, ...]]:
+    """{ticker_corto: pills} de TODO el master, con el MISMO criterio que la tab
+    CURVAS (incluido el CER ya fijado, que se comporta como tasa fija).
+
+    Público porque la tab MONITOR filtra su rail por curva y necesita
+    exactamente esta clasificación. Si la reconstruyera por su cuenta, el mismo
+    bono podría caer en TASA FIJA en una pantalla y en CER en la otra sin que
+    nada falle — REGLA #9 aplicada a una taxonomía.
+
+    Tupla VACÍA = no entra en ninguna pill (badlar/tpm/caución, o sin ejes
+    cargados). El caller **tiene que mostrarlo igual**, nunca ocultarlo: un bono
+    que desaparece de una lista no se nota.
+    """
+    fijados = _fijados_cortos()
+    out: dict[str, tuple[str, ...]] = {}
+    for d in curvas_sql.cargar_todos():
+        tc = (d.get("ticker_corto") or "").strip()
+        if not tc:
+            continue
+        ejes = ce.ejes_de_doc(d)
+        out[tc] = ce.pills(ejes, tc in fijados) if ejes is not None else ()
+    return out
 
 
 def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,

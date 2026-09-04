@@ -196,3 +196,41 @@ def test_sin_ventana_se_usa_la_de_la_clase_y_no_HOY():
         # llega hasta la validación del ticker → la ventana ya fue aceptada
         svc.get_monitor(clase="rv", ticker="", ventana=None)
     assert svc.POR_DEFECTO["rv"] == "20r"
+
+
+# ── el filtro por curva del rail de renta fija ───────────────────────────────
+
+def test_renta_variable_no_tiene_curvas():
+    """Los CEDEARs no se clasifican por curva. Devolver algo acá haría que el
+    rail dibuje un filtro que no filtra nada."""
+    assert svc.curvas(clase="rv") == []
+
+
+def test_un_bono_sin_pill_cae_en_OTROS_y_no_desaparece(monkeypatch):
+    """El caso que importa: badlar/tpm/caución (y cualquier bono sin ejes
+    cargados) no entran en ninguna pill de la tab CURVAS. Si el rail los
+    filtrara por pill sin más, se los comería EN SILENCIO — y un instrumento
+    que falta de una lista no lo reclama nadie porque nadie sabe que estaba."""
+    monkeypatch.setattr(svc.pivots_svc, "bonos_universo",
+                        lambda: [{"ticker_corto": "AL30", "nombre": "Soberano"},
+                                 {"ticker_corto": "XXBAD", "nombre": "Bono"}])
+    monkeypatch.setattr(svc.pivots_svc, "simbolos_de_bonos", lambda: {})
+    monkeypatch.setattr(svc.curvas_svc, "pills_del_master",
+                        lambda: {"AL30": ("hard_dolar",), "XXBAD": ()})
+    monkeypatch.setattr(svc.market_snapshot, "cols_map", lambda *a, **k: {})
+
+    items = {i["ticker"]: i for i in svc._universo_rf()}
+    assert items["AL30"]["curvas"] == ["hard_dolar"]
+    assert items["XXBAD"]["curvas"] == [svc.SIN_CURVA]   # está, no se perdió
+
+
+def test_un_dual_entra_en_las_DOS_curvas(monkeypatch):
+    """Un CER+TAMAR aparece con las dos elegidas, igual que en la tab CURVAS:
+    es donde el trader lo busca."""
+    monkeypatch.setattr(svc.pivots_svc, "bonos_universo",
+                        lambda: [{"ticker_corto": "TXMD9", "nombre": "CER"}])
+    monkeypatch.setattr(svc.pivots_svc, "simbolos_de_bonos", lambda: {})
+    monkeypatch.setattr(svc.curvas_svc, "pills_del_master",
+                        lambda: {"TXMD9": ("cer", "tamar")})
+    monkeypatch.setattr(svc.market_snapshot, "cols_map", lambda *a, **k: {})
+    assert svc._universo_rf()[0]["curvas"] == ["cer", "tamar"]

@@ -62,8 +62,10 @@ from zoneinfo import ZoneInfo
 from psycopg.rows import dict_row
 
 from api.cache import cached
+from api.services import curvas_vista as curvas_svc
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as pivots_svc
+from core import curvas_ejes as ce
 from core import market_snapshot
 from core.postgres import get_pool
 
@@ -76,6 +78,12 @@ CLASES = ("rv", "rf")
 BUCKETS_DEF = 26
 BUCKETS_MIN, BUCKETS_MAX = 8, 60
 AREA_DE_VALOR = 0.70
+
+# Un bono sin pill acordada (badlar/tpm/caución, o sin ejes cargados) NO se
+# oculta: cae acá. Una lista que se come instrumentos en silencio es peor que
+# una con una categoría fea — nadie sale a buscar lo que no sabe que falta.
+SIN_CURVA = "otros"
+SIN_CURVA_DISPLAY = "OTROS"
 
 
 @dataclass(frozen=True)
@@ -356,18 +364,54 @@ def _universo_rf() -> list[dict]:
     largos = [simbolos[d["ticker_corto"]] for d in catalogo
               if d["ticker_corto"] in simbolos]
     live = market_snapshot.cols_map(largos, ["last_price", "closing_price"])
+    # La clasificación por curva NO se calcula acá: sale de `curvas_vista`, el
+    # mismo lugar del que la saca la tab CURVAS de renta fija. Un bono no puede
+    # ser TASA FIJA en una pantalla y CER en la otra (REGLA #9).
+    pills = curvas_svc.pills_del_master()
     out: list[dict] = []
     for d in catalogo:
         tk = d["ticker_corto"]
         m = live.get(simbolos.get(tk, ""), {})
         last, prev = m.get("last_price"), m.get("closing_price")
+        # Un dual CER+TAMAR entra en DOS curvas y aparece con las dos elegidas:
+        # es donde el trader lo busca, igual que en la tab CURVAS.
+        del_bono = list(pills.get(tk) or ()) or [SIN_CURVA]
         out.append({
             "ticker": tk, "nombre": d.get("nombre") or "", "grupo": d.get("nombre") or "Bono",
             "moneda": None, "last": last, "cash": None,
             "var_pct": ((last / prev - 1) * 100) if last and prev else None,
+            "curvas": del_bono,
         })
     out.sort(key=lambda d: (d["grupo"], d["ticker"]))
     return out
+
+
+@cached(ttl=60)
+def curvas(*, clase: str) -> list[dict]:
+    """Las curvas del rail (TASA FIJA · CER · TAMAR · …) con cuántos bonos tiene
+    cada una, para el filtro de renta fija. Se derivan del universo que la
+    pantalla ya muestra: si se contaran aparte, una pill podría decir 40 y la
+    lista mostrar 12. Renta variable no tiene curvas → lista vacía."""
+    if clase != "rf":
+        return []
+    cuenta: dict[str, int] = {}
+    for it in universo(clase="rf"):
+        for c in it.get("curvas") or []:
+            cuenta[c] = cuenta.get(c, 0) + 1
+    # El orden es el de `core.curvas_ejes.PILLS` (el MISMO de la tab CURVAS), y
+    # lo que no esté ahí va al final; OTROS siempre último.
+    orden = {p: i for i, p in enumerate(ce.pills_disponibles())}
+    def _clave(c: str) -> tuple[int, int, str]:
+        if c == SIN_CURVA:
+            return (2, 0, c)
+        return (0, orden.get(c, 99), c)
+    return [
+        {"codigo": c,
+         "display": SIN_CURVA_DISPLAY if c == SIN_CURVA else ce.display_de(c),
+         "lado": "—" if c == SIN_CURVA else ce.lado_de(c),
+         "n": cuenta[c]}
+        for c in sorted(cuenta, key=_clave)
+    ]
 
 
 # ── el endpoint ──────────────────────────────────────────────────────────────

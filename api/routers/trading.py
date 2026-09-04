@@ -71,14 +71,16 @@ def universo():
 
 @router.get("/monitor/universo")
 def monitor_universo(clase: str = Query("rv", description="rv (CEDEARs) | rf (bonos)")):
-    """Catálogo de la clase para el rail + las ventanas que ofrece.
-    `{clase, ventanas:[{ventana,etiqueta,ruedas,paso_min,fuente,aproximado}],
-      items:[{ticker,nombre,grupo,moneda,last,var_pct,cash}]}`."""
+    """Catálogo de la clase para el rail + las ventanas y las curvas que ofrece.
+    `{clase, ventanas:[{ventana,etiqueta,ruedas,paso_min,fuente,aproximado,por_defecto}],
+      curvas:[{codigo,display,lado,n}] (solo rf),
+      items:[{ticker,nombre,grupo,moneda,last,var_pct,cash,curvas?}]}`."""
     c = (clase or "rv").lower()
     if c not in monitor_svc.CLASES:
         raise HTTPException(status_code=400, detail=f"clase inválida: {clase}")
     return {"clase": c,
             "ventanas": monitor_svc.ventanas(c),
+            "curvas": monitor_svc.curvas(clase=c),
             "items": monitor_svc.universo(clase=c)}
 
 

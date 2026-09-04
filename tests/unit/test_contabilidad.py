@@ -483,3 +483,21 @@ def test_orden_por_impacto():
         [_t("[100] AL30 - GD", 1_000, 1_010), _t("[200] FCI X", 100, 2_000, cartera="FCI")],
         [])
     assert [f["titulo"] for f in filas] == ["FCI X", "AL30"]
+
+
+def test_boletos_mes_excluye_fci_provisional(monkeypatch):
+    """Detección del user 2026-09-04: Aunesa carga cada suscripción/rescate de
+    FCI como DOS boletos («provisional» = el pedido, «final» = el liquidado) con
+    la misma cantidad y el mismo importe, y el libro los sumaba a los dos. La
+    query trae SOLO el final."""
+    from api.services import contabilidad_sql as m
+    visto: dict = {}
+
+    def _fake_q(sql, params=None):
+        visto["sql"] = sql
+        return []
+
+    monkeypatch.setattr(m, "_q", _fake_q)
+    assert m._boletos_mes("123", None, {}) == []
+    assert "NOT ILIKE '%%provisional%%'" in visto["sql"]
+    assert "etapa IS DISTINCT FROM 'solicitud'" in visto["sql"]

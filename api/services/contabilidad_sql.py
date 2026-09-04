@@ -392,6 +392,12 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
         f"WHERE id_cuenta = %(c)s {w_mes}"
         "AND anulado_en IS NULL AND etapa IS DISTINCT FROM 'solicitud' "
         "AND COALESCE(es_cierre, false) = false "
+        # FCI vía Aunesa: cada suscripción/rescate viene como DOS boletos, el
+        # «provisional» (el pedido) y el «final» (el liquidado), misma cantidad
+        # y mismo importe. Cuenta SOLO el final — es el que liquida, igual que
+        # el corte de mes de `pertenece_al_mes`. Sin esto duplicaba las dos
+        # puntas (detección del user, 2026-09-04).
+        "AND COALESCE(tipo_operacion,'') NOT ILIKE '%%provisional%%' "
         "ORDER BY concertacion, boleto", p)
     if mes_str:
         ops = [r for r in ops

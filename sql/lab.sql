@@ -137,11 +137,19 @@ CREATE TABLE IF NOT EXISTS lab.pedidos (
     pasos            jsonb NOT NULL DEFAULT '[]'::jsonb,
 
     investigacion_id bigint REFERENCES lab.investigaciones(id),
+    -- QUÉ hallazgo del agente lo disparó, cuando lo pidió el TRIAGE y no una
+    -- persona. Sin FK a propósito: `agente.hallazgos` es del OTRO esquema y el
+    -- lector del lab no tiene por qué poder bloquearlo. Es un puntero para
+    -- poder mostrar el veredicto AL LADO del problema — un veredicto que vive
+    -- en otra tab no lo lee nadie.
+    hallazgo_id      bigint,
     error            text NOT NULL DEFAULT '',
 
     CONSTRAINT pedidos_estado_ok
         CHECK (estado IN ('pendiente','corriendo','listo','error'))
 );
+
+ALTER TABLE lab.pedidos ADD COLUMN IF NOT EXISTS hallazgo_id bigint;
 
 CREATE INDEX IF NOT EXISTS pedidos_cola ON lab.pedidos (estado, at);
 CREATE INDEX IF NOT EXISTS pedidos_recientes ON lab.pedidos (at DESC);

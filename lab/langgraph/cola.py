@@ -44,27 +44,58 @@ PENDIENTE, CORRIENDO, LISTO, ERROR = "pendiente", "corriendo", "listo", "error"
 # los permisos de los dos roles. Ver el comentario de `diario.sql_esquema()`.
 
 
-def encolar(tipo: str, caso: str, por: str = "") -> dict:
+def encolar(tipo: str, caso: str, por: str = "", *,
+            hallazgo_id: int | None = None, no_repetir_h: int = 0) -> dict:
     """Pide una investigación. Devuelve el id para preguntar cómo va.
 
     **No arranca nada**: eso lo hace el daemon cuando la levanta. Por eso esto
     contesta en milisegundos aunque la investigación tarde dos minutos.
+
+    `no_repetir_h` extiende el dedupe hacia atrás: no vuelve a encolar el mismo
+    caso si YA se investigó en esas horas, haya terminado o no. Lo usa el TRIAGE
+    (`agente/triage.py`), donde nadie está mirando: un problema puede seguir
+    abierto una semana, y la respuesta a «por qué pasó» no cambia todos los días.
+    A pedido de una persona (`no_repetir_h=0`) se investiga igual — si lo pide
+    de nuevo, será porque quiere mirarlo otra vez.
     """
     # Si ya hay una igual sin terminar, se devuelve ESA en vez de encolar otra:
     # dos investigaciones del mismo caso a la vez son el mismo trabajo hecho
     # dos veces, y encima pagado dos veces.
+    estados, extra = [PENDIENTE, CORRIENDO], ""
+    params: tuple = (tipo, caso, estados)
+    if no_repetir_h > 0:
+        # Con ventana, cuenta CUALQUIER estado: una investigación que ya terminó
+        # (o que falló) también es plata gastada en ese caso.
+        estados = [PENDIENTE, CORRIENDO, LISTO, ERROR]
+        extra = "   AND at > now() - make_interval(hours => %s) "
+        params = (tipo, caso, estados, int(no_repetir_h))
     r = leer("SELECT id FROM lab.pedidos WHERE tipo = %s AND upper(caso) = upper(%s) "
-             "  AND estado = ANY(%s) ORDER BY at DESC LIMIT 1",
-             (tipo, caso, [PENDIENTE, CORRIENDO]))
+             "  AND estado = ANY(%s) " + extra + " ORDER BY at DESC LIMIT 1", params)
     if not isinstance(r, str) and r[1]:
         return {"ok": True, "id": r[1][0][0], "ya_estaba": True}
     try:
-        f = escribir("INSERT INTO lab.pedidos (tipo, caso, por) "
-                     "VALUES (%s,%s,%s) RETURNING id", (tipo, caso, por))
+        f = escribir("INSERT INTO lab.pedidos (tipo, caso, por, hallazgo_id) "
+                     "VALUES (%s,%s,%s,%s) RETURNING id",
+                     (tipo, caso, por, hallazgo_id))
         return {"ok": True, "id": f[0] if f else None, "ya_estaba": False}
     except Exception as e:
         logger.warning("cola: no pude encolar (%s)", e)
         return {"ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+
+
+def gastadas_hoy(por: str) -> int | None:
+    """Cuántas investigaciones pidió `por` HOY (día argentino). `None` = no pude
+    saberlo — y entonces el que llama **no gasta**: un tope que no se puede
+    contar no es un tope, y equivocarse para el lado de investigar de más es
+    equivocarse en la factura."""
+    r = leer("SELECT count(*) FROM lab.pedidos "
+             " WHERE por = %s "
+             "   AND (at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date "
+             "     = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date",
+             (por,))
+    if isinstance(r, str) or not r[1]:
+        return None
+    return int(r[1][0][0])
 
 
 def siguiente() -> dict | None:

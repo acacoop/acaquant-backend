@@ -195,7 +195,16 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         que_mira="Aunesa, 1816, Interbanking y BCRA, por el rastro de las llamadas reales",
         cada_segundos=5 * _M, ventana="siempre",
         correr=sistema.proveedor_caido,
-        umbrales={"ventana_s": 1200, "minimo_fallos": 1}),
+        umbrales={"ventana_s": 1200, "minimo_fallos": 1},
+        # ⚠️ **EL PRIMER CASO DEL TRIAGE** (2026-09-04). 20 minutos, y el número
+        # sale del propio detector: corre cada 5' y le alcanza UN fallo para
+        # cantar, así que un hallazgo que sigue vivo a los 20' lo vieron cuatro
+        # pasadas seguidas. Eso ya no es un parpadeo — es una caída.
+        #
+        # Aunesa el 04/09 fue justo el otro caso: se cayó 12:35, el hallazgo
+        # nació 12:41, y a la tarde ya no existía. Investigarlo al nacer habría
+        # sido pagar por algo que se arregló solo.
+        investigar={"no_responde": 20 * _M}),
 
     Habilidad(
         nombre="db_peso", tipo="detector", dominio="SISTEMA",

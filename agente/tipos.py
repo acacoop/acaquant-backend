@@ -159,6 +159,22 @@ class Habilidad:
     # dejar de existir. Es lo único que hay que agregar para que una habilidad
     # sepa caducar — sin tocar el motor, ni el registro, ni una lista aparte.
     sujeto_es: str = ""
+    # ⚠️ **QUÉ REGLAS MERECEN QUE EL INVESTIGADOR VAYA SOLO, y cuánto tiene que
+    # AGUANTAR el problema antes de gastar en él.** `{regla: segundos}`.
+    #
+    # Vacío es el default y es una declaración: esta habilidad no dispara nada.
+    # Investigar cuesta (8 a 18 llamadas al modelo), así que el permiso se da
+    # caso por caso — «no con todo, con casos que vayamos eligiendo».
+    #
+    # Los segundos NO son burocracia: son la corrección de un error real. Aunesa
+    # se cayó, el hallazgo nació, y para cuando lo miramos ya no estaba —se había
+    # recuperado solo—. Disparar en el momento del hallazgo habría pagado una
+    # investigación entera de algo que se arregló sin que nadie hiciera nada.
+    # **No se investiga lo que se acaba de caer: lo que SIGUE caído.**
+    #
+    # El TIPO de investigación no se declara acá: ya vive en
+    # `lab.langgraph.investigaciones.DE_LA_HABILIDAD`. Ver `agente/triage.py`.
+    investigar: dict = field(default_factory=dict)
 
     def __post_init__(self):
         for campo, validos in (("tipo", TIPOS), ("dominio", DOMINIOS),
@@ -175,6 +191,16 @@ class Habilidad:
         # Un tipo de sujeto inventado no puede fallar en silencio: `vigencia` no
         # lo encontraría en su registro, no verificaría nada, y la habilidad
         # nunca caducaría — sin un error, sin un log, sin nada que mirar.
+        for regla, seg in (self.investigar or {}).items():
+            # Un `investigar={"x": 0}` dispararía en el instante del hallazgo,
+            # que es exactamente lo que esto vino a evitar. Y un valor en
+            # minutos donde van segundos (`20` en vez de `20*60`) es el error de
+            # tipeo obvio: con el piso, no llega a producción.
+            if not isinstance(seg, int) or seg < 300:
+                raise ValueError(
+                    f"«{self.nombre}/{regla}»: la espera es {seg!r} y tiene que "
+                    "ser un entero de al menos 300 segundos. Investigar lo que "
+                    "se acaba de caer paga por problemas que se arreglan solos")
         if self.sujeto_es and self.sujeto_es not in SUJETOS:
             raise ValueError(f"«{self.nombre}»: sujeto_es={self.sujeto_es!r} no "
                              f"es uno de {SUJETOS} — y un tipo que `vigencia` no "

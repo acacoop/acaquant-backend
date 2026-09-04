@@ -2940,3 +2940,114 @@ def test_ninguna_herramienta_del_lab_devuelve_una_hora_sin_huso():
     assert "detalle" in codigo[i:i + 900], (
         "`hallazgos_del_sujeto` sin `detalle` deja al investigador escribiendo "
         "«no pude leer el error crudo» con el error en la fila de al lado")
+
+
+# ── EL TRIAGE — a qué vale la pena ir a investigar (2026-09-04) ────────────
+
+def test_no_se_investiga_lo_que_se_acaba_de_caer():
+    """**La regla del triage, y la dijo el user:**
+
+    > *«el agente tranquilamente puede ver 5 minutos después si eso ya funciona
+    > y listo — esto tiene que ser cuando se termina de caer del todo»*
+
+    `proveedor_caido` corre cada 5' y le alcanza UN fallo para cantar. Aunesa se
+    cayó 12:35, el hallazgo nació 12:41, y a la tarde ya no existía: se había
+    recuperado solo. Disparar en el momento del hallazgo habría pagado una
+    investigación entera (8 a 18 llamadas al modelo) de algo que se arregló sin
+    que nadie hiciera nada.
+
+    No hace falta un reloj para medirlo: el detector ya vuelve a mirar, y si el
+    problema se fue el hallazgo se cierra. **Lo que sobrevive es lo real.**
+    """
+    from agente import triage
+
+    # Toda regla declarada tiene una espera, y el dataclass la exige.
+    declaradas = triage._declaradas()
+    assert declaradas, "el triage no tiene ninguna regla declarada"
+    for hab, regla, seg in declaradas:
+        assert seg >= 300, f"«{hab}/{regla}» dispara a los {seg}s"
+
+    # Y el piso no depende de que alguien se acuerde: no se puede construir.
+    with pytest.raises(ValueError):
+        tipos.Habilidad(nombre="x", tipo="detector", dominio="SISTEMA",
+                        que_mira="x", cada_segundos=60, correr=lambda u: [],
+                        investigar={"r": 0})
+    with pytest.raises(ValueError):
+        # El error de tipeo obvio: minutos donde van segundos.
+        tipos.Habilidad(nombre="x", tipo="detector", dominio="SISTEMA",
+                        que_mira="x", cada_segundos=60, correr=lambda u: [],
+                        investigar={"r": 20})
+
+    # La consulta exige que el hallazgo haya sobrevivido su espera.
+    src = _codigo(triage.candidatos)
+    assert "make_interval" in src and "detectado_at <=" in src
+
+
+def test_el_triage_elige_pero_no_conoce_al_investigador():
+    """`agente/` no puede depender del laboratorio: si el lab no está instalado,
+    el agente tiene que detectar exactamente igual.
+
+    Por eso son dos piezas: `triage.candidatos()` ELIGE y no sabe que existe un
+    investigador; el lab INVESTIGA y no sabe que existe un agente. Las junta
+    `jobs/agente.py`, que es el único que conoce las dos mitades — y ahí el
+    import va adentro del `try`, como el de `_atender_investigaciones`.
+    """
+    for f in (RAIZ / "agente").rglob("*.py"):
+        t = _codigo(f.read_text())
+        assert "lab.langgraph" not in t and "from lab" not in t, (
+            f"{f.name} importa el laboratorio: el agente tiene que funcionar "
+            "sin él")
+
+    daemon = _codigo((RAIZ / "jobs" / "agente.py").read_text())
+    i = daemon.index("def _disparar_investigaciones")
+    cuerpo = daemon[i:i + 2000]
+    assert "try:" in cuerpo[:cuerpo.index("from lab")], (
+        "el import del lab va DENTRO del try: un ImportError al arrancar "
+        "mataría el daemon entero")
+
+
+def test_el_triage_tiene_un_techo_de_plata_que_se_puede_contar():
+    """Investigar cuesta. El tope va DECLARADO, y si no se puede contar lo
+    gastado **no se gasta**: un tope que no se puede contar no es un tope.
+
+    Y el «quién lo pidió» es una constante y no un literal suelto — el tope se
+    cuenta filtrando por ese mismo string, así que dos grafías distintas harían
+    que el tope no cuente lo que gastó.
+    """
+    from agente import triage
+
+    assert 0 < triage.TOPE_DIARIO <= 20
+    assert triage.NO_REPETIR_H >= 1
+
+    daemon = _codigo((RAIZ / "jobs" / "agente.py").read_text())
+    assert "POR_EL_TRIAGE" in daemon
+    assert daemon.count("'agente/triage'") <= 1, (
+        "el autor del pedido va por la constante, no repetido a mano")
+    i = daemon.index("def _disparar_investigaciones")
+    cuerpo = daemon[i:i + 2000]
+    assert "gastadas is None" in cuerpo and "return" in cuerpo, (
+        "si no puedo contar lo gastado, no disparo")
+    assert "TOPE_DIARIO" in cuerpo and "no_repetir_h" in cuerpo
+
+
+def test_el_tipo_de_investigacion_no_se_declara_dos_veces():
+    """**REGLA #9 adentro del triage.** Qué investigación le corresponde a cada
+    habilidad ya vive en `lab.langgraph.investigaciones.DE_LA_HABILIDAD`, que es
+    quien sabe qué sabe investigar.
+
+    Si el catálogo del agente también lo dijera, serían dos mapas del mismo
+    hecho sin árbitro — y el que se desincronice no falla: manda a investigar
+    con el método equivocado. Acá se declara QUÉ reglas y CUÁNTO aguantan, y
+    nada más.
+    """
+    lab = (RAIZ / "lab" / "langgraph" / "investigaciones.py").read_text()
+    assert "DE_LA_HABILIDAD" in lab
+
+    for h in catalogo.HABILIDADES.values():
+        for regla, valor in (h.investigar or {}).items():
+            assert isinstance(valor, int), (
+                f"«{h.nombre}/{regla}» declara {valor!r}: el valor es la ESPERA "
+                "en segundos. El tipo de investigación lo dice el lab")
+
+    daemon = _codigo((RAIZ / "jobs" / "agente.py").read_text())
+    assert "tipo_de(" in daemon, "el tipo sale del lab, no del catálogo"

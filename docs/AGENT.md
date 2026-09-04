@@ -1219,6 +1219,79 @@ declarado sin verificador no caducaría nada, callado.
 
 ---
 
+### 6.9 EL TRIAGE — a qué vale la pena ir a investigar (2026-09-04)
+
+*Triage* es lo de la guardia de un hospital: cuando entran diez juntos y no se
+puede atender a todos, **alguien decide a quién primero**. No es curar, es
+elegir.
+
+Hace falta porque **investigar cuesta**: entre 8 y 18 llamadas al modelo, uno o
+dos minutos y plata por caso, contra ~40 hallazgos abiertos en cualquier momento.
+Investigarlos todos sería pagar cuarenta veces para encontrar dos.
+
+#### La regla, y la dijo el user
+
+> *«el agente tranquilamente puede ver 5 minutos después si eso ya funciona y
+> listo — esto tiene que ser cuando se termina de caer del todo»*
+
+**No se investiga lo que se acaba de caer: se investiga lo que SIGUE caído.**
+
+`proveedor_caido` corre cada 5 minutos y le alcanza UN fallo para cantar. El
+04/09 Aunesa se cayó 12:35, el hallazgo nació 12:41, y a la tarde ya no existía:
+se había recuperado solo. Disparar en el momento del hallazgo habría pagado una
+investigación entera de algo que se arregló sin que nadie hiciera nada.
+
+Y no hace falta un reloj nuevo para medirlo: **el detector ya vuelve a mirar
+solo**, y si el problema se fue, el hallazgo se cierra. Lo que sobrevive es lo
+real.
+
+#### Cómo se declara: una fila, dos datos
+
+```python
+Habilidad(
+    nombre="proveedor_caido", ...,
+    investigar={"no_responde": 20 * _M},   # regla → cuánto tiene que AGUANTAR
+)
+```
+
+Los 20 minutos salen del propio detector: corre cada 5', así que un hallazgo vivo
+a los 20' lo vieron **cuatro pasadas seguidas**. Eso ya no es un parpadeo.
+
+Vacío es el default y es una declaración: esa habilidad no dispara nada. El
+permiso se da **caso por caso** — *«no con todo, con casos que vayamos
+eligiendo»*. Hoy hay UNO.
+
+⚠️ **El TIPO de investigación no se declara acá.** Ya vive en
+`lab.langgraph.investigaciones.DE_LA_HABILIDAD`, que es quien sabe qué sabe
+investigar. Repetirlo sería la REGLA #9: dos mapas del mismo hecho sin árbitro, y
+el que se desincronice no falla — manda a investigar con el método equivocado.
+
+#### Tres piezas, y ninguna conoce a las otras dos
+
+| Pieza | Qué hace | Qué NO sabe |
+|---|---|---|
+| `agente/triage.py` | **elige** los que sobrevivieron su espera | que existe un investigador |
+| `lab/langgraph/` | **investiga** | que existe un agente |
+| `jobs/agente.py` | los junta y encola | — |
+
+Esa separación es la garantía que no se negocia: **si el laboratorio no está
+instalado, el agente detecta exactamente igual.** Un test prohíbe que `agente/`
+importe `lab/`, y en el daemon el import va adentro del `try`.
+
+#### Las guardas
+
+| | |
+|---|---|
+| **Sobrevivir** | el hallazgo tiene que seguir abierto después de su espera |
+| **Tope diario** | `TOPE_DIARIO = 6`. Es un techo de PLATA, declarado y no en un `while` |
+| **No repetir** | 24 h por caso: el problema puede seguir abierto una semana, la respuesta a «por qué pasó» no cambia todos los días |
+| **Si no puedo contar, no gasto** | `gastadas_hoy()` devuelve `None` si no pudo leer → no se dispara. Un tope que no se puede contar no es un tope |
+
+Y `lab.pedidos.hallazgo_id` guarda **qué problema lo disparó**, para poder mostrar
+el veredicto al lado del hallazgo: uno que vive en otra tab no lo lee nadie.
+
+---
+
 ## 7. Los umbrales salen del código
 
 Hoy están desparramados en 6 archivos y ninguno se puede tocar sin deploy:

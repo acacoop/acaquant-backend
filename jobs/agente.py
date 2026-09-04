@@ -39,6 +39,12 @@ from agente.motor import CICLO_QUIETO_S, CICLO_RUEDA_S  # noqa: E402
 _seguir = True
 
 
+# Quién figura como autor de lo que dispara el triage. **Es una constante y no
+# un literal suelto**: el tope diario se cuenta filtrando por este mismo string,
+# así que dos grafías distintas harían que el tope no cuente lo que gastó.
+POR_EL_TRIAGE = "agente/triage"
+
+
 def _parar(signum, _frame):
     """SIGTERM/SIGINT: termina la pasada en curso y sale limpio. Sin esto, un
     `systemctl restart` mata el proceso a mitad de una escritura."""
@@ -64,11 +70,69 @@ def _atender_investigaciones() -> None:
         logger.debug("agente: el investigador no atendió (%s)", e)
 
 
+def _disparar_investigaciones() -> None:
+    """**EL TRIAGE**: lo que sigue caído se manda a investigar SOLO. §6.9.
+
+    Vive acá y no en `agente/` a propósito: es el único lugar del sistema que
+    conoce las dos mitades. `agente/triage.py` ELIGE (y no sabe que existe un
+    investigador); el laboratorio INVESTIGA (y no sabe que existe un agente).
+    Si mañana el lab no está, el agente detecta exactamente igual — que es la
+    garantía que no se negocia.
+
+    Tres guardas, y ninguna es opcional:
+
+      · el TOPE DIARIO, que es un techo de plata declarado
+      · `no_repetir_h`, para no pagar dos veces por la misma pregunta
+      · y la de arriba de todo, que la pone `triage.candidatos()`: **el problema
+        tiene que haber SOBREVIVIDO su espera**. Nadie está mirando, así que lo
+        que se dispara solo tiene que estar más confirmado que lo que se pide a
+        mano.
+
+    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que `_atender_
+    investigaciones`: el import va adentro del try.
+    """
+    try:
+        from agente import triage
+        from lab.langgraph import cola
+        from lab.langgraph.investigaciones import tipo_de
+
+        candidatos = triage.candidatos()
+        if not candidatos:
+            return
+        gastadas = cola.gastadas_hoy(POR_EL_TRIAGE)
+        if gastadas is None:
+            logger.warning("triage: no pude contar lo gastado hoy — no disparo. "
+                           "Un tope que no se puede contar no es un tope")
+            return
+        for c in candidatos:
+            if gastadas >= triage.TOPE_DIARIO:
+                logger.info("triage: llegué al tope de %d por hoy — quedan %d sin "
+                            "investigar. Si esto se repite, o sobra presupuesto o "
+                            "sobra una regla declarada", triage.TOPE_DIARIO,
+                            len(candidatos) - triage.TOPE_DIARIO)
+                return
+            if not (tipo := tipo_de(c["habilidad"])):
+                continue          # el lab no sabe investigar esa habilidad
+            r = cola.encolar(tipo, c["sujeto"], POR_EL_TRIAGE,
+                             hallazgo_id=c["id"],
+                             no_repetir_h=triage.NO_REPETIR_H)
+            if r.get("ok") and not r.get("ya_estaba"):
+                gastadas += 1
+                logger.info("triage: mando a investigar %s/%s «%s» — lleva %s min "
+                            "abierto (pedido %s)", c["habilidad"], c["regla"],
+                            c["sujeto"], c["min_abierto"], r.get("id"))
+    except Exception as e:
+        logger.debug("agente: el triage no corrió (%s)", e)
+
+
 def _una_pasada() -> dict:
     from agente import motor
     r = motor.tick()
     motor.latir(r)
-    # Va DESPUÉS del tick: primero el trabajo del agente, después lo demás.
+    # Va DESPUÉS del tick: primero el trabajo del agente, después lo demás. Y el
+    # triage ANTES de atender la cola, para que lo que se encola en esta pasada
+    # se levante en esta pasada y no en la próxima.
+    _disparar_investigaciones()
     _atender_investigaciones()
     if r["corridas"]:
         logger.info("agente: %d habilidad(es) · %d nuevos · %d reincidencias · %dms",

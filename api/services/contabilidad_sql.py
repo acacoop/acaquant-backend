@@ -99,6 +99,7 @@ vista lo marca en la fila en vez de mostrar un número sano que no lo es.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from api.cache import cached
@@ -270,19 +271,36 @@ def calcular_titulos(
     return out
 
 
-def separar_altas(titulos: list[dict]) -> tuple[list[dict], list[dict]]:
-    """(con_resultado, altas_puras). ALTA PURA = no había nominales al cierre
-    anterior y en el mes solo se COMPRÓ (sin ventas): se compró para
-    dejar en cartera, y por definición del proceso su resultado recién entra al
-    RxT del mes que viene — mostrarla entre los resultados es ruido. Una alta
-    que además vendió SÍ tiene resultado del mes y se queda."""
-    con_resultado, altas = [], []
+def separar(titulos: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """(con_resultado, altas_puras, sin_conciliar).
+
+    SIN CONCILIAR = la fila no cuadra: los nominales del cierre no son los del
+    cierre anterior más lo que explican los boletos. **La TENENCIA manda**
+    (regla del user, 2026-09-04): un número que sale de boletos que la foto
+    no respalda no es resultado, es una PARTIDA SIN CONCILIAR — se muestra
+    aparte, con su ⚠ y su residuo, y NO suma al total del mes. Medido antes
+    de decidirlo: en 08/26 el residuo lo dominaban el doble conteo del FCI,
+    el plazo mal leído y el rebautizo de unidades — ponerle precio (ajuste a
+    la foto) habría convertido errores de datos en resultado contable.
+
+    ALTA PURA = no había nominales al cierre anterior y en el mes solo se
+    COMPRÓ (sin ventas): su resultado recién entra al RxT del mes que viene.
+    Una alta que no cuadra va a sin conciliar, no a altas."""
+    con_resultado, altas, sin_conciliar = [], [], []
     for t in titulos:
-        if t["estado"] == "alta" and t["ventas"] == 0:
+        if not t["cuadra"]:
+            sin_conciliar.append(t)
+        elif t["estado"] == "alta" and t["ventas"] == 0:
             altas.append(t)
         else:
             con_resultado.append(t)
-    return con_resultado, altas
+    return con_resultado, altas, sin_conciliar
+
+
+def separar_altas(titulos: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Compat: (con_resultado + sin_conciliar, altas). Usar `separar`."""
+    con, altas, sin = separar(titulos)
+    return con + sin, altas
 
 
 # ── Lectura SQL ──────────────────────────────────────────────────────────────
@@ -299,7 +317,10 @@ def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
            # Con `<>` toda fila sin cartera se caía en SILENCIO — la tenencia
            # del 31/07 existía y el informe la leía vacía, así que el mes
            # arrancaba en 0 y todo el resultado salía mal sin un solo error.
-           "AND cartera IS DISTINCT FROM 'MONEDAS'")
+           # DERIVADOS (futuros) son CONTRATOS, no nominales de títulos: sus
+           # boletos no tienen punta y jamás cuadrarían (medido 2026-09-04).
+           "AND cartera IS DISTINCT FROM 'MONEDAS' "
+           "AND cartera IS DISTINCT FROM 'DERIVADOS'")
     filas = _q(sel, {"c": id_cuenta, "f": objetivo})
     usada = objetivo
     if not filas:
@@ -344,24 +365,46 @@ def _direccion(operacion: str | None, tipo_operacion: str | None = None) -> str 
     return None
 
 
-def _es_24hs(condiciones: str | None) -> bool:
-    return "24" in (condiciones or "")
+_RE_HORAS = re.compile(r"(\d+)\s*h")
+_RE_DIAS = re.compile(r"(\d+)\s*d")
 
 
-def pertenece_al_mes(fecha: str, condiciones: str | None, *,
-                     mes: str, borde_prev: str, borde_fin: str) -> bool:
+def plazo_habiles(condiciones: str | None) -> int:
+    """Días HÁBILES entre concertación y liquidación, leídos de `condiciones`.
+    Aunesa lo trae en el texto: «24hs» → 1, «48hs» → 2, «3 días» → 3,
+    «Contado Inmediato» / «ARS Inm» → 0. Hasta 2026-09-04 solo se entendía
+    «24» y todo lo demás caía en contado inmediato: medido en las cuentas
+    propias, ~7% de los boletos traen 1/3/4/5/7 días o 48hs. Lo que no se
+    entiende se trata como contado (el comportamiento de siempre) y el diag
+    de conciliación lista las grafías para verlo."""
+    t = (condiciones or "").lower()
+    if (m := _RE_HORAS.search(t)):
+        return max(1, round(int(m.group(1)) / 24))
+    if (m := _RE_DIAS.search(t)):
+        return int(m.group(1))
+    return 0
+
+
+def sumar_habiles(d: date, n: int) -> date:
+    from core.calendario import proximo_habil
+    for _ in range(max(0, n)):
+        d = proximo_habil(d)
+    return d
+
+
+def fecha_liquidacion(fecha: str, condiciones: str | None) -> date:
+    """Concertación + plazo en hábiles = el día que la foto de tenencia lo ve."""
+    return sumar_habiles(date.fromisoformat(fecha), plazo_habiles(condiciones))
+
+
+def pertenece_al_mes(fecha: str, condiciones: str | None, *, mes: str) -> bool:
     """¿El boleto es de este MES CONTABLE? La tenencia es una foto LIQUIDADA y
     `operaciones.operaciones` registra por CONCERTACIÓN (detección del user,
     2026-09-01): un boleto del último hábil del mes anterior en 24hs liquida el
     1º hábil de este mes — la foto del cierre anterior NO lo tiene, así que
-    cuenta ACÁ. Simétrico en la otra punta: el del último hábil de ESTE mes en
-    24hs no está en la foto del cierre y pasa al mes siguiente. Contado
-    inmediato liquida el mismo día y se queda donde concertó."""
-    if fecha < mes:  # mes anterior: entra solo el borde que liquida acá
-        return fecha >= borde_prev and _es_24hs(condiciones)
-    if fecha >= borde_fin:  # borde final: en 24hs liquida el mes que viene
-        return not _es_24hs(condiciones)
-    return True
+    cuenta ACÁ. Simétrico en la otra punta. Regla única: el boleto pertenece al
+    mes en que LIQUIDA (concertación + plazo real de `condiciones`)."""
+    return fecha_liquidacion(fecha, condiciones).strftime("%Y-%m") == mes
 
 
 # Días máximos entre el provisional y su final para considerarlos la misma
@@ -381,29 +424,28 @@ def _fase_fci(tipo_operacion: str | None) -> str | None:
 
 def emparejar_provisional_final(ops: list[dict]) -> list[dict]:
     """Un FCI vía Aunesa entra como DOS boletos del MISMO movimiento: el
-    «provisional» (el pedido) y el «final» (el liquidado), con la misma
-    cantidad. Contar los dos duplica; borrar uno a ciegas ROMPE cuando el otro
-    cayó en otro mes (caso real 2026-09-04: el rescate provisional era el que
-    correspondía al mes y se había ido con la exclusión de «provisional»).
+    «provisional» (el pedido) y el «final» (el liquidado). Contar los dos
+    duplica; borrar uno a ciegas ROMPE cuando el otro cayó en otro mes.
 
-    Regla: cada FINAL busca hacia atrás el PROVISIONAL más cercano del mismo
-    instrumento, misma punta y misma cantidad, a lo sumo `_VENTANA_PAREJA`
-    días antes (o el mismo día). La pareja queda como UNA fila, fechada en el
-    PROVISIONAL (el primero de los dos), con `op` que nombra a las dos patas y
-    `comprobante` con los dos boletos. Lo que no encuentra pareja viaja tal
-    cual: «no pude emparejar» ≠ «no existe» (REGLA #9), y se ve en el modal
-    con su nombre original.
+    MEDIDO 2026-09-04 (83 boletos, 3 cuentas propias, 08/26): las dos patas
+    caen casi siempre el MISMO día y la cantidad NO sirve de ficha —
+      · suscripción: el provisional viene con cantidad 0 (35/35) y el FINAL
+        trae las cuotapartes (28/28);
+      · rescate: el PROVISIONAL trae la cantidad pedida (13/13) y el final la
+        liquidada, parecida pero distinta.
+    Emparejar por cantidad fallaba en 81 de 83 y contaba la venta dos veces.
 
-    Emparejamiento por FICHA (instrumento + punta + cantidad + cercanía), no
-    por texto. Recibe filas crudas de la query (`fecha`, `instrumento`,
-    `operacion`, `tipo_operacion`, `cantidad`, `boleto`) y devuelve el mismo
-    shape, en el mismo orden."""
+    Regla: ficha = instrumento + punta. Cada FINAL busca hacia atrás el
+    PROVISIONAL más cercano (mismo día o hasta `_VENTANA_PAREJA` días antes).
+    La pareja es UNA fila fechada en el provisional; la CANTIDAD la pone el
+    final en suscripción y el provisional en rescate (si esa pata la trae),
+    y el importe el final (lo liquidado) si lo trae. Lo que no encuentra
+    pareja viaja tal cual: «no pude emparejar» ≠ «no existe» (REGLA #9)."""
     from datetime import timedelta
 
     def _ficha(r: dict) -> tuple:
         return (r.get("instrumento") or "",
-                _direccion(r.get("operacion"), r.get("tipo_operacion")),
-                round(_f(r.get("cantidad")) or 0.0, 2))
+                _direccion(r.get("operacion"), r.get("tipo_operacion")))
 
     usados: set[int] = set()
     salida: list[dict] = []
@@ -432,16 +474,20 @@ def emparejar_provisional_final(ops: list[dict]) -> list[dict]:
         prov = ops[candidato]
         usados.add(candidato)
         pareja = dict(prov)
+        punta = _ficha(r)[1]
+        q_prov, q_fin = _f(prov.get("cantidad")) or 0.0, _f(r.get("cantidad")) or 0.0
+        if punta == "compra":
+            pareja["cantidad"] = q_fin or q_prov
+        else:
+            pareja["cantidad"] = q_prov or q_fin
+        if _f(r.get("bruto")):
+            pareja["bruto"] = r.get("bruto")
         base = (r.get("tipo_operacion") or "").lower().replace("final", "").strip().capitalize()
         pareja["tipo_operacion"] = (f"{base} (provisional {prov['fecha'][8:]}/{prov['fecha'][5:7]}"
                                     f" → final {r['fecha'][8:]}/{r['fecha'][5:7]})")
         pareja["boleto"] = f"{prov.get('boleto') or '?'} + {r.get('boleto') or '?'}"
-        # el importe LIQUIDADO manda si el provisional no lo traía
-        if not _f(prov.get("bruto")) and _f(r.get("bruto")):
-            pareja["bruto"] = r.get("bruto")
         salida = [x for x in salida if x is not prov]
         salida.append(pareja)
-    # Reordenar por fecha/boleto: la pareja va donde estaba el provisional.
     orden = {id(r): i for i, r in enumerate(ops)}
     salida.sort(key=lambda r: (r["fecha"], orden.get(id(r), 10**9)))
     return salida
@@ -457,23 +503,21 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
     contador `ignorados` los muestran."""
     p: dict = {"c": id_cuenta}
     if mes_str:
+        from datetime import timedelta
+
         from core.calendario import ultimo_habil_del_mes
         anio, m = int(mes_str[:4]), int(mes_str[5:7])
         a0, m0 = _mes_anterior(anio, m)
-        borde_prev = ultimo_habil_del_mes(a0, m0).isoformat()
-        borde_fin = ultimo_habil_del_mes(anio, m).isoformat()
-        # Rango ampliado: desde el borde del mes anterior hasta fin de mes; el
-        # corte fino por liquidación lo hace `pertenece_al_mes`. Los dos bordes
-        # se estiran `_VENTANA_PAREJA` días más para que una pareja
-        # provisional/final que cruza el mes se vea ENTERA y se junte antes
-        # del corte.
-        from datetime import timedelta
-        desde = (date.fromisoformat(borde_prev) - timedelta(days=_VENTANA_PAREJA)).isoformat()
+        # Rango ampliado a cada lado del mes: atrás para que entren los que
+        # concertaron antes y LIQUIDAN acá (plazo), y `_VENTANA_PAREJA` días
+        # de más en las dos puntas para ver ENTERA una pareja provisional/
+        # final que cruza el mes. El corte fino lo hace `pertenece_al_mes`.
+        desde = (ultimo_habil_del_mes(a0, m0) - timedelta(days=_VENTANA_PAREJA)).isoformat()
         hasta = (ultimo_habil_del_mes(anio, m) + timedelta(days=_VENTANA_PAREJA)).isoformat()
         w_mes = "AND concertacion >= %(desde)s AND concertacion <= %(hasta)s "
         p |= {"desde": desde, "hasta": hasta}
     else:
-        w_mes, borde_prev, borde_fin = "", "", ""
+        w_mes = ""
     ops = _q(
         "SELECT to_char(concertacion,'YYYY-MM-DD') AS fecha, instrumento, operacion, "
         "tipo_operacion, condiciones, cantidad, bruto, moneda, mep, boleto "
@@ -488,9 +532,7 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
     # solo mes. Ver `emparejar_provisional_final`.
     ops = emparejar_provisional_final(ops)
     if mes_str:
-        ops = [r for r in ops
-               if pertenece_al_mes(r["fecha"], r.get("condiciones"),
-                                   mes=mes_str, borde_prev=borde_prev, borde_fin=borde_fin)]
+        ops = [r for r in ops if pertenece_al_mes(r["fecha"], r.get("condiciones"), mes=mes_str)]
     boletos: list[dict] = []
     for r in ops:
         unidad = r.get("instrumento") or ""
@@ -524,11 +566,13 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
         fecha_ini=ini["fecha_usada"] or ini["fecha_objetivo"])
     # Las ALTAS PURAS (comprado para dejar en cartera) no son resultado de ESTE
     # mes: van en su bloque aparte y NO suman a los totales del informe.
-    titulos, altas = separar_altas(todos)
+    titulos, altas, sin_conciliar = separar(todos)
     tot = {k: round(sum(t[k] for t in titulos), 2)
            for k in ("v_ini", "v_fin", "compras", "ventas",
                      "rxt", "intermediacion", "total")}
-    tot["descuadres"] = sum(1 for t in todos if not t["cuadra"])
+    # Lo que la tenencia no respalda se declara, no se suma.
+    tot["descuadres"] = len(sin_conciliar)
+    tot["sin_conciliar_total"] = round(sum(t["total"] for t in sin_conciliar), 2)
     tot["mep_faltantes"] = sum(t["mep_faltantes"] for t in todos)
     # Boletos que NO mueven posición (cauciones, futuros, `otro` del catálogo):
     # se declaran en vez de desaparecer — si el enrich usara otra grafía para
@@ -543,7 +587,8 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
                            "fecha_usada": ini["fecha_usada"]},
             "cierre_fin": {"fecha_objetivo": fin["fecha_objetivo"],
                            "fecha_usada": fin["fecha_usada"]},
-            "titulos": titulos, "altas": altas, "totales": tot,
+            "titulos": titulos, "altas": altas, "sin_conciliar": sin_conciliar,
+            "totales": tot,
             "n_boletos": sum(1 for b in boletos if b.get("categoria"))}
 
 

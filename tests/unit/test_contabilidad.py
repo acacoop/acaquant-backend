@@ -460,21 +460,38 @@ def test_ledger_ignora_lo_que_no_es_compra_ni_venta():
 
 def test_mes_contable_por_liquidacion():
     """Detección del user 2026-09-01: la tenencia es una foto LIQUIDADA y los
-    boletos van por CONCERTACIÓN. Un 24hs del último hábil del mes anterior
-    liquida en ESTE mes (entra); un 24hs del último hábil de ESTE mes liquida
-    el mes que viene (sale). Contado inmediato queda donde concertó."""
+    boletos van por CONCERTACIÓN. El boleto pertenece al mes en que LIQUIDA:
+    concertación + plazo real de `condiciones`, en hábiles."""
     from api.services.contabilidad_sql import pertenece_al_mes
-    kw = {"mes": "2026-08", "borde_prev": "2026-07-31", "borde_fin": "2026-08-31"}
-    # borde del mes anterior
-    assert pertenece_al_mes("2026-07-31", "24hs", **kw)          # liquida 1/8 → agosto
+    kw = {"mes": "2026-08"}
+    # borde del mes anterior (31/07 viernes → 24hs liquida lunes 03/08)
+    assert pertenece_al_mes("2026-07-31", "24hs", **kw)
     assert not pertenece_al_mes("2026-07-31", "Contado Inmediato", **kw)
     assert not pertenece_al_mes("2026-07-30", "24hs", **kw)      # liquida 31/7 → julio
+    assert pertenece_al_mes("2026-07-29", "3 días", **kw)        # liquida 03/08 → agosto
     # adentro del mes
     assert pertenece_al_mes("2026-08-14", "24hs", **kw)
     assert pertenece_al_mes("2026-08-14", "Contado Inmediato", **kw)
     # borde de este mes
     assert not pertenece_al_mes("2026-08-31", "24hs", **kw)      # liquida 1/9 → septiembre
     assert pertenece_al_mes("2026-08-31", "Contado Inmediato", **kw)
+    assert not pertenece_al_mes("2026-08-28", "48hs", **kw)      # liquida 01/09
+
+
+def test_plazo_habiles_lee_condiciones():
+    """Hasta 2026-09-04 solo se entendía «24»; medido: ~7% de los boletos
+    propios traen 1/3/4/5/7 días o 48hs y caían como contado inmediato."""
+    from api.services.contabilidad_sql import plazo_habiles
+    assert plazo_habiles("24hs") == 1
+    assert plazo_habiles("ARS 24hs") == 1
+    assert plazo_habiles("48hs") == 2
+    assert plazo_habiles("72 hs") == 3
+    assert plazo_habiles("3 días") == 3
+    assert plazo_habiles("7 dias") == 7
+    assert plazo_habiles("1 día") == 1
+    assert plazo_habiles("Contado Inmediato") == 0
+    assert plazo_habiles("ARS Inm") == 0
+    assert plazo_habiles(None) == 0
 
 
 def test_orden_por_impacto():
@@ -485,25 +502,40 @@ def test_orden_por_impacto():
     assert [f["titulo"] for f in filas] == ["FCI X", "AL30"]
 
 
-def _fci(fecha, tipo, cant, boleto, bruto=1_000.0, instrumento="TT AHORRO B"):
-    return {"fecha": fecha, "instrumento": instrumento, "operacion": "Rescate",
+def _fci(fecha, tipo, cant, boleto, bruto=1_000.0, instrumento="TT AHORRO B",
+         operacion="Rescate"):
+    return {"fecha": fecha, "instrumento": instrumento, "operacion": operacion,
             "tipo_operacion": tipo, "condiciones": "ARS Inm", "cantidad": cant,
             "bruto": bruto, "moneda": "ARS", "mep": None, "boleto": boleto}
 
 
-def test_pareja_provisional_final_cuenta_una_vez():
-    """Detección del user 2026-09-04: Aunesa carga cada suscripción/rescate de
-    FCI como DOS boletos («provisional» = el pedido, «final» = el liquidado),
-    misma cantidad. La pareja es UNA fila, fechada en el provisional."""
+def test_pareja_rescate_toma_cantidad_del_provisional():
+    """Medido 2026-09-04: en RESCATE el provisional trae la cantidad pedida y
+    el final la liquidada (parecida, distinta). Una fila, cantidad del
+    provisional, importe del final (lo liquidado), fecha del provisional."""
     from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-03", "Rescate provisional", 23_210_649.49, "A"),
-           _fci("2026-08-03", "Rescate final", 23_210_649.49, "B")]
+    ops = [_fci("2026-08-03", "Rescate provisional", 23_210_649.49, "A", bruto=0),
+           _fci("2026-08-03", "Rescate final", 23_210_700.00, "B", bruto=1_500_000)]
     out = emparejar_provisional_final(ops)
     assert len(out) == 1
-    assert out[0]["fecha"] == "2026-08-03"
+    assert out[0]["cantidad"] == 23_210_649.49
+    assert out[0]["bruto"] == 1_500_000
     assert out[0]["boleto"] == "A + B"
     assert "provisional 03/08" in out[0]["tipo_operacion"]
-    assert "final 03/08" in out[0]["tipo_operacion"]
+
+
+def test_pareja_suscripcion_toma_cantidad_del_final():
+    """Medido: en SUSCRIPCIÓN el provisional viene con cantidad 0 y el final
+    trae las cuotapartes."""
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [_fci("2026-08-13", "Suscripción provisional", 0, "A", bruto=252_288_981,
+                operacion="Suscripción"),
+           _fci("2026-08-13", "Suscripción final", 4_301_608.13, "B", bruto=252_288_981,
+                operacion="Suscripción")]
+    out = emparejar_provisional_final(ops)
+    assert len(out) == 1
+    assert out[0]["cantidad"] == 4_301_608.13
+    assert out[0]["bruto"] == 252_288_981
 
 
 def test_pareja_que_cruza_el_mes_va_al_provisional():
@@ -516,17 +548,18 @@ def test_pareja_que_cruza_el_mes_va_al_provisional():
 
 
 def test_sin_pareja_no_se_borra_nada():
-    """Distinta cantidad, distinto instrumento o el final ANTES del
-    provisional: no son la misma operación → las dos filas viajan tal cual.
-    «No pude emparejar» ≠ «no existe»."""
+    """Distinto instrumento, distinta punta o el final ANTES del provisional:
+    no son la misma operación → las filas viajan tal cual. «No pude
+    emparejar» ≠ «no existe»."""
     from api.services.contabilidad_sql import emparejar_provisional_final
     ops = [_fci("2026-08-03", "Rescate provisional", 100.0, "A"),
-           _fci("2026-08-03", "Rescate final", 250.0, "B"),
            _fci("2026-08-05", "Rescate final", 100.0, "C", instrumento="OTRO"),
+           _fci("2026-08-06", "Suscripción final", 100.0, "S", operacion="Suscripción"),
            _fci("2026-08-10", "Rescate final", 500.0, "D"),
            _fci("2026-08-12", "Rescate provisional", 500.0, "E")]
     out = emparejar_provisional_final(ops)
-    assert [r["boleto"] for r in out] == ["A", "B", "C", "D", "E"]
+    # A+D emparejan (mismo fondo, misma punta, 7 días); C, S y E quedan sueltos
+    assert [r["boleto"] for r in out] == ["A + D", "C", "S", "E"]
 
 
 def test_cada_final_toma_el_provisional_mas_cercano():
@@ -547,3 +580,26 @@ def test_boletos_no_fci_pasan_intactos():
             "tipo_operacion": "Concurrencia Contado - Compra", "cantidad": 10,
             "bruto": 5.0, "boleto": "X"}]
     assert emparejar_provisional_final(ops) == ops
+
+
+def test_sin_conciliar_no_suma_al_total():
+    """La TENENCIA manda (user, 2026-09-04): una fila cuyos boletos no
+    explican los nominales del cierre es PARTIDA SIN CONCILIAR — se muestra
+    aparte y no entra al total del mes."""
+    from api.services.contabilidad_sql import separar
+    ok = {"cuadra": True, "estado": "operado", "ventas": 1.0, "total": 10.0}
+    alta = {"cuadra": True, "estado": "alta", "ventas": 0.0, "total": 5.0}
+    rota = {"cuadra": False, "estado": "alta", "ventas": 0.0, "total": -252.0}
+    con, altas, sin = separar([ok, alta, rota])
+    assert con == [ok] and altas == [alta] and sin == [rota]
+
+
+def test_pareja_con_el_final_listado_antes_que_el_provisional():
+    """Mismo día, el final ordena antes por número de boleto: la pareja igual
+    es UNA fila (bug real 2026-09-04: el provisional quedaba suelto)."""
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [_fci("2026-08-12", "Suscripción final", 100.0, "B1", operacion="Suscripción"),
+           _fci("2026-08-12", "Suscripción provisional", 0.0, "B0", operacion="Suscripción")]
+    out = emparejar_provisional_final(ops)
+    assert [r["boleto"] for r in out] == ["B0 + B1"]
+    assert out[0]["cantidad"] == 100.0

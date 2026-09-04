@@ -9,14 +9,17 @@ las cuentas del proceso (o una) y un mes, TRES cosas:
      se movió la tenencia del fondo EL DÍA del provisional y EL DÍA del final.
      Contesta con datos «¿cuál de los dos boletos mueve la posición?», por
      punta (suscripción / rescate) — hoy es hipótesis.
-  2. KARDEX DIARIO por título: Δ nominales de la foto contra los boletos de
-     ese día. Un día con Δ que ningún boleto explica es un MOVIMIENTO
+  2. KARDEX DIARIO por título (agrupado por la CLAVE del informe, así el
+     rebautizo de una `unidad` no cuenta como movimiento): Δ nominales de la
+     foto contra los boletos que LIQUIDAN ese día (plazo real de
+     `condiciones`). Un día con Δ que ningún boleto explica es un MOVIMIENTO
      ADMINISTRATIVO (transferencia de títulos, amortización, canje…) valuado al
      precio implícito de la foto. Lista esos días con lo que Aunesa cargó ese
      día aunque no cuente (boletos `ignorados`, tipo_operacion crudo).
   3. INVENTARIO de `tipo_operacion` × `operacion` en las cuentas propias del
      período: qué tipos existen y cuántos caen sin punta (los que la
      contabilidad ignora).
+  4. GRAFÍAS de `condiciones` y el plazo en hábiles que el informe les lee.
 
     python -m scripts.diag_conciliacion_contabilidad 2026-08
     python -m scripts.diag_conciliacion_contabilidad 2026-08 --cuenta 100
@@ -40,8 +43,10 @@ from api.services.contabilidad_sql import (
     _fase_fci,
     _mes_anterior,
     emparejar_provisional_final,
+    fecha_liquidacion,
+    plazo_habiles,
 )
-from core.calendario import restar_habiles, ultimo_habil_del_mes
+from core.calendario import ultimo_habil_del_mes
 
 TOL = 1e-6
 
@@ -61,15 +66,22 @@ def _cuentas(solo: str | None) -> list[str]:
         "SELECT id_cuenta FROM operaciones.contabilidad_cuentas ORDER BY id_cuenta")]
 
 
-def _serie_tenencia(id_cuenta: str, desde: date, hasta: date) -> dict[str, dict[date, dict]]:
-    """unidad → {fecha → {cantidad, valuacion}} (sin cash)."""
+def _serie_tenencia(id_cuenta: str, desde: date, hasta: date,
+                    u2m: dict[str, str]) -> dict[str, dict[date, dict]]:
+    """clave del título → {fecha → {cantidad, valuacion}}. Sin cash ni
+    derivados, y AGRUPADO por la misma clave que usa el informe
+    (`unidad → CAFCI/ticker`): un rebautizo de `unidad` del mismo fondo es
+    identidad, no movimiento — si el mapping lo sabe, acá no aparece."""
     out: dict[str, dict[date, dict]] = defaultdict(dict)
     for r in _q("SELECT fecha, unidad, cantidad, valuacion FROM portafolio.tenencia "
                 "WHERE id_cuenta = %(c)s AND fecha BETWEEN %(d)s AND %(h)s "
-                "AND cartera IS DISTINCT FROM 'MONEDAS'",
+                "AND cartera IS DISTINCT FROM 'MONEDAS' "
+                "AND cartera IS DISTINCT FROM 'DERIVADOS'",
                 {"c": id_cuenta, "d": desde, "h": hasta}):
-        out[r["unidad"] or ""][r["fecha"]] = {"cantidad": _f(r["cantidad"]) or 0.0,
-                                             "valuacion": _f(r["valuacion"]) or 0.0}
+        key = u2m.get(r["unidad"] or "", r["unidad"] or "")
+        d = out[key].setdefault(r["fecha"], {"cantidad": 0.0, "valuacion": 0.0})
+        d["cantidad"] += _f(r["cantidad"]) or 0.0
+        d["valuacion"] += _f(r["valuacion"]) or 0.0
     return out
 
 
@@ -103,7 +115,7 @@ def _delta_dia(serie: dict[date, dict], f: date,
     return hoy["cantidad"] - ant, px
 
 
-def bloque_parejas(id_cuenta: str, ops: list[dict], ten: dict) -> None:
+def bloque_parejas(id_cuenta: str, ops: list[dict], ten: dict, u2m: dict) -> None:
     fci = [r for r in ops if _fase_fci(r.get("tipo_operacion"))]
     if not fci:
         return
@@ -113,7 +125,7 @@ def bloque_parejas(id_cuenta: str, ops: list[dict], ten: dict) -> None:
     print(f"   {'punta':<7} {'provisional':<12} {'Δ ten. prov':>16} {'final':<12} "
           f"{'Δ ten. final':>16} {'cantidad':>16}  instrumento")
     for r in emparejar_provisional_final(fci):
-        serie = ten.get(r.get("instrumento") or "", {})
+        serie = ten.get(u2m.get(r.get("instrumento") or "", r.get("instrumento") or ""), {})
         t = r.get("tipo_operacion") or ""
         punta = _direccion(r.get("operacion"), t) or "?"
         if "→" in t:  # pareja: «X (provisional dd/mm → final dd/mm)»
@@ -133,14 +145,17 @@ def bloque_parejas(id_cuenta: str, ops: list[dict], ten: dict) -> None:
 
 
 def bloque_kardex(id_cuenta: str, mes: str, ops: list[dict], ten: dict,
-                  desde: date, hasta: date) -> Counter:
+                  u2m: dict) -> Counter:
     """Días con Δ de nominales que ningún boleto explica. Devuelve el conteo
     de tipos crudos vistos esos días (para el resumen final)."""
     anio, m = int(mes[:4]), int(mes[5:7])
     ini_mes, fin_mes = date(anio, m, 1), ultimo_habil_del_mes(anio, m)
-    por_dia_unidad: dict[tuple, list[dict]] = defaultdict(list)
+    # boletos por (día en que LIQUIDAN, clave del título): es el día en que la
+    # foto los ve — plazo real de `condiciones`, en hábiles.
+    por_dia_key: dict[tuple, list[dict]] = defaultdict(list)
     for r in emparejar_provisional_final(ops):
-        por_dia_unidad[(date.fromisoformat(r["fecha"]), r.get("instrumento") or "")].append(r)
+        key = u2m.get(r.get("instrumento") or "", r.get("instrumento") or "")
+        por_dia_key[(fecha_liquidacion(r["fecha"], r.get("condiciones")), key)].append(r)
     tipos_sueltos: Counter = Counter()
     _linea(f"2 · KARDEX DIARIO  ·  cuenta {id_cuenta}  ·  {mes}  ·  Δ tenencia sin boleto")
     hubo = False
@@ -150,14 +165,8 @@ def bloque_kardex(id_cuenta: str, mes: str, ops: list[dict], ten: dict,
             delta, px = _delta_dia(serie, f, dias_foto)
             if delta is None or abs(delta) < TOL:
                 continue
-            # Boletos que LIQUIDAN ese día: contado inmediato concertado el
-            # mismo día + 24hs concertado el hábil anterior.
             explican = 0.0
-            candidatos = ([b for b in por_dia_unidad.get((f, unidad), [])
-                           if "24" not in (b.get("condiciones") or "")] +
-                          [b for b in por_dia_unidad.get((restar_habiles(f, 1), unidad), [])
-                           if "24" in (b.get("condiciones") or "")])
-            for b in candidatos:
+            for b in por_dia_key.get((f, unidad), []):
                 d = _direccion(b.get("operacion"), b.get("tipo_operacion"))
                 q = abs(_f(b.get("cantidad")) or 0.0)
                 explican += q if d == "compra" else -q if d == "venta" else 0.0
@@ -168,15 +177,16 @@ def bloque_kardex(id_cuenta: str, mes: str, ops: list[dict], ten: dict,
             print(f"\n   {f}  {unidad[:48]:<48}  Δ={_n(delta):>16}  "
                   f"boletos={_n(explican):>14}  SIN EXPLICAR={_n(resto):>16}  "
                   f"px impl={_n(px)}  ≈ ${_n(resto * px) if px else '—'}")
-            raw = [b for b in ops if b["fecha"] == f.isoformat()
-                   and (b.get("instrumento") or "") == unidad]
+            raw = [b for b in ops
+                   if fecha_liquidacion(b["fecha"], b.get("condiciones")) == f
+                   and u2m.get(b.get("instrumento") or "", b.get("instrumento") or "") == unidad]
             for b in raw:
                 d = _direccion(b.get("operacion"), b.get("tipo_operacion")) or "SIN PUNTA"
                 tipos_sueltos[(b.get("tipo_operacion"), d)] += 1
                 print(f"        boleto {b.get('boleto')}  {b.get('tipo_operacion')!s:<45} "
                       f"punta={d:<10} cant={_n(_f(b.get('cantidad')))} etapa={b.get('etapa')}")
             if not raw:
-                print("        (Aunesa no cargó NINGÚN boleto de este título ese día)")
+                print("        (ningún boleto de este título LIQUIDA ese día)")
     if not hubo:
         print("   todo explicado: cada Δ de nominales tiene su boleto.")
     return tipos_sueltos
@@ -196,6 +206,20 @@ def bloque_inventario(cuentas: list[str], desde: date, hasta: date) -> None:
         punta = _direccion(r["operacion"], r["tipo_operacion"]) or "SIN PUNTA"
         print(f"   {r['n']:>6} {r['anulados']:>5}  {punta:<10} {str(r['operacion'])[:14]:<14} "
               f"{r['tipo_operacion']}")
+
+
+def bloque_plazos(cuentas: list[str], desde: date, hasta: date) -> None:
+    """Cada grafía de `condiciones` y el plazo (hábiles) que el informe le
+    lee. Una grafía con plazo 0 que NO sea contado es un boleto que el corte
+    de mes ubica mal — son strings de Aunesa, no datos del negocio."""
+    _linea("4 · GRAFÍAS de `condiciones` → plazo en hábiles que lee el informe")
+    filas = _q("SELECT condiciones, count(*) AS n FROM operaciones.operaciones "
+               "WHERE id_cuenta = ANY(%(cs)s) AND concertacion BETWEEN %(d)s AND %(h)s "
+               "AND anulado_en IS NULL GROUP BY 1 ORDER BY n DESC",
+               {"cs": cuentas, "d": desde, "h": hasta})
+    print(f"   {'n':>6}  {'plazo':>5}  condiciones")
+    for r in filas:
+        print(f"   {r['n']:>6}  {plazo_habiles(r['condiciones']):>5}  {r['condiciones']!r}")
 
 
 def main() -> None:
@@ -229,17 +253,20 @@ def _correr(a) -> None:
     desde = ultimo_habil_del_mes(a0, m0) - timedelta(days=_VENTANA_PAREJA)
     hasta = ultimo_habil_del_mes(anio, m) + timedelta(days=_VENTANA_PAREJA)
     cuentas = _cuentas(a.cuenta)
+    from api.services.pnl_sql import _mapas_assets
+    u2m = _mapas_assets()["unidad_to_match"]
     print(f"cuentas: {cuentas}\nventana: {desde} → {hasta}")
     total_sueltos: Counter = Counter()
     for c in cuentas:
         ops = _ops(c, desde, hasta)
-        ten = _serie_tenencia(c, desde, hasta)
+        ten = _serie_tenencia(c, desde, hasta, u2m)
         if not ops and not ten:
             print(f"\n[{c}] sin boletos ni tenencia en la ventana")
             continue
-        bloque_parejas(c, ops, ten)
-        total_sueltos += bloque_kardex(c, a.mes, ops, ten, desde, hasta)
+        bloque_parejas(c, ops, ten, u2m)
+        total_sueltos += bloque_kardex(c, a.mes, ops, ten, u2m)
     bloque_inventario(cuentas, desde, hasta)
+    bloque_plazos(cuentas, desde, hasta)
     if total_sueltos:
         _linea("RESUMEN · tipos de boleto vistos en días con Δ SIN EXPLICAR")
         for (tipo, punta), n in total_sueltos.most_common():

@@ -64,6 +64,74 @@ de tocar la vista más usada de la app.
 | 20 | Perf con EMISOR=CORPORATIVO + filtro de TEA + **ficha del bono** (§20) | sí | ✅ **hecho** (2026-08-28) |
 | 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
 | 24 | Layout de los dos modales de la vista: 50/50 en la FICHA DEL BONO, y la ficha sale del simulador (§24) | sí | ✅ **hecho** (2026-09-03) |
+| 25 | Filtro de **EMISOR por nombre** en la tab CURVAS (§25) | sí | ✅ **hecho** (2026-09-04) |
+
+### Paso 25 (2026-09-04) — el filtro de EMISOR por NOMBRE (y la fila pasa a llamarse TIPO)
+
+**Qué faltaba.** Con `TIPO=CORPORATIVO` la tabla son ~134 ONs de decenas de
+emisores, y los dos controles que había —el tipo de emisor y el piso de TEA— no
+contestan la pregunta que la mesa se hace ahí: *qué tiene YPF, y a cuánto rinde
+contra Pampa*. El piso de tasa recorta el largo de la lista, no la ordena por
+quién emite. Es el mismo problema que resolvió el `TEA ≥` del paso 20 (una lista
+de 134 filas no se lee), atacado por el otro eje.
+
+**Qué se agregó.** Un multi-select con buscador a la izquierda del `TEA ≥`. Corre
+en la MISMA cadena: `TIPO → EMISOR → TEA`, un solo `useMemo` alimentando la
+tabla, el gráfico, los contadores de las pills y el universo del LIBRO. Ese
+encadenamiento es el punto — si el filtro tuviera su propia lista, la pantalla
+podría contradecir a sus propios controles.
+
+**Las cuatro decisiones:**
+
+1. **La CLAVE de agrupación la manda el backend, no el navegador** (REGLA #9).
+   `curvas-vista` suma `emisor_key` = `upper(btrim(emisor))`, que es *la misma*
+   regla con la que la base joinea el emisor con su industria. Si el front
+   agrupara por el string suelto, `'YPF '` y `'YPF'` serían **dos chips**, cada
+   uno contando bien por su cuenta, y el que filtra por uno ve la mitad de los
+   bonos de YPF. No falla nada: simplemente faltan. El nombre (`emisor`) sigue
+   viajando aparte porque es lo que se MUESTRA — nombre e identidad son dos
+   cosas distintas y por eso van en dos campos.
+
+   > 1816 estandarizó los nombres de los corporativos (`jobs/ficha_1816`), así
+   > que hoy la clave probablemente no cambie nada. Eso es exactamente por qué
+   > se pone ahora: el día que entre un emisor a mano —los provinciales se
+   > cargan así— el filtro no se parte en dos, y nadie tiene que acordarse.
+
+2. **El catálogo es lo que el TIPO ya dejó pasar**, no el universo. Ofrecer 67
+   emisores mientras se miran soberanos es ruido, y los contadores dirían un
+   número que la tabla no muestra. Por lo mismo, al cambiar el TIPO se **sueltan**
+   los emisores tildados que ese TIPO ya no muestra: sacar CORPORATIVO dejaba
+   `EMISOR · YPF` encendido sobre una tabla de soberanos —cero filas y ningún
+   control que lo explicara—.
+
+3. **Vacío = TODOS**, al revés que el filtro de TIPO (donde "ninguno tildado"
+   mentía mostrando todo). Acá no es ambiguo porque **el botón dice el estado
+   sin abrirlo**: `EMISOR · YPF` con uno, `EMISOR · 3` con varios. Es la misma
+   mitigación que el `TEA ≥ 10%`.
+
+4. **Cuenta BONOS, no filas.** Un dual llega REPETIDO (una fila por pata), así
+   que el chip diría 4 donde hay 3 — el mismo cuidado que el backend ya tiene
+   con el contador por tipo de emisor.
+
+**Los bonos SIN emisor cargado no se esconden**: son su propio grupo,
+`(SIN EMISOR)`. Un bono que desaparece de una lista no se nota, y "nadie lo
+cargó" es un estado, no un error.
+
+**Los dos deploys NO tienen que ser simultáneos.** El front va a Vercel solo y
+el backend se sube a mano, siempre después: mientras `emisor_key` no llegue, la
+tab la deriva del nombre con la misma regla (`upper` + espacios colapsados) y en
+cuanto el campo aparece manda el backend. Sin esa caída, entre un deploy y el
+otro **todos** los bonos habrían caído en `(SIN EMISOR)` — un filtro con una
+sola opción, roto sin decirlo.
+
+⚠️ **La fila de pills pasó a llamarse TIPO.** Eran SOBERANO / PROVINCIAL /
+CORPORATIVO / BCRA bajo el rótulo EMISOR — que es el tipo de emisor
+(`emisor_tipo`), no el emisor. Con los dos controles en la misma barra, dos cosas
+llamadas EMISOR es cómo se termina filtrando por una creyendo que se filtró por
+la otra.
+
+**No se persiste**, por lo mismo que el piso de TEA: un filtro que esconde bonos
+y sobrevive a la navegación es una pantalla que le miente al que vuelve a ella.
 
 ### Paso 24 (2026-09-03) — los dos modales: cada dato en UN solo lugar y a la vista
 
@@ -292,7 +360,8 @@ mesa mira— para no ganar nada.
 
 #### 20.b — Filtro de TEA (`TEA ≥`)
 
-Un piso de tasa, a la **derecha de la fila de EMISOR**. Corta sobre lo que el
+Un piso de tasa, a la **derecha de todo** (desde el paso 25 lo precede el filtro de
+EMISOR por nombre; la fila de pills se llama TIPO). Corta sobre lo que el
 emisor ya dejó pasar, y ese orden se lee de izquierda a derecha. Aplica a **la
 tabla, el gráfico, los contadores de las pills y el universo del LIBRO** desde una
 sola fuente (el `useMemo` de `bonos`), así la pantalla no puede contradecir a sus

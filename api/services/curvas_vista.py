@@ -15,7 +15,9 @@ regla que pueda divergir de la del front.
 
 **Lo que sí cambia** (y es lo que se buscaba): entran las ONs. `emisor_tipo` viaja
 en cada bono para que el filtro de EMISOR sea client-side y gratis: cambiar de
-emisor no vuelve a pegarle al backend.
+emisor no vuelve a pegarle al backend. Lo mismo el NOMBRE del emisor (`emisor` +
+`emisor_key`, ver `_emisor_key`), que es lo que hace usable la vista con
+EMISOR=CORPORATIVO: ahí no hay un emisor, hay decenas.
 
 **Frescura**: TTL 10s, igual que `get_renta_fija` — la tabla es live y el motor
 de curvas refresca cada 5s.
@@ -230,6 +232,27 @@ def pills_del_master() -> dict[str, tuple[str, ...]]:
     return out
 
 
+# ── LA IDENTIDAD DEL EMISOR (REGLA #9) ──────────────────────────────────────
+#
+# El filtro por NOMBRE de emisor agrupa bonos, y agrupar por un string es
+# exactamente el modo de falla de la REGLA #9: `'YPF '` y `'YPF'` son el mismo
+# emisor y darían DOS grupos, cada uno contando bien por su cuenta. No falla
+# nada — simplemente el que mira YPF ve la mitad de sus bonos.
+#
+# Por eso la clave la decide el BACKEND y con la MISMA regla que ya usa la base
+# para joinear `mercado.curvas.emisor` con `mercado.emisores` (`upper(btrim())`,
+# ver `_bonos_crudos`) y la que el índice único de `mercado.emisores` aplica. Si
+# el navegador armara su propia clave, un día agruparía distinto de como agrupa
+# la industria y nadie lo notaría.
+#
+# `None` = el bono NO tiene emisor cargado. Es un ESTADO, no un error, y el
+# filtro tiene que mostrarlo como grupo propio: un bono que desaparece de una
+# lista no se nota.
+def _emisor_key(emisor: str | None) -> str | None:
+    """`emisor → clave canónica` para agrupar. Puro."""
+    return " ".join((emisor or "").split()).upper() or None
+
+
 def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
            tamar: dict[tuple[str, str], dict] | None = None,
            tasas_agente: dict[str, dict] | None = None,
@@ -393,6 +416,10 @@ def _armar(rows: list[dict], fijados: set[str], mep: float | None = None,
                 "ticker_corto": tc, "instrumento": r.get("ticker"),
                 "pill": pill, "lado": ce.lado_de(pill),
                 "emisor_tipo": ejes.emisor_tipo, "emisor": r.get("emisor"),
+                # La clave con la que se AGRUPA por emisor (ver `_emisor_key`).
+                # `emisor` sigue siendo lo que se MUESTRA — nombre y clave son
+                # dos cosas distintas y viajan aparte a propósito.
+                "emisor_key": _emisor_key(r.get("emisor")),
                 "moneda": ejes.moneda, "ajuste": ejes.ajuste,
                 "ajuste_alt": ejes.ajuste_alt, "ley": ejes.ley,
                 # Solo para corporativos: un soberano no tiene industria, y

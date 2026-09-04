@@ -83,6 +83,31 @@ def test_el_emisor_viaja_en_cada_bono():
     assert b["lado"] == "USD"
 
 
+def test_el_emisor_viaja_con_su_CLAVE_de_agrupacion():
+    """REGLA #9: agrupar por el string suelto parte un emisor en dos.
+
+    `'YPF '` y `'YPF'` son el MISMO emisor y sin clave darían dos grupos que
+    cuentan bien por separado — el que filtra por YPF ve la mitad de sus bonos y
+    nada falla. La clave se arma con la misma regla con la que la base joinea el
+    emisor con su industria (`upper(btrim())`).
+    """
+    out = _armar([
+        _fila("YPCUO", "corporativo", "USD", "fija", emisor="YPF "),
+        _fila("YMCXO", "corporativo", "USD", "fija", emisor="  ypf"),
+    ], fijados=set())
+    assert {b["emisor_key"] for b in out["bonos"]} == {"YPF"}
+    # El NOMBRE no se toca: la clave es para agrupar, el nombre para mostrar.
+    assert [b["emisor"] for b in out["bonos"]] == ["YPF ", "  ypf"]
+
+
+def test_un_bono_SIN_emisor_no_se_cuela_en_el_grupo_de_otro():
+    """Sin emisor cargado la clave es None — un ESTADO propio, no un string vacío
+    que el navegador podría confundir con un emisor más."""
+    out = _armar([_fila("XXX", "corporativo", "ARS", "fija", emisor="   ")],
+                 fijados=set())
+    assert out["bonos"][0]["emisor_key"] is None
+
+
 def test_metrics_omite_los_nulos():
     """Mismo contrato que get_renta_fija: las claves sin valor no viajan."""
     fila = _fila("TX26", "soberano", "ARS", "cer")

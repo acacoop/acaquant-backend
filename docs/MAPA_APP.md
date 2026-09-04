@@ -37,7 +37,7 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **525 endpoints** montados en `api.main.app`, en **33 routers**.
+- **527 endpoints** montados en `api.main.app`, en **33 routers**.
 - **196 escriben** (POST/PUT/PATCH/DELETE); 329 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
@@ -78,7 +78,7 @@
 | `/api/risk` | 5 | 0 | `operar` | `operar` |  |
 | `/api/scanner` | 7 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
 | `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
-| `/api/trading` | 6 | 1 | `trading` | `trading` |  |
+| `/api/trading` | 8 | 1 | `trading` | `trading` |  |
 | `/api/valuaciones` | 8 | 0 | `portfolios` · 8 rutas con gate extra | — |  |
 
 **⚠️ Routers sin gate de módulo, o cuyo gate real no coincide con el módulo que declaran en `ENDPOINT_MODULE_PREFIXES`:**
@@ -187,7 +187,7 @@ páginas.
 | `agro` | `/agro` | Solo las **5 PATCH** de `/api/derivados/agro/*` (`require_module("agro")` + `require_no_invitado`) |
 | `sinteticos` | `/sinteticos` | **NINGUNO** — `derivados_sinteticos.router` va `_PUBLIC` bajo `/api/derivados` |
 | `renta-variable` | `/renta-variable` | `/api/scanner/*` (9 rutas) |
-| `trading` | `/trading` | `/api/trading/*` (6) |
+| `trading` | `/trading` | `/api/trading/*` (8) |
 | `operar` | `/operar` + envío de órdenes | `/api/ordenes`, `/api/operativa`, `/api/operar`, `/api/risk` (22) |
 | `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos` | `/api/operaciones`, `/api/cuentas` (46) — **`/mesa-dinero` salió del módulo el 2026-08-11**: allowlist per-usuario |
 | `portfolios` | `/aum`, `/valuaciones` | `/api/portfolio`, `/api/valuaciones` (18) |
@@ -754,15 +754,20 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 | **RADAR → VOLUMENES ACCIONES** | Top 30 por **CASH** (`total_money`, no nominal), con barra proporcional al líder y Σ cash del universo | `/api/scanner/cedears` (2s) | Ninguno (top 30 fijo) | Ninguna |
 | **RADAR → PIVOTES** | De TODO el universo, los que tienen el `last` pegado a un nivel (PP/R1..R3/S1..S3): Ticker, Last, Nivel, Precio, Dist ↑/↓ % y **$ Operado** (cash del día — un papel pegado a un pivote no sirve si no lo opera nadie). El cash lo manda el backend en la MISMA fila (`cash` = `total_money`, el mismo campo que ranquea VOLUMENES): el front no cruza nada, si leyeran fuentes distintas el mismo papel podría mostrar dos números | `GET /api/trading/pivot-radar` (2s) | **Umbral 0.05 % / 0.1 % / 0.2 % (def) / 0.5 %** — filtra en el cliente, NO re-pega | Ninguna |
 | **PIVOTS** → charts LIVE 1 y 2 (mitad derecha) | Dos charts idénticos: precio intradía por minuto (área) con líneas de los 7 pivots + VWAP; si hay override, las líneas siguen la edición. Cada uno tiene **✕** para liberarlo (el próximo activo elegido entra ahí) | `GET /api/trading/intraday?ticker` | Zoom/pan; auto-reencuadre si el usuario no interactuó | Ninguna |
+| **MONITOR** (tab nueva 2026-09-04) | Volumen operado **por precio**. Filtro madre **RENTA FIJA / RENTA VARIABLE** (nunca se mezclan: cambian universo, unidades y ventanas). Izquierda 20 % el universo de la clase; derecha 50/50: precio del tape arriba (con VWAP y último) y abajo el histograma de nominales por precio, con **POC** y **área de valor 70 %** (VAL–VAH). El volumen **no se parte por lado** | `GET /api/trading/monitor/universo?clase=`, `GET /api/trading/monitor?clase&ticker&ventana&buckets` | **Clase** (rv def) · **ventana** (rv: HOY/5R/20R · rf: HOY/3R/5R) · buscador del rail · buckets 8-60 (def 26) | Ninguna |
 | **INTRADAY** | Monitor FIFO del día: se sube el **CSV de boletos** (export ROFEX/Aunesa, **latin-1**) y consolida por (cuenta, especie): posición neta, precio ponderado, PnL realizado/no realizado, intereses+IVA, costo en book, detalle por posición y simulador en drawer | `POST /api/operaciones/intraday/{analizar,recalcular,marks}` (**módulo `operaciones`, NO `trading`**) | **Selector de cuenta**; **tilde por especie**; **tilde por trade individual** (re-FIFO en backend); **override manual de mark**; **multiplicador de contrato** (1 acción/CEDEAR, 100 derivado); simulador con escalones ±0.25/0.5/0.75/1/1.25/1.5/2 % | POSTs de cálculo **efímeros: NO persisten en DB**. Todo vive en sessionStorage/localStorage (`intraday_fifo_v2`, `intraday_excl_v1`, `trd-fx-intraday-posiciones-v1`) |
 | **PNL HISTÓRICO** | Cuaderno **MANUAL** de PnL diario: días hábiles desde el 1-jul-2026 hasta fin del mes en curso, monto tipeado por día, acumulado total y mensual, subtotal por mes y 2 gráficos de línea | `GET`/`POST /api/trading/pnl-historico` | **Selector de cuenta** (etiqueta libre, def `General`; el GET devuelve la lista) | **SÍ ESCRIBE**: tipear un monto hace `POST` (upsert en `valuaciones.pnl_historico`); dejar la celda vacía **BORRA** la fila. **Sin allowlist propia** — el gate es el módulo `trading` |
 
 #### Endpoints
-**`trading.py`** (6 rutas): `GET /pivots` (`tickers` CSV; resuelve CEDEAR vs bono por el master de RF;
+**`trading.py`** (8 rutas): `GET /pivots` (`tickers` CSV; resuelve CEDEAR vs bono por el master de RF;
 devuelve `{ticker,last,vwap,cash,fecha,high,low,close,pivots{pp,r1..r3,s1..s3}}` o `{sin_datos:true}`;
 `cash` = plata operada hoy, `None` en bonos) · `GET /intraday` · `GET /pivot-radar` (`ttl=2`, cada item
 suma `cash`) · `GET /universo` · `GET /pnl-historico?cuenta=` ·
-**`POST /pnl-historico`** (`{fecha, monto: float|null, cuenta}`; `monto` null → **DELETE** de la fila).
+**`POST /pnl-historico`** (`{fecha, monto: float|null, cuenta}`; `monto` null → **DELETE** de la fila) ·
+`GET /monitor/universo?clase=rv|rf` (devuelve `{clase, ventanas[], items[]}` — **las ventanas las manda el
+backend**, así el selector no puede ofrecer una que el service rechace) ·
+`GET /monitor?clase&ticker&ventana&buckets` (`{fuente, aproximado, paso_min, serie[], buckets[], poc, val,
+vah, resumen{}}`; un papel que no operó devuelve el MISMO shape con `sin_datos: true`, no un error).
 
 En el mismo refactor se borraron del service `trading_pivots.py` tres piezas que ya no tenían a nadie
 del otro lado: `get_adr_zonas()` + `_velas_adr()` (el chart ZONAS), `get_renta_fija_radar()` (era el tab
@@ -772,7 +777,8 @@ RENTA FIJA del radar, sacado hace meses) y `get_trades()` (el tape/LIBRO, sin ro
 `mercado.cedears_ohlc_daily` (`jobs/cedears_ohlc_daily.py` 20:15 UTC — lee el SNAPSHOT, no el tape) ·
 `mercado.bonos_ohlc_daily` (20:16) · `cedears_snapshot` / `market_snapshot` (last y vwap live) ·
 `cedears_time_sales` / `timesales` · `mercado.curvas` · `mercado.dias_habiles` (arma las filas del
-cuaderno) · **`valuaciones.pnl_historico`** (PK fecha+cuenta — **única tabla que esta vista escribe**).
+cuaderno) · **`valuaciones.pnl_historico`** (PK fecha+cuenta — **única tabla que esta vista escribe**) ·
+**`mercado.cedears_bars_1m`** (MONITOR multi-rueda, ver abajo).
 
 #### Notas / rarezas
 - Los pivots se calculan **dos veces**: el backend en `/pivots` y el frontend (`calcPivots`) cuando el usuario edita máx/mín/cierre. Si divergieran, el chart mostraría líneas distintas a las cards.
@@ -782,7 +788,9 @@ cuaderno) · **`valuaciones.pnl_historico`** (PK fecha+cuenta — **única tabla
 - Cambiar el activo de una card que estaba en un chart **reemplaza en ese mismo chart** — si no, el chart seguiría dibujando un papel que la pantalla ya no muestra en ninguna card.
 - Un usuario con `trading` y **sin** `renta-variable` ve las cards y los charts pero los KPIs y los radares MOVERS/VOLUMENES quedan vacíos (403 silencioso). Hoy no se nota porque solo `admin` tiene `trading`.
 - La tab INTRADAY es la única con carga de archivo y su cálculo es 100 % efímero.
-- **`mercado.cedears_bars_1m` quedó sin lector.** El archivo de barras de 1 minuto (job `jobs/cedears_bars_1m.py`, 20:20 UTC) se leía SOLO desde `core/bars_sql.py` para el Efficiency Ratio de la tab ESTRATEGIA; con la tab borrada se borró el reader y el job quedó escribiendo un archivo que hoy nadie consulta. **Se dejó a propósito**: es historia intradía que el tape borra al cierre y no se puede reconstruir. Decisión pendiente del user: darlo de baja o darle un consumidor.
+- **`mercado.cedears_bars_1m` YA TIENE LECTOR (2026-09-04): la tab MONITOR.** El archivo de barras de 1 minuto (job `jobs/cedears_bars_1m.py`, 20:20 UTC) quedó huérfano al borrarse la tab ESTRATEGIA y su reader `core/bars_sql.py`. Se había dejado a propósito —es historia intradía que el tape borra al cierre y no se puede reconstruir— y la decisión pendiente era darlo de baja o darle un consumidor: **es su consumidor**. Es la ÚNICA historia de renta variable que existe, porque `cedears_time_sales` se trunca todas las noches.
+- **En MONITOR, la fuente depende de (clase, ventana) y eso NO se puede equivocar en silencio.** RV+HOY sale del tape (tick a tick, exacto); RV+5R/20R del archivo de barras, donde el perfil se deriva del **precio típico** `(high+low+close)/3` — una APROXIMACIÓN, que el endpoint declara en `aproximado: true` y la pantalla muestra en el chip de fuente. RF siempre del tape `timesales`, cuya clave es el **símbolo de mercado** (`MERV - XMEV - AL30D - 24hs`) y no el ticker corto: ese mapeo sale de `trading_pivots.simbolos_de_bonos()`, el MISMO que usa `/pivots`, para que dos tabs no puedan mirar patas distintas del mismo bono (REGLA #9). Congelado por `tests/unit/test_monitor.py`.
+- **RF y RV no tienen la misma profundidad, y por eso las ventanas son distintas.** Medido en prod el 2026-09-04 (`scripts/diag_monitor_tape.py`): `timesales` guardaba **6 ruedas** (retención de 7 días corridos) y `cedears_bars_1m` **22 ruedas** de las 60 de su ventana móvil (empezó el 4-ago). Costo de las dos queries agregadas juntas: NVDA a 20 ruedas **104 ms**, AL30 con 59.097 ticks **317 ms**.
 
 ---
 

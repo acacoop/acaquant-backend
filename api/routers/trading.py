@@ -1,7 +1,8 @@
 """Router /api/trading — vista TRADING (módulo `trading`, admin-only).
 
 Pivots Floor Trader sobre el CEDEAR (ARS), la serie intradía del chart LIVE, el
-radar de proximidad a pivote y el catálogo para el selector de las cards.
+radar de proximidad a pivote, el catálogo para el selector de las cards y la tab
+MONITOR (volumen operado por precio).
 Lógica pura en api/services/trading_pivots.py. Ver [[project_vista_trading]].
 
 Refactor 2026-09-01: se fue `/adr-zonas` (el chart ZONAS ADR salió de la vista;
@@ -10,9 +11,10 @@ Renta Variable) y el router `/api/estrategia` completo (tab ESTRATEGIA).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from api.services import monitor_sql as monitor_svc
 from api.services import pnl_historico as pnl_hist_svc
 from api.services import scanner_sql as scanner_svc
 from api.services import trading_pivots as svc
@@ -60,6 +62,42 @@ def universo():
         for r in scanner_svc.get_universo()
     ]
     return cedears + svc.bonos_universo()
+
+
+# ── MONITOR (volumen operado por precio, ver api/services/monitor_sql.py) ──────
+# Dos rutas y nada más: el rail de la izquierda y el instrumento elegido. El
+# service resuelve de qué tabla sale cada ventana y lo DEVUELVE en `fuente` —
+# la pantalla no elige fuente ni deriva nada.
+
+@router.get("/monitor/universo")
+def monitor_universo(clase: str = Query("rv", description="rv (CEDEARs) | rf (bonos)")):
+    """Catálogo de la clase para el rail + las ventanas que ofrece.
+    `{clase, ventanas:[{ventana,etiqueta,ruedas,paso_min,fuente,aproximado}],
+      items:[{ticker,nombre,grupo,moneda,last,var_pct,cash}]}`."""
+    c = (clase or "rv").lower()
+    if c not in monitor_svc.CLASES:
+        raise HTTPException(status_code=400, detail=f"clase inválida: {clase}")
+    return {"clase": c,
+            "ventanas": monitor_svc.ventanas(c),
+            "items": monitor_svc.universo(clase=c)}
+
+
+@router.get("/monitor")
+def monitor(
+    ticker: str = Query(..., description="ticker corto (NVDA, AL30)"),
+    clase: str = Query("rv", description="rv (CEDEARs) | rf (bonos)"),
+    ventana: str = Query("hoy", description="rv: hoy|5r|20r · rf: hoy|3r|5r"),
+    buckets: int = Query(monitor_svc.BUCKETS_DEF, ge=8, le=60,
+                         description="buckets de precio del perfil"),
+):
+    """Serie de precio + volumen por precio de un instrumento. Un papel que no
+    operó devuelve el mismo shape con `sin_datos: true` (no es un error: la
+    pantalla tiene que poder decir «no operó» sin quedarse en blanco)."""
+    try:
+        return monitor_svc.get_monitor(clase=clase, ticker=ticker,
+                                       ventana=ventana, buckets=buckets)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # ── PNL HISTÓRICO (cuaderno manual, ver api/services/pnl_historico.py) ──────────

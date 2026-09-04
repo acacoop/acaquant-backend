@@ -88,6 +88,15 @@ def _bonos_corto_a_largo() -> dict[str, str]:
     return out
 
 
+def simbolos_de_bonos() -> dict[str, str]:
+    """{ticker_corto: símbolo de mercado} — la MISMA tabla que usa esta vista para
+    pedirle precios a Primary. Público porque `monitor_sql` necesita exactamente
+    este mapeo para leer `mercado.timesales` (que se keyea por símbolo, no por el
+    corto): si cada vista lo resolviera por su cuenta, dos pantallas del mismo
+    bono podrían terminar mirando patas distintas — el incidente de REGLA #9."""
+    return _bonos_corto_a_largo()
+
+
 def _bonos_live(tickers: list[str], corto_a_largo: dict[str, str]) -> dict[str, dict]:
     """{ticker_corto: {last, vwap}} live de cada bono desde mercado.market_snapshot
     (keyeado por ticker largo)."""

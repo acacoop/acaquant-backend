@@ -181,6 +181,28 @@ $mig$;
 
 ALTER TABLE lab.investigaciones ADD COLUMN IF NOT EXISTS titulo text NOT NULL DEFAULT '';
 
+-- ⚠️⚠️ **UNA FILA VIEJA VACÍA IMPIDE CREAR EL CHECK — Y EL SÍNTOMA ES QUE NO
+-- HAY CHECK.** Medido contra una base de prueba con la tabla en la forma vieja:
+-- el paso de arriba convierte un `''` en `ARRAY[]::text[]`, y entonces
+-- `ADD CONSTRAINT ... cardinality(...) > 0` falla con «is violated by some
+-- row». Como los errores del lab AVISAN sin cortar (ver `apply_schema`), el
+-- deploy seguiría en verde y **la restricción simplemente no existiría**: la
+-- misma falla decorativa del `array_length` que esto vino a arreglar, por otra
+-- puerta.
+--
+-- El arreglo NO es saltear el CHECK ni borrar la fila: es **rellenar lo que
+-- estaba vacío con una frase que dice por qué está vacío**. La fila se
+-- conserva, la restricción se crea de verdad, y el que lee entiende qué pasó en
+-- vez de encontrar un campo mudo.
+UPDATE lab.investigaciones SET que_paso = ARRAY['(la versión vieja no lo guardaba)']
+ WHERE cardinality(que_paso) = 0;
+UPDATE lab.investigaciones SET que_haria = ARRAY['(la versión vieja no lo guardaba)']
+ WHERE cardinality(que_haria) = 0;
+UPDATE lab.investigaciones SET lo_que_no_se = ARRAY['(la versión vieja no lo guardaba)']
+ WHERE cardinality(lo_que_no_se) = 0;
+UPDATE lab.investigaciones SET de_donde = ARRAY['(la versión vieja no lo guardaba)']
+ WHERE cardinality(de_donde) = 0;
+
 -- ⚠️ **UN CHECK YA CREADO NO SE ACTUALIZA SOLO.** `CREATE TABLE IF NOT EXISTS`
 -- no toca la tabla que ya existe. Si la tabla nació con el CHECK viejo (el de
 -- `array_length`), esto lo reemplaza; en una tabla recién creada no hace nada.
@@ -238,20 +260,44 @@ BEGIN
     -- las que consultan las herramientas de `lab/langgraph/datos.py`; si algún
     -- día una herramienta nueva necesita otra, se agrega ACÁ y en ningún otro
     -- lado — si no, vuelve a haber un alcance que sólo la base conoce.
+    --
+    -- ⚠️⚠️ **TABLA POR TABLA, Y CADA UNA CON SU GUARDA.** El camino corto era
+    -- un `GRANT USAGE ON SCHEMA mercado, agente, manager, lab` seguido de los
+    -- seis GRANT sueltos, y tiene un modo de falla feo que apareció probándolo:
+    -- si UNO de esos objetos no existe, el bloque entero aborta — pero el
+    -- REVOKE de arriba YA CORRIÓ. O sea que el lector se queda **sin ningún
+    -- permiso**, el investigador deja de funcionar, y el motivo es una línea de
+    -- error en la salida del deploy que nadie lee después.
+    --
+    -- Así, lo que falta se canta por nombre y lo demás se otorga igual. Que el
+    -- lab quede a medias es malo; que quede mudo sin decir por qué es peor.
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lector_lab') THEN
-        GRANT USAGE ON SCHEMA mercado, agente, manager, lab TO lector_lab;
+        FOREACH s IN ARRAY ARRAY['mercado', 'agente', 'manager', 'lab'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = s) THEN
+                EXECUTE format('GRANT USAGE ON SCHEMA %I TO lector_lab', s);
+            ELSE
+                RAISE WARNING 'lab: no existe el esquema % — el lector no va a poder leerlo', s;
+            END IF;
+        END LOOP;
 
-        GRANT SELECT ON mercado.curvas            TO lector_lab;  -- ficha_del_bono
-        GRANT SELECT ON mercado.market_snapshot   TO lector_lab;  -- precio_del_simbolo
-        GRANT SELECT ON agente.hallazgos          TO lector_lab;  -- hallazgos_del_sujeto
-        GRANT SELECT ON agente.reincidencias      TO lector_lab;  -- reincidencias
-        GRANT SELECT ON agente.acciones           TO lector_lab;  -- acciones_sobre
-        GRANT SELECT ON manager.job_runs          TO lector_lab;  -- corridas_del_job
-
-        -- El diario, para no repetir una investigación ya hecha, y la cola,
-        -- para que la pantalla vea en qué anda.
-        GRANT SELECT ON lab.investigaciones TO lector_lab;
-        GRANT SELECT ON lab.pedidos         TO lector_lab;
+        FOREACH r IN ARRAY ARRAY[
+                'mercado.curvas',           -- ficha_del_bono
+                'mercado.market_snapshot',  -- precio_del_simbolo
+                'agente.hallazgos',         -- hallazgos_del_sujeto
+                'agente.reincidencias',     -- reincidencias
+                'agente.acciones',          -- acciones_sobre
+                'manager.job_runs',         -- corridas_del_job
+                -- El diario, para no repetir una investigación ya hecha, y la
+                -- cola, para que la pantalla vea en qué anda.
+                'lab.investigaciones',
+                'lab.pedidos']
+        LOOP
+            IF to_regclass(r) IS NOT NULL THEN
+                EXECUTE format('GRANT SELECT ON %s TO lector_lab', r);
+            ELSE
+                RAISE WARNING 'lab: no existe % — el lector queda sin esa herramienta', r;
+            END IF;
+        END LOOP;
         -- Las tres vistas de `agente` NO van acá: su GRANT vive en
         -- `sql/schema.sql`, pegado al CREATE. Ver el encabezado.
     END IF;

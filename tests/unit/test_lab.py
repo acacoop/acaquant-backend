@@ -142,9 +142,47 @@ def test_el_alcance_del_lab_esta_declarado_en_el_repo():
     t = LAB_SQL.read_text(encoding="utf-8")
     for tabla in ("mercado.curvas", "mercado.market_snapshot", "agente.hallazgos",
                   "agente.reincidencias", "agente.acciones", "manager.job_runs"):
-        assert f"GRANT SELECT ON {tabla}" in t, f"falta declarar el acceso a {tabla}"
+        assert f"'{tabla}'" in t, f"falta declarar el acceso a {tabla}"
     assert "REVOKE ALL ON ALL TABLES IN SCHEMA" in t, (
         "sin el REVOKE previo, este archivo describe el alcance en vez de imponerlo")
+    # La lista del SQL y la que espera `probar_lector` son la misma o el chequeo
+    # del techo daría falsos positivos para siempre.
+    from lab.langgraph import probar_lector as pl
+    for tabla in pl.TABLAS_QUE_LEE:
+        assert f"'{tabla}'" in t, (
+            f"probar_lector espera {tabla} y sql/lab.sql no lo otorga: "
+            f"dos listas que no se hablan es la REGLA #9")
+
+
+def test_una_fila_vieja_vacia_no_impide_crear_el_CHECK():
+    """**Medido contra un Postgres de verdad, no razonado.**
+
+    La migración `text → text[]` convierte un `''` en arreglo VACÍO, y entonces
+    `ADD CONSTRAINT ... cardinality(...) > 0` falla con «is violated by some
+    row». Como los errores del lab avisan sin cortar, el deploy seguiría en
+    verde y **la restricción simplemente no existiría** — la misma falla
+    decorativa del `array_length`, entrando por otra puerta.
+
+    El arreglo no es saltear el CHECK ni borrar la fila: es rellenar lo vacío
+    con una frase que dice por qué está vacío, ANTES de crear la restricción.
+    """
+    t = LAB_SQL.read_text(encoding="utf-8")
+    i_relleno = t.find("la versión vieja no lo guardaba")
+    i_check = t.find("ADD CONSTRAINT inv_que_paso")
+    assert i_relleno != -1, "falta rellenar las filas vacías antes de los CHECK"
+    assert i_check != -1
+    assert i_relleno < i_check, (
+        "el relleno tiene que ir ANTES del ADD CONSTRAINT, o el CHECK no se crea")
+
+
+def test_un_objeto_que_falta_no_deja_al_lector_sin_nada():
+    """El REVOKE corre primero. Si después un GRANT aborta el bloque entero, el
+    lector queda **sin ningún permiso** y el investigador deja de funcionar — con
+    el motivo en una línea del deploy que nadie lee. Cada objeto lleva su guarda
+    y lo que falta se canta por nombre."""
+    t = LAB_SQL.read_text(encoding="utf-8")
+    assert "to_regclass" in t, "los GRANT por tabla necesitan guarda de existencia"
+    assert t.count("RAISE WARNING 'lab:") >= 2, "lo que falta se nombra, no se calla"
 
 
 def test_la_prueba_de_permisos_mide_el_techo_y_no_solo_el_piso():

@@ -991,7 +991,9 @@ def test_un_arreglo_que_pide_datos_lo_declara():
     from agente import arreglos
 
     piden = {a.id for a in arreglos.ARREGLOS.values() if a.pide_datos}
-    assert piden == {"completar_ficha"}, (
+    # `alta_cedear` (§0.dl) pide datos por la razón contraria a `completar_ficha`:
+    # el sistema SABE escribirlo todo, lo que no puede decidir es CUÁLES sumar.
+    assert piden == {"completar_ficha", "alta_cedear"}, (
         f"cambió qué arreglos piden datos: {piden}")
     assert all("pide_datos" in c for c in arreglos.catalogo())
 
@@ -2088,7 +2090,7 @@ def test_el_alta_pregunta_en_vivo_antes_de_decir_que_primary_no_lo_lista():
     Primary. Antes de afirmarlo pregunta en vivo (la misma llamada que OPERAR) y
     dice de cuándo es la foto. En vivo sí / foto no → INFO, no BLOQUEA."""
     from agente import alta
-    src = inspect.getsource(alta._estado_simbolo)
+    src = inspect.getsource(alta.estado_simbolo)
     assert "simbolos_live" in src and "primary_fecha" in src
     assert "foto_vieja" in src
     pre = inspect.getsource(alta)

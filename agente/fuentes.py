@@ -131,6 +131,29 @@ def primary() -> set[str] | None:
     return _una_vez("primary", _leer)
 
 
+def fichas_primary() -> list[dict] | None:
+    """La FICHA de cada símbolo de la foto (`cficode`, moneda, subyacente…), por
+    el mismo lector único que `primary()`. `None` = no se pudo saber.
+
+    Es lo que permite decir «esto ES un CEDEAR» por la ficha y no por el nombre
+    (REGLA #9): el detector `cedear_faltante` calibra qué `cficode` tienen los
+    CEDEARs que YA tenemos y busca los que faltan con esa misma ficha (§0.dl)."""
+    def _leer():
+        from core import instrumentos_validos
+        return instrumentos_validos.fichas()
+    return _una_vez("fichas_primary", _leer)
+
+
+# ── EL MASTER DE CEDEARs ───────────────────────────────────────────────────
+def cedears_master() -> list[dict] | None:
+    """`mercado.cedears` entero (activos e inactivos), por `core.cedears_sql`.
+    `None` = no pude leer. Vacío es una afirmación: no hay ninguno cargado."""
+    def _leer():
+        from core import cedears_sql
+        return cedears_sql.cargar_master()
+    return _una_vez("cedears_master", _leer)
+
+
 def primary_fecha():
     """Cuándo se sacó la foto de Primary (`manager.pyrofex_discovery.generated_at`),
     o `None` si nunca. **La foto tiene fecha y la fecha se muestra**: un «no

@@ -17,6 +17,13 @@ Patrón:
   3. _snapshot_loop(): cada 1s upsertea mercado.cedears_snapshot con
      dirty-check por huella (solo los tickers que se movieron) + resync
      periódico que reescribe todo para refrescar `updated_at`.
+  4. _master_watcher(): cada RELECTURA_MASTER_S relee mercado.cedears y
+     SUSCRIBE lo que se dio de alta desde el arranque (AGENT.md §0.dl). Hasta
+     el 2026-09-04 un CEDEAR nuevo quedaba sin precio hasta el próximo
+     arranque y el script de alta terminaba con «⚠️ reiniciá el motor» — que
+     en rueda es cortarle el feed a la mesa. Sólo SUMA: dar de baja o cambiar
+     un símbolo sigue pidiendo reinicio fuera de rueda (raro y a propósito:
+     desuscribir en vivo no lo ofrece pyRofex sin reabrir el socket).
 
 Cron L-V 13-20 UTC (BYMA horario). systemd unit en deploy/systemd/.
 """
@@ -32,6 +39,7 @@ from typing import ClassVar
 
 import pyRofex
 
+from core import latido
 from core.logs import configurar
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
@@ -40,6 +48,11 @@ from core.websocket import WebSocketManager
 logger = logging.getLogger(__name__)
 # El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
 configurar()
+
+# Cada cuánto el motor relee `mercado.cedears` para sumar lo nuevo. El alta del
+# agente (`agente/alta_cedear.RELECTURA_MOTOR_S`) promete «en ≤ 60 s» con este
+# mismo número: si se cambia acá, cambiarlo allá.
+RELECTURA_MASTER_S = 60
 
 
 def _to_float(v) -> float:
@@ -95,22 +108,9 @@ class CedearsEngine:
             c["ticker"]: c["ticker_corto"] for c in cedears_master
         }
 
-        # Estado in-memory por ticker.
-        self.market_state: dict[str, dict] = {
-            t: {
-                "last":  0.0,
-                "open":  0.0,
-                "high":  0.0,
-                "low":   0.0,
-                "close": 0.0,  # closing_price = cierre día anterior
-                "bid":   0.0,  # mejor punta compradora
-                "offer": 0.0,  # mejor punta vendedora
-                "nv":    0.0,  # NOMINAL_VOLUME acumulado del día (VOL)
-                "ev":    0.0,  # TRADE_EFFECTIVE_VOLUME acumulado (cash) → VWAP
-                "last_nv":  0.0,  # NV del tick anterior → inferir size del trade
-                "prev_px":  0.0,  # precio anterior → inferir side por dirección
-            } for t in self.tickers
-        }
+        # Estado in-memory por ticker. La forma vive en `_estado_vacio` para
+        # que el relector del master cree las entradas nuevas IGUALES.
+        self.market_state: dict[str, dict] = {t: self._estado_vacio() for t in self.tickers}
 
         # SQL-native (decomiso): snapshot → mercado.cedears_snapshot (cutover 2026-06-24);
         # time_sales → mercado.cedears_time_sales (el _flush_loop escribe append_native);
@@ -127,6 +127,64 @@ class CedearsEngine:
     # Arranque en frío — REST seed
     # ──────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _estado_vacio() -> dict:
+        return {
+            "last":  0.0,
+            "open":  0.0,
+            "high":  0.0,
+            "low":   0.0,
+            "close": 0.0,  # closing_price = cierre día anterior
+            "bid":   0.0,  # mejor punta compradora
+            "offer": 0.0,  # mejor punta vendedora
+            "nv":    0.0,  # NOMINAL_VOLUME acumulado del día (VOL)
+            "ev":    0.0,  # TRADE_EFFECTIVE_VOLUME acumulado (cash) → VWAP
+            "last_nv":  0.0,  # NV del tick anterior → inferir size del trade
+            "prev_px":  0.0,  # precio anterior → inferir side por dirección
+        }
+
+    def add_ticker(self, ticker: str, ticker_corto: str) -> bool:
+        """Suma un CEDEAR en runtime (lo llama el relector del master).
+
+        Idempotente: si ya estaba devuelve False sin tocar nada. Primero el
+        estado y el mapa, DESPUÉS la lista: `_snapshot_loop` recorre
+        `self.tickers` y busca en `market_state` sin lock, así que el orden es
+        lo que evita un KeyError en el hilo de al lado. La suscripción WS la
+        hace el llamador, que tiene el `ws_manager`.
+        """
+        if ticker in self.market_state:
+            return False
+        self.market_state[ticker] = self._estado_vacio()
+        self._ticker_corto_map[ticker] = ticker_corto
+        self._seed_rest(ticker)
+        self.tickers.append(ticker)
+        return True
+
+    def _seed_rest(self, ticker: str) -> None:
+        """UNA llamada REST: carga OP/HI/LO/CL/LA del ticker en memoria."""
+        try:
+            md = pyRofex.get_market_data(ticker, entries=self._ENTRIES)
+            if not md or md.get("status") != "OK":
+                logger.warning(f"  · {ticker}: REST status={md.get('status') if md else 'None'}")
+                return
+            data = md.get("marketData", {})
+            st = self.market_state[ticker]
+            st["open"]  = _to_float(data.get("OP"))
+            st["high"]  = _to_float(data.get("HI"))
+            st["low"]   = _to_float(data.get("LO"))
+            st["close"] = _to_float(data.get("CL"))
+            st["last"]  = _to_float(data.get("LA"))
+            st["bid"]   = _to_float(data.get("BI"))   # _to_float toma price del 1er nivel
+            st["offer"] = _to_float(data.get("OF"))
+            st["nv"]    = _to_float(data.get("NV"))
+            st["ev"]    = _to_float(data.get("EV"))
+            # Seed para la inferencia de trades: arrancar con el NV/precio
+            # del REST evita emitir un trade falso gigante en el 1er tick WS.
+            st["last_nv"] = st["nv"]
+            st["prev_px"] = st["last"]
+        except Exception as e:
+            logger.warning(f"  · {ticker}: REST exception {type(e).__name__}: {e}")
+
     def _arranque_en_frio(self):
         """REST call por ticker al startup. Carga OP/HI/LO/CL/LA en memoria
         antes de abrir el WS. Patrón idéntico a engines/valores.py.
@@ -137,28 +195,7 @@ class CedearsEngine:
         """
         logger.info(f"Arranque en frío: REST get_market_data para {len(self.tickers)} tickers")
         for ticker in self.tickers:
-            try:
-                md = pyRofex.get_market_data(ticker, entries=self._ENTRIES)
-                if not md or md.get("status") != "OK":
-                    logger.warning(f"  · {ticker}: REST status={md.get('status') if md else 'None'}")
-                    continue
-                data = md.get("marketData", {})
-                st = self.market_state[ticker]
-                st["open"]  = _to_float(data.get("OP"))
-                st["high"]  = _to_float(data.get("HI"))
-                st["low"]   = _to_float(data.get("LO"))
-                st["close"] = _to_float(data.get("CL"))
-                st["last"]  = _to_float(data.get("LA"))
-                st["bid"]   = _to_float(data.get("BI"))   # _to_float toma price del 1er nivel
-                st["offer"] = _to_float(data.get("OF"))
-                st["nv"]    = _to_float(data.get("NV"))
-                st["ev"]    = _to_float(data.get("EV"))
-                # Seed para la inferencia de trades: arrancar con el NV/precio
-                # del REST evita emitir un trade falso gigante en el 1er tick WS.
-                st["last_nv"] = st["nv"]
-                st["prev_px"] = st["last"]
-            except Exception as e:
-                logger.warning(f"  · {ticker}: REST exception {type(e).__name__}: {e}")
+            self._seed_rest(ticker)
         logger.info("Arranque en frío completado")
 
     # ──────────────────────────────────────────────────────────────
@@ -359,6 +396,41 @@ def _cargar_cedears_master() -> list[dict]:
         return [{"ticker": t, "ticker_corto": tc} for t, tc in cur.fetchall()]
 
 
+def _master_watcher(engine: CedearsEngine, ws_manager: WebSocketManager,
+                    poll_s: int = RELECTURA_MASTER_S) -> None:
+    """Hilo: relee `mercado.cedears` cada `poll_s` y suscribe lo que falte.
+
+    Es el mismo patrón que el `adhoc_watcher` de `engines/valores.py`, sobre el
+    master en vez de una tabla de pedidos: **el master ES el pedido**. Dar de
+    alta un CEDEAR (agente o script) es escribir una fila, y el motor la ve
+    solo. Las suscripciones pyRofex son aditivas, así que se puede llamar
+    `agregar_suscripciones` cuantas veces haga falta sobre el mismo socket.
+
+    Lo que el WS rechace (símbolo que Primary no lista) lo filtra
+    `core/websocket` con el catálogo, como a todas las suscripciones.
+    """
+    # El latido lo dice: «relee_master» es lo que el alta del agente mira para
+    # prometer «lo suscribe en ≤ N s» en vez de «reiniciá el motor».
+    latido.anotar(relee_master=True, universo=len(engine.tickers))
+    while True:
+        time.sleep(poll_s)
+        try:
+            master = _cargar_cedears_master()
+        except Exception as e:
+            logger.warning(f"master_watcher: no pude releer mercado.cedears ({e})")
+            continue
+        nuevos = [c for c in master if c["ticker"] not in engine.market_state]
+        if not nuevos:
+            continue
+        for c in nuevos:
+            engine.add_ticker(c["ticker"], c["ticker_corto"])
+        simbolos = [c["ticker"] for c in nuevos]
+        logger.info(f"master_watcher: suscribiendo {len(simbolos)} CEDEAR(s) nuevos: {simbolos}")
+        ws_manager.agregar_suscripciones(simbolos, depth=1, entries=CedearsEngine._ENTRIES)
+        latido.anotar(universo=len(engine.tickers))
+        latido.agregar("master_sumados", simbolos)
+
+
 def run():
     if not inicializar_sesion():
         logger.error("No se pudo iniciar sesión Rofex. Abortando.")
@@ -376,6 +448,9 @@ def run():
     try:
         if ws_manager.iniciar_ws(engine.tickers, depth=1, entries=CedearsEngine._ENTRIES):
             logger.info(f"Motor CEDEARs corriendo. Suscripto a {len(engine.tickers)} activos.")
+            # Vital: si el relector muere, systemd reinicia el motor entero
+            # antes que dejarlo corriendo con un universo que no crece.
+            lanzar_hilo_vital(_master_watcher, "master_watcher", args=(engine, ws_manager))
             while True:
                 time.sleep(1)
     except KeyboardInterrupt:

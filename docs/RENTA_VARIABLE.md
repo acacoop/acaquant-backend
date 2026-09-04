@@ -308,6 +308,19 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 
 ### 8. Changelog
 
+- **2026-09-04 — el alta de un CEDEAR es una habilidad del AV AGENT, y el
+  motor ya no pide reinicio.**
+
+  `cedear_faltante` (`agente/catalogo.py`) lista lo que Primary cotiza con la
+  FICHA de un CEDEAR (cficode calibrado con los que ya tenemos, no un patrón
+  sobre el nombre) y no está en `mercado.cedears`; desde ENCONTRÓ se tildan
+  los que interesan y `alta_cedear` recorre la cadena entera: Primary (foto y
+  en vivo) → `core/cedears_sql.alta` (puerta única, la misma que
+  `scripts/add_cedear`) → historia EOD (Yahoo) → ADR (Finnhub) → el motor.
+  `engines/motor_cedears` relee el master cada 60 s (`_master_watcher`) y
+  suscribe lo nuevo sin reiniciar. Rubro / es_ia / ric / ratio siguen en
+  Manager → TÍTULOS → RENTA VARIABLE. Doc: `AGENT.md` §0.dl.
+
 - **2026-09-04 — el archivo de barras de 1 minuto dejó de estar huérfano: es la
   base del multi-rueda de la tab MONITOR.**
 

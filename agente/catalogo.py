@@ -88,6 +88,19 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=6 * _H, ventana="siempre",
         correr=mercado.hueco_de_curva),
 
+    # Los CEDEARs, por FICHA (§0.dl): calibra el cficode con los que ya
+    # tenemos y busca los que faltan con esa misma ficha. Un hallazgo por
+    # familia; la lista se tilda en ENCONTRÓ. La segunda regla no tiene
+    # arreglo a propósito: corregir un símbolo o apagar un papel lo decide la
+    # mesa en Manager, no un botón.
+    Habilidad(
+        nombre="cedear_faltante", tipo="detector", dominio="MERCADO",
+        que_mira="CEDEARs que Primary lista (por ficha) y no tenemos, y los nuestros que Primary no lista",
+        cada_segundos=6 * _H, ventana="siempre",
+        correr=mercado.cedear_faltante,
+        umbrales={"min_propios": 3},
+        arreglos={"no_esta_en_master": "alta_cedear"}),
+
     # ── SISTEMA ────────────────────────────────────────────────────────────
     Habilidad(
         nombre="salud", tipo="detector", dominio="SISTEMA",

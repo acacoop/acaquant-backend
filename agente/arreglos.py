@@ -660,9 +660,83 @@ class CompletarFicha(Arreglo):
             inmediato=(quedan <= 0))
 
 
+# ── DAR DE ALTA CEDEARs ────────────────────────────────────────────────────
+class AltaCedear(Arreglo):
+    """CEDEARs que Primary lista (con la FICHA de un CEDEAR) y no tenemos →
+    alta ENTERA de los que una persona tilde. Doc: §0.dl.
+
+    Pide datos, como `completar_ficha`, pero por otra razón: el sistema SABE
+    escribirlo todo (símbolo, subyacente, historia, ADR, suscripción) — lo que
+    no puede decidir es CUÁLES. Primary lista muchos más CEDEARs de los que la
+    mesa mira, y un botón que los sume a todos convertiría el scanner en la
+    guía telefónica.
+
+    ⚠️ **NO se escribe lo que manda el navegador**: cada ticker se vuelve a
+    verificar contra Primary (foto y EN VIVO) y contra la ficha calibrada al
+    aplicar. Uno que no pasa no frena a los demás.
+    """
+
+    id = "alta_cedear"
+    titulo = "Dar de alta CEDEARs que cotizan en Primary"
+    donde = "mercado.cedears"
+    campo = "cedear"
+    pide_datos = True
+    # El efecto lo confirma el detector: el hallazgo es de la FAMILIA, y sumar
+    # 3 de 300 no lo cierra.
+    inmediato = False
+
+    def preview(self, sujeto: str, ev: dict) -> dict:
+        from agente import alta_cedear
+        lst = alta_cedear.listado()
+        if not lst.get("ok"):
+            return {"ok": False, "error": lst.get("error")}
+        return {
+            "ok": True,
+            "que_escribe": (f"los CEDEARs que tildes, de {len(lst['filas'])} que "
+                            "Primary lista y no tenemos"),
+            "donde": self.donde,
+            "porque": (f"ficha calibrada con {lst['reconocidos']} de nuestros "
+                       f"{lst['propios']}: cficode {lst['cficodes']} · plazo "
+                       f"{lst['plazos']} · moneda {lst['monedas']}"),
+            "puede_aplicar": bool(lst["filas"]),
+            # LO QUE LA PANTALLA DESPLIEGA: un listado para TILDAR, no para
+            # completar. `listado` le dice al front cuál de los dos dibujar —
+            # la forma la decide el backend, no una lista de ids en el navegador.
+            "listado": "cedears",
+            "cedears": lst["filas"],
+            "motor": alta_cedear._motor(),
+        }
+
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
+        from agente import alta_cedear
+        if not datos:
+            return Resultado(False, "no se eligió ningún CEDEAR")
+        r = alta_cedear.aplicar_varios(datos, actor=por)
+        esc, err = r["escritos"], r["errores"]
+        if not esc:
+            return Resultado(False, "no se dio de alta ninguno — " + "; ".join(err[:4]))
+        sin_hist = [e["ticker_corto"] for e in esc if e.get("velas_error")]
+        sin_adr = [e["ticker_corto"] for e in esc if not e.get("adr_ok")]
+        foto_vieja = [e["ticker_corto"] for e in esc if e.get("foto_vieja")]
+        detalle = (f"{len(esc)} dado(s) de alta: "
+                   + ", ".join(e["ticker_corto"] for e in esc)
+                   + (f" · {len(err)} con error: {'; '.join(err[:3])}" if err else "")
+                   + (f" · sin historia EOD (Yahoo no contestó): {', '.join(sin_hist)}"
+                      if sin_hist else "")
+                   + (f" · sin ADR (Finnhub no contestó): {', '.join(sin_adr)}"
+                      if sin_adr else "")
+                   + (f" · foto de Primary vieja, el precio llega tras el discovery: "
+                      f"{', '.join(foto_vieja)}" if foto_vieja else ""))
+        return Resultado(True, detalle, campo=self.campo, donde=self.donde,
+                         antes="no estaban", despues=f"{len(esc)} CEDEAR(s)",
+                         inmediato=False)
+
+
 ARREGLOS: dict[str, Arreglo] = {
     a.id: a for a in (PedirPata(), PataDolar(), ApuntarPata(), AltaFlujos(),
-                      AltaBono(), RehacerJob(), CompletarFicha(), ArbitrarCopia())
+                      AltaBono(), RehacerJob(), CompletarFicha(), ArbitrarCopia(),
+                      AltaCedear())
 }
 
 

@@ -589,6 +589,25 @@ clasificarse mal en silencio.
 
 **La pregunta "¿cotiza en Primary?" sale de acá** → pasa a `deteccion_primary`.
 
+#### `cedear_faltante` — habilidad NUEVA (2026-09-04)
+
+CEDEARs que Primary lista y no están en `mercado.cedears`, y los activos del
+master que Primary NO lista. Arreglo: `alta_cedear` (pide datos: se **tilda**
+cuáles). Historia y decisiones en §0.dl.
+
+**La identidad es la FICHA, no el nombre (REGLA #9).** No se busca «símbolos
+con forma `MERV - XMEV - X - 24hs`» (GGAL la tiene): se lee el `cficode` que
+Primary les pone a los CEDEARs que YA tenemos y se buscan los que faltan con
+esa misma ficha, plazo y moneda. Esa calibración no está escrita en ninguna
+constante — sale de nuestro propio master cada vez, y con menos de
+`min_propios` (3) coincidencias el detector dice «no pude mirar».
+
+**UN hallazgo por familia**, como `ficha_incompleta`: Primary lista muchos más
+CEDEARs de los que la mesa mira. La lista viva la recalcula `preview`, y el
+alta recorre la cadena ENTERA por cada uno tildado: Primary (foto y en vivo) →
+ficha → `mercado.cedears` → historia EOD (Yahoo) → ADR (Finnhub) → el motor,
+que **relee el master cada 60 s** y lo suscribe sin reiniciar.
+
 #### `deteccion_primary` — habilidad NUEVA, tipo `consulta`
 
 Contesta *"¿este símbolo cotiza en Primary?"* para quien la necesite.
@@ -4209,3 +4228,67 @@ Se había declarado sin medir; REGLA #2.
 el 17/08** por un ticker que falla siempre. Ahora guarda `errores_lista` y
 entra por `job_reporto`: un color permanente pasa a ser un aviso con el ticker.
 
+### 0.dl EL ALTA DE UN CEDEAR — la cadena entera, por FICHA, sin reiniciar el motor (2026-09-04)
+
+**Qué había.** Sumar un CEDEAR era `scripts/add_cedear`: escribía una fila en
+`mercado.cedears` y terminaba con «⚠️ reiniciá `motor_cedears.service`». Nadie
+verificaba que el símbolo existiera en Primary (`add_cedears_bulk` sí probaba,
+pero por REST y a mano), nadie traía la historia del subyacente hasta la
+corrida nocturna, y la fila quedaba sin precio hasta el próximo arranque del
+motor — que en rueda significa cortarle el feed a la mesa para sumar un papel.
+Y el editor de Manager → TÍTULOS → RENTA VARIABLE sólo edita lo que ya existe:
+no había ninguna pantalla desde la que dar de alta.
+
+**Qué se pidió** (user, 2026-09-04): *«una skill que permita agregar de manera
+integral cualquier CEDEAR que yo elija: que busque si existe en Primary y, si
+existe, que lo agregue para que cumpla con todo — renta variable, títulos,
+suscripción, que se guarden los datos»*.
+
+**Cómo se decide qué ES un CEDEAR.** Es la parte que no se puede resolver con
+un string. `MERV - XMEV - NVDA - 24hs` y `MERV - XMEV - GGAL - 24hs` tienen la
+misma forma y uno es CEDEAR y el otro una acción local; `NVDAD` y `NVDA - CI`
+son el mismo CEDEAR por otra pata. Lo que sí los distingue es la ficha que les
+pone Primary (`cficode`, moneda, plazo) — y esa ficha **no se escribe en una
+constante**: el detector la CALIBRA leyendo la de los CEDEARs que ya tenemos
+(`agente/alta_cedear.candidatos`, pura). Con menos de tres propios compartiendo
+ficha no afirma nada y levanta `SinDatos`. Así el día que Primary recodifique,
+se recalibra sola en vez de comparar contra un número viejo en silencio. Para
+leer la ficha se sumó `core/instrumentos_validos.fichas()`, al lado del lector
+único de la foto: el agente no abre `manager.pyrofex_instruments` por su cuenta.
+
+**Por qué un hallazgo por familia y una persona que tilda.** Primary lista
+muchos más CEDEARs que los que la mesa mira. Un hallazgo por cada uno sería la
+lista que nadie lee (§0.x); un botón que los sume a todos convertiría el
+scanner en la guía telefónica. El sujeto es `CEDEAR`, el número sube y baja, y
+`alta_cedear` es el segundo arreglo que **pide datos** — por la razón opuesta a
+`completar_ficha`: acá el sistema sabe escribirlo todo, lo que no puede decidir
+es cuáles. La segunda regla, `no_cotiza_en_primary`, es al revés y sí va por
+título: un activo nuestro que Primary no lista nunca va a tener precio (el WS
+lo filtra por la misma foto), y no tiene botón porque corregir un símbolo o
+apagar un papel lo decide la mesa en Manager.
+
+**La cadena, y por qué el master va primero.** `alta_cedear.aplicar` recorre:
+Primary (foto **y en vivo**, reusando `alta.estado_simbolo` — la lección de
+S29E7, §0.cy) → ficha → `core/cedears_sql.alta`, la **puerta única** por la que
+ahora también entra el script (REGLA #9 B: había dos `INSERT` copiados) →
+historia EOD por `precios_acciones_daily.backfill_ticker` → ADR por
+`adr_live.upsert_uno`. El master se escribe primero porque es lo que hace que
+el CEDEAR EXISTA para el motor y los jobs; Yahoo y Finnhub son mejoras, y si no
+contestan se anota en el libro (una línea por eslabón) y el nocturno completa.
+Sin poder afirmar que Primary lo lista **no se escribe**: «no pude preguntar»
+no habilita un alta.
+
+**El motor relee el master.** `engines/motor_cedears` tiene ahora un
+`_master_watcher` (hilo vital, cada 60 s) que suscribe lo que apareció en
+`mercado.cedears`, con el mismo patrón que el `adhoc_watcher` de `valores.py`:
+el master ES el pedido. Anota `relee_master=True` en su latido, y eso es lo
+que el pre-flight del alta mira para prometer «lo suscribe en ≤ 60 s» en vez
+de «reiniciá el motor». Sólo SUMA: dar de baja o cambiar un símbolo sigue
+pidiendo reinicio fuera de rueda. ⚠️ Hasta que el motor en el Droplet corra
+esta versión, el pre-flight lo dice («corre código SIN relector») y el primer
+reinicio se hace fuera de rueda; `deploy.sh` no reinicia motores.
+
+**Lo que NO hace.** No decide `rubro`, `es_ia`, `ric` ni `ratio`: eso sigue
+cargándose en Manager, y el alta nunca los pisa. No siembra `mercado.especies`
+ni `portafolio.assets`: un CEDEAR entra al AuM sólo cuando una cuenta lo
+tiene, y de eso se ocupa `assets_autofill` como con cualquier título.

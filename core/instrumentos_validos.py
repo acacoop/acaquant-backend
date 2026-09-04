@@ -85,6 +85,42 @@ def validos(*, forzar: bool = False) -> set[str] | None:
         return simbolos
 
 
+def fichas() -> list[dict] | None:
+    """La FICHA de cada símbolo que Primary publica hoy, o `None` si no se sabe.
+
+    Es la misma foto que `validos()` —`manager.pyrofex_instruments`, la que baja
+    el discovery— leída con sus atributos: `cficode`, `moneda`, `subyacente`,
+    `segmento`, `vencimiento`. Existe para que quien necesite decir «esto ES un
+    CEDEAR» lo diga por la ficha y no por el nombre (REGLA #9 del repo): el
+    símbolo `MERV - XMEV - NVDA - 24hs` no dice qué es, el `cficode` sí.
+
+    Misma degradación que `validos()`: catálogo ilegible o con menos de
+    `_MINIMO_CREIBLE` filas → `None`, nunca una lista corta que parezca completa.
+    Sin cache propia: la usa el agente (cada 6 h) y el alta, no un motor.
+    """
+    from core.postgres import get_pool
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT p.cficode, trim(i->>'ticker'), i->>'currency', "
+                "       i->>'underlying', i->>'marketSegmentId', i->>'maturity' "
+                "FROM manager.pyrofex_instruments p, "
+                "     jsonb_array_elements(p.instruments) AS i "
+                "WHERE i->>'ticker' IS NOT NULL")
+            filas = cur.fetchall()
+    except Exception as e:
+        logger.warning("fichas de símbolos: no pude leer el catálogo (%s)", e)
+        return None
+    out = [{"cficode": c or "", "simbolo": t, "moneda": m or "",
+            "subyacente": u or "", "segmento": seg or "", "vencimiento": v or ""}
+           for c, t, m, u, seg, v in filas if t]
+    if len(out) < _MINIMO_CREIBLE:
+        logger.warning("fichas de símbolos: el catálogo tiene %d filas (< %d). "
+                       "¿Corrió discovery_pyrofex?", len(out), _MINIMO_CREIBLE)
+        return None
+    return out
+
+
 def invalidar() -> None:
     """Forzar relectura del catálogo (tras correr el discovery)."""
     _cache["simbolos"] = None

@@ -309,7 +309,7 @@ def _motivo_no_aplicable(rama: str, ejes) -> str:
     return f"la rama «{rama}» todavía no tiene conversión automática."
 
 
-def _estado_simbolo(simbolo: str) -> dict:
+def estado_simbolo(simbolo: str) -> dict:
     """¿Este símbolo EXISTE en Primary? Sin eso el bono nunca va a tener precio.
 
     Es la pregunta que faltaba: dar de alta un bono no alcanza para que aparezca
@@ -2054,7 +2054,7 @@ def simular(ticker: str, *, curva_1816: str, precio: float | None = None,
         # ¿Va a tener precio? Es la otra mitad de la pregunta: dar de alta no
         # alcanza — el símbolo tiene que existir en Primary para que el motor lo
         # suscriba y llegue al snapshot.
-        "simbolo_estado": _estado_simbolo(simbolo),
+        "simbolo_estado": estado_simbolo(simbolo),
         "fecha_emision": ficha.get("fecha_emision") or None,
         "cer_emision": cer_emision,
         "cer_manual": bool(cer_manual),

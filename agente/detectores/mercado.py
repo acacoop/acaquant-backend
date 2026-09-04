@@ -20,6 +20,8 @@ ALCANCE = frozenset({"soberano", "bcra"})
 # anotando seis tickers: una regla estructural sigue valiendo cuando emitan el
 # séptimo; una lista de excepciones, no.
 MONEDAS_SEGUIDAS = frozenset({"ARS", "USD"})
+# Cuántos tickers viajan en el detalle del hallazgo de CEDEARs faltantes.
+MUESTRA_CEDEARS = 12
 
 
 def _tk(x) -> str:
@@ -568,4 +570,79 @@ def tasas_al_cierre(u: dict) -> list[Hallazgo]:
                        "tickers_en_la_lista": r.get("tickers"),
                        "tapados_por_1816": r.get("escritos"),
                        "fecha_1816": r.get("fecha_1816")}))
+    return out
+
+
+# ═══ cedear_faltante ═══════════════════════════════════════════════════════
+def cedear_faltante(u: dict) -> list[Hallazgo]:
+    """CEDEARs que Primary lista y no están en `mercado.cedears`, y los del
+    master que Primary NO lista. Doc: §0.dl.
+
+    **La identidad es la FICHA (REGLA #9).** No se busca «símbolos con forma de
+    CEDEAR»: se lee el `cficode` que Primary les pone a los CEDEARs que YA
+    tenemos y se buscan los que faltan con esa misma ficha. La calibración vive
+    en `alta_cedear.candidatos` y la comparte el arreglo, así el listado que se
+    ofrece y el que se detecta no pueden diferir.
+
+    **UN hallazgo por FAMILIA, no uno por CEDEAR** (mismo criterio que
+    `ficha_incompleta`): Primary lista muchos más de los que la mesa mira, y
+    300 filas de «falta X» no se leen. El sujeto es `CEDEAR`, el número sube y
+    baja, y la lista viva la recalcula `preview` — una persona tilda cuáles.
+
+    La segunda regla es al revés y SÍ es una por título: un CEDEAR activo cuyo
+    símbolo Primary no lista nunca va a tener precio (el WS lo filtra por la
+    misma foto), y cada uno se corrige o se apaga por separado.
+    """
+    from agente import alta_cedear
+
+    master = fuentes.cedears_master()
+    if master is None:
+        raise SinDatos("no pude leer mercado.cedears")
+    fichas = fuentes.fichas_primary()
+    if fichas is None:
+        raise SinDatos("no pude leer la foto de Primary con sus fichas — "
+                       "¿corrió scripts.discovery_pyrofex?")
+    min_propios = int(u.get("min_propios", alta_cedear.MIN_PROPIOS))
+    c = alta_cedear.candidatos(master, fichas, min_propios=min_propios)
+    if not c["cficodes"]:
+        # «No reconocí la ficha» NO es «no falta nada»: sin calibración no se
+        # puede afirmar ni una cosa ni la otra.
+        raise SinDatos(f"no reconozco la ficha de un CEDEAR en la foto: de "
+                       f"{c['propios']} propios Primary lista {c['reconocidos']} y "
+                       f"ningún cficode llega a {min_propios}")
+
+    foto = fuentes.primary_fecha()
+    foto_txt = foto.strftime("%d/%m %H:%M UTC") if foto else "sin fecha"
+    out = []
+    if c["filas"]:
+        n = len(c["filas"])
+        muestra = [f["unidad"] for f in c["filas"][:MUESTRA_CEDEARS]]
+        out.append(Hallazgo(
+            sujeto=alta_cedear.FAMILIA, regla="no_esta_en_master", severidad="baja",
+            problema=(f"{n} CEDEAR(s) cotizan en Primary y no están en el sistema · "
+                      f"{reloj.hhmm()}"),
+            detalle=(f"foto de Primary del {foto_txt} · ficha cficode {c['cficodes']} "
+                     f"plazo {c['plazos']} moneda {c['monedas']} (calibrada con "
+                     f"{c['reconocidos']} de nuestros {c['propios']}) · "
+                     + " · ".join(muestra) + (" · …" if n > len(muestra) else "")),
+            que_hacer=("Elegir cuáles sumar desde ENCONTRÓ («ver qué haría» → tildar "
+                       "→ dar de alta): entran al master, al motor, al scanner y a "
+                       "Manager → TÍTULOS → RENTA VARIABLE de una. Los que no "
+                       "interesan se dejan: no todo lo que BYMA lista es para la mesa."),
+            evidencia={"cantidad": n, "muestra": muestra, "cficodes": c["cficodes"],
+                       "plazos": c["plazos"], "monedas": c["monedas"],
+                       "propios": c["propios"], "reconocidos": c["reconocidos"],
+                       "foto_de": foto_txt}))
+    for simbolo in c["no_cotizan"]:
+        out.append(Hallazgo(
+            sujeto=alta_cedear.corto(simbolo), regla="no_cotiza_en_primary",
+            severidad="media",
+            problema=(f"activo en el master y Primary no lista «{simbolo}» · "
+                      f"{reloj.hhmm()}"),
+            detalle=(f"foto del {foto_txt}: el motor lo pide y `core/websocket` lo "
+                     "filtra por esa misma foto → nunca va a tener precio"),
+            que_hacer=("Corregir el símbolo en Manager → TÍTULOS → RENTA VARIABLE, o "
+                       "desactivarlo. Si OPERAR sí lo encuentra, la foto está vieja: "
+                       "`python -m scripts.discovery_pyrofex`."),
+            evidencia={"simbolo": simbolo, "foto_de": foto_txt}))
     return out

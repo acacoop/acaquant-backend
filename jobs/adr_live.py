@@ -44,6 +44,42 @@ def _underlyings_activos() -> list[str]:
         return sorted(r[0] for r in cur.fetchall())
 
 
+def _fila(ticker: str, now: datetime) -> tuple[dict | None, str]:
+    """`(fila para adr_snapshot, error)`. UNA llamada a Finnhub. La forma de la
+    fila vive acá y en ningún otro lado: la usan el job entero y el alta de un
+    CEDEAR (`agente/alta_cedear`), que escribe el quote del nuevo en el acto."""
+    try:
+        q = quote(ticker)
+    except FinnhubError as e:
+        return None, str(e)
+    c = q.get("c")
+    pc = q.get("pc")
+    if c is None or (c == 0 and pc == 0):
+        return None, f"sin data (c={c} pc={pc})"
+    doc = {
+        "ticker":     ticker,
+        "c":          c,
+        "pc":         pc,
+        "o":          q.get("o"),
+        "h":          q.get("h"),
+        "l":          q.get("l"),
+        "t":          q.get("t"),
+        "updated_at": now,
+    }
+    # SQL-native: passthrough jsonb a mercado.adr_snapshot (upsert por ticker).
+    return {"ticker": ticker, "data": pg_mirror.doc_iso(doc), "updated_at": now}, ""
+
+
+def upsert_uno(ticker: str) -> tuple[bool, str]:
+    """El quote de UN underlying, escrito ya. `(ok, detalle)`."""
+    t = (ticker or "").strip().upper()
+    fila, err = _fila(t, datetime.now(UTC))
+    if fila is None:
+        return False, f"{t}: {err}"
+    pg_mirror.write_native("mercado.adr_snapshot", ["ticker"], [fila])
+    return True, f"{t} c={fila['data'].get('c')} pc={fila['data'].get('pc')}"
+
+
 def run() -> int:
     """Trae el quote live de cada underlying y lo upsertea en mercado.adr_snapshot.
     Returns la cantidad de tickers OK."""
@@ -55,32 +91,12 @@ def run() -> int:
     fail = 0
     sql_rows: list[dict] = []
     for ticker in underlyings:
-        try:
-            q = quote(ticker)
-        except FinnhubError as e:
-            logger.warning("%-6s FAIL %s", ticker, e)
+        fila, err = _fila(ticker, now)
+        if fila is None:
+            logger.warning("%-6s FAIL %s", ticker, err)
             fail += 1
             continue
-
-        c = q.get("c")
-        pc = q.get("pc")
-        if c is None or (c == 0 and pc == 0):
-            logger.warning("%-6s sin data (c=%s pc=%s)", ticker, c, pc)
-            fail += 1
-            continue
-
-        doc = {
-            "ticker":     ticker,
-            "c":          c,
-            "pc":         pc,
-            "o":          q.get("o"),
-            "h":          q.get("h"),
-            "l":          q.get("l"),
-            "t":          q.get("t"),
-            "updated_at": now,
-        }
-        # SQL-native: passthrough jsonb a mercado.adr_snapshot (upsert por ticker).
-        sql_rows.append({"ticker": ticker, "data": pg_mirror.doc_iso(doc), "updated_at": now})
+        sql_rows.append(fila)
         ok += 1
 
     pg_mirror.write_native("mercado.adr_snapshot", ["ticker"], sql_rows)

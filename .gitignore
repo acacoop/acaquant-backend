@@ -81,3 +81,8 @@ backups/
 
 # laboratorio LangGraph — venv aparte, NO se pinea con las deps de prod
 venv-lab/
+
+# Salidas de diags con datos del negocio: JAMAS al repo
+diag_*.json
+diag_*.txt
+veredicto_*.md

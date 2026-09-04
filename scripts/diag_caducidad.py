@@ -177,19 +177,38 @@ def main() -> int:
         else:
             print(f"  {'TICKER':<10} {'venc_master':<13} {'venc_assets':<13} "
                   f"{'motivo':<10} {'abiertos':<9} diagnóstico")
-            sin_fecha = contradicen = 0
+            sin_fecha = contradicen = pendientes = 0
             for tk, venc_c, motivo, venc_a, abiertos in zombis:
                 # El master dice que VIVE si su fecha es futura. Que `assets` lo
                 # dé de baja al mismo tiempo NO es un detalle: son dos copias del
                 # mismo hecho diciendo lo contrario, y hasta que alguien decida
                 # cuál manda, el sistema no sabe si el título existe.
+                # ⚠️ **SE COMPARAN LAS DOS FECHAS ENTRE SÍ, no sólo el master
+                # contra hoy.** La primera versión miraba únicamente si el master
+                # decía «vivo» y de ahí concluía «se contradicen» — así que
+                # DESPUÉS de corregir la fecha en `assets` seguía gritando
+                # contradicción sobre dos fechas idénticas (visto el 2026-09-04,
+                # GMCGO con 2028-01-28 de los dos lados).
+                #
+                # Es el mismo pecado que este diag denuncia: un texto que sigue
+                # afirmando algo que dejó de ser cierto. Y acá era peor que
+                # inútil — le decía al que lo corrió que su corrección no había
+                # servido.
                 vive_el_master = venc_c is not None and venc_c >= date.today()
+                coinciden = (venc_c is not None and venc_a
+                             and str(venc_c) == f"{venc_a}"[:10])
                 if venc_c is None:
                     sin_fecha += 1
                     dx = "master SIN fecha → cleanup_curvas no lo borra nunca"
-                elif vive_el_master:
+                elif vive_el_master and not coinciden:
                     contradicen += 1
-                    dx = "⚠ SE CONTRADICEN — MANDA EL MASTER: está VIVO"
+                    dx = "⚠ LAS FECHAS NO COINCIDEN — manda el MASTER: está VIVO"
+                elif vive_el_master:
+                    # Las fechas ya están de acuerdo: lo único viejo es el tilde,
+                    # y eso lo deshace el job solo. No es un problema abierto.
+                    pendientes += 1
+                    dx = ("✔ fechas OK — sólo quedó viejo el tilde `vigente`: "
+                          "lo enciende validar_instrumentos (23:00 UTC L-V)")
                 else:
                     dx = "el master ya lo da por vencido: sale en el próximo cleanup"
                 vc = f"{venc_c or '— NULL —'}"
@@ -198,6 +217,12 @@ def main() -> int:
                       f"{(motivo or '—'):<10} {abiertos:<9} {dx}")
             print(f"\n  {len(zombis)} título(s) que `portafolio.assets` da de baja y "
                   f"siguen en `mercado.curvas`.")
+            if pendientes:
+                print(f"\n  ✔ {pendientes} YA CORREGIDO(S): las dos fechas coinciden y "
+                      "el título está vivo.\n    Lo único pendiente es el tilde "
+                      "`vigente`, que quedó de antes —\n    `validar_instrumentos` "
+                      "deshace su propio apagado en su próxima corrida.\n    No hay "
+                      "nada que hacer: si mañana sigue acá, ahí sí avisá.")
             if contradicen:
                 print(f"  ⚠⚠ {contradicen} con las DOS fechas cargadas y en desacuerdo. "
                       "MANDA EL MASTER\n    (declarado en `core/duplicados` →"

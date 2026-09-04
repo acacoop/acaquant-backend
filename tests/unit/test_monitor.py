@@ -168,3 +168,31 @@ def test_una_ventana_no_se_cuela_de_una_clase_a_la_otra():
         svc.get_monitor(clase="rf", ticker="AL30", ventana="20r")
     with pytest.raises(ValueError, match="ventana"):
         svc.get_monitor(clase="rv", ticker="NVDA", ventana="3r")
+
+
+# ── la ventana con la que ABRE la tab ────────────────────────────────────────
+
+def test_cada_clase_declara_una_sola_ventana_por_defecto():
+    """La pantalla abre con la que trae `por_defecto`. Si hubiera dos (o
+    ninguna), el front elegiría la primera que encuentre y la tab abriría en una
+    ventana distinta según el orden del dict — invisible hasta que alguien
+    compara dos pantallas."""
+    for clase in svc.CLASES:
+        marcadas = [v["ventana"] for v in svc.ventanas(clase) if v["por_defecto"]]
+        assert marcadas == [svc.POR_DEFECTO[clase]]
+
+
+def test_la_ventana_por_defecto_existe_en_su_clase():
+    """Una default que el service rechaza haría que la tab abra en 400."""
+    for clase, ventana in svc.POR_DEFECTO.items():
+        assert ventana in svc.VENTANAS[clase]
+
+
+def test_sin_ventana_se_usa_la_de_la_clase_y_no_HOY():
+    """`ventana=None` (el default del router) tiene que resolver a la de la
+    clase. Que caiga a HOY sería el bug silencioso: la tab abre, muestra datos
+    correctos, y no son los que la mesa pidió ver."""
+    with pytest.raises(ValueError, match="ticker"):
+        # llega hasta la validación del ticker → la ventana ya fue aceptada
+        svc.get_monitor(clase="rv", ticker="", ventana=None)
+    assert svc.POR_DEFECTO["rv"] == "20r"

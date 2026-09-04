@@ -86,7 +86,8 @@ def monitor_universo(clase: str = Query("rv", description="rv (CEDEARs) | rf (bo
 def monitor(
     ticker: str = Query(..., description="ticker corto (NVDA, AL30)"),
     clase: str = Query("rv", description="rv (CEDEARs) | rf (bonos)"),
-    ventana: str = Query("hoy", description="rv: hoy|5r|20r · rf: hoy|3r|5r"),
+    ventana: str | None = Query(None, description="rv: hoy|5r|20r · rf: hoy|3r|5r; "
+                                             "vacío = la que la clase declara por defecto"),
     buckets: int = Query(monitor_svc.BUCKETS_DEF, ge=8, le=60,
                          description="buckets de precio del perfil"),
 ):

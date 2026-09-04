@@ -105,6 +105,14 @@ VENTANAS: dict[str, dict[str, tuple[int, int]]] = {
 
 _ETIQUETA_VENTANA = {"hoy": "HOY", "3r": "3 R", "5r": "5 R", "20r": "20 R"}
 
+# Con qué ventana ABRE la tab. Vive acá y no en la pantalla por la misma razón
+# que las ventanas mismas: el front no puede abrir en una que el service
+# rechaza. Se abre con la MÁS LARGA de cada clase (pedido de la mesa
+# 2026-09-04) — el volumen por precio dice más cuanto más historia agarra: un
+# POC de un día es el precio de hoy, uno de 20 ruedas es el nivel que el papel
+# viene defendiendo. Renta fija abre en 5R, que es toda la que tiene.
+POR_DEFECTO: dict[str, str] = {"rv": "20r", "rf": "5r"}
+
 
 def _fuente(clase: str, ruedas: int) -> _Fuente:
     """La regla, en UN solo lugar. Renta variable cambia de tabla al pasar de HOY
@@ -127,6 +135,7 @@ def ventanas(clase: str) -> list[dict]:
             "paso_min": paso,
             "fuente": f.etiqueta,
             "aproximado": f.es_barra,
+            "por_defecto": clave == POR_DEFECTO[clase],
         })
     return out
 
@@ -363,7 +372,8 @@ def _universo_rf() -> list[dict]:
 
 # ── el endpoint ──────────────────────────────────────────────────────────────
 
-def get_monitor(*, clase: str, ticker: str, ventana: str, buckets: int = BUCKETS_DEF) -> dict:
+def get_monitor(*, clase: str, ticker: str, ventana: str | None = None,
+                buckets: int = BUCKETS_DEF) -> dict:
     """Serie de precio + volumen por precio de UN instrumento en UNA ventana.
 
     Shape:
@@ -377,7 +387,7 @@ def get_monitor(*, clase: str, ticker: str, ventana: str, buckets: int = BUCKETS
     clase = (clase or "rv").lower()
     if clase not in CLASES:
         raise ValueError(f"clase inválida: {clase!r} (esperado: {', '.join(CLASES)})")
-    ventana = (ventana or "hoy").lower()
+    ventana = (ventana or POR_DEFECTO[clase]).lower()
     if ventana not in VENTANAS[clase]:
         raise ValueError(
             f"ventana inválida para {clase}: {ventana!r} "

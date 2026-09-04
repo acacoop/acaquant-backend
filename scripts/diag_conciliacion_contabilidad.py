@@ -20,6 +20,12 @@ las cuentas del proceso (o una) y un mes, TRES cosas:
 
     python -m scripts.diag_conciliacion_contabilidad 2026-08
     python -m scripts.diag_conciliacion_contabilidad 2026-08 --cuenta 100
+    python -m scripts.diag_conciliacion_contabilidad 2026-08 --out diag_conta_2026-08.txt
+    python -m scripts.diag_conciliacion_contabilidad 2026-08 --out diag_conta_2026-08.json
+
+`--out` escribe TODO al archivo (la consola no entra en una pantalla): `.json`
+deja el mismo contenido como líneas en una lista, para pegarlo o leerlo desde
+otra sesión sin que se corte.
 """
 from __future__ import annotations
 
@@ -196,7 +202,28 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("mes", help="YYYY-MM")
     ap.add_argument("--cuenta", default=None)
+    ap.add_argument("--out", default=None, help="archivo .txt o .json con la salida completa")
     a = ap.parse_args()
+    if a.out:
+        import contextlib
+        import io
+        import json
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _correr(a)
+        texto = buf.getvalue()
+        with open(a.out, "w", encoding="utf-8") as fh:
+            if a.out.lower().endswith(".json"):
+                json.dump({"mes": a.mes, "cuenta": a.cuenta, "lineas": texto.splitlines()},
+                          fh, ensure_ascii=False, indent=1)
+            else:
+                fh.write(texto)
+        print(f"escrito {a.out} ({len(texto.splitlines())} líneas)")
+        return
+    _correr(a)
+
+
+def _correr(a) -> None:
     anio, m = int(a.mes[:4]), int(a.mes[5:7])
     a0, m0 = _mes_anterior(anio, m)
     desde = ultimo_habil_del_mes(a0, m0) - timedelta(days=_VENTANA_PAREJA)

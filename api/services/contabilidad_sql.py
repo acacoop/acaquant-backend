@@ -364,6 +364,89 @@ def pertenece_al_mes(fecha: str, condiciones: str | None, *,
     return True
 
 
+# Días máximos entre el provisional y su final para considerarlos la misma
+# operación. Es también cuánto se estira la ventana de lectura a cada lado del
+# mes para ver parejas que lo cruzan.
+_VENTANA_PAREJA = 20
+
+
+def _fase_fci(tipo_operacion: str | None) -> str | None:
+    t = (tipo_operacion or "").lower()
+    if "provisional" in t:
+        return "provisional"
+    if "final" in t:
+        return "final"
+    return None
+
+
+def emparejar_provisional_final(ops: list[dict]) -> list[dict]:
+    """Un FCI vía Aunesa entra como DOS boletos del MISMO movimiento: el
+    «provisional» (el pedido) y el «final» (el liquidado), con la misma
+    cantidad. Contar los dos duplica; borrar uno a ciegas ROMPE cuando el otro
+    cayó en otro mes (caso real 2026-09-04: el rescate provisional era el que
+    correspondía al mes y se había ido con la exclusión de «provisional»).
+
+    Regla: cada FINAL busca hacia atrás el PROVISIONAL más cercano del mismo
+    instrumento, misma punta y misma cantidad, a lo sumo `_VENTANA_PAREJA`
+    días antes (o el mismo día). La pareja queda como UNA fila, fechada en el
+    PROVISIONAL (el primero de los dos), con `op` que nombra a las dos patas y
+    `comprobante` con los dos boletos. Lo que no encuentra pareja viaja tal
+    cual: «no pude emparejar» ≠ «no existe» (REGLA #9), y se ve en el modal
+    con su nombre original.
+
+    Emparejamiento por FICHA (instrumento + punta + cantidad + cercanía), no
+    por texto. Recibe filas crudas de la query (`fecha`, `instrumento`,
+    `operacion`, `tipo_operacion`, `cantidad`, `boleto`) y devuelve el mismo
+    shape, en el mismo orden."""
+    from datetime import timedelta
+
+    def _ficha(r: dict) -> tuple:
+        return (r.get("instrumento") or "",
+                _direccion(r.get("operacion"), r.get("tipo_operacion")),
+                round(_f(r.get("cantidad")) or 0.0, 2))
+
+    usados: set[int] = set()
+    salida: list[dict] = []
+    provisionales: dict[tuple, list[int]] = {}
+    for i, r in enumerate(ops):
+        if _fase_fci(r.get("tipo_operacion")) == "provisional":
+            provisionales.setdefault(_ficha(r), []).append(i)
+    for i, r in enumerate(ops):
+        if i in usados:
+            continue
+        if _fase_fci(r.get("tipo_operacion")) != "final":
+            salida.append(r)
+            continue
+        f_fin = date.fromisoformat(r["fecha"])
+        candidato = None
+        for j in provisionales.get(_ficha(r), []):
+            if j in usados:
+                continue
+            f_prov = date.fromisoformat(ops[j]["fecha"])
+            if f_prov <= f_fin <= f_prov + timedelta(days=_VENTANA_PAREJA):
+                if candidato is None or f_prov > date.fromisoformat(ops[candidato]["fecha"]):
+                    candidato = j
+        if candidato is None:
+            salida.append(r)
+            continue
+        prov = ops[candidato]
+        usados.add(candidato)
+        pareja = dict(prov)
+        base = (r.get("tipo_operacion") or "").lower().replace("final", "").strip().capitalize()
+        pareja["tipo_operacion"] = (f"{base} (provisional {prov['fecha'][8:]}/{prov['fecha'][5:7]}"
+                                    f" → final {r['fecha'][8:]}/{r['fecha'][5:7]})")
+        pareja["boleto"] = f"{prov.get('boleto') or '?'} + {r.get('boleto') or '?'}"
+        # el importe LIQUIDADO manda si el provisional no lo traía
+        if not _f(prov.get("bruto")) and _f(r.get("bruto")):
+            pareja["bruto"] = r.get("bruto")
+        salida = [x for x in salida if x is not prov]
+        salida.append(pareja)
+    # Reordenar por fecha/boleto: la pareja va donde estaba el provisional.
+    orden = {id(r): i for i, r in enumerate(ops)}
+    salida.sort(key=lambda r: (r["fecha"], orden.get(id(r), 10**9)))
+    return salida
+
+
 def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> list[dict]:
     """Boletos del MES CONTABLE traducidos al shape que consume
     `calcular_titulos`: compras/ventas desde `operaciones.operaciones`
@@ -380,9 +463,15 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
         borde_prev = ultimo_habil_del_mes(a0, m0).isoformat()
         borde_fin = ultimo_habil_del_mes(anio, m).isoformat()
         # Rango ampliado: desde el borde del mes anterior hasta fin de mes; el
-        # corte fino por liquidación lo hace `pertenece_al_mes`.
-        w_mes = "AND concertacion >= %(desde)s AND to_char(concertacion,'YYYY-MM') <= %(m)s "
-        p |= {"desde": borde_prev, "m": mes_str}
+        # corte fino por liquidación lo hace `pertenece_al_mes`. Los dos bordes
+        # se estiran `_VENTANA_PAREJA` días más para que una pareja
+        # provisional/final que cruza el mes se vea ENTERA y se junte antes
+        # del corte.
+        from datetime import timedelta
+        desde = (date.fromisoformat(borde_prev) - timedelta(days=_VENTANA_PAREJA)).isoformat()
+        hasta = (ultimo_habil_del_mes(anio, m) + timedelta(days=_VENTANA_PAREJA)).isoformat()
+        w_mes = "AND concertacion >= %(desde)s AND concertacion <= %(hasta)s "
+        p |= {"desde": desde, "hasta": hasta}
     else:
         w_mes, borde_prev, borde_fin = "", "", ""
     ops = _q(
@@ -392,13 +481,12 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
         f"WHERE id_cuenta = %(c)s {w_mes}"
         "AND anulado_en IS NULL AND etapa IS DISTINCT FROM 'solicitud' "
         "AND COALESCE(es_cierre, false) = false "
-        # FCI vía Aunesa: cada suscripción/rescate viene como DOS boletos, el
-        # «provisional» (el pedido) y el «final» (el liquidado), misma cantidad
-        # y mismo importe. Cuenta SOLO el final — es el que liquida, igual que
-        # el corte de mes de `pertenece_al_mes`. Sin esto duplicaba las dos
-        # puntas (detección del user, 2026-09-04).
-        "AND COALESCE(tipo_operacion,'') NOT ILIKE '%%provisional%%' "
         "ORDER BY concertacion, boleto", p)
+    # FCI vía Aunesa: cada suscripción/rescate son DOS boletos (provisional +
+    # final) del MISMO movimiento. Se juntan ANTES del corte de mes, sobre la
+    # ventana ampliada, así una pareja que cruza el mes cuenta UNA vez y en UN
+    # solo mes. Ver `emparejar_provisional_final`.
+    ops = emparejar_provisional_final(ops)
     if mes_str:
         ops = [r for r in ops
                if pertenece_al_mes(r["fecha"], r.get("condiciones"),

@@ -485,19 +485,65 @@ def test_orden_por_impacto():
     assert [f["titulo"] for f in filas] == ["FCI X", "AL30"]
 
 
-def test_boletos_mes_excluye_fci_provisional(monkeypatch):
+def _fci(fecha, tipo, cant, boleto, bruto=1_000.0, instrumento="TT AHORRO B"):
+    return {"fecha": fecha, "instrumento": instrumento, "operacion": "Rescate",
+            "tipo_operacion": tipo, "condiciones": "ARS Inm", "cantidad": cant,
+            "bruto": bruto, "moneda": "ARS", "mep": None, "boleto": boleto}
+
+
+def test_pareja_provisional_final_cuenta_una_vez():
     """Detección del user 2026-09-04: Aunesa carga cada suscripción/rescate de
-    FCI como DOS boletos («provisional» = el pedido, «final» = el liquidado) con
-    la misma cantidad y el mismo importe, y el libro los sumaba a los dos. La
-    query trae SOLO el final."""
-    from api.services import contabilidad_sql as m
-    visto: dict = {}
+    FCI como DOS boletos («provisional» = el pedido, «final» = el liquidado),
+    misma cantidad. La pareja es UNA fila, fechada en el provisional."""
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [_fci("2026-08-03", "Rescate provisional", 23_210_649.49, "A"),
+           _fci("2026-08-03", "Rescate final", 23_210_649.49, "B")]
+    out = emparejar_provisional_final(ops)
+    assert len(out) == 1
+    assert out[0]["fecha"] == "2026-08-03"
+    assert out[0]["boleto"] == "A + B"
+    assert "provisional 03/08" in out[0]["tipo_operacion"]
+    assert "final 03/08" in out[0]["tipo_operacion"]
 
-    def _fake_q(sql, params=None):
-        visto["sql"] = sql
-        return []
 
-    monkeypatch.setattr(m, "_q", _fake_q)
-    assert m._boletos_mes("123", None, {}) == []
-    assert "NOT ILIKE '%%provisional%%'" in visto["sql"]
-    assert "etapa IS DISTINCT FROM 'solicitud'" in visto["sql"]
+def test_pareja_que_cruza_el_mes_va_al_provisional():
+    """El provisional del 31/08 con final el 01/09: una sola fila, en AGOSTO."""
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [_fci("2026-08-31", "Rescate provisional", 100.0, "A"),
+           _fci("2026-09-01", "Rescate final", 100.0, "B")]
+    out = emparejar_provisional_final(ops)
+    assert len(out) == 1 and out[0]["fecha"] == "2026-08-31"
+
+
+def test_sin_pareja_no_se_borra_nada():
+    """Distinta cantidad, distinto instrumento o el final ANTES del
+    provisional: no son la misma operación → las dos filas viajan tal cual.
+    «No pude emparejar» ≠ «no existe»."""
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [_fci("2026-08-03", "Rescate provisional", 100.0, "A"),
+           _fci("2026-08-03", "Rescate final", 250.0, "B"),
+           _fci("2026-08-05", "Rescate final", 100.0, "C", instrumento="OTRO"),
+           _fci("2026-08-10", "Rescate final", 500.0, "D"),
+           _fci("2026-08-12", "Rescate provisional", 500.0, "E")]
+    out = emparejar_provisional_final(ops)
+    assert [r["boleto"] for r in out] == ["A", "B", "C", "D", "E"]
+
+
+def test_cada_final_toma_el_provisional_mas_cercano():
+    """Dos rescates iguales en la semana: cada final se lleva SU provisional
+    (el más cercano hacia atrás), no el primero que encuentra."""
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [_fci("2026-08-03", "Rescate provisional", 100.0, "P1"),
+           _fci("2026-08-04", "Rescate final", 100.0, "F1"),
+           _fci("2026-08-10", "Rescate provisional", 100.0, "P2"),
+           _fci("2026-08-11", "Rescate final", 100.0, "F2")]
+    out = emparejar_provisional_final(ops)
+    assert [r["boleto"] for r in out] == ["P1 + F1", "P2 + F2"]
+
+
+def test_boletos_no_fci_pasan_intactos():
+    from api.services.contabilidad_sql import emparejar_provisional_final
+    ops = [{"fecha": "2026-08-03", "instrumento": "AL30", "operacion": "Compra",
+            "tipo_operacion": "Concurrencia Contado - Compra", "cantidad": 10,
+            "bruto": 5.0, "boleto": "X"}]
+    assert emparejar_provisional_final(ops) == ops

@@ -1338,6 +1338,29 @@ completo en `scripts/diag_agente`). **No cambia ningún comportamiento todavía*
 y eso es a propósito: no se puede decidir si dejar que el agente arregle solo
 hasta saber si arreglar es lo correcto para ese problema.
 
+#### La columna que decide es la DURACIÓN, no la cuenta
+
+El ranking trae la **mediana** de cuánto duró cada episodio (mediana y no
+promedio: un episodio de cuatro horas entre cuarenta de tres minutos mueve el
+promedio a doce y cuenta una historia que no pasó). Sin ella, dos casos opuestos
+se leen igual:
+
+| | Qué significa | Qué se hace |
+|---|---|---|
+| 41 episodios de **3 min** | el umbral es demasiado sensible | cambiar un número |
+| 41 episodios de **2 horas** | se cae de verdad | hablar con quien lo rompe |
+
+Y el ranking separa **CRÓNICO ACTIVO** (pasó en los últimos 7 días) de **CRÓNICO
+HISTÓRICO**. Medido la primera vez que se listó (2026-09-04): de 25 crónicos,
+**once ya no pasaban** —seis `soberanos_faltantes` silenciados el 26/08 y cuatro
+`precio_viejo` cortados el 28/08— y competían por atención con los que rompen
+hoy. Es el mismo error que el agente persigue en los datos, cometido por la
+herramienta que lo mide.
+
+⚠️ **Y los umbrales se editan EN CALIENTE** (`agente.habilidades.umbrales`), sin
+deploy: el código trae el default y la base lo pisa (§7). Por eso «revisá el
+umbral» no es una tarea de programación.
+
 #### La guarda
 
 ⚠️ **«No pude contar» NO es «es la primera vez».** Si la consulta del historial

@@ -107,6 +107,16 @@ VENTANA_CRONICO_D = 30
 # «crónico» (REGLA #9) — la calcula `agente/vista._con_historial`.
 EPISODIOS_CRONICO = 3
 
+# ⚠️ **CRÓNICO ACTIVO ≠ CRÓNICO HISTÓRICO**, y confundirlos arruina el ranking.
+# Medido el 2026-09-04, la primera vez que se listaron: de 25 crónicos, ELEVEN
+# ya no pasaban — seis `soberanos_faltantes` que alguien silenció el 26/08 y
+# cuatro `precio_viejo` que se cortaron el 28/08. Seguían arriba de la lista
+# compitiendo por atención con los que rompen hoy.
+#
+# Es el mismo error que el agente persigue en los datos —«lo que pasó» leído
+# como «lo que está pasando»— cometido por la herramienta que lo mide.
+DIAS_ACTIVO = 7
+
 
 class SinDatos(Exception):
     """«No pude mirar». La levanta un detector que no pudo leer su fuente.

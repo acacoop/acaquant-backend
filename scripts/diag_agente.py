@@ -31,6 +31,19 @@ def _titulo(s: str) -> None:
     print(f"\n{'═' * 78}\n {s}\n{'═' * 78}")
 
 
+def _dur(segundos) -> str:
+    """Una duración legible. Un `3600` no se lee; un `1,0h` sí — y la diferencia
+    entre 3 minutos y 2 horas es toda la conclusión."""
+    s = int(segundos or 0)
+    if s < 90:
+        return f"{s}s"
+    if s < 5400:
+        return f"{s // 60}m"
+    if s < 86400:
+        return f"{s / 3600:.1f}h"
+    return f"{s / 86400:.1f}d"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hallazgos", action="store_true", help="fila por fila")
@@ -237,33 +250,74 @@ def main() -> int:
     print(f"  veces que apareció, se fue y volvió → desde {tipos.EPISODIOS_CRONICO} es CRÓNICO.\n")
     cronicos = _filas(
         "SELECT habilidad, sujeto, regla, count(*)::int AS episodios, "
+        # ⚠️ **MEDIANA, no promedio.** Un episodio de cuatro horas entre
+        # cuarenta de tres minutos mueve el promedio a doce y cuenta una
+        # historia que no pasó. La mediana contesta «cuánto dura ESTO», que es
+        # la pregunta.
+        "       (percentile_cont(0.5) WITHIN GROUP ("
+        "          ORDER BY extract(epoch FROM "
+        "                   coalesce(cerrado_at, now()) - detectado_at)))::int AS mediana_s, "
+        "       max(extract(epoch FROM "
+        "           coalesce(cerrado_at, now()) - detectado_at))::int AS max_s, "
         "       min(detectado_at) AS desde, max(detectado_at) AS ultima, "
         "       count(*) FILTER (WHERE estado = ANY(%s))::int AS abiertos "
         "  FROM agente.hallazgos "
         " WHERE detectado_at > now() - make_interval(days => %s) "
         " GROUP BY habilidad, sujeto, regla "
         "HAVING count(*) >= %s "
-        " ORDER BY count(*) DESC LIMIT 25",
-        (list(tipos.ABIERTOS), tipos.VENTANA_CRONICO_D, tipos.EPISODIOS_CRONICO))
+        " ORDER BY max(detectado_at) > now() - make_interval(days => %s) DESC, "
+        "          count(*) DESC LIMIT 40",
+        (list(tipos.ABIERTOS), tipos.VENTANA_CRONICO_D, tipos.EPISODIOS_CRONICO,
+         tipos.DIAS_ACTIVO))
     if not cronicos:
         print("  Ninguno. Todo lo que apareció en 30 días es puntual — no hay nada")
         print("  que se esté tapando arreglándolo una y otra vez.")
     else:
-        print(f"  {'EPIS':>5}  {'HABILIDAD':<20} {'SUJETO':<26} {'REGLA':<22} "
-              f"{'desde':<11} última")
-        for hab, suj, reg, n, desde, ultima, abiertos in cronicos:
-            # ● = lo tiene abierto AHORA. Un crónico que paró hace tres semanas
-            # no se atiende igual que uno que sigue pasando hoy.
+        from datetime import UTC, datetime, timedelta
+        corte = datetime.now(UTC) - timedelta(days=tipos.DIAS_ACTIVO)
+        # ⚠️ `c[7]` es ÚLTIMA, no `c[6]` (que es DESDE). Con el índice corrido,
+        # un crónico que arrancó hace tres días y paró ayer se leía como
+        # «sigue pasando», y uno viejo que sigue rompiendo caía en histórico —
+        # o sea, la lista decía exactamente lo contrario de lo que mira.
+        ULTIMA = 7
+        activos = [c for c in cronicos if c[ULTIMA] and c[ULTIMA] > corte]
+        viejos = [c for c in cronicos if not (c[ULTIMA] and c[ULTIMA] > corte)]
+
+        def _fila(c):
+            hab, suj, reg, n, med, mx, _desde, ultima, abiertos = c
             marca = " ●" if abiertos else "  "
-            print(f"  {n:>5}{marca} {hab:<20} {str(suj)[:26]:<26} {str(reg)[:22]:<22} "
-                  f"{str(desde)[:10]:<11} {str(ultima)[:16]}")
-        print(f"\n  {len(cronicos)} problema(s) crónico(s). ● = tiene un hallazgo ABIERTO ahora.")
-        print("\n  ⚠️ **ACÁ ES DONDE ESTÁN LAS MEJORAS, no en el botón de arreglar.**")
-        print("  Un job que no escribe UNA vez es un incidente: se relanza. Uno que no")
-        print("  escribe treinta veces en un mes no se arregla relanzándolo — o el umbral")
-        print("  está mal, o el cron está mal, o el job ya no hace falta. Arreglarlo cada")
-        print("  vez lo TAPA, y es exactamente lo que el agente hacía hasta hoy porque")
-        print("  miraba cada hallazgo aislado y nunca el patrón.")
+            print(f"  {n:>5}{marca} {_dur(med):>7} {_dur(mx):>8}  {hab:<19} "
+                  f"{str(suj)[:24]:<24} {str(reg)[:20]:<20} {str(ultima)[:16]}")
+
+        print(f"  ── SIGUEN PASANDO (última vez en {tipos.DIAS_ACTIVO} días) "
+              "──────────────────────────")
+        if not activos:
+            print("  ninguno.")
+        else:
+            print(f"  {'EPIS':>5}   {'MEDIA':>7} {'PEOR':>8}  {'HABILIDAD':<19} "
+                  f"{'SUJETO':<24} {'REGLA':<20} última")
+            for c in activos:
+                _fila(c)
+            print("\n  ⚠️ **ACÁ ESTÁN LAS MEJORAS, y la columna que decide es MEDIA.**")
+            print("  Cuarenta episodios de TRES MINUTOS no son «se cae seguido»: son un")
+            print("  umbral demasiado sensible, y se arregla cambiando un número.")
+            print("  Cuarenta episodios de DOS HORAS sí son un problema de verdad, y")
+            print("  entonces hay que hablar con quien lo rompe. Son conclusiones")
+            print("  opuestas y sin la duración no se distinguen.")
+            print("\n  Los umbrales se editan EN CALIENTE (`agente.habilidades.umbrales`),")
+            print("  sin deploy: el código trae el default y la base lo pisa.")
+        if viejos:
+            print(f"\n  ── YA NO PASAN (nada hace {tipos.DIAS_ACTIVO}+ días) "
+                  "─────────────────────────────")
+            print(f"  {len(viejos)} problema(s) que fueron crónicos y se cortaron. "
+                  "No compiten por tu atención:")
+            for hab, suj, reg, n, _m, _x, _d, ultima, _ab in viejos[:12]:
+                print(f"  {n:>5}   {hab:<19} {str(suj)[:24]:<24} "
+                      f"{str(reg)[:20]:<20} última {str(ultima)[:10]}")
+            if len(viejos) > 12:
+                print(f"  … y {len(viejos) - 12} más.")
+        print(f"\n  {len(activos)} activo(s) · {len(viejos)} histórico(s). "
+              "● = tiene un hallazgo ABIERTO ahora.")
 
     # ── 6. EL LIBRO ────────────────────────────────────────────────────────
     _titulo("LO ÚLTIMO QUE ESCRIBIÓ")

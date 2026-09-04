@@ -15,7 +15,9 @@ QUÉ HACE UNA CORRIDA, EN ORDEN
     1. sella la corrida en el CATÁLOGO — corra bien o mal, encuentre o no
     2. si el resultado NO es `ok`, TERMINA: no toca un solo hallazgo
     3. abre o refresca los hallazgos que vinieron
-    4. cierra POR AUSENCIA los que estaban abiertos y no vinieron
+    4. cierra los que estaban abiertos y no vinieron — por CADUCIDAD si el
+       sujeto dejó de existir (verificado), por ACCIÓN si había arreglo
+       aplicado, por AUSENCIA si no
     5. anota las REINCIDENCIAS de los que ya se habían cerrado POR ACCIÓN
 """
 from __future__ import annotations
@@ -157,14 +159,31 @@ def _ver(conn, habilidad: str, h) -> dict:
         if (f := cur.fetchone()):
             return {"id": f[0], "nacio": False, "reincidio": False}
 
-        # No estaba abierto. ¿Estuvo cerrado POR ACCIÓN alguna vez?
+        # No estaba abierto. ¿Su último cierre fue POR ACCIÓN?
+        #
+        # ⚠️ **«EL ÚLTIMO», no «alguno»** (2026-09-04). Antes se pedía el más
+        # reciente **entre los cerrados por acción**, saltéandose lo que hubiera
+        # pasado después. Con la CADUCIDAD (§6.8) eso vuelve falsa su única
+        # garantía: un bono arreglado en marzo, caducado en agosto porque
+        # venció, y visto de nuevo en septiembre encontraba el cierre de marzo y
+        # fabricaba una reincidencia — sobre un sujeto que el propio agente ya
+        # había declarado muerto, con fuente y fecha.
+        #
+        # Se piden los dos cierres que AFIRMAN algo (`ausencia` sigue afuera,
+        # como siempre: no dice nada) y gana el más nuevo. Si el más nuevo es
+        # una caducidad, no hay reincidencia. Para acción/ausencia el
+        # comportamiento no cambia en un solo caso.
         cur.execute(
-            "SELECT id, cerrado_at, arreglo_aplicado FROM agente.hallazgos "
+            "SELECT id, cerrado_at, arreglo_aplicado, cerrado_como "
+            "  FROM agente.hallazgos "
             " WHERE habilidad = %s AND sujeto = %s AND regla = %s "
-            "   AND estado = %s AND cerrado_como = %s "
+            "   AND estado = %s AND cerrado_como = ANY(%s) "
             " ORDER BY cerrado_at DESC LIMIT 1",
-            (habilidad, h.sujeto, h.regla, tipos.RESUELTO, tipos.POR_ACCION))
+            (habilidad, h.sujeto, h.regla, tipos.RESUELTO,
+             [tipos.POR_ACCION, tipos.POR_CADUCIDAD]))
         previo = cur.fetchone()
+        if previo is not None and previo[3] != tipos.POR_ACCION:
+            previo = None
 
         # ⚠️⚠️ **REINCIDE EL ITEM, NO EL GRUPO (§0.cz).** Cuando el sujeto es un
         # CAMPO («CARTERA») y no un título, el trío de hoy y el de hace un mes
@@ -201,7 +220,7 @@ def _ver(conn, habilidad: str, h) -> dict:
         # única función que inserta, porque la base no puede expresarla sin un
         # trigger. Si lo cerrado por AUSENCIA entrara, la tabla que debería
         # estar vacía se llenaría de bonos que no operaron esa noche.
-        pid, cerrado_at, arreglo = previo
+        pid, cerrado_at, arreglo, _ = previo
         cur.execute(
             "INSERT INTO agente.reincidencias "
             " (hallazgo_id, hallazgo_previo_id, habilidad, sujeto, regla, "
@@ -219,8 +238,15 @@ def _ver(conn, habilidad: str, h) -> dict:
 def _cerrar_ausentes(conn, habilidad: str, vistos: list[tuple[str, str]]) -> int:
     """Lo que estaba abierto y esta corrida NO volvió a ver.
 
-    Cierra POR ACCIÓN si el arreglo se había aplicado (estaba `en_curso`) y por
-    AUSENCIA si no. Esa diferencia es la que después decide si puede reincidir.
+    Tres cierres, y el orden en que se prueban es el orden de cuánto afirman:
+
+        CADUCIDAD  el sujeto dejó de existir, verificado y con fuente
+        ACCIÓN     el arreglo se había aplicado (estaba `en_curso`)
+        AUSENCIA   no lo vi, y nada más
+
+    Esa diferencia es la que después decide si puede reincidir: sólo ACCIÓN
+    puede (invariante 4). Ver `_caducados` para por qué la caducidad le gana a
+    la acción y no al revés.
     """
     # ⚠️ **NADA DE PEGAR SUJETO Y REGLA EN UN STRING.** La primera versión los
     # unía con `chr(0)` y Postgres rechaza el NUL en un campo `text`: las 12
@@ -236,19 +262,133 @@ def _cerrar_ausentes(conn, habilidad: str, vistos: list[tuple[str, str]]) -> int
     # No hay separador, así que no hay nada que colisione.
     sujetos = [s for s, _ in vistos]
     reglas = [r for _, r in vistos]
+    # El predicado «estaba abierto y esta corrida NO lo vio», UNA vez: lo usan
+    # el SELECT que decide y el UPDATE que cierra. Dos copias de este `WHERE`
+    # serían dos definiciones de «no vino» (REGLA #9), y la que se desincronice
+    # no falla: cierra de más o de menos, callada.
+    no_vino = ("habilidad = %s AND estado = ANY(%s) "
+               "  AND NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) "
+               "                    AS v(s, r) "
+               "                  WHERE v.s = sujeto AND v.r = regla)")
+    params = (habilidad, list(tipos.ABIERTOS), sujetos, reglas)
+
     with conn.cursor() as cur:
+        # `ORDER BY id`: con el tope de `vigencia`, cuáles caducan y cuáles
+        # cierran por ausencia no puede depender del orden en que Postgres
+        # devuelva las filas. Los más viejos primero.
+        cur.execute("SELECT id, sujeto, regla, estado, arreglo_aplicado "
+                    f"  FROM agente.hallazgos WHERE {no_vino} ORDER BY id",
+                    params)
+        se_van = cur.fetchall()
+    if not se_van:
+        return 0
+
+    caducos = _caducados(conn, habilidad, se_van)
+    with conn.cursor() as cur:
+        if caducos:
+            # ⚠️ **VA PRIMERO, y por eso no hace falta excluirlos abajo.** Al
+            # cerrarlos dejan de estar en `ABIERTOS`, así que el UPDATE que
+            # sigue —que filtra por `ABIERTOS`— ya no los alcanza. Una lista de
+            # exclusión sería una tercera copia del criterio.
+            cur.execute(
+                "UPDATE agente.hallazgos SET "
+                "  estado = %s, cerrado_at = now(), cerrado_como = %s, "
+                "  cerrado_por = %s WHERE id = ANY(%s)",
+                (tipos.RESUELTO, tipos.POR_CADUCIDAD, "agente/vigencia",
+                 list(caducos)))
         cur.execute(
             "UPDATE agente.hallazgos SET "
             "  estado = %s, cerrado_at = now(), "
             "  cerrado_como = CASE WHEN estado = %s THEN %s ELSE %s END "
-            "WHERE habilidad = %s AND estado = ANY(%s) "
-            "  AND NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) "
-            "                    AS v(s, r) "
-            "                  WHERE v.s = sujeto AND v.r = regla)",
+            f"WHERE {no_vino}",
             (tipos.RESUELTO, tipos.EN_CURSO, tipos.POR_ACCION,
-             tipos.POR_AUSENCIA, habilidad, list(tipos.ABIERTOS),
-             sujetos, reglas))
-        return cur.rowcount or 0
+             tipos.POR_AUSENCIA, *params))
+        return (cur.rowcount or 0) + len(caducos)
+
+
+def _caducados(conn, habilidad: str, se_van: list[tuple]) -> dict[int, object]:
+    """De los que se van a cerrar, cuáles **dejaron de existir** — con el motivo.
+
+    Devuelve `{id: Veredicto}` y deja una línea en el LIBRO por cada uno. No es
+    un detalle: caducar es el agente escribiendo una decisión que nadie le pidió,
+    y sin la línea sería lo mismo que un `except: pass` con mejor prensa.
+
+    ⚠️ **Es un CIERRE, no un estado nuevo**, y le gana a los otros dos:
+
+      · le gana a POR AUSENCIA porque dice más — «no lo vi» contra «venció el
+        26/08 según `mercado.curvas`».
+      · **le gana a POR ACCIÓN, y ese es el punto.** Si el arreglo se aplicó y
+        DESPUÉS el sujeto se murió, no se le puede adjudicar el cierre a la
+        acción; y sobre todo, cerrar por acción lo habilita a REINCIDIR. Un bono
+        vencido que «vuelve» no significa nada, y así nació la primera fila de
+        `agente.reincidencias` (M31G6: alta el 24/08, `cleanup_curvas` lo borró
+        por vencer, de vuelta el 28/08). Lo que se aplicó no se pierde:
+        `arreglo_aplicado` sigue en la fila y el libro tiene su línea.
+
+    Nada de esto corre si la habilidad no declaró `sujeto_es`: sin declaración
+    no hay caducidad, que es el default seguro.
+    """
+    from agente import catalogo, vigencia
+
+    h = catalogo.HABILIDADES.get(habilidad)
+    tipo = getattr(h, "sujeto_es", "") if h else ""
+    if not tipo:
+        return {}
+
+    por_sujeto = vigencia.muertos(conn, tipo, [f[1] for f in se_van])
+    if not por_sujeto:
+        return {}
+
+    caducos: dict[int, object] = {}
+    for hid, sujeto, regla, estado, arreglo in se_van:
+        v = por_sujeto.get(sujeto)
+        if v is None:
+            continue
+        if len(caducos) >= vigencia.TOPE_POR_CORRIDA:
+            # ⚠️ **NO SE CORTA LA CORRIDA: se cierra por la vía de siempre.**
+            # Los que sobran caen en el UPDATE de ausencia, que no miente —
+            # sólo dice menos. Frenar del todo dejaría hallazgos abiertos sobre
+            # sujetos muertos para siempre; caducar 40 de una es más probable
+            # que sea una fuente rota que 40 bonos venciendo el mismo día.
+            logger.warning(
+                "agente/%s: %d sujetos verificados como muertos supera el tope "
+                "de %d por corrida — caducan %d y el resto cierra por ausencia. "
+                "Si se repite, mirá la fuente antes que el agente",
+                habilidad, len(por_sujeto), vigencia.TOPE_POR_CORRIDA,
+                vigencia.TOPE_POR_CORRIDA)
+            break
+        caducos[hid] = v
+        _anotar_caducidad(conn, habilidad=habilidad, sujeto=sujeto, regla=regla,
+                          hallazgo_id=hid, estado=estado, arreglo=arreglo,
+                          veredicto=v)
+    return caducos
+
+
+def _anotar_caducidad(conn, *, habilidad: str, sujeto: str, regla: str,
+                      hallazgo_id: int, estado: str, arreglo: str,
+                      veredicto) -> None:
+    """La línea del LIBRO de una caducidad. **El fundamento Y la fuente.**
+
+    Va con el MISMO `conn` que el cierre y no por `anotar_accion` (que abre el
+    suyo): si la transacción de la corrida se cae, no puede quedar una línea
+    diciendo que caducó algo que sigue abierto.
+
+    `despues` lleva el motivo en castellano y `donde` la columna exacta de donde
+    salió — «caducó» a secas no es trazabilidad, es un log. Lo que se lee en
+    HISTORIAL queda: *«caducidad · M31G6 · estado: nuevo → resuelto · caducó:
+    venció el 2026-08-26 · mercado.curvas.fecha_vencimiento»*.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO agente.acciones (arreglo, habilidad, sujeto, regla, "
+            " hallazgo_id, por, donde, campo, antes, despues, ok) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true)",
+            ("caducidad", habilidad, sujeto, regla, hallazgo_id, "agente",
+             veredicto.fuente[:200], "estado", estado[:200],
+             f"resuelto · caducó: {veredicto.motivo}"[:200]))
+    logger.info("agente/%s: CADUCÓ %s/%s — %s (%s)%s", habilidad, sujeto, regla,
+                veredicto.motivo, veredicto.fuente,
+                f" · tenía aplicado «{arreglo}»" if arreglo else "")
 
 
 def _arreglo_de(habilidad: str, regla: str) -> str:

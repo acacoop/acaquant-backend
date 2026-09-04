@@ -4766,6 +4766,10 @@ CREATE TABLE IF NOT EXISTS agente.habilidades (
 
     cada_segundos       integer NOT NULL,
     ventana             text NOT NULL DEFAULT 'siempre',  -- rueda | habil | siempre
+    -- DE QUÉ TIPO es su sujeto (agente/tipos.SUJETOS), o '' si no es una cosa
+    -- que pueda dejar de existir. Es lo único que hay que declarar para que una
+    -- habilidad sepa CADUCAR sus hallazgos. Vacío = default seguro: no caduca.
+    sujeto_es           text NOT NULL DEFAULT '',
     activa              boolean NOT NULL DEFAULT true,
     umbrales            jsonb NOT NULL DEFAULT '{}'::jsonb,
 
@@ -4827,7 +4831,8 @@ CREATE TABLE IF NOT EXISTS agente.hallazgos (
     CONSTRAINT hallazgos_estado_ok
         CHECK (estado IN ('nuevo','en_curso','resuelto','ignorado','reincidio')),
     CONSTRAINT hallazgos_cierre_ok
-        CHECK (cerrado_como IS NULL OR cerrado_como IN ('accion','ausencia')),
+        CHECK (cerrado_como IS NULL
+               OR cerrado_como IN ('accion','ausencia','caducidad')),
     CONSTRAINT hallazgos_cierre_completo
         CHECK ((estado = 'resuelto') = (cerrado_at IS NOT NULL)),
     CONSTRAINT hallazgos_que_hacer CHECK (btrim(que_hacer) <> '')
@@ -4844,6 +4849,16 @@ CREATE TABLE IF NOT EXISTS agente.hallazgos (
 -- —idéntica para los cuatro proveedores— en vez del error real, que es lo único
 -- que dice de quién es el problema.
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS detalle text NOT NULL DEFAULT '';
+
+-- DE QUÉ TIPO es el sujeto de cada habilidad — lo que habilita la CADUCIDAD
+-- (`agente/vigencia.py`). Va ACÁ, antes de las vistas, por la regla del bloque
+-- de arriba: `apply_schema` ejecuta en orden y un ALTER después de las vistas
+-- corta el deploy. Nace vacío en todas: sin declaración no se caduca nada, y
+-- el código lo completa en el próximo `catalogo.sincronizar()`.
+ALTER TABLE agente.habilidades ADD COLUMN IF NOT EXISTS sujeto_es text;
+UPDATE agente.habilidades SET sujeto_es = '' WHERE sujeto_es IS NULL;
+ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET DEFAULT '';
+ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET NOT NULL;
 
 -- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
 -- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
@@ -5115,9 +5130,18 @@ SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
                count(*) FILTER (WHERE estado IN ('nuevo','en_curso','reincidio')) AS abiertos,
                max(detectado_at) AS ultimo_hallazgo_at
           FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
+  -- ⚠️ **LAS ACTIVAS, NO TODAS.** `agente.reincidencias` es una tabla de
+  -- EVENTOS: sólo recibe INSERT y no hay una línea que cierre una fila. Contarla
+  -- entera dejaba el ⚠ del panel de HABILIDADES prendido para siempre — el mismo
+  -- defecto que tenía el cartel rojo del modal, en el segundo lugar donde se
+  -- cuenta lo mismo (REGLA #9). El criterio es UNO: la reincidencia está viva
+  -- mientras su hallazgo siga abierto.
   LEFT JOIN LATERAL (
         SELECT count(*) AS n
-          FROM agente.reincidencias WHERE habilidad = h.nombre) r ON true
+          FROM agente.reincidencias x
+          JOIN agente.hallazgos hh ON hh.id = x.hallazgo_id
+         WHERE x.habilidad = h.nombre
+           AND hh.estado IN ('nuevo','en_curso','reincidio')) r ON true
  ORDER BY h.dominio, h.nombre;
 
 
@@ -5156,6 +5180,26 @@ BEGIN
     ALTER TABLE agente.habilidades DROP CONSTRAINT IF EXISTS habilidades_ventana_ok;
     ALTER TABLE agente.habilidades ADD CONSTRAINT habilidades_ventana_ok
         CHECK (ventana IN ('rueda','cierre','habil','siempre'));
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;
+
+
+-- LA CADUCIDAD (2026-09-04). Mismo motivo que el bloque de arriba: la tabla ya
+-- existe, así que el CHECK del CREATE no se aplica y `caducidad` sería
+-- rechazado por la base — el agente moriría en la primera corrida que intentara
+-- cerrar un hallazgo cuyo sujeto ya no existe.
+--
+-- POR QUÉ UN CIERRE Y NO UN SEXTO ESTADO: el hallazgo queda `resuelto`, que es
+-- verdad (ya no está), ninguna pantalla suma una rama —todas filtran por
+-- ABIERTOS— y hereda la única regla que importa: **no reincide**. Sólo lo
+-- cerrado POR ACCIÓN reincide, y un bono vencido que «vuelve» no significa
+-- nada. Ver `agente/tipos.py` y `agente/vigencia.py`.
+DO $$
+BEGIN
+    ALTER TABLE agente.hallazgos DROP CONSTRAINT IF EXISTS hallazgos_cierre_ok;
+    ALTER TABLE agente.hallazgos ADD CONSTRAINT hallazgos_cierre_ok
+        CHECK (cerrado_como IS NULL
+               OR cerrado_como IN ('accion','ausencia','caducidad'));
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 

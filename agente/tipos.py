@@ -33,7 +33,24 @@ ABIERTOS = (NUEVO, EN_CURSO, REINCIDIO)
 # estar vacía se llena de ruido hasta que nadie la mira.
 POR_ACCION = "accion"      # se apretó el arreglo Y DESPUÉS el detector no lo vio
 POR_AUSENCIA = "ausencia"  # el detector no lo vio, y nada más
-CIERRES = (POR_ACCION, POR_AUSENCIA)
+# ⚠️ **CADUCIDAD ≠ AUSENCIA.** «No lo vi» es una observación; «el sujeto dejó de
+# existir» es un HECHO VERIFICADO, con fuente y fecha. La diferencia importa por
+# dos motivos, y ninguno es cosmético:
+#
+#   · Un hallazgo caducado **no puede reincidir**: «volver» no significa nada
+#     sobre un bono que venció. Sin este tercer valor, el cierre caía en ACCIÓN
+#     (si alguien había apretado el arreglo antes) y el sujeto muerto quedaba
+#     habilitado a generar una reincidencia — que es literalmente cómo nació la
+#     primera fila de esa tabla (M31G6, 28/08).
+#   · Y le da un LUGAR a la respuesta «esto ya no aplica». Antes la única salida
+#     era que una persona apretara «no me interesa», que es falso (nadie está
+#     desinteresado) y además pierde el motivo para siempre.
+#
+# Es un CIERRE y no un sexto estado a propósito: el hallazgo queda `resuelto`
+# —que es verdad, ya no está—, ninguna pantalla suma una rama, y hereda solo la
+# regla que importa (no reincide). Ver `docs/AGENT.md` §8, invariante 4.
+POR_CADUCIDAD = "caducidad"
+CIERRES = (POR_ACCION, POR_AUSENCIA, POR_CADUCIDAD)
 
 # ── RESULTADO DE UNA CORRIDA ───────────────────────────────────────────────
 #
@@ -48,6 +65,20 @@ DOMINIOS = ("MERCADO", "SISTEMA", "DATOS", "SEGURIDAD")
 # nada le siga pidiendo al mercado después de las 17.
 VENTANAS = ("rueda", "cierre", "habil", "siempre")
 TIPOS = ("detector", "consulta", "accion")
+
+# DE QUÉ COSA HABLA EL SUJETO de una habilidad. Es lo que hace que la caducidad
+# sea general y no un parche por detector: el motor no sabe qué es un bono, sabe
+# preguntarle a `agente/vigencia.py` por el TIPO declarado acá.
+#
+# Vacío ("") es una declaración explícita y válida: «mi sujeto no es una cosa
+# que pueda dejar de existir» (una vista, un campo, una prueba). No es un olvido
+# — sin declararlo, la habilidad no caduca nada, que es el default seguro.
+#
+# ⚠️ Solo entran los tipos que tienen **partida de defunción verificable**. Sumar
+# uno acá sin una fuente que afirme «esto ya no existe» haría que el agente
+# cerrara hallazgos por no encontrar el sujeto, y NO ENCONTRARLO NO ES PRUEBA DE
+# NADA — es el invariante 1 disfrazado de feature nueva.
+SUJETOS = ("bono",)
 
 
 class SinDatos(Exception):
@@ -124,6 +155,10 @@ class Habilidad:
     usa_ia: bool = False
     umbrales: dict = field(default_factory=dict)
     arreglos: dict = field(default_factory=dict)   # regla -> id del arreglo
+    # DE QUÉ TIPO es su sujeto (`SUJETOS`), o "" si no es una cosa que pueda
+    # dejar de existir. Es lo único que hay que agregar para que una habilidad
+    # sepa caducar — sin tocar el motor, ni el registro, ni una lista aparte.
+    sujeto_es: str = ""
 
     def __post_init__(self):
         for campo, validos in (("tipo", TIPOS), ("dominio", DOMINIOS),
@@ -137,6 +172,14 @@ class Habilidad:
         if self.cada_segundos < 30:
             raise ValueError(f"«{self.nombre}»: {self.cada_segundos}s es un "
                              "ritmo que ningún detector necesita")
+        # Un tipo de sujeto inventado no puede fallar en silencio: `vigencia` no
+        # lo encontraría en su registro, no verificaría nada, y la habilidad
+        # nunca caducaría — sin un error, sin un log, sin nada que mirar.
+        if self.sujeto_es and self.sujeto_es not in SUJETOS:
+            raise ValueError(f"«{self.nombre}»: sujeto_es={self.sujeto_es!r} no "
+                             f"es uno de {SUJETOS} — y un tipo que `vigencia` no "
+                             "conoce hace que la habilidad no caduque nada, "
+                             "callada")
 
     def arreglo_de(self, regla: str) -> str:
         return self.arreglos.get(regla, "")

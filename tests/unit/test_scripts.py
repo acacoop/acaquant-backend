@@ -62,6 +62,10 @@ HERRAMIENTAS: dict[str, str] = {
                              "deja el panel vacío EN SILENCIO. Tiene --strict; debería estar en CI.",
     "diag_entorno":          "instalado vs. pineado en requirements.txt. Un drift acá no falla: cambia el "
                              "comportamiento y nadie lo ve.",
+    "diag_caducidad":        "el ANTES de la caducidad del agente (AGENT.md §6.8): a qué hallazgos "
+                             "abiertos les pegaría, con qué fundamento y de qué fuente, sin escribir "
+                             "una fila. Un cierre automático que no se puede mirar antes es fe, no "
+                             "ingeniería (REGLA #2). Se borra cuando el tema cierre (REGLA #5).",
     "diag_contabilidad_cierre": "contesta «¿por qué el informe de CONTABILIDAD no ve una tenencia que SÍ "
                              "está en la tabla?». Mide las tres puertas por las que una fila se cae "
                              "(la fecha del cierre, el filtro de cartera, el cruce unidad→key) en vez "

@@ -218,11 +218,44 @@ def historial(*, limite: int = LIMITE, desde_id: int | None = None,
 # ── LAS REINCIDENCIAS ──────────────────────────────────────────────────────
 def reincidencias(limite: int = 100) -> dict:
     """**La que debe estar VACÍA.** Si tiene filas, algo que dimos por arreglado
-    se rompió de nuevo. No es una lista de trabajo: es una alarma."""
+    se rompió de nuevo. No es una lista de trabajo: es una alarma.
+
+    ⚠️⚠️ **UNA REINCIDENCIA ESTÁ ACTIVA MIENTRAS SU HALLAZGO SIGA ABIERTO.**
+    `agente.reincidencias` es una tabla de EVENTOS: sólo se le hace `INSERT` y
+    no existe una línea que cierre una fila. Leerla entera hacía que la alarma
+    **no pudiera volver a cero nunca**: M31G6 volvió el 28/08, el detector se
+    corrigió ese mismo día, el hallazgo se cerró — y el cartel rojo siguió
+    arriba de la pantalla una semana, describiendo un bono que ya venció.
+
+    Eso es exactamente el defecto que el propio agente evita en el círculo del
+    latido: *«un círculo que está en rojo cuando todo está bien enseña a ignorar
+    el círculo»*. Una alarma que no puede apagarse deja de ser una alarma, y la
+    fila número 16 —la que importaba— no la mira nadie.
+
+    **El criterio NO es nuevo y no se inventa acá**: es el mismo `JOIN` que ya
+    usa `lab.langgraph.cola.investigables()` para ofrecer casos. Estaba escrito
+    en un solo lado y la pantalla usaba otro — la REGLA #9 adentro del agente.
+    Ahora hay UNO.
+
+    La fila **no se borra jamás**: «`alta_bono` aguantó 3,6 días sobre M31G6» es
+    un hecho, y es la evidencia con la que después se decide qué arreglo es
+    confiable. Sólo deja de contar como alarma. `historicas` dice cuántas hay
+    apagadas, para que «desapareció» no se confunda con «lo borraron».
+    """
+    from agente import tipos
+
     filas = [_serializar(f) for f in _filas(
-        "SELECT * FROM agente.reincidencias ORDER BY volvio_at DESC LIMIT %s",
-        (int(limite),))]
-    return {"total": len(filas), "filas": filas}
+        "SELECT r.* FROM agente.reincidencias r "
+        "  JOIN agente.hallazgos h ON h.id = r.hallazgo_id "
+        " WHERE h.estado = ANY(%s) "
+        " ORDER BY r.volvio_at DESC LIMIT %s",
+        (list(tipos.ABIERTOS), int(limite)))]
+    apagadas = _filas(
+        "SELECT count(*) AS n FROM agente.reincidencias r "
+        "  JOIN agente.hallazgos h ON h.id = r.hallazgo_id "
+        " WHERE NOT (h.estado = ANY(%s))", (list(tipos.ABIERTOS),))
+    return {"total": len(filas), "filas": filas,
+            "historicas": int(apagadas[0]["n"]) if apagadas else 0}
 
 
 # ── TODO EN UN REQUEST ─────────────────────────────────────────────────────

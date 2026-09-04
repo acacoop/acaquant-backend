@@ -146,12 +146,22 @@ def test_solo_lo_cerrado_por_accion_reincide():
     se auto-resolvería, volvería mañana, y la alarma se llenaría de ruido hasta
     que nadie la mire. La base no puede expresar esto sin un trigger, así que la
     guarda vive en la única función que inserta — y este test la sostiene.
+
+    ⚠️ La guarda se ENDURECIÓ el 2026-09-04 y por eso el SQL cambió: antes se
+    pedía el más reciente **entre los cerrados por acción**, lo que se saltea lo
+    que haya pasado después. Ahora se piden los dos cierres que AFIRMAN algo
+    —acción y caducidad— y **gana el más nuevo**; `ausencia` sigue afuera de la
+    query, como siempre. Lo que este test protege no cambió: por ausencia no se
+    reincide, nunca.
     """
-    src = inspect.getsource(registro._ver)
+    src = _codigo(registro._ver)
     i = src.index("INSERT INTO agente.reincidencias")
     previo = src[:i]
-    assert "cerrado_como = %s" in previo
+    assert "cerrado_como = ANY(%s)" in previo
     assert "tipos.POR_ACCION" in previo
+    # Lo cerrado por AUSENCIA no entra a la búsqueda del previo. Si entrara, un
+    # bono que no operó esa noche se auto-resolvería y «volvería» cada mañana.
+    assert "tipos.POR_AUSENCIA" not in previo
 
 
 def test_toda_accion_guarda_la_regla_que_la_motivo():
@@ -327,11 +337,17 @@ def test_no_se_pegan_sujeto_y_regla_en_un_string():
     "imposible" el modo de falla siguiente no es un error, es **emparejar mal en
     silencio**. Se comparan las dos columnas por separado.
     """
-    src = inspect.getsource(registro._cerrar_ausentes)
-    # Se mira el SQL, no el archivo entero: el comentario que explica el bug
+    # Se mira el CÓDIGO y no el archivo entero: el comentario que explica el bug
     # nombra `chr(0)` a propósito, y un test que falla por su propia
     # documentación no prueba nada.
-    sql = src[src.index("cur.execute("):]
+    #
+    # ⚠️ Antes esto se hacía cortando la fuente desde el primer `cur.execute(`.
+    # Ese tajo mira una POSICIÓN, no el código: cuando el predicado se factorizó
+    # a una constante —para que el SELECT que decide y el UPDATE que cierra no
+    # tuvieran dos copias de «no vino»— quedó ARRIBA del corte y el test dejó de
+    # verlo. `_codigo` saca docstrings y comentarios, así que cubre la función
+    # entera sin leer la prosa: es más cobertura, no menos.
+    sql = _codigo(registro._cerrar_ausentes)
     assert "chr(0)" not in sql and "||" not in sql, (
         "sujeto y regla no se concatenan: cualquier separador es una apuesta a "
         "que no aparezca en los datos")
@@ -2659,3 +2675,171 @@ def test_trajo_poco_compara_por_modo_y_saltea_las_corridas_en_seco(monkeypatch):
     assert h.dominio == "DATOS" and h.ventana == "habil" and not h.arreglos
     assert set(h.umbrales) == {"corte", "min_corridas", "minimo_referencia", "ventana"}
 
+
+
+# ── LA CADUCIDAD (2026-09-04) ──────────────────────────────────────────────
+
+def test_no_encontrar_el_sujeto_no_es_prueba_de_que_no_exista():
+    """**La guarda que hace que caducar no sea peligroso** (invariante 1, un
+    nivel más abajo).
+
+    Un hallazgo se puede cerrar por CADUCIDAD sólo si una fuente **afirma** que
+    el sujeto murió, con fecha. Que el ticker no aparezca en ninguna tabla es
+    «no sé» — y no sé no cierra nada. Sin esto, el día que una fuente devuelva
+    vacío el agente caducaría todo lo abierto de golpe y dejaría el tablero en
+    verde justo cuando está ciego: el bug más caro que puede tener una
+    herramienta de integridad, con cara de feature nueva.
+
+    Por eso `existe` es de TRES valores y la pregunta se hace con `.muerto`:
+    `not v.existe` daría `True` para «no sé» y convertiría la guarda en su
+    contrario.
+    """
+    from agente import vigencia
+
+    assert vigencia.Veredicto(None).muerto is False, (
+        "«no sé» no puede habilitar una caducidad")
+    assert vigencia.Veredicto(True).muerto is False
+    assert vigencia.Veredicto(False, "venció", "x").muerto is True
+    assert vigencia.NO_SE.existe is None
+
+    # Y la pregunta se hace por `.muerto`, no negando `existe`.
+    src = _codigo(registro._caducados) + _codigo(vigencia.muertos)
+    assert "not v.existe" not in src and "not veredicto.existe" not in src
+
+
+def test_una_fuente_que_no_contesta_no_caduca_nada():
+    """Si `vigencia` no puede leer, la respuesta es NINGUNO — ni «todos vivos»
+    ni «todos muertos». Y no puede tirar abajo la escritura de la corrida: va en
+    un SAVEPOINT porque en psycopg un error deja la transacción entera abortada,
+    y una función que sólo agrega información no puede romper la que ya andaba.
+    """
+    from agente import vigencia
+
+    src = _codigo(vigencia.muertos)
+    assert "with conn.transaction():" in src, "la verificación va en un SAVEPOINT"
+    assert "return {}" in src[src.index("except"):], (
+        "si no pude verificar, no caduca ninguno")
+
+
+def test_lo_caducado_no_puede_reincidir():
+    """**Un bono vencido que «vuelve» no significa nada** (invariante 4).
+
+    `_ver` sólo busca un cierre POR ACCIÓN para decidir si hay reincidencia, así
+    que la caducidad queda afuera por construcción — igual que la ausencia. Este
+    test congela esa construcción: el día que alguien amplíe ese `WHERE` a
+    cualquier cierre, la tabla que debe estar vacía se llena de sujetos muertos.
+
+    Es exactamente cómo nació su primera fila (M31G6, 28/08): se dio de alta un
+    bono que vencía, `cleanup_curvas` lo borró por vencer, el detector lo vio
+    faltar de nuevo — y el cierre por ACCIÓN lo habilitó a reincidir.
+    """
+    # ⚠️ Se mira el ÚLTIMO cierre, no «alguno por acción». Pedir el más reciente
+    # ENTRE los cerrados por acción se saltea lo que pasó después: un bono
+    # arreglado en marzo, caducado en agosto y visto de nuevo en septiembre
+    # encontraba el cierre de marzo y fabricaba una reincidencia sobre un sujeto
+    # que el propio agente había declarado muerto. Una garantía que un `ORDER BY`
+    # puede resucitar no es una garantía.
+    src = _codigo(registro._ver)
+    assert "cerrado_como = ANY(%s)" in src, (
+        "se piden los dos cierres que afirman algo y gana el más nuevo")
+    assert "previo[3] != tipos.POR_ACCION" in src, (
+        "si el último cierre NO fue por acción, no hay reincidencia")
+    assert "tipos.POR_CADUCIDAD" in src and "tipos.POR_ACCION" in src
+
+    # Y la caducidad le gana a la acción al CERRAR: si no, un sujeto muerto que
+    # tenía arreglo aplicado quedaría cerrado por acción y habilitado a reincidir.
+    cierre = _codigo(registro._cerrar_ausentes)
+    assert cierre.index("POR_CADUCIDAD") < cierre.index("POR_ACCION"), (
+        "el UPDATE de caducidad va ANTES del de acción/ausencia")
+
+
+def test_una_corrida_no_puede_caducar_medio_tablero():
+    """El tope. Caducar 40 hallazgos de una es más probable que sea una fuente
+    rota que 40 bonos venciendo el mismo día.
+
+    Y cuando se pasa **no se corta la corrida**: los que sobran se cierran por
+    la vía de siempre (ausencia, que dice menos pero no miente). Frenar del todo
+    dejaría hallazgos abiertos sobre sujetos muertos para siempre.
+    """
+    from agente import vigencia
+
+    assert 0 < vigencia.TOPE_POR_CORRIDA <= 25
+    src = _codigo(registro._caducados)
+    assert "TOPE_POR_CORRIDA" in src and "break" in src
+    assert "logger.warning" in src, "pasarse del tope tiene que quedar escrito"
+
+
+def test_toda_caducidad_deja_su_fundamento_en_el_libro():
+    """**Caducar es el agente escribiendo una decisión que nadie le pidió.**
+
+    Sin la línea del libro sería un `except: pass` con mejor prensa. Y no
+    alcanza con «caducó»: van el MOTIVO y la FUENTE, o no es trazabilidad, es un
+    log. Se anota con el MISMO `conn` que el cierre — por `anotar_accion`, que
+    abre el suyo, una transacción caída dejaría una línea diciendo que caducó
+    algo que sigue abierto.
+    """
+    # `_codigo` y no `getsource`: el docstring de la función NOMBRA
+    # `anotar_accion` para explicar por qué no la usa, y un test que castiga
+    # documentar no prueba nada (es la misma trampa de `_codigo`, arriba).
+    src = _codigo(registro._anotar_caducidad)
+    assert "INSERT INTO agente.acciones" in src
+    assert "veredicto.motivo" in src and "veredicto.fuente" in src
+    assert "anotar_accion" not in src, "va con el conn de la corrida"
+    assert "_anotar_caducidad" in _codigo(registro._caducados)
+
+
+def test_una_habilidad_no_caduca_si_no_declaro_de_que_habla():
+    """Sin `sujeto_es` no hay caducidad: es el default seguro, y es una
+    declaración explícita como el `arreglos` vacío.
+
+    Y un tipo inventado NO puede fallar callado: `vigencia` no lo encontraría en
+    su registro, no verificaría nada, y la habilidad no caducaría nunca — sin un
+    error, sin un log, sin nada que mirar. El dataclass lo rechaza al construir.
+    """
+    from agente import tipos, vigencia
+
+    assert set(tipos.SUJETOS) == set(vigencia.VERIFICADORES), (
+        "el vocabulario y los verificadores tienen que decir lo mismo: un tipo "
+        "declarado sin verificador no caduca nada, callado")
+
+    for h in catalogo.HABILIDADES.values():
+        assert h.sujeto_es in ("", *tipos.SUJETOS)
+
+    with pytest.raises(ValueError):
+        tipos.Habilidad(nombre="x", tipo="detector", dominio="MERCADO",
+                        que_mira="x", cada_segundos=60, correr=lambda u: [],
+                        sujeto_es="pantalla")
+
+
+def test_la_reincidencia_se_apaga_con_su_hallazgo():
+    """**La tabla que DEBE estar vacía tenía que poder vaciarse.**
+
+    `agente.reincidencias` sólo recibe INSERT: no existe una línea que cierre
+    una fila. Leerla entera dejaba el cartel rojo prendido para siempre — M31G6
+    volvió el 28/08, el detector se corrigió ese mismo día, el hallazgo se
+    cerró, y el cartel siguió arriba de la pantalla una semana describiendo un
+    bono que ya venció.
+
+    Es el mismo defecto que el propio agente evita en el latido: «un círculo que
+    está en rojo cuando todo está bien enseña a ignorar el círculo». La fila
+    número 16 —la que importaba— no la mira nadie.
+
+    ⚠️ Y el criterio es UNO. Se cuenta en TRES lugares (el modal, el panel de
+    HABILIDADES y los casos del lab) y los tres tienen que decir lo mismo, o es
+    la REGLA #9 adentro del agente: nada falla, cada pantalla muestra otro
+    número.
+    """
+    from agente import vista
+
+    src = _codigo(vista.reincidencias)
+    assert "JOIN agente.hallazgos" in src and "tipos.ABIERTOS" in src
+
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    i = sql.index("CREATE OR REPLACE VIEW agente.v_habilidades")
+    vista_sql = sql[i:sql.index(";", sql.index("ORDER BY h.dominio", i))]
+    j = vista_sql.index("FROM agente.reincidencias")
+    assert "JOIN agente.hallazgos" in vista_sql[j:j + 400], (
+        "el ⚠ del panel de HABILIDADES cuenta las reincidencias ACTIVAS")
+
+    lab = (RAIZ / "lab" / "langgraph" / "cola.py").read_text()
+    assert "JOIN agente.hallazgos h ON h.id = r.hallazgo_id" in lab

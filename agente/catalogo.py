@@ -36,14 +36,14 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="soberanos_faltantes", tipo="detector", dominio="MERCADO",
         que_mira="bonos que 1816 lista y no están en nuestro master",
         cada_segundos=2 * _H, ventana="rueda",
-        correr=mercado.soberanos_faltantes,
+        correr=mercado.soberanos_faltantes, sujeto_es="bono",
         arreglos={"no_esta_en_curvas": "alta_bono"}),
 
     Habilidad(
         nombre="bono_sin_flujo", tipo="detector", dominio="MERCADO",
         que_mira="bonos cargados sin cronograma de pagos: no valúan",
         cada_segundos=2 * _H, ventana="siempre",
-        correr=mercado.bono_sin_flujo,
+        correr=mercado.bono_sin_flujo, sujeto_es="bono",
         arreglos={"sin_flujo": "alta_flujos"}),
 
     # ⚠️ Reemplaza a `tasa_sospechosa`, que metía SEIS reglas bajo un nombre.
@@ -53,7 +53,7 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="bono_sin_tasa", tipo="detector", dominio="MERCADO",
         que_mira="bonos que operan y a los que el motor no les calcula la TEA",
         cada_segundos=15 * _M, ventana="rueda",
-        correr=mercado.bono_sin_tasa),
+        correr=mercado.bono_sin_tasa, sujeto_es="bono"),
 
     # ⚠️ **LA ÚNICA CON VENTANA `cierre`.** Corre UNA vez, 17:30 ART, con la
     # rueda cerrada: lo que se le pide al mercado deja de pedirse a las 17.
@@ -61,13 +61,13 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="tasas_al_cierre", tipo="detector", dominio="MERCADO",
         que_mira="rellena con 1816 lo que quedó sin tasa, y canta lo que ni así",
         cada_segundos=12 * _H, ventana="cierre",
-        correr=mercado.tasas_al_cierre),
+        correr=mercado.tasas_al_cierre, sujeto_es="bono"),
 
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",
         que_mira="bonos sin precio en rueda, separando las cuatro causas",
         cada_segundos=5 * _M, ventana="rueda",
-        correr=mercado.bono_sin_precio,
+        correr=mercado.bono_sin_precio, sujeto_es="bono",
         umbrales={"precio_viejo_min": 20},
         # `sin_punta` y `precio_viejo` NO tienen arreglo, y eso se DECLARA: son
         # datos sobre el papel, no sobre el sistema.
@@ -77,11 +77,17 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="precio_moneda", tipo="detector", dominio="MERCADO",
         que_mira="bonos de curva USD cuyo precio llega en pesos",
         cada_segundos=5 * _M, ventana="rueda",
-        correr=mercado.precio_moneda,
+        correr=mercado.precio_moneda, sujeto_es="bono",
         umbrales={"paridad_min": 40, "paridad_max": 160},
         arreglos={"pata_equivocada": "apuntar_pata",
                   "cotiza_en_pesos": "pata_dolar"}),
 
+    # ⚠️ **SIN `sujeto_es`, Y NO ES UN OLVIDO.** Su sujeto es un AJUSTE
+    # (`badlar`, `tpm`), no un título: no hay nada que pueda «vencer», así que
+    # no hay partida de defunción que buscar. Declararle `bono` haría que
+    # `vigencia` fuera a buscar el ticker «BADLAR» a tres catálogos, no lo
+    # encontrara, y contestara «no sé» — o sea nada, pero pagando la query y
+    # dejando escrito que acá hay una caducidad que en realidad no existe.
     Habilidad(
         nombre="hueco_de_curva", tipo="detector", dominio="MERCADO",
         que_mira="ajustes que existen en el master y que la app no sabe mostrar",
@@ -273,14 +279,14 @@ def sincronizar() -> dict:
             cur.execute(
                 "INSERT INTO agente.habilidades "
                 " (nombre, tipo, dominio, que_mira, usa_ia, cada_segundos, "
-                "  ventana, umbrales) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+                "  ventana, sujeto_es, umbrales) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT (nombre) DO UPDATE SET "
                 "  tipo = EXCLUDED.tipo, dominio = EXCLUDED.dominio, "
                 "  que_mira = EXCLUDED.que_mira, usa_ia = EXCLUDED.usa_ia, "
                 "  cada_segundos = EXCLUDED.cada_segundos, "
-                "  ventana = EXCLUDED.ventana",
+                "  ventana = EXCLUDED.ventana, sujeto_es = EXCLUDED.sujeto_es",
                 (h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia,
-                 h.cada_segundos, h.ventana,
+                 h.cada_segundos, h.ventana, h.sujeto_es,
                  __import__("json").dumps(h.umbrales)))
         cur.execute("UPDATE agente.habilidades SET activa = false "
                     "WHERE nombre <> ALL(%s)", (list(HABILIDADES),))

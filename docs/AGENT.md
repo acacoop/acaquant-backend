@@ -218,6 +218,31 @@ viejo (§9) y es de lo que hay que salir.
 Que la fila exista ya dice lo único que importa: **el arreglo que aplicamos no
 sirvió.**
 
+#### Y se APAGA con su hallazgo (2026-09-04)
+
+⚠️ `agente.reincidencias` **sólo recibe `INSERT`**: no hay, ni tiene que haber,
+una línea que cierre una fila — que `alta_bono` aguantó 3,6 días sobre M31G6 es
+un hecho, y es la evidencia con la que después se decide qué arreglo es
+confiable.
+
+Pero la ALARMA no es la tabla: es **lo que sigue vivo de la tabla**. Una
+reincidencia está activa mientras su hallazgo siga abierto; cuando el hallazgo
+se cierra —por la vía que sea— la alarma ya fue atendida.
+
+Sin eso, la tabla que DEBE estar vacía era **matemáticamente imposible de
+vaciar**. M31G6 volvió el 28/08, el detector se corrigió ese mismo día, el
+hallazgo se cerró, y el cartel rojo siguió arriba de la pantalla una semana
+describiendo un bono que ya venció. Es el mismo defecto que el agente evita en
+su propio latido —*«un círculo que está en rojo cuando todo está bien enseña a
+ignorar el círculo»*— y termina igual: la fila número 16, la que importaba, no
+la mira nadie.
+
+**El criterio es UNO y se cuenta en TRES lugares** (el cartel del modal, el ⚠
+del panel de HABILIDADES y los casos del lab). Los tres hacen el mismo `JOIN`
+contra `agente.hallazgos`; si se separan, cada pantalla muestra un número
+distinto y no falla nada — la REGLA #9 adentro del agente. Lo congela
+`test_la_reincidencia_se_apaga_con_su_hallazgo`.
+
 ### 1.4 Los estados de un hallazgo
 
 Cinco, y cada uno se atiende distinto:
@@ -226,7 +251,7 @@ Cinco, y cada uno se atiende distinto:
 |---|---|
 | `nuevo` | apareció y nadie lo miró |
 | `en_curso` | se apretó el arreglo y falta la respuesta (el mercado, un job) |
-| `resuelto` | ya no está — **siempre con `cerrado_como`: acción o ausencia** |
+| `resuelto` | ya no está — **siempre con `cerrado_como`: acción, ausencia o caducidad** (§6.8) |
 | `ignorado` | una persona dijo "no me interesa" — reversible |
 | `reincidio` | estaba resuelto por acción y volvió — **sigue ABIERTO**: se actualiza, se cierra y se muestra igual que `nuevo` (§0.cy) |
 
@@ -1074,6 +1099,96 @@ hace falta, se reconstruye de `reincidencias`, que es un hecho y no una opinión
 
 ---
 
+### 6.8 La CADUCIDAD — cuando el hallazgo deja de aplicar (2026-09-04)
+
+Un hallazgo es **una afirmación sobre el mundo en un momento**: «M31G6 falta en
+el master». Debajo hay una premisa que nadie escribió: «M31G6 debería estar en
+el master». Cuando el bono vence, la premisa se vuelve falsa: el hallazgo no
+está resuelto ni sin resolver — **dejó de aplicar**.
+
+Hasta acá no había forma de decir eso. Un hallazgo moría de dos formas —el
+detector no lo vio más, o una persona apretó «no me interesa»— y la segunda es
+**falsa** (nadie está desinteresado) y además pierde el motivo para siempre, con
+lo cual el sistema quedaba igual de tonto para el próximo bono que venciera.
+
+#### Es un CIERRE, no un sexto estado
+
+| | |
+|---|---|
+| Estado | sigue siendo `resuelto` — que es verdad: ya no está |
+| `cerrado_como` | `caducidad`, junto a `accion` y `ausencia` |
+| Pantallas | **ninguna suma una rama**: todas filtran por `ABIERTOS` |
+| ¿Reincide? | **no**, y ese es el punto |
+
+Un sexto estado habría costado una rama en cada pantalla para siempre. El eje
+`CIERRES` ya existía justamente para registrar CÓMO se cerró, y la caducidad
+hereda de ahí la única regla que importa.
+
+**Le gana a la ACCIÓN, no sólo a la ausencia.** Si el arreglo se aplicó y
+DESPUÉS el sujeto se murió, el cierre no se le puede adjudicar a la acción; y
+sobre todo, cerrar por acción lo habilita a REINCIDIR. Así nació la primera fila
+de `agente.reincidencias`: alta de M31G6 el 24/08 → `cleanup_curvas` lo borró
+del master porque vencía → el detector lo vio faltar de nuevo el 28/08 →
+reincidencia. **El arreglo no había fallado: dos subsistemas estaban peleando.**
+Nada se pierde: `arreglo_aplicado` sigue en la fila y el libro tiene su línea.
+
+#### La regla que hace que esto no sea peligroso
+
+> ⚠️⚠️ **NO ENCONTRAR EL SUJETO NO ES PRUEBA DE QUE NO EXISTA.**
+
+Para afirmar que algo murió hace falta una **partida de defunción**: una fuente
+que lo diga, con fecha. Que el ticker no aparezca en ninguna tabla es *no sé*, y
+no sé **no cierra nada**. Es el invariante 1 un nivel más abajo, y sin él esto
+sería el peor bug posible en una herramienta de integridad: el día que una
+fuente devuelva vacío, el agente caduca todo lo abierto de golpe y deja el
+tablero en verde justo cuando está ciego.
+
+Por eso `vigencia.Veredicto.existe` es de **TRES valores** (`True` / `False` /
+`None`) y se pregunta con `.muerto`: `not v.existe` daría `True` para «no sé» y
+convertiría la guarda en su contrario.
+
+#### Las cinco guardas
+
+1. **No borra nada, nunca.** Cambia un estado y escribe en el libro.
+2. **Sólo caduca con un «no existe» afirmativo y con fuente.** Si la
+   verificación falla, `vigencia.muertos` devuelve **ninguno** (va en un
+   SAVEPOINT: no puede tirar abajo la escritura de la corrida).
+3. **Deja el fundamento Y la fuente**: *«caducó: venció el 2026-08-26 ·
+   `mercado.curvas.fecha_vencimiento`»*. «Caducó» a secas no es trazabilidad.
+4. **Es reversible.** Si el sujeto vuelve a existir, el detector lo ve y nace un
+   hallazgo nuevo.
+5. **Tope de 10 por corrida.** Caducar 40 de una es más probablemente una fuente
+   rota que 40 bonos venciendo el mismo día. Los que sobran cierran por ausencia
+   —que dice menos pero no miente— y queda en el log.
+
+#### Cómo se declara: una palabra en la fila del catálogo
+
+```python
+Habilidad(nombre="soberanos_faltantes", ..., sujeto_es="bono", ...)
+```
+
+El motor **no sabe qué es un bono**: lee `sujeto_es` y le pregunta al
+verificador de ese tipo (`agente/vigencia.VERIFICADORES`). Vacío es una
+declaración explícita —«mi sujeto no es una cosa que pueda dejar de existir»— y
+es el default seguro: sin declaración, no se caduca nada.
+
+⚠️ **Hoy hay UN tipo: `bono`** (6 habilidades). No es recorte de ambición, es la
+regla de arriba: es el único cuyo certificado de defunción existe y es
+verificable — `fecha_vencimiento` en `mercado.curvas` **y** en
+`research.mkt_1816_instrumentos` (la que resuelve el caso de un bono que
+reportamos *porque no está en nuestro master*: la única fuente que sabe de él es
+la que lo nombró), más la marca `portafolio.assets.vigente` que escribe
+`jobs.validar_instrumentos`. `job`, `tabla`, `endpoint` y `motor` son candidatos
+reales y **ninguno entra hasta tener una fuente que afirme la baja**: un
+verificador que caduque «porque no lo encontré» es exactamente lo que este
+mecanismo existe para impedir.
+
+Sumar un tipo = una función en `agente/vigencia.py` + una palabra en
+`agente/tipos.SUJETOS`. Un test exige que los dos digan lo mismo: un tipo
+declarado sin verificador no caducaría nada, callado.
+
+---
+
 ## 7. Los umbrales salen del código
 
 Hoy están desparramados en 6 archivos y ninguno se puede tocar sin deploy:
@@ -1102,6 +1217,8 @@ habilidades, editable sin deploy.
    la regla está mal pensada.
 3. **Todo lo que se muestra lleva fecha y hora.**
 4. **Solo lo cerrado POR ACCIÓN puede reincidir.** Ante la duda, por ausencia.
+   La CADUCIDAD (§6.8) le gana a las dos: un sujeto que dejó de existir no
+   reincide, porque «volver» no significa nada sobre algo que no está.
 5. **Ninguna otra tabla guarda estado de problemas.** Tres, y nada más.
 6. **La respuesta a "no pude mirar" está escrita una sola vez**, en el agente,
    no en cada habilidad.
@@ -1114,7 +1231,11 @@ habilidades, editable sin deploy.
     era un arreglo.
 11. **Ninguna pantalla deriva nada.** Clase, estado, arreglo y nombre vienen
     resueltos del backend — ningún contador se suma en el navegador.
-12. **El agente no se autoevalúa** (§9.1). Nada de votos, puntajes ni
+12. **No encontrar el sujeto NO es prueba de que no exista** (§6.8). Para
+    caducar hace falta una fuente que AFIRME la baja, con fecha. «No lo
+    encontré» es «no sé», y no sé no cierra nada — es el invariante 1 un nivel
+    más abajo.
+13. **El agente no se autoevalúa** (§9.1). Nada de votos, puntajes ni
     confianza acumulada. Lo único que se registra sobre su desempeño es un
     hecho: si algo que dio por arreglado volvió.
 

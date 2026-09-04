@@ -581,6 +581,19 @@ CREATE TABLE IF NOT EXISTS agente.pulso_cliente (
 );
 CREATE INDEX IF NOT EXISTS pulso_cliente_reciente ON agente.pulso_cliente (at DESC);
 
+-- EL TILDE (2026-09-04) — la MISMA tabla, otro `tipo`. Son dos formas de «se me
+-- colgó la app» que se arreglan en lugares opuestos y llegaban como la misma
+-- frase:
+--   tipo='ciega' → los pedidos fallan y el navegador anda bien (backend/red).
+--   tipo='tilde' → el navegador no responde: el hilo principal quedó bloqueado
+--                  N ms. Nada falla, nadie tira una excepción, y sin esto el
+--                  servidor no se entera NUNCA de que la pantalla se clavó.
+-- `ms` = cuánto duró el bloqueo; `datos` = la peor tarea larga, cuántas hubo y
+-- la memoria del navegador (lo que separa «render caro» de «fuga de memoria»).
+ALTER TABLE agente.pulso_cliente ADD COLUMN IF NOT EXISTS tipo  text NOT NULL DEFAULT 'ciega';
+ALTER TABLE agente.pulso_cliente ADD COLUMN IF NOT EXISTS ms    integer;
+ALTER TABLE agente.pulso_cliente ADD COLUMN IF NOT EXISTS datos jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 -- EL LATIDO de cada proceso que corre solo (core/latido.py, AGENT.md §0.da).
 -- Una fila por proceso (`engines.valores`, `jobs.control_saldos`…), escrita
 -- cada 15 s por un hilo que arranca solo en `engines/__init__.py`. `data` es

@@ -112,6 +112,11 @@ HERRAMIENTAS: dict[str, str] = {
                              "de arranque es otro · la convención de TNA no es la misma). Sin esa "
                              "separación no se puede decidir si hay que tocar el motor "
                              "(2026-09-02, abierto).",
+    "diag_congelamiento":    "«la app se congela y con F5 anda» separado en las TRES causas que se "
+                             "ven iguales desde la silla del que la usa y se arreglan en lugares "
+                             "distintos: la API se puso lenta · le PIDEN más (un poll nuevo no sale "
+                             "lento: hace que salga lento todo lo demás) · el NAVEGADOR se clavó. "
+                             "Elegir entre las tres sin esto es una corazonada (2026-09-04, abierto).",
     "diag_duales_pata_fija": "por qué TTD26/TTS26 salen en -- en TASA FIJA teniendo TAMAR completo: sigue "
                              "la cadena hasta el punto exacto donde se corta (2026-08-31, abierto).",
     "diag_1816_grafias":     "con qué grafía publica 1816 la pata fija que `tamar_1816` pide con dos "

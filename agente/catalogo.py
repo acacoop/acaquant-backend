@@ -183,12 +183,19 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
 
     Habilidad(
         nombre="latencia", tipo="detector", dominio="SISTEMA",
-        que_mira="endpoints degradados contra SU PROPIA normalidad, los 5xx, y las vistas ciegas",
+        que_mira=("endpoints degradados contra SU PROPIA normalidad, los 5xx, "
+                  "las vistas ciegas y las pantallas que se TILDAN"),
         cada_segundos=10 * _M, ventana="siempre",
         correr=sistema.latencia,
-        # `vista_ciega` (§0.dg): el pulso que manda una pantalla que no puede
-        # refrescar. Es la única regla del agente que mira el navegador.
-        umbrales={"pulso_ventana_min": 10}),
+        # Las DOS reglas que miran el navegador, y son mitades distintas del
+        # mismo «se me colgó la app» (§0.dg y §0.dm):
+        #   `vista_ciega`      → los pedidos fallan y el navegador anda bien.
+        #   `pantalla_tildada` → el navegador NO responde y nada falla. Eso no
+        #                        pasa por el servidor nunca: sin el aviso del
+        #                        propio navegador, acá no se entera nadie.
+        # Ventanas distintas a propósito: una ceguera es AHORA (10'), un tilde
+        # es un episodio corto que hay que juntar para que se vea el patrón.
+        umbrales={"pulso_ventana_min": 10, "tilde_ventana_min": 60}),
 
     Habilidad(
         nombre="proveedor_caido", tipo="detector", dominio="SISTEMA",

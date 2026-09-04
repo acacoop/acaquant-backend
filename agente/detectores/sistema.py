@@ -863,7 +863,7 @@ def latencia(u: dict) -> list[Hallazgo]:
     except Exception as e:
         raise SinDatos(f"no pude leer la telemetría: {e}") from e
 
-    out = _vistas_ciegas(u)
+    out = _vistas_ciegas(u) + _pantallas_tildadas(u)
     for c in casos:
         if c["roto"]:
             out.append(Hallazgo(
@@ -941,6 +941,80 @@ def _vistas_ciegas(u: dict) -> list[Hallazgo]:
                        "desde": desde.isoformat(), "ultimo": ultimo.isoformat(),
                        "endpoints": endpoints, "motivos": motivos,
                        "api_arranco_at": arranco.isoformat() if arranco else None}))
+    return out
+
+
+def _pantallas_tildadas(u: dict) -> list[Hallazgo]:
+    """**La pantalla que no responde** — el otro «se me colgó la app» (§0.dm).
+
+    `vista_ciega` cubre la mitad que el servidor puede ver de refilón: los
+    pedidos fallan. Esta es la mitad que **no pasa por el servidor jamás**: el
+    hilo principal del navegador queda bloqueado, no falla nada, no hay request,
+    no hay excepción — y la persona ve la app clavada y aprieta F5.
+
+    Sin este reporte las dos llegan como la misma frase y se arreglan en lugares
+    opuestos: una es del backend o de la red, la otra es JS de esta app.
+
+    Lo mide `lib/tilde.ts` en el navegador (hueco entre latidos + `longtask`) y
+    llega por el mismo `POST /api/pulso` con `tipo = 'tilde'`.
+
+    ⚠️ **No tiene arreglo, y eso está declarado**: el agente no puede tocar el
+    navegador de nadie. Es un aviso — vive en AHORA, no en ENCONTRÓ.
+    """
+    from agente import fuentes
+
+    ventana = int(u.get("tilde_ventana_min", 60))
+    filas = fuentes.tildes(ventana)
+    if filas is None:
+        raise SinDatos("no pude leer los tildes de agente.pulso_cliente")
+    if not filas:
+        return []
+    ahora = reloj.ahora_utc()
+
+    por_vista: dict[str, list[dict]] = {}
+    for f in filas:
+        por_vista.setdefault(f["vista"] or "?", []).append(f)
+
+    out = []
+    for vista, ts in sorted(por_vista.items()):
+        personas = {t["email"] for t in ts if t["email"]}
+        peor_ms = max((t["ms"] or 0) for t in ts)
+        total_s = sum((t["ms"] or 0) for t in ts) / 1000
+        # ¿Fue JS de la app? Lo dice el `longtask` que el navegador midió DENTRO
+        # del hueco. Sin tarea larga el hilo se fue en otra cosa (memoria, GC) y
+        # buscar el render caro sería buscar donde no está.
+        peor_tarea = max((int(t["datos"].get("peor_tarea_ms") or 0)) for t in ts)
+        memorias = [int(t["datos"]["memoria_mb"]) for t in ts
+                    if isinstance(t["datos"].get("memoria_mb"), int)]
+        es_js = peor_tarea >= peor_ms / 2 if peor_ms else False
+        ultimo = max(t["at"] for t in ts)
+
+        out.append(Hallazgo(
+            sujeto=vista, regla="pantalla_tildada",
+            severidad="alta" if (peor_ms >= 10_000 or len(ts) >= 3) else "media",
+            nombre=vista,
+            problema=(f"se clavó {len(ts)} vez/veces en {ventana} min · "
+                      f"la peor {peor_ms / 1000:.1f} s · "
+                      f"{len(personas) or len(ts)} pantalla/s · "
+                      f"{'JS de la app' if es_js else 'sin tarea larga'} · "
+                      f"{reloj.hhmm(ahora)}"),
+            detalle=" · ".join(sorted({t["motivo"] for t in ts if t["motivo"]})),
+            que_hacer=(
+                "Es el NAVEGADOR, no la API: mirar en el backend es mirar donde "
+                "no está. Si dice «JS de la app», el hilo se fue en una tarea de "
+                f"{peor_tarea / 1000:.1f} s de esa vista — el sospechoso es lo que "
+                "esa pantalla calcula o dibuja en cada refresco (tabla grande, "
+                "payload gordo, chart que se re-monta). Si dice «sin tarea larga» "
+                "y la memoria del reporte viene creciendo, es una fuga de la "
+                "pestaña y se confirma dejándola abierta y mirando cómo sube."),
+            evidencia={"episodios": len(ts), "peor_ms": peor_ms,
+                       "trabado_total_s": round(total_s, 1),
+                       "peor_tarea_ms": peor_tarea,
+                       "memoria_mb": memorias[-1] if memorias else None,
+                       "memoria_min_mb": min(memorias) if memorias else None,
+                       "memoria_max_mb": max(memorias) if memorias else None,
+                       "personas": sorted(personas),
+                       "ultimo": ultimo.isoformat()}))
     return out
 
 

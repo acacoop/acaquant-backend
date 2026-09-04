@@ -2707,6 +2707,51 @@ def test_no_encontrar_el_sujeto_no_es_prueba_de_que_no_exista():
     assert "not v.existe" not in src and "not veredicto.existe" not in src
 
 
+def test_dos_fuentes_que_se_contradicen_no_caducan_nada():
+    """**«Uno dice muerto y otro dice vivo» tampoco es muerte** (REGLA #9).
+
+    Lo encontró la PRIMERA corrida real, y es el bug que este módulo existía para
+    evitar, un nivel más arriba: la versión original se cuidaba de que «no lo
+    encontré» no fuera muerte, y tomaba el primer «está muerto» sin mirar si otra
+    fuente afirmaba lo contrario.
+
+    GMCGO, medido en producción el 2026-09-04: `mercado.curvas` dice que vence el
+    2028-01-28 —una afirmación de que está VIVO— y `portafolio.assets` lo tiene de
+    baja con fecha 2026-06-28. Diecinueve meses de diferencia, las dos copias
+    cargadas, ninguna arbitrando. El código saltaba la primera rama (2028 no es
+    pasado), entraba por la segunda, y **daba por muerto un título que el master
+    declara vivo**.
+
+    Una fecha de vencimiento FUTURA es una afirmación tan válida como la que dice
+    que murió. Dos copias sin árbitro no habilitan a cerrar nada.
+    """
+    from datetime import date, timedelta
+    from unittest.mock import MagicMock
+
+    from agente import vigencia
+
+    ayer = date.today() - timedelta(1)
+    manana = date.today() + timedelta(1)
+    filas = [
+        # (ticker, vto_master, vto_1816, todos_de_baja, motivo)
+        ("GMCGO",   date(2028, 1, 28), None,   True,  "vencido"),  # el caso real
+        ("CRUZADO", ayer,              manana, None,  None),       # al revés
+        ("ACUERDO", ayer,              ayer,   True,  "vencido"),  # coinciden
+        ("VIVO",    manana,            None,   None,  None),
+    ]
+    cur = MagicMock()
+    cur.fetchall.return_value = filas
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+
+    r = vigencia._bonos(conn, [f[0] for f in filas])
+    assert r["GMCGO"].existe is None and not r["GMCGO"].muerto, (
+        "el master lo declara vivo hasta 2028: contradecir a `assets` es «no sé»")
+    assert r["CRUZADO"].existe is None, "la contradicción vale en las dos direcciones"
+    assert r["ACUERDO"].muerto, "si las fuentes coinciden en que murió, sí caduca"
+    assert r["VIVO"].existe is True
+
+
 def test_una_fuente_que_no_contesta_no_caduca_nada():
     """Si `vigencia` no puede leer, la respuesta es NINGUNO — ni «todos vivos»
     ni «todos muertos». Y no puede tirar abajo la escritura de la corrida: va en

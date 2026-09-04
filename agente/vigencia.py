@@ -110,6 +110,12 @@ def _bonos(conn, sujetos: list[str]) -> dict[str, Veredicto]:
          puede verificarse contra nuestro master. La única que sabe de él es la
          fuente que lo nombró.
 
+    ⚠️⚠️ **Y si dos fuentes se contradicen, es «no sé».** Alcanza con que UNA
+    firme la defunción sólo mientras **ninguna afirme lo contrario**: una fecha
+    de vencimiento futura es una afirmación de que el título está VIVO, tan
+    válida como la que dice que murió. Dos copias sin árbitro no habilitan a
+    cerrar nada (REGLA #9) — la divergencia se logea y se decide afuera.
+
     ⚠️ **El vencimiento tiene que estar ESTRICTAMENTE en el pasado.** Un bono
     que vence hoy existe hoy. Se podría haber usado la ventana de
     `jobs/cleanup_curvas` (dos hábiles antes), pero esa ventana contesta «¿lo
@@ -139,16 +145,49 @@ def _bonos(conn, sujetos: list[str]) -> dict[str, Veredicto]:
 
     out: dict[str, Veredicto] = {}
     for tk, vto_master, vto_1816, de_baja, motivo in filas:
-        if vto_master and vto_master < hoy:
-            out[tk] = Veredicto(False, f"venció el {vto_master.isoformat()}",
-                                "mercado.curvas.fecha_vencimiento")
-        elif de_baja is True:
-            out[tk] = Veredicto(False, f"dado de baja ({motivo or 'sin motivo'})",
-                                "portafolio.assets.vigente")
-        elif vto_1816 and vto_1816 < hoy:
-            out[tk] = Veredicto(False, f"venció el {vto_1816.isoformat()} según 1816",
-                                "research.mkt_1816_instrumentos.fecha_vencimiento")
-        elif vto_master or vto_1816 or de_baja is False:
+        # ⚠️⚠️ **SE JUNTAN LAS AFIRMACIONES DE LAS DOS DIRECCIONES, y recién
+        # después se concluye.** La primera versión tomaba el primer «está
+        # muerto» que encontraba y no miraba si otra fuente afirmaba lo
+        # contrario — el mismo error que este módulo existe para impedir, un
+        # nivel más arriba: me cuidé de que «no lo encontré» no fuera muerte, y
+        # no de que «uno dice muerto y otro dice vivo» tampoco lo sea.
+        #
+        # Lo encontró la PRIMERA corrida real (2026-09-04). GMCGO: el master
+        # dice que vence el 2028-01-28 —una afirmación de que está VIVO— y
+        # `assets` lo tiene de baja con fecha 2026-06-28. Diecinueve meses de
+        # diferencia, las dos copias cargadas, ninguna arbitrando. Mi código
+        # saltaba la primera rama (2028 no es pasado), entraba por la segunda y
+        # lo daba por muerto — sobre un título que el master declara vivo.
+        vivo_porque, muerto_porque = [], []
+        if vto_master:
+            (muerto_porque if vto_master < hoy else vivo_porque).append(
+                (f"venció el {vto_master.isoformat()}",
+                 "mercado.curvas.fecha_vencimiento"))
+        if de_baja is True:
+            muerto_porque.append((f"dado de baja ({motivo or 'sin motivo'})",
+                                  "portafolio.assets.vigente"))
+        elif de_baja is False:
+            vivo_porque.append(("", "portafolio.assets.vigente"))
+        if vto_1816:
+            (muerto_porque if vto_1816 < hoy else vivo_porque).append(
+                (f"venció el {vto_1816.isoformat()} según 1816",
+                 "research.mkt_1816_instrumentos.fecha_vencimiento"))
+
+        if muerto_porque and vivo_porque:
+            # **DOS COPIAS QUE NO COINCIDEN: eso es «no sé», no «muerto».** Es
+            # la REGLA #9 sin árbitro, y hasta que alguien decida cuál manda no
+            # se cierra nada. Se logea FUERTE porque la divergencia en sí es el
+            # problema — no la caducidad que no ocurrió.
+            logger.warning(
+                "vigencia/bono %s: las fuentes SE CONTRADICEN — muerto por [%s] "
+                "y vivo por [%s]. No caduca nada hasta que se decida cuál manda "
+                "(REGLA #9)", tk,
+                " · ".join(f for _, f in muerto_porque),
+                " · ".join(f for _, f in vivo_porque))
+            out[tk] = NO_SE
+        elif muerto_porque:
+            out[tk] = Veredicto(False, *muerto_porque[0])
+        elif vivo_porque:
             # Lo encontré y está vivo. Es una afirmación, no un default.
             out[tk] = Veredicto(True)
         else:

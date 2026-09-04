@@ -1147,6 +1147,36 @@ Por eso `vigencia.Veredicto.existe` es de **TRES valores** (`True` / `False` /
 `None`) y se pregunta con `.muerto`: `not v.existe` daría `True` para «no sé» y
 convertiría la guarda en su contrario.
 
+#### Y «uno dice muerto, otro dice vivo» TAMPOCO es muerte (2026-09-04)
+
+La primera versión se cuidaba de que «no lo encontré» no fuera muerte, y sin
+embargo tomaba el primer «está muerto» que encontraba **sin mirar si otra fuente
+afirmaba lo contrario**. Es el mismo error un nivel más arriba, y lo destapó la
+primera corrida real:
+
+| Fuente | Dice | Afirma |
+|---|---|---|
+| `mercado.curvas.fecha_vencimiento` | 2028-01-28 | está **VIVO** |
+| `portafolio.assets` (`vigente=false`, venc. 2026-06-28) | vencido | está **MUERTO** |
+
+**GMCGO**: las dos copias cargadas, diecinueve meses de diferencia, nadie
+arbitrando. El código saltaba la primera rama (2028 no es pasado), entraba por la
+segunda, y daba por muerto un título que el master declara vivo.
+
+**Una fecha de vencimiento FUTURA es una afirmación tan válida como la que dice
+que murió.** Ahora se juntan las afirmaciones de las dos direcciones y recién
+después se concluye: alcanza con que UNA firme la defunción **sólo mientras
+ninguna afirme lo contrario**. Si se contradicen es «no sé», no se cierra nada, y
+la divergencia se logea — porque el problema es la divergencia, no la caducidad
+que no ocurrió. Lo congela `test_dos_fuentes_que_se_contradicen_no_caducan_nada`.
+
+⚠️ Y la divergencia sigue abierta como problema de DATOS: cuál de las dos fechas
+manda no lo puede decidir el código. Se declara en `core/duplicados.DUPLICADOS`,
+que es el lugar que la REGLA #9 tiene para esto. Los dos jobs, mientras tanto,
+actúan cada uno con su copia sin enterarse: `validar_instrumentos` se conforma
+con cualquiera de las dos y apagó el asset; `cleanup_curvas` usa sólo la del
+master, que dice 2028, y no lo va a soltar.
+
 #### Las cinco guardas
 
 1. **No borra nada, nunca.** Cambia un estado y escribe en el libro.

@@ -15,7 +15,7 @@ QUÉ CONTESTA
     3. ¿Alguna habilidad se pasaría del tope por corrida?
     4. ¿Cuántas REINCIDENCIAS quedan activas con el criterio nuevo?
     5. ¿Qué títulos están MUERTOS en `portafolio.assets` y SIGUEN en el master?
-       — la pregunta que apareció al correr esto la primera vez (ver abajo).
+       Y sobre todo: ¿las dos fechas de vencimiento COINCIDEN? (ver abajo).
 
 ⚠️ **Mira los ABIERTOS y el motor caduca los que NO VINIERON en la corrida.**
 Son conjuntos distintos a propósito: acá se ve el universo COMPLETO de sujetos
@@ -30,21 +30,30 @@ El diag encontró UN caso —`GMCGO`, marcado `vigente=false` motivo `vencido`�
 un hallazgo `sin_punta` ABIERTO. Y no va a caducar, porque el detector lo SIGUE
 VIENDO: `bono_sin_precio` itera `mercado.curvas`, y ahí el bono sigue.
 
-**Los dos jobs miran fechas distintas** (verificado en el código):
+⚠️ **LA PRIMERA HIPÓTESIS ERA QUE FALTABA LA FECHA EN EL MASTER. ERA FALSA**, y
+medirla es lo único que lo demostró. Lo que hay es peor:
 
-    validar_instrumentos  apaga el asset con `assets.vencimiento` O
-                          `curvas.fecha_vencimiento` — le alcanza cualquiera
-    cleanup_curvas        borra del master SOLO con `curvas.fecha_vencimiento`,
-                          y sin fecha devuelve False: **no borra nunca**
+    mercado.curvas.fecha_vencimiento    2028-01-28   → afirma que está VIVO
+    portafolio.assets.vencimiento       2026-06-28   → afirma que MURIÓ
 
-Entonces un título con vencimiento cargado en `assets` y NULL en `curvas` queda
-**muerto en una mitad del sistema y vivo en la otra, para siempre** — y genera
-un hallazgo que nadie va a poder cerrar nunca. Es la REGLA #9 exacta: dos copias
-del mismo dato («cuándo vence») y cada job consulta la suya.
+**Las dos copias están cargadas y se contradicen por diecinueve meses**, sin
+nadie arbitrando. Es la REGLA #9 en su forma más pura, y falla como siempre: no
+falla nada, cada mitad es coherente consigo misma, y los dos jobs actúan en
+consecuencia sin enterarse el uno del otro:
 
-⚠️ **Hipótesis, no hecho**: que el `fecha_vencimiento` de `mercado.curvas` esté
-vacío en esos títulos es lo que explicaría el caso, pero hay que MEDIRLO — para
-eso está la sección 5. La columna `venc_master` de esa tabla es la respuesta.
+    validar_instrumentos  usa `assets.vencimiento` O `curvas.fecha_vencimiento`
+                          — le alcanza cualquiera, así que apagó el asset
+    cleanup_curvas        usa SOLO `curvas.fecha_vencimiento`, que dice 2028
+                          — así que no lo borra, y no lo va a borrar hasta 2028
+
+Y de yapa destapó un bug en `agente/vigencia.py`: tomaba el primer «está muerto»
+sin mirar si otra fuente afirmaba lo contrario, así que daba por muerto un título
+que el master declara vivo. **Corregido**: contradicción = «no sé», y no se
+cierra nada. Ver `test_dos_fuentes_que_se_contradicen_no_caducan_nada`.
+
+**Lo que falta decidir es cuál de las dos fechas manda** — eso no lo puede
+resolver el código: lo sabe la mesa. El lugar donde se declara es
+`core/duplicados.DUPLICADOS`.
 
 Cuando el tema cierre, este archivo se borra (REGLA #5).
 """
@@ -53,6 +62,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import defaultdict
+from datetime import date
 
 from agente import catalogo, tipos, vigencia
 from core.postgres import get_pool
@@ -159,22 +169,38 @@ def main() -> int:
             print("  ninguno. El master y el catálogo dicen lo mismo.")
         else:
             print(f"  {'TICKER':<10} {'venc_master':<13} {'venc_assets':<13} "
-                  f"{'motivo':<10} hallazgos_abiertos")
-            sin_fecha = 0
+                  f"{'motivo':<10} {'abiertos':<9} diagnóstico")
+            sin_fecha = contradicen = 0
             for tk, venc_c, motivo, venc_a, abiertos in zombis:
-                sin_fecha += venc_c is None
+                # El master dice que VIVE si su fecha es futura. Que `assets` lo
+                # dé de baja al mismo tiempo NO es un detalle: son dos copias del
+                # mismo hecho diciendo lo contrario, y hasta que alguien decida
+                # cuál manda, el sistema no sabe si el título existe.
+                vive_el_master = venc_c is not None and venc_c >= date.today()
+                if venc_c is None:
+                    sin_fecha += 1
+                    dx = "master SIN fecha → cleanup_curvas no lo borra nunca"
+                elif vive_el_master:
+                    contradicen += 1
+                    dx = "⚠ SE CONTRADICEN: el master lo declara VIVO"
+                else:
+                    dx = "el master ya lo da por vencido: sale en el próximo cleanup"
                 vc = f"{venc_c or '— NULL —'}"
                 va = f"{venc_a or '—'}"[:10]
                 print(f"  {tk:<10} {vc:<13} {va:<13} "
-                      f"{(motivo or '—'):<10} {abiertos}")
+                      f"{(motivo or '—'):<10} {abiertos:<9} {dx}")
             print(f"\n  {len(zombis)} título(s) que `portafolio.assets` da de baja y "
                   f"siguen en `mercado.curvas`.")
+            if contradicen:
+                print(f"  ⚠⚠ {contradicen} con las DOS fechas cargadas y en desacuerdo "
+                      "— REGLA #9 pura.\n    No es un bug de un job: es que nadie "
+                      "declaró cuál copia manda.\n    El agente NO los caduca (una "
+                      "contradicción es «no sé»), y va a seguir\n    sin caducarlos "
+                      "hasta que se decida. Se declara en `core/duplicados`.")
             if sin_fecha:
-                print(f"  ⚠ {sin_fecha} de ellos SIN `fecha_vencimiento` en el master "
-                      "— y esa es la causa:\n    `cleanup_curvas` sólo borra con esa "
-                      "columna, y sin fecha devuelve False.\n    `validar_instrumentos` "
-                      "en cambio se conforma con la de `assets`.\n    Dos copias del "
-                      "mismo dato, cada job consultando la suya (REGLA #9).")
+                print(f"  ⚠ {sin_fecha} SIN `fecha_vencimiento` en el master: "
+                      "`cleanup_curvas` sólo borra\n    con esa columna, y sin fecha "
+                      "devuelve False — no los va a soltar nunca.")
             print("\n  Mientras sigan en el master, sus hallazgos NO caducan: el "
                   "detector\n  los sigue viendo, y la caducidad sólo alcanza a lo que "
                   "dejó de verse.\n  Arreglar la fecha en el master los saca solo, y "

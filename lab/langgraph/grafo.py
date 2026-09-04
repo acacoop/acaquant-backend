@@ -84,6 +84,13 @@ pasó y proponer qué hacer.
 
 REGLAS:
 - **Leé, no adivines.** Si no lo viste con una herramienta, no lo afirmes.
+- **Las horas de las herramientas vienen en ART** (hora argentina) y el nombre de
+  la columna lo dice: `desde_art`, `cuando_art`, `arranco_art`. No las conviertas
+  ni las compares contra un huso distinto. Si en el enunciado te dan una hora sin
+  aclarar, asumila ART y decilo. Nunca armes una cronología mezclando una hora de
+  una herramienta con otra que viene de otro lado sin verificar que sean el mismo
+  huso: ya pasó y produjo un relato imposible (algo que «se cayó» tres horas
+  después de que se avisara).
 - Juntá evidencia ANTES de concluir. Pedí varias herramientas juntas cuando
   sepas que las vas a necesitar.
 - Citá el archivo y la línea, o la tabla, de donde sacaste cada cosa.

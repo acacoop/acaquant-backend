@@ -35,6 +35,34 @@ from langchain_core.tools import tool
 
 from lab.langgraph.base import leer as _consultar
 
+# ⚠️⚠️ **TODAS LAS HORAS SALEN EN ART, Y EL NOMBRE DE LA COLUMNA LO DICE.**
+#
+# Postgres guarda `timestamptz` y `to_char` lo devuelve en el huso de la sesión,
+# que en el Droplet es UTC. Las PANTALLAS, en cambio, muestran ART. Así que el
+# investigador leía UTC de las tablas y ART del modal, y las mezclaba en un solo
+# relato sin decir cuál era cuál.
+#
+# Pasó el 2026-09-04, investigando la caída de AUNESA. Armó esta cronología:
+#
+#     15:35  se anotó una nueva falla        ← UTC, de una tool
+#     12:41  el detector emitió el aviso     ← ART, del modal
+#
+# Es el MISMO evento (15:35 UTC = 12:35 ART) contado dos veces, y en un orden
+# imposible: dice que se cayó DESPUÉS de que se avisara. La conclusión que sacó
+# igual era correcta —por casualidad, no por el razonamiento—, que es la peor
+# forma de acertar: coherente, confiada, y armada sobre datos que no se hablan.
+#
+# El sufijo `_art` en el nombre de la columna no es cosmético: el modelo lee los
+# NOMBRES, y una hora sin huso declarado es una hora que va a mezclar con otra.
+_ART = "America/Argentina/Buenos_Aires"
+
+
+def _hora(col: str) -> str:
+    """La expresión SQL de una hora, en ART. **Vive acá y en ningún otro lado**:
+    seis consultas con su propio `to_char` son seis oportunidades de que una
+    quede en UTC, y el día que pase no falla nada — sólo cambia el relato."""
+    return f"to_char({col} AT TIME ZONE '{_ART}','YYYY-MM-DD HH24:MI')"
+
 
 def _tabla(r, vacio: str) -> str:
     if isinstance(r, str):
@@ -72,7 +100,8 @@ def precio_del_simbolo(simbolo: str) -> str:
     lo que el motor pidió. Si no aparece, lo más probable es que nadie lo esté
     escuchando."""
     r = _consultar(
-        "SELECT ticker AS simbolo, last_price, tea, paridad, updated_at, "
+        "SELECT ticker AS simbolo, last_price, tea, paridad, "
+        f"       {_hora('updated_at')} AS actualizado_art, "
         "       round(extract(epoch FROM now() - updated_at)/60) AS hace_minutos "
         "  FROM mercado.market_snapshot WHERE ticker = %s",
         (simbolo.strip(),))
@@ -87,7 +116,13 @@ def hallazgos_del_sujeto(sujeto: str) -> str:
     para no repetir un diagnóstico que el agente ya hizo."""
     r = _consultar(
         "SELECT habilidad, regla, severidad, estado, problema, "
-        "       to_char(detectado_at,'YYYY-MM-DD HH24:MI') AS desde, veces "
+        # ⚠️ **`detalle` ES EL ERROR CRUDO**, y es lo único que dice DE QUIÉN es
+        # el problema: 5xx = del proveedor, 401/403 = una credencial nuestra,
+        # timeout = la red. La investigación de AUNESA (2026-09-04) terminó con
+        # «no pude leer el error crudo» en `lo_que_no_se` teniéndolo en la fila
+        # de al lado, sin pedirlo: no estaba en el SELECT.
+        "       detalle, "
+        f"       {_hora('detectado_at')} AS desde_art, veces "
         "  FROM agente.hallazgos WHERE upper(sujeto) = upper(%s) "
         " ORDER BY detectado_at DESC LIMIT 10",
         (sujeto.strip(),))
@@ -109,8 +144,8 @@ def reincidencias(sujeto: str = "") -> str:
     params = (sujeto.strip(),) if sujeto.strip() else ()
     r = _consultar(
         "SELECT sujeto, habilidad, regla, arreglo_aplicado, "
-        "       to_char(resuelto_at,'YYYY-MM-DD HH24:MI') AS se_cerro, "
-        "       to_char(volvio_at,  'YYYY-MM-DD HH24:MI') AS volvio, "
+        f"       {_hora('resuelto_at')} AS se_cerro_art, "
+        f"       {_hora('volvio_at')} AS volvio_art, "
         "       round(dias_aguanto, 1) AS dias_aguanto, "
         "       hallazgo_previo_id, hallazgo_id "
         f"  FROM agente.reincidencias{filtro} "
@@ -126,7 +161,7 @@ def acciones_sobre(sujeto: str) -> str:
     realmente, no qué se pensaba hacer — un arreglo que salió «ok» y no cambió
     nada se ve acá y en ningún otro lado."""
     r = _consultar(
-        "SELECT to_char(at,'YYYY-MM-DD HH24:MI') AS cuando, arreglo, regla, "
+        f"SELECT {_hora('at')} AS cuando_art, arreglo, regla, "
         "       donde, campo, antes, despues, ok, error, por "
         "  FROM agente.acciones WHERE upper(sujeto) = upper(%s) "
         " ORDER BY at DESC LIMIT 15",
@@ -141,8 +176,8 @@ def corridas_del_job(tipo: str) -> str:
     o 'dolar_mep'. Usar para ubicar QUÉ corrió cerca del momento en que algo se
     rompió — muchas veces la causa es otro proceso nuestro, no un bug."""
     r = _consultar(
-        "SELECT tipo, to_char(started_at,'YYYY-MM-DD HH24:MI') AS arranco, "
-        "       to_char(finished_at,'YYYY-MM-DD HH24:MI') AS termino, status "
+        f"SELECT tipo, {_hora('started_at')} AS arranco_art, "
+        f"       {_hora('finished_at')} AS termino_art, status "
         "  FROM manager.job_runs WHERE tipo ILIKE %s "
         " ORDER BY started_at DESC LIMIT 12",
         (f"%{tipo.strip()}%",))

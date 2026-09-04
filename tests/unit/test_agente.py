@@ -2888,3 +2888,55 @@ def test_la_reincidencia_se_apaga_con_su_hallazgo():
 
     lab = (RAIZ / "lab" / "langgraph" / "cola.py").read_text()
     assert "JOIN agente.hallazgos h ON h.id = r.hallazgo_id" in lab
+
+
+# ── EL INVESTIGADOR: las horas (2026-09-04) ────────────────────────────────
+
+def test_ninguna_herramienta_del_lab_devuelve_una_hora_sin_huso():
+    """**Una hora sin huso declarado es una hora que se va a mezclar con otra.**
+
+    Postgres guarda `timestamptz` y `to_char` lo devuelve en el huso de la
+    sesión (UTC en el Droplet). Las pantallas muestran ART. El investigador leía
+    UTC de las tablas y ART del modal, y armaba un solo relato con las dos.
+
+    Pasó investigando la caída de AUNESA: «15:35 se anotó una nueva falla» (UTC)
+    y «12:41 el detector emitió el aviso» (ART) son **el mismo evento**, contado
+    dos veces y en un orden imposible. La conclusión igual salió bien — por
+    casualidad, que es la peor forma de acertar.
+
+    Dos cosas se congelan acá: que la conversión viva en UN solo lugar
+    (`_hora`), y que el NOMBRE de cada columna diga el huso — el modelo lee los
+    nombres, y `desde` no le dice nada mientras que `desde_art` sí.
+    """
+    # ⚠️ Se lee el ARCHIVO, no se importa el módulo: `datos.py` importa
+    # `langchain_core`, y un test de la forma del SQL no puede depender de que
+    # el laboratorio esté instalado. Si mañana el lab no se instala, este test
+    # tiene que seguir diciendo la verdad sobre el código que hay en el repo.
+    codigo = _codigo((RAIZ / "lab" / "langgraph" / "datos.py").read_text())
+    assert codigo.count("to_char(") == 1, (
+        "la conversión de hora vive en `_hora()` y en ningún otro lado: seis "
+        "consultas con su propio `to_char` son seis oportunidades de que una "
+        "quede en UTC, y el día que pase no falla nada — cambia el relato")
+    assert "AT TIME ZONE" in codigo
+
+    # Toda columna de hora se llama `_art`. Se mira el SQL, no el archivo.
+    import re
+    # ⚠️ `ast.unparse` deja el f-string como `{_hora('x')} AS alias`: el cierre
+    # es la llave del f-string, no un paréntesis. Buscar `)` acá daba cero
+    # matches y el test pasaba... hasta el assert que lo cazó.
+    alias_de_hora = re.findall(r"_hora\('(\w+)'\)\}\s*AS\s+(\w+)", codigo)
+    assert alias_de_hora, "no encontré los alias — ¿cambió la forma de `_hora`?"
+    sin_huso = [a for _, a in alias_de_hora if not a.endswith("_art")]
+    assert not sin_huso, f"columnas de hora sin el huso en el nombre: {sin_huso}"
+
+    # Y el prompt se lo dice al modelo, que es quien las junta.
+    grafo = (RAIZ / "lab" / "langgraph" / "grafo.py").read_text()
+    assert "_art" in grafo and "ART" in grafo, (
+        "el prompt tiene que declarar el huso: el que arma la cronología es el "
+        "modelo, no la consulta")
+
+    # El error crudo tiene que estar: es lo único que dice DE QUIÉN es el problema.
+    i = codigo.index("def hallazgos_del_sujeto")
+    assert "detalle" in codigo[i:i + 900], (
+        "`hallazgos_del_sujeto` sin `detalle` deja al investigador escribiendo "
+        "«no pude leer el error crudo» con el error en la fila de al lado")

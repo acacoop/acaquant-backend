@@ -85,6 +85,18 @@ def reincidencias(limite: int = 100):
     return v.reincidencias(limite)
 
 
+@router.get("/cronicos")
+def cronicos(limite: int = 60):
+    """**LO QUE PASA SIEMPRE** — el ranking que dice dónde están las MEJORAS.
+
+    Un problema que aparece treinta veces en un mes no es un incidente: es una
+    configuración mal puesta, y arreglarlo cada vez lo tapa. Mirando un hallazgo
+    por vez los dos casos se ven idénticos; sólo el patrón los separa.
+    """
+    from agente import vista as v
+    return v.cronicos(limite)
+
+
 @router.get("/habilidades")
 def habilidades():
     """El catálogo con sus contadores: cuántos hallazgos, el último, y —lo que

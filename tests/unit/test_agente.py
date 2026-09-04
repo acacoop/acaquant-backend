@@ -3138,14 +3138,34 @@ def test_no_poder_contar_los_episodios_no_es_decir_que_es_la_primera_vez():
             "el componente tiene que saltear el caso «no pude contar»")
 
 
-def test_el_umbral_de_cronico_vive_en_un_solo_lugar():
-    """REGLA #9: si el número estuviera también en una vista SQL y en el diag,
-    el día que se cambie uno la pantalla y el diag dirían cosas distintas sobre
-    el mismo problema — y ninguno fallaría."""
+def test_hay_UNA_definicion_de_cronico_y_la_leen_todos():
+    """**REGLA #9, y la lección ya la pagamos tres veces hoy** — con el conteo
+    de reincidencias, que se calculaba en tres lugares y decía cosas distintas.
+
+    «Crónico» son tres cosas: el umbral de episodios, la ventana, y la CONSULTA
+    que los cuenta. Si la terminal tuviera su propia copia de cualquiera de las
+    tres, el día que se toque una el diag y la pantalla darían números distintos
+    sobre el mismo problema — y ninguno fallaría.
+
+    Por eso `scripts/diag_agente` no consulta: **llama a `vista.cronicos()` y
+    sólo dibuja**. El umbral tampoco se copia al schema.
+    """
+    from agente import vista
+
     sql = (RAIZ / "sql" / "schema.sql").read_text()
     assert "EPISODIOS_CRONICO" not in sql and "make_interval(days => 30)" not in sql, (
-        "el umbral no se copia al schema: lo calcula `vista._con_historial`")
+        "el umbral no se copia al schema: lo calculan `vista._con_historial` y "
+        "`vista.cronicos`")
 
-    diag = (RAIZ / "scripts" / "diag_agente.py").read_text()
-    assert "tipos.EPISODIOS_CRONICO" in diag and "tipos.VENTANA_CRONICO_D" in diag, (
-        "el diag lee las constantes, no las repite")
+    diag = _codigo((RAIZ / "scripts" / "diag_agente.py").read_text())
+    assert "vista.cronicos(" in diag, "el diag LEE la lista, no la arma"
+    assert "percentile_cont" not in diag and "HAVING count(*)" not in diag, (
+        "el diag no puede tener su propia consulta de crónicos: dos consultas "
+        "son dos definiciones, y la que se desincronice no falla — miente")
+
+    # Y la función devuelve los umbrales con los que contó, para que la pantalla
+    # pueda decir «3+ en 30 días» sin repetir los números.
+    for k in ("ventana_dias", "dias_activo", "desde_episodios"):
+        assert k in _codigo(vista.cronicos), (
+            f"`cronicos()` tiene que devolver «{k}»: si el front lo hardcodea, "
+            "el día que cambie el umbral la leyenda va a mentir")

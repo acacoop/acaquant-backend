@@ -282,6 +282,68 @@ def historial(*, limite: int = LIMITE, desde_id: int | None = None,
             "limite": limite}
 
 
+# ── LO CRÓNICO ─────────────────────────────────────────────────────────────
+def cronicos(limite: int = 60) -> dict:
+    """**Lo que pasa SIEMPRE — donde están las mejoras.** Doc: `AGENT.md` §6.10.
+
+    Un problema que aparece treinta veces en un mes no es un incidente: es una
+    configuración mal puesta, y arreglarlo cada vez lo TAPA. Esta lista es la
+    única forma de verlo, porque mirando un hallazgo por vez los dos casos se
+    ven idénticos.
+
+    ⚠️ **LA CONSULTA VIVE ACÁ Y EN NINGÚN OTRO LADO.** `scripts/diag_agente` la
+    LEE de esta función en vez de repetirla: dos definiciones de «crónico» —una
+    para la pantalla y otra para la terminal— darían números distintos sobre el
+    mismo problema sin que ninguna falle (REGLA #9). Ya pasó con el conteo de
+    reincidencias, en tres lugares.
+
+    Devuelve `activos` (pasó en los últimos `DIAS_ACTIVO`) y `historicos`
+    aparte. **No es cosmético**: medido la primera vez que se listó, once de
+    veinticinco ya no pasaban y competían por atención con los que rompen hoy.
+
+    `mediana_s` es la MEDIANA de cuánto duró cada episodio, no el promedio: uno
+    de cuatro horas entre cuarenta de tres minutos mueve el promedio a doce y
+    cuenta una historia que no pasó.
+
+    ⚠️ Y la duración mide **cuánto vivió el HALLAZGO**, no cuánto estuvo roto el
+    mundo: tiene un piso puesto por la ventana del propio detector. En
+    `proveedor_caido` (ventana de 20') una mediana de 20' significa «casi todos
+    fueron un solo fallo» — que es justo lo que se quiere saber —, pero no se
+    lee como «estuvo caído 20 minutos».
+    """
+    from agente import tipos
+
+    sql = (
+        "SELECT habilidad, sujeto, regla, count(*)::int AS episodios, "
+        "       (percentile_cont(0.5) WITHIN GROUP ("
+        "          ORDER BY extract(epoch FROM "
+        "                   coalesce(cerrado_at, now()) - detectado_at)))::int AS mediana_s, "
+        "       max(extract(epoch FROM "
+        "           coalesce(cerrado_at, now()) - detectado_at))::int AS peor_s, "
+        "       min(detectado_at) AS desde, max(detectado_at) AS ultima, "
+        "       count(*) FILTER (WHERE estado = ANY(%s))::int AS abiertos, "
+        "       max(detectado_at) > now() - make_interval(days => %s) AS activo "
+        "  FROM agente.hallazgos "
+        " WHERE detectado_at > now() - make_interval(days => %s) "
+        " GROUP BY habilidad, sujeto, regla "
+        "HAVING count(*) >= %s "
+        " ORDER BY 10 DESC, 4 DESC LIMIT %s")
+    filas = [_serializar(f) for f in _filas(
+        sql, (list(tipos.ABIERTOS), tipos.DIAS_ACTIVO, tipos.VENTANA_CRONICO_D,
+              tipos.EPISODIOS_CRONICO, int(limite)))]
+    activos = [f for f in filas if f.get("activo")]
+    return {
+        "activos": activos,
+        "historicos": [f for f in filas if not f.get("activo")],
+        # El badge de la tab cuenta lo que SIGUE pasando: lo que ya se cortó no
+        # es trabajo. Y sale de acá, no del navegador (invariante 11).
+        "total": len(activos),
+        "ventana_dias": tipos.VENTANA_CRONICO_D,
+        "dias_activo": tipos.DIAS_ACTIVO,
+        "desde_episodios": tipos.EPISODIOS_CRONICO,
+    }
+
+
 # ── LAS REINCIDENCIAS ──────────────────────────────────────────────────────
 def reincidencias(limite: int = 100) -> dict:
     """**La que debe estar VACÍA.** Si tiene filas, algo que dimos por arreglado
@@ -340,5 +402,9 @@ def vista() -> dict:
         "ahora": ahora(),
         "encontro": encontro(),
         "reincidencias": reincidencias(20),
+        # Va en el MISMO request que el resto: el modal se dibuja con UNA sola
+        # noción de «ahora». Dos endpoints con frescuras distintas fue cómo el
+        # agente viejo llegó a sumar números que hablaban de instantes distintos.
+        "cronicos": cronicos(60),
         "habilidades": [_serializar(h) for h in catalogo.estado()],
     }

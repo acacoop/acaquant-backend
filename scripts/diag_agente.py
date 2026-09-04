@@ -248,48 +248,26 @@ def main() -> int:
     print("  Un EPISODIO = una vez que el problema NACIÓ (no las veces que se lo vio:")
     print("  un problema que persiste no crea fila nueva). Tres episodios son tres")
     print(f"  veces que apareció, se fue y volvió → desde {tipos.EPISODIOS_CRONICO} es CRÓNICO.\n")
-    cronicos = _filas(
-        "SELECT habilidad, sujeto, regla, count(*)::int AS episodios, "
-        # ⚠️ **MEDIANA, no promedio.** Un episodio de cuatro horas entre
-        # cuarenta de tres minutos mueve el promedio a doce y cuenta una
-        # historia que no pasó. La mediana contesta «cuánto dura ESTO», que es
-        # la pregunta.
-        "       (percentile_cont(0.5) WITHIN GROUP ("
-        "          ORDER BY extract(epoch FROM "
-        "                   coalesce(cerrado_at, now()) - detectado_at)))::int AS mediana_s, "
-        "       max(extract(epoch FROM "
-        "           coalesce(cerrado_at, now()) - detectado_at))::int AS max_s, "
-        "       min(detectado_at) AS desde, max(detectado_at) AS ultima, "
-        "       count(*) FILTER (WHERE estado = ANY(%s))::int AS abiertos "
-        "  FROM agente.hallazgos "
-        " WHERE detectado_at > now() - make_interval(days => %s) "
-        " GROUP BY habilidad, sujeto, regla "
-        "HAVING count(*) >= %s "
-        " ORDER BY max(detectado_at) > now() - make_interval(days => %s) DESC, "
-        "          count(*) DESC LIMIT 40",
-        (list(tipos.ABIERTOS), tipos.VENTANA_CRONICO_D, tipos.EPISODIOS_CRONICO,
-         tipos.DIAS_ACTIVO))
-    if not cronicos:
+    # ⚠️ **SE LEE DE `vista.cronicos()`, no se repite la consulta.** Dos
+    # definiciones de «crónico» —una para la pantalla y otra para acá— darían
+    # números distintos sobre el mismo problema sin que ninguna falle. Ya pasó
+    # con el conteo de reincidencias, en tres lugares (REGLA #9).
+    from agente import vista
+    r = vista.cronicos(60)
+    activos, viejos = r["activos"], r["historicos"]
+
+    def _fila(c):
+        marca = " ●" if c["abiertos"] else "  "
+        print(f"  {c['episodios']:>5}{marca} {_dur(c['mediana_s']):>7} "
+              f"{_dur(c['peor_s']):>8}  {c['habilidad']:<19} "
+              f"{str(c['sujeto'])[:24]:<24} {str(c['regla'])[:20]:<20} "
+              f"{str(c['ultima'])[:16]}")
+
+    if not activos and not viejos:
         print("  Ninguno. Todo lo que apareció en 30 días es puntual — no hay nada")
         print("  que se esté tapando arreglándolo una y otra vez.")
     else:
-        from datetime import UTC, datetime, timedelta
-        corte = datetime.now(UTC) - timedelta(days=tipos.DIAS_ACTIVO)
-        # ⚠️ `c[7]` es ÚLTIMA, no `c[6]` (que es DESDE). Con el índice corrido,
-        # un crónico que arrancó hace tres días y paró ayer se leía como
-        # «sigue pasando», y uno viejo que sigue rompiendo caía en histórico —
-        # o sea, la lista decía exactamente lo contrario de lo que mira.
-        ULTIMA = 7
-        activos = [c for c in cronicos if c[ULTIMA] and c[ULTIMA] > corte]
-        viejos = [c for c in cronicos if not (c[ULTIMA] and c[ULTIMA] > corte)]
-
-        def _fila(c):
-            hab, suj, reg, n, med, mx, _desde, ultima, abiertos = c
-            marca = " ●" if abiertos else "  "
-            print(f"  {n:>5}{marca} {_dur(med):>7} {_dur(mx):>8}  {hab:<19} "
-                  f"{str(suj)[:24]:<24} {str(reg)[:20]:<20} {str(ultima)[:16]}")
-
-        print(f"  ── SIGUEN PASANDO (última vez en {tipos.DIAS_ACTIVO} días) "
+        print(f"  ── SIGUEN PASANDO (última vez en {r['dias_activo']} días) "
               "──────────────────────────")
         if not activos:
             print("  ninguno.")
@@ -300,20 +278,21 @@ def main() -> int:
                 _fila(c)
             print("\n  ⚠️ **ACÁ ESTÁN LAS MEJORAS, y la columna que decide es MEDIA.**")
             print("  Cuarenta episodios de TRES MINUTOS no son «se cae seguido»: son un")
-            print("  umbral demasiado sensible, y se arregla cambiando un número.")
+            print("  umbral demasiado sensible, y se arregla cambiando un número:")
+            print("      python -m scripts.agente_umbral <habilidad>")
             print("  Cuarenta episodios de DOS HORAS sí son un problema de verdad, y")
-            print("  entonces hay que hablar con quien lo rompe. Son conclusiones")
-            print("  opuestas y sin la duración no se distinguen.")
-            print("\n  Los umbrales se editan EN CALIENTE (`agente.habilidades.umbrales`),")
-            print("  sin deploy: el código trae el default y la base lo pisa.")
+            print("  entonces hay que hablar con quien lo rompe.")
+            print("\n  ⚠️ La duración mide cuánto vivió el HALLAZGO, no cuánto estuvo")
+            print("  roto el mundo: tiene un piso puesto por la ventana del detector.")
         if viejos:
-            print(f"\n  ── YA NO PASAN (nada hace {tipos.DIAS_ACTIVO}+ días) "
+            print(f"\n  ── YA NO PASAN (nada hace {r['dias_activo']}+ días) "
                   "─────────────────────────────")
             print(f"  {len(viejos)} problema(s) que fueron crónicos y se cortaron. "
                   "No compiten por tu atención:")
-            for hab, suj, reg, n, _m, _x, _d, ultima, _ab in viejos[:12]:
-                print(f"  {n:>5}   {hab:<19} {str(suj)[:24]:<24} "
-                      f"{str(reg)[:20]:<20} última {str(ultima)[:10]}")
+            for c in viejos[:12]:
+                print(f"  {c['episodios']:>5}   {c['habilidad']:<19} "
+                      f"{str(c['sujeto'])[:24]:<24} {str(c['regla'])[:20]:<20} "
+                      f"última {str(c['ultima'])[:10]}")
             if len(viejos) > 12:
                 print(f"  … y {len(viejos) - 12} más.")
         print(f"\n  {len(activos)} activo(s) · {len(viejos)} histórico(s). "

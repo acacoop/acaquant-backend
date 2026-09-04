@@ -128,6 +128,12 @@ def _humano(expr: str) -> str:
     d = _DOW.get(dow, dow)
     if mn.startswith("*/"):
         return f"cada {mn[2:]}min · {hr}h · {d}"
+    if "," in mn:
+        # Minutos explícitos (ej. "15,45": cada 30min pero desfasado, para no
+        # pegarle a un proveedor en el mismo instante que otro job). Sin esta
+        # rama caía en la de abajo y el plano decía "cada hora" — la MITAD de
+        # las corridas reales, en el doc que existe para no tener que adivinar.
+        return f"min {mn} · {hr}h · {d}"
     if "-" in hr:
         return f"cada hora · {hr}h · {d}"
     return f"{_hhmm(expr)} · {d}"

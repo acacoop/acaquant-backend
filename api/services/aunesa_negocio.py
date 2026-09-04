@@ -18,7 +18,10 @@ Consumers:
   - api/routers/manager/aunesa.py — endpoint /manager/aunesa/explorar
     (admin, exploratorio en vivo).
   - jobs/negocio_movimientos.py — cron que persiste consolidados a
-    CashFlow.NegocioMovimientos.
+    operaciones.negocio_movimientos (tiposCuenta=Comitente, CON filtros).
+  - jobs/movimientos_propias.py — cron que vuelca la cartera PROPIA a
+    operaciones.movimientos_propias (tiposCuenta=Propia, SIN filtros y a
+    grano LÍNEA: usa `movimientos`, no `boletos`).
   - api/routers/operaciones.py — endpoint /operaciones/negocio (lee
     desde Mongo, no Aunesa directo).
 
@@ -511,9 +514,18 @@ def fetch_y_consolidar(
     tipos_cuenta: str = "Comitente",
     timeout_s: int = 180,
     retries: int = 3,
+    aplicar_filtros: bool = True,
 ) -> dict[str, Any]:
     """Pega a Aunesa para `fecha`, aplica filtros + parseo + agrupación
     y devuelve dict con meta + tipos + categorias + movimientos + boletos.
+
+    `aplicar_filtros=False` saltea LAS DOS capas de exclusión (`_excluir`:
+    el filtro canónico de `informacion` + los substrings otc/usdl/garantías)
+    y devuelve TODAS las filas que mandó Aunesa. Lo usa
+    `jobs/movimientos_propias`, que vuelca la cartera propia sin descartar
+    nada: ahí lo administrativo ES el dato. **El default es True y no se
+    cambia** — el job de comitentes depende de que sus filtros se apliquen,
+    y `tests/unit/test_movimientos_propias.py` congela ese default.
 
     Raises:
         requests.HTTPError si la API responde != 200.
@@ -563,7 +575,8 @@ def fetch_y_consolidar(
         raise RuntimeError(f"shape inesperada: {type(data).__name__}")
 
     raw_total = len(data)
-    data = [r for r in data if not _excluir(r)]
+    if aplicar_filtros:
+        data = [r for r in data if not _excluir(r)]
     excluidos_n = raw_total - len(data)
 
     movimientos = [_enriquecer(r) for r in data]
@@ -612,6 +625,7 @@ def fetch_y_consolidar(
             "n_boletos":          len(boletos),
             "palabras_clave_actuales": list(PALABRAS_CLAVE_ACTUALES),
             "excluir_substrings": list(EXCLUIR_SUBSTRINGS),
+            "aplico_filtros":     aplicar_filtros,
         },
         "tipos":       tipos,
         "categorias":  categorias,

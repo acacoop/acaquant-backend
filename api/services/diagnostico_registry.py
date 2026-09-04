@@ -232,6 +232,12 @@ PIEZAS: list[Pieza] = [
     Pieza("NEGOCIO", "job", "ops_tasa_mav (tasa cauciones MAV)", unidad="jobs.ops_tasa_mav",
           cadencia="cada 30m · 14-22 UTC L-V (cierra la cadena negocio)", ventana="rueda",
           umbral_s=70 * 60, run_tipo="ops_tasa_mav"),
+    # Cartera PROPIA: mismo endpoint de Aunesa, tiposCuenta=Propia. Corre en línea
+    # propia (no en la cadena) — si falla, no corta lo que alimenta pantallas.
+    Pieza("NEGOCIO", "job", "Aunesa cartera propia (movimientos_propias)",
+          unidad="jobs.movimientos_propias",
+          cadencia="cada 30m · 14-22 UTC L-V", ventana="rueda", umbral_s=70 * 60,
+          run_tipo="movimientos_propias"),
 
     # ── BACK OFFICE ────────────────────────────────────────
     Pieza("BACK_OFFICE", "api", "Aunesa boletos (negocio_movimientos)", unidad="jobs.negocio_movimientos",

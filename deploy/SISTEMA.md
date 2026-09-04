@@ -88,11 +88,12 @@
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 22:00 · L-V | `jobs.mercado_1816_series'` |
 | 23:00 · L-V | `jobs.validar_instrumentos'` |
-| cada hora · 13-19h · L-V | `jobs.tamar_1816'` |
-| cada hora · 16-17h · L-V | `jobs.mayor_sync'` |
+| min 0,30 · 13-19h · L-V | `jobs.tamar_1816'` |
+| min 0,30 · 16-17h · L-V | `jobs.mayor_sync'` |
 | 21:10 · L-V | `jobs.eikon_cierres'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
+| min 15,45 · 14-22h · L-V | `jobs.movimientos_propias'` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |
 | 20:20 · L-V | `jobs.cedears_bars_1m'` |
 | 03:20 · diario | `jobs.cleanup_retencion'` |
@@ -112,7 +113,7 @@
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
 | 19:45 · L-V | `jobs.saldos_a_operadores'` |
-| cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
+| min 5,35 · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 02:50 · Mar-Sáb | `jobs.tesoreria_snapshot'` |
 | 20:50 · L-V | `jobs.archive_options_data` |
 | 23:50 · L-V | `jobs.cleanup_cedears_timesales'` |

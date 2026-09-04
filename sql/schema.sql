@@ -425,6 +425,81 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS anulado_en 
 CREATE INDEX IF NOT EXISTS ix_nm_anulado ON operaciones.negocio_movimientos(fecha)
     WHERE anulado_en IS NOT NULL;
 
+-- ── CARTERA PROPIA — `movimientos_propias` (2026-09-04) ──────────────────────
+--
+-- MISMO endpoint de Aunesa (`operaciones/consolidadosGenerales`), OTRO valor de
+-- `tiposCuenta`: **Propia** en vez de Comitente. La cartera propia de la casa
+-- (la que más se mueve por cauciones) nunca se ingirió: el job de negocio pide
+-- SIEMPRE "Comitente", así que estos movimientos no existían en ninguna tabla.
+--
+-- ⚠️ TRES diferencias con `negocio_movimientos`, y las tres son a propósito:
+--
+-- 1. **GRANO LÍNEA, no boleto.** Una fila = una línea de Aunesa, sin consolidar.
+--    El consolidador de comitentes agrupa por comprobante y ahí PIERDE filas: de
+--    una compra en USD con comisión en ARS se queda con la línea USD y DESCARTA
+--    la de ARS (sumarlas daría un importe mezclado en dos monedas, que no
+--    significa nada) — la comisión no queda en ningún lado salvo como `n_lineas`.
+--    Lo mismo con las solicitudes FCI, donde el dedup se queda solo con las DIS.
+--    Acá lo administrativo ES el dato, así que no se agrupa: consolidar después
+--    es un `GROUP BY comprobante`; recuperar las líneas de una fila consolidada
+--    no se puede nunca.
+--
+-- 2. **SIN FILTROS.** No corre `_es_info_excluida` ni `EXCLUIR_SUBSTRINGS`. La
+--    propia opera OTC y cauciones — el filtro de comitentes le borraría
+--    justamente lo que se quiere ver.
+--
+-- 3. **PK por HASH de la fila cruda.** El feed NO trae un id de línea (medido
+--    2026-09-04: las 10 claves son lugar · uso · estado · unidad · cuenta ·
+--    fecha · comprobante · informacion · total · operador), y `comprobante`
+--    identifica al BOLETO, no a la línea. `id_linea` = md5 de la fila
+--    normalizada → re-ingerir lo mismo da el mismo hash y el upsert es un
+--    no-op. `ocurrencia` desempata dos líneas byte-idénticas del mismo día.
+--
+-- `raw` guarda la fila entera como vino: el día que Aunesa agregue una undécima
+-- clave, el dato ya está guardado aunque la columna no exista todavía.
+--
+-- NO la lee ninguna vista: es un volcado. El categorizador es el MISMO de
+-- comitentes (`aunesa_negocio.categorizar`) y lo que no matchea cae en 'otro',
+-- que acá es señal y no ruido — se categorizará aparte más adelante.
+CREATE TABLE IF NOT EXISTS operaciones.movimientos_propias (
+    fecha        date NOT NULL,
+    id_linea     text NOT NULL,             -- md5 de la fila cruda normalizada
+    ocurrencia   smallint NOT NULL DEFAULT 1,
+    -- Crudo de Aunesa (las 10 claves del feed, tal cual).
+    comprobante  text,
+    cuenta       text,                      -- "[1839] ACA VALORES TRADING"
+    informacion  text,
+    unidad       text,                      -- "[4711] AL30" | "ARS" | "USD" | …
+    estado       text,
+    lugar        text,
+    uso          text,                      -- GRAL | COMI | …
+    total        numeric,                   -- signo BROKER (como lo manda Aunesa)
+    operador     text,                      -- ⚠️ el feed de comitentes lo ignora
+    -- Derivado con la MISMA lógica que negocio_movimientos.
+    id_cuenta    text,                      -- soft ref, sale de `cuenta`
+    categoria    text,
+    op           text,
+    ticker       text,
+    cantidad     numeric,
+    precio       numeric,
+    importe      numeric,                   -- signo CLIENTE (= -total)
+    moneda       text,
+    plazo        text,
+    -- Meta.
+    mep          numeric,                   -- snapshot del MEP del día
+    raw          jsonb NOT NULL,            -- la fila entera, por si suma claves
+    ingestado_en timestamptz,
+    anulado_en   timestamptz,               -- se MARCA, nunca se borra
+    PRIMARY KEY (fecha, id_linea, ocurrencia)
+);
+CREATE INDEX IF NOT EXISTS ix_mp_fecha       ON operaciones.movimientos_propias(fecha);
+CREATE INDEX IF NOT EXISTS ix_mp_id_cuenta   ON operaciones.movimientos_propias(id_cuenta, fecha);
+CREATE INDEX IF NOT EXISTS ix_mp_categoria   ON operaciones.movimientos_propias(categoria, fecha);
+CREATE INDEX IF NOT EXISTS ix_mp_comprobante ON operaciones.movimientos_propias(comprobante);
+CREATE INDEX IF NOT EXISTS ix_mp_operador    ON operaciones.movimientos_propias(operador, fecha);
+CREATE INDEX IF NOT EXISTS ix_mp_anulado     ON operaciones.movimientos_propias(fecha)
+    WHERE anulado_en IS NOT NULL;
+
 -- ── AJUSTES DE PnL (eventos corporativos sin boleto: splits, canjes, pre-data) ──
 -- Un split (ej. CEDEAR YPF 10:1) cambia la tenencia SIN generar boleto en Aunesa →
 -- el cost-basis del motor de PnL (api/services/pnl.py) queda con la cantidad

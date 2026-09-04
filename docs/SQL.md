@@ -51,7 +51,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `macro` | series_macro, uva, rem |
 | `valuaciones` | consolidado, pnl_totales_cache, portfolio_snapshot, dolar, dolar_snapshot, dolar_oficial_live |
 | `portafolio` | tenencia, assets, backfill_log |
-| `operaciones` | operaciones, negocio_movimientos, acreencias, movimientos, tipos_operacion, ordenes_live, ordenes_audit, ordenes_idempotency, triggers_mep, brackets_live, operativas_mep, motor_heartbeat, accounts_descubiertas |
+| `operaciones` | operaciones, negocio_movimientos, movimientos_propias, acreencias, movimientos, tipos_operacion, ordenes_live, ordenes_audit, ordenes_idempotency, triggers_mep, brackets_live, operativas_mep, motor_heartbeat, accounts_descubiertas |
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, news_headlines |
@@ -65,7 +65,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 
 **Diseño:**
 - **Dimensiones** (PK natural): `clientes.{comitentes, cuentas, operadores, contrapartes}`.
-- **Hechos** (`id_cuenta` indexado, **sin FK dura**): `operaciones.{operaciones, negocio_movimientos}`.
+- **Hechos** (`id_cuenta` indexado, **sin FK dura**): `operaciones.{operaciones, negocio_movimientos, movimientos_propias}`.
   La fuente histórica traía huérfanos (hechos con `id_cuenta` que no está en
   comitentes); un FK duro los rechazaría. Soft + indexado deja cargarlos Y
   auditarlos (`SELECT … WHERE id_cuenta NOT IN (SELECT id_cuenta FROM comitentes)`)
@@ -148,6 +148,23 @@ jsonb pisaría al otro motor.
     acá viven volumen/arancel comercial.
 - `operaciones.negocio_movimientos` — cost-basis del PnL + vista `/operaciones/negocio`.
   Lo escribe `jobs.negocio_movimientos` (idempotente por boleto, campo `etapa`).
+- `operaciones.movimientos_propias` — la CARTERA PROPIA (2026-09-04). Mismo endpoint
+  de Aunesa que la de arriba con `tiposCuenta=**Propia**` en vez de Comitente; hasta
+  que existió, esos movimientos no estaban en ninguna tabla. Lo escribe
+  `jobs.movimientos_propias` y **no la lee ninguna vista**: es un volcado.
+  Tres diferencias deliberadas con `negocio_movimientos`:
+  - **Grano LÍNEA**, no boleto. El consolidador de comitentes agrupa por comprobante
+    y ahí PIERDE filas (de una compra en USD con comisión en ARS se queda con la
+    línea USD y descarta la de ARS; de una solicitud FCI, sólo las `DIS`). Acá lo
+    administrativo ES el dato: consolidar después es un `GROUP BY comprobante`,
+    recuperar las líneas de una fila consolidada no se puede nunca.
+  - **Sin filtros** (`fetch_y_consolidar(..., aplicar_filtros=False)`). La propia
+    opera OTC y cauciones — `EXCLUIR_SUBSTRINGS` le borraría justo lo que se mira.
+  - **PK `(fecha, id_linea, ocurrencia)`** con `id_linea` = md5 de la fila cruda. El
+    feed NO trae id de línea (sus 10 claves: lugar · uso · estado · unidad · cuenta ·
+    fecha · comprobante · informacion · total · **operador**) y `comprobante`
+    identifica al BOLETO. `raw` jsonb guarda la fila entera por si Aunesa suma una
+    undécima clave. `operador` es info NUEVA: el pipeline de comitentes lo ignora.
 
 #### MOTOR DE ÓRDENES (transaccional, en vivo)
 8 tablas en `operaciones`: `ordenes_live` (PK `cl_ord_id`, columnas account/ticker/

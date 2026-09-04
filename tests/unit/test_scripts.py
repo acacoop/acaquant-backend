@@ -128,6 +128,12 @@ HERRAMIENTAS: dict[str, str] = {
                              "por rueda en los dos tapes y cuánto tardan las DOS queries agregadas "
                              "que la tab va a pedir. Elegir 1 rueda o 5 sin medir esto es adivinar "
                              "(2026-09-04, abierto).",
+    "diag_propias":          "el ANTES de `operaciones.movimientos_propias`: qué devuelve "
+                             "consolidadosGenerales con tiposCuenta=Propia, con un valor BASURA "
+                             "de control (si la API ignora el parámetro, «las propias» serían los "
+                             "comitentes de siempre y la tabla nueva una copia) y el cruce contra "
+                             "los comprobantes que YA están ingeridos. Crear la tabla sin estos "
+                             "números es adivinar (2026-09-04, abierto).",
     "diag_ctas_ops":         "mide cuánto cambia CTAS OPS del INFORME si el número pasa a salir de "
                              "operaciones.operaciones (para que las cuentas OTC cuenten como operativas). Sin este número la decisión se toma a ciegas.",
 }

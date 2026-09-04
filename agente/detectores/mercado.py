@@ -28,6 +28,13 @@ def _tk(x) -> str:
     return (x or "").strip().upper()
 
 
+def _num(v) -> float | None:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _es_pata_1816(ticker: str) -> bool:
     """1816 publica las patas de un dual como tickers aparte (`TXMD9 @TAMAR`).
     **No son instrumentos**: `/cashflow` les da 404 porque el cuadro lo tiene el
@@ -645,4 +652,308 @@ def cedear_faltante(u: dict) -> list[Hallazgo]:
                        "desactivarlo. Si OPERAR sí lo encuentra, la foto está vieja: "
                        "`python -m scripts.discovery_pyrofex`."),
             evidencia={"simbolo": simbolo, "foto_de": foto_txt}))
+    return out
+
+
+# ═══ tasa_vs_1816 ══════════════════════════════════════════════════════════
+#
+# Cuántos tickers entran por llamada a `/indicadores`. **La API TRUNCA en 50 y
+# no avisa** (`core/mercado_1816.indicadores`: `list(tickers)[:50]`): sin trocear,
+# del 51 en adelante 1816 «no tendría» el bono.
+LOTE_1816 = 50
+
+
+def tasa_vs_1816(u: dict) -> list[Hallazgo]:
+    """Corporativos HARD DÓLAR cuya TEA no coincide con la de 1816 **al mismo
+    precio**. Doc: §0.do.
+
+    Hasta hoy ninguna habilidad juzgaba el VALOR de una tasa: las dos que tocan
+    `tea` preguntan `is not None`. La que lo hacía, `tasa_sospechosa`, se borró
+    por ruidosa — bandas a dedo sobre el número suelto. Esto NO es una banda
+    sobre el bono: es una comparación contra alguien que calculó lo mismo, y
+    en DOS pasos, porque el primero solo no alcanza:
+
+      1. **A SU precio** (barato: una llamada por lote de 50, `tea`+`tna`). Si
+         coinciden, listo. Si no, todavía no se sabe nada: cada uno calculó
+         sobre SU precio (Primary live contra BYMA con delay) y la diferencia
+         puede ser el insumo y no la fórmula.
+      2. **A NUESTRO precio** (`/indicadores/{ticker}`, input manual, solo para
+         los que se apartaron). Se le pasa el MISMO número que consumió el motor
+         y lo que quede es exclusivamente cronograma, escala o convención. **Eso
+         y no otra cosa es el hallazgo**: si al mismo precio coinciden, era el
+         precio, y eso no es un bug de nadie.
+
+    La moneda del cotejo la decide `alta.moneda_cotejo_1816` con el
+    `moneda_flujo` del bono — la misma pregunta que el pre-flight del alta, con
+    la misma respuesta (`mep`, porque el motor divide por MEP y 1816 por CCL).
+
+    El umbral por defecto es `_BPS_MIRAR` del pre-flight del alta, no un número
+    nuevo: es la banda que la casa ya usa para decir «mirar» una TEA. Sin
+    arreglo a propósito: lo que hay que mirar es el cuadro del bono, y eso lo
+    decide una persona en Manager.
+    """
+    from agente import alta
+    from api.services.curvas_vista import pills_del_master
+    from core import mercado_1816
+    from engines.curvas import precio_soberano_a_usd
+
+    _feed_o_sindatos()
+    if not mercado_1816.disponible():
+        raise SinDatos("1816 no está configurado: no puedo comparar contra nadie")
+    docs, snap, mep = fuentes.master(), fuentes.snapshot(), fuentes.mep()
+    if docs is None or snap is None:
+        raise SinDatos("no pude leer el master o el snapshot")
+    pills = pills_del_master()
+    bps_max = float(u.get("bps", alta._BPS_MIRAR))
+    max_cotejos = int(u.get("max_cotejos", 40))
+
+    # El universo: corporativos de la pill HARD DOLAR —la MISMA taxonomía que la
+    # vista, por `pills_del_master`— con precio Y con TEA del motor. Sin TEA no
+    # hay qué comparar (eso ya lo canta `bono_sin_tasa`); sin precio no hubo rueda.
+    cand: dict[str, dict] = {}
+    otra_moneda: list[str] = []
+    for d in docs:
+        tk, simbolo = _tk(d.get("ticker_corto")), (d.get("ticker") or "").strip()
+        if not tk or not simbolo or d.get("emisor_tipo") != "corporativo":
+            continue
+        if "hard_dolar" not in pills.get(tk, ()):
+            continue
+        # El mismo default que la rama `on` del motor (`moneda_flujo or "USD"`).
+        moneda_cot = alta.moneda_cotejo_1816("on", d.get("moneda_flujo") or "USD")
+        if moneda_cot != "mep":
+            otra_moneda.append(tk)        # el motor lo calcula en pesos: otra pregunta
+            continue
+        m = snap.get(simbolo) or {}
+        precio, tea = _num(m.get("last_price")), _num(m.get("tea"))
+        if not precio or tea is None:
+            continue
+        cand[tk] = {"simbolo": simbolo, "precio": precio, "tea": tea,
+                    "duration": _num(m.get("duration")), "moneda": moneda_cot}
+    if otra_moneda:
+        logger.info("tasa_vs_1816: %d corporativo(s) de la pill HARD DOLAR con "
+                    "moneda_flujo que no es USD, fuera del cotejo: %s",
+                    len(otra_moneda), ", ".join(sorted(otra_moneda)[:10]))
+    if not cand:
+        return []
+
+    # ── PASO 1: su tasa a SU precio ────────────────────────────────────────
+    g = mercado_1816.grafias_de(sorted(cand), "fija")
+    pedidos, suyas, fecha = sorted(g), {}, None
+    for i in range(0, len(pedidos), LOTE_1816):
+        try:
+            resp = mercado_1816.indicadores_vigentes(
+                pedidos[i:i + LOTE_1816], ["tea", "tna"], fecha=fecha, moneda="mep") or {}
+        except Exception as e:
+            raise SinDatos(f"1816 no contestó el lote {i // LOTE_1816 + 1}: {e}") from e
+        # La rueda se fija con el primer lote: media tabla de una rueda y media
+        # de otra no se notaría.
+        fecha = fecha or resp.get("fechaOperacion")
+        for grafia, v in (resp.get("instrumentos") or {}).items():
+            nuestro = g.get(grafia)
+            if not nuestro or not v:
+                continue
+            if nuestro not in suyas or (suyas[nuestro].get("tea") is None
+                                        and v.get("tea") is not None):
+                suyas[nuestro] = {"tea": _num(v.get("tea")), "tna": _num(v.get("tna"))}
+    if not any(s.get("tea") is not None for s in suyas.values()):
+        raise SinDatos("1816 contestó sin una sola TEA para los corporativos HD: "
+                       "no puedo afirmar que coincidan")
+
+    # ── PASO 2: a NUESTRO precio, solo los que se apartaron, los peores primero ─
+    # Se ordena por diferencia para que el tope de cotejos —si se alcanza— deje
+    # afuera a los que menos se apartan, no a los que más.
+    apartados = sorted(
+        ((abs(c["tea"] - suyas[tk]["tea"]) * 10_000, tk) for tk, c in cand.items()
+         if tk in suyas and suyas[tk].get("tea") is not None),
+        reverse=True)
+    apartados = [(b, tk) for b, tk in apartados if b > bps_max]
+    sin_1816 = sorted(set(cand) - {tk for tk in suyas if suyas[tk].get("tea") is not None})
+
+    # DOS contadores y no uno: `intentos` topea los créditos (cada llamada cuesta
+    # conteste o no) y `cotejados` sostiene el invariante 1 — una llamada que
+    # volvió vacía NO es un cotejo hecho, y contarla como tal dejaba que una
+    # corrida sin una sola respuesta terminara en `ok` y cerrara por ausencia
+    # lo que ayer sí se vio (lo encontró el test).
+    out, era_el_precio, sin_cotejo, intentos, cotejados = [], [], [], 0, 0
+    for bps, tk in apartados:
+        c = cand[tk]
+        if intentos >= max_cotejos:
+            sin_cotejo.append(tk)
+            continue
+        # EL MISMO NÚMERO que consumió el motor, expresado como el motor lo
+        # expresa: la función del motor, no una copia (§0.cy).
+        px = precio_soberano_a_usd(c["precio"], c["simbolo"], mep)
+        if px is None:
+            sin_cotejo.append(tk)
+            continue
+        intentos += 1
+        mismo = alta._tea_de_1816_a_nuestro_precio(tk, px, c["moneda"])
+        if mismo.get("tea") is None:
+            sin_cotejo.append(tk)
+            continue
+        cotejados += 1
+        bps_mismo = abs(c["tea"] - float(mismo["tea"])) * 10_000
+        if bps_mismo <= bps_max:
+            era_el_precio.append(tk)
+            continue
+        conv = mismo.get("convencion_tna") or ""
+        out.append(Hallazgo(
+            sujeto=tk, regla="tasa_no_coincide", severidad="media",
+            problema=(f"al MISMO precio ({px:,.2f} USD) 1816 da TEA "
+                      f"{float(mismo['tea']):.2%} y el motor {c['tea']:.2%} "
+                      f"({bps_mismo:,.0f} bps) · {reloj.hhmm()}"),
+            detalle=(f"a su propio precio 1816 publica {suyas[tk]['tea']:.2%} "
+                     f"({bps:,.0f} bps de la nuestra) · rueda 1816 {fecha or '?'}"
+                     + (f" · ellos anualizan «{conv}»" if conv else "")),
+            que_hacer=("No es el precio: es el cuadro o la convención. Revisar el "
+                       "cronograma y la escala de los flujos de este bono en "
+                       "Manager → TÍTULOS → BONOS (ver/editar) contra el cuadro de "
+                       "1816. `python -m scripts.diag_tea_corp_hd` trae la tabla "
+                       "entera de corporativos HD."),
+            evidencia={"simbolo": c["simbolo"], "precio_usd": round(px, 4),
+                       "precio_crudo": c["precio"], "mep": mep,
+                       "tea_motor": c["tea"], "duration_motor": c["duration"],
+                       "tea_1816_su_precio": suyas[tk]["tea"],
+                       "tna_1816_su_precio": suyas[tk].get("tna"),
+                       "tea_1816_nuestro_precio": mismo["tea"],
+                       "paridad_1816_nuestro_precio": mismo.get("paridad"),
+                       "convencion_tna_1816": conv, "bps_su_precio": round(bps, 1),
+                       "bps_mismo_precio": round(bps_mismo, 1),
+                       "umbral_bps": bps_max, "fecha_1816": fecha}))
+
+    # Lo que se decidió NO mostrar se dice: un descarte mudo es indistinguible de
+    # un detector que dejó de mirar.
+    if era_el_precio:
+        logger.info("tasa_vs_1816: %d se apartaban a su precio y coinciden al "
+                    "nuestro (era el precio): %s", len(era_el_precio),
+                    ", ".join(era_el_precio[:10]))
+    if sin_1816:
+        logger.info("tasa_vs_1816: %d sin TEA en 1816: %s", len(sin_1816),
+                    ", ".join(sin_1816[:10]))
+    if sin_cotejo:
+        logger.warning("tasa_vs_1816: %d apartados que NO pude cotejar a nuestro "
+                       "precio (tope %d o sin respuesta): %s", len(sin_cotejo),
+                       max_cotejos, ", ".join(sin_cotejo[:10]))
+    if apartados and cotejados == 0:
+        # Había qué mirar y no se pudo mirar ni uno: eso no es «no hay nada».
+        raise SinDatos(f"{len(apartados)} corporativos se apartan de 1816 y no pude "
+                       "cotejar ninguno a nuestro precio")
+    return out
+
+
+# ═══ on_faltante ═══════════════════════════════════════════════════════════
+#
+# Qué ONs entran: corporativos, en DÓLARES y a tasa fija — la pill HARD DOLAR.
+# Es un corte estructural sobre los EJES de la curva de 1816, no una lista de
+# nombres de curva: «Corporativos USD Linked» es corporativo y USD y NO entra,
+# porque su ajuste es dolar_linked.
+ALCANCE_ON = frozenset({"corporativo"})
+MONEDAS_ON = frozenset({"USD"})
+AJUSTES_ON = frozenset({"fija"})
+
+
+def on_faltante(u: dict) -> list[Hallazgo]:
+    """ONs hard dólar que 1816 lista, **Primary cotiza**, y no están en
+    `mercado.curvas`. Doc: §0.dp.
+
+    Es `soberanos_faltantes` para el otro lado del mostrador, con DOS
+    diferencias que no son de gusto:
+
+    · **Primary es condición, no filtro.** En los soberanos, «no pude leer la
+      foto de Primary» deja pasar el hallazgo (se descarta solo lo que la foto
+      niega). Acá el user lo pidió al revés —*«antes de ofrecer agregarlas,
+      validar que se encuentra en Primary»*— así que sin foto no se ofrece
+      nada: `SinDatos`. Un alta que después no cotiza es peor que un alta que
+      llega un día tarde.
+    · **Sin arreglo, y declarado.** La rama `on` no está en
+      `alta.RAMAS_AUTOMATICAS`: 1816 manda algunos cuadros de ONs en NOMINALES
+      y no en base 100 (medido, RESEARCH.md §A.4.9) y esa conversión no está
+      verificada. Un botón que siempre bloquea enseña a no apretar. El
+      `que_hacer` trae lo que hay que tipear en Manager.
+
+    Lo que comparte con su hermano se comparte de verdad: el mismo censo
+    (`fuentes.universo_1816`), la misma foto (`fuentes.tickers_en_primary`), la
+    misma regla de «se está yendo» (`curvas_sql.sale_del_master`) y la misma
+    excepción de cartera.
+    """
+    from core import curvas_ejes, curvas_sql
+
+    univ = fuentes.universo_1816()
+    if univ is None:
+        raise SinDatos("ni 1816 ni el catálogo local contestaron: no puedo "
+                       "afirmar que falte nada")
+    docs = fuentes.master()
+    if docs is None:
+        raise SinDatos("no pude leer mercado.curvas")
+    tickers_primary = fuentes.tickers_en_primary()
+    if tickers_primary is None:
+        raise SinDatos("no pude leer la foto de Primary: sin ella no puedo "
+                       "afirmar que una ON cotice, y sin eso no se ofrece el alta")
+
+    mios = {_tk(d.get("ticker_corto")) for d in docs} - {""}
+    cartera = fuentes.en_cartera() or set()
+    habiles = curvas_sql.calendario_habil() or set()
+    hoy_iso = date.today().isoformat()
+    foto = fuentes.primary_fecha()
+    foto_txt = foto.strftime("%d/%m %H:%M UTC") if foto else "sin fecha"
+
+    out, sin_primary, por_vencer = [], [], 0
+    for ticker, inst in sorted((univ["instrumentos"] or {}).items()):
+        if _es_pata_1816(ticker):
+            continue
+        tk = _tk(ticker)
+        if not tk or tk in mios:
+            continue
+        curva = inst.get("_curva") or ""
+        ejes = curvas_ejes.desde_1816(curva)
+        # Una curva que no sabemos leer NO se clasifica como ON por las dudas:
+        # eso lo reporta el discovery. Acá solo entra lo que ES corporativo USD fija.
+        if ejes is None or ejes.emisor_tipo not in ALCANCE_ON \
+                or ejes.moneda not in MONEDAS_ON or ejes.ajuste not in AJUSTES_ON:
+            continue
+        if curvas_sql.sale_del_master(inst.get("fechaVencimiento"), habiles, hoy_iso):
+            por_vencer += 1
+            continue
+        lo_tenemos = tk in cartera
+        # LA VALIDACIÓN que pidió el user: si Primary no lo lista, no se ofrece.
+        # La excepción sigue siendo la cartera —ahí el problema es más grave y
+        # no se puede callar—, y el hallazgo lo dice.
+        if tk not in tickers_primary and not lo_tenemos:
+            sin_primary.append(tk)
+            continue
+        emisor = inst.get("emisorNombre") or inst.get("emisor") or "?"
+        cotiza = tk in tickers_primary
+        out.append(Hallazgo(
+            sujeto=tk, regla="no_esta_en_curvas",
+            severidad="alta" if lo_tenemos else "media",
+            problema=((f"⚠ LO TENÉS EN CARTERA y no está en el master: hoy no "
+                       f"valúa. ON de {emisor}, 1816 la publica en «{curva}»"
+                       + ("" if cotiza else " y Primary NO la lista"))
+                      if lo_tenemos else
+                      f"ON de {emisor} en «{curva}»: cotiza en Primary y no está "
+                      f"en el master · {reloj.hhmm()}"),
+            detalle=(f"foto de Primary del {foto_txt} · vence "
+                     f"{inst.get('fechaVencimiento') or '?'} · "
+                     f"{inst.get('denominacion') or ''}".strip(" ·")),
+            que_hacer=("Darla de alta en Manager → TÍTULOS → BONOS → CARGAR → "
+                       f"«Corporativo (ON)»: emisor {emisor}, moneda del flujo USD, "
+                       "cronograma desde el cuadro de 1816. No hay botón: la rama "
+                       "`on` todavía no convierte el cuadro sola (algunas ONs "
+                       "vienen en nominales y no en base 100)."),
+            evidencia={
+                "curva_1816": curva, "ticker_1816": ticker, "emisor": emisor,
+                "denominacion": inst.get("denominacion"),
+                "moneda": inst.get("monedaDenom"), "isin": inst.get("isinCode"),
+                "vencimiento_1816": inst.get("fechaVencimiento"),
+                "en_cartera": lo_tenemos, "cotiza_en_primary": cotiza,
+                "foto_primary": foto_txt, "fuente_universo": univ["fuente"]}))
+    if sin_primary:
+        logger.info("on_faltante: %d ON(s) de 1816 descartadas por no cotizar en "
+                    "Primary: %s", len(sin_primary), ", ".join(sorted(sin_primary)[:20]))
+    if por_vencer:
+        logger.info("on_faltante: %d descartadas por estar saliendo del master",
+                    por_vencer)
+    if not habiles:
+        logger.warning("on_faltante: sin calendario hábil, no pude descartar las "
+                       "que están por vencer")
     return out

@@ -45,7 +45,6 @@ from __future__ import annotations
 import argparse
 import sys
 
-from core.postgres import get_pool
 from quant.tasas import tna_desde_tea
 
 # Cuántos tickers entran por llamada. **La API TRUNCA en 50 y no avisa**
@@ -54,28 +53,11 @@ from quant.tasas import tna_desde_tea
 # no lo tiene».
 LOTE = 50
 
-# Sufijo de 1816 → nuestro `ajuste`, igual que `jobs/tamar_1816`. Acá solo
-# interesa `fija`: un hard dólar corporativo no tiene dos patas que separar.
-_SUFIJO_A_AJUSTE = {"TAMAR": "tamar", "CER": "cer", "TASA FIJA": "fija",
-                    "BONCAP": "fija", "USD-L": "dolar_linked"}
-
-
-def _q(sql: str, params: tuple = ()) -> list[dict]:
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params or None)
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
-
-
 def _f(v) -> float | None:
     try:
         return float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
-
-
-def _sufijo(tk: str) -> str:
-    return tk.split("@", 1)[1].strip().upper() if "@" in tk else ""
 
 
 def universo() -> list[dict]:
@@ -98,43 +80,6 @@ def universo() -> list[dict]:
     return sorted(out, key=lambda b: b["ticker_corto"].upper())
 
 
-def grafias(tickers: list[str]) -> dict[str, str]:
-    """`grafía de 1816 → nuestro ticker`.
-
-    **La grafía la manda el CATÁLOGO de 1816, no nosotros** (mismo criterio que
-    `jobs/tamar_1816.universo`): armarla a mano parece obvio y es frágil — basta
-    un espacio distinto para que la llamada devuelva vacío sin un solo error. Un
-    ticker sin variantes `@` se pide pelado, que para un hard dólar corporativo
-    es lo correcto: no hay dos patas que separar.
-    """
-    variantes = _q("SELECT ticker, denominacion FROM research.mkt_1816_instrumentos "
-                   "WHERE ticker ILIKE '%%@%%'")
-    por_base: dict[str, list[dict]] = {}
-    for v in variantes:
-        base = str(v["ticker"]).split("@", 1)[0].strip().upper()
-        por_base.setdefault(base, []).append(v)
-
-    out: dict[str, str] = {}
-    for tk in tickers:
-        vs = por_base.get(tk.upper())
-        if not vs:
-            out[tk] = tk
-            continue
-        for v in vs:
-            g = str(v["ticker"])
-            if _SUFIJO_A_AJUSTE.get(_sufijo(g)) == "fija":
-                out[g] = tk
-            # El ALIAS de la denominación: en TTD26/TTS26 el catálogo guarda una
-            # grafía y la denominación otra, y solo una trae datos. Se piden las
-            # dos y gana la que conteste.
-            suf_den = _sufijo(str(v.get("denominacion") or ""))
-            if suf_den and suf_den != _sufijo(g) and \
-                    _SUFIJO_A_AJUSTE.get(suf_den) == "fija":
-                out[f"{tk} @{suf_den}"] = tk
-        out.setdefault(tk, tk)
-    return out
-
-
 def pedir_1816(tickers: list[str], fecha: str | None) -> dict[str, dict]:
     """`nuestro ticker → {tea, tna}` de 1816, en lotes de 50.
 
@@ -147,7 +92,7 @@ def pedir_1816(tickers: list[str], fecha: str | None) -> dict[str, dict]:
         print("MERCADO_1816_API_KEY no está configurada.", file=sys.stderr)
         return {}
 
-    g = grafias(tickers)
+    g = mercado_1816.grafias_de(tickers, "fija")
     pedidos = sorted(g)
     out: dict[str, dict] = {}
     for i in range(0, len(pedidos), LOTE):

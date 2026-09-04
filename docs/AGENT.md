@@ -633,6 +633,35 @@ alta recorre la cadena ENTERA por cada uno tildado: Primary (foto y en vivo) →
 ficha → `mercado.cedears` → historia EOD (Yahoo) → ADR (Finnhub) → el motor,
 que **relee el master cada 60 s** y lo suscribe sin reiniciar.
 
+#### `tasa_vs_1816` — habilidad NUEVA (2026-09-04)
+
+Corporativos HARD DÓLAR cuya TEA **no coincide con la de 1816 al mismo precio**.
+Ventana `cierre` (una vez, 17:30 ART, como `tasas_al_cierre`). Sin arreglo.
+Historia y decisiones en §0.do.
+
+**Es la primera habilidad que juzga el VALOR de una tasa** — hasta acá las dos
+que tocan `tea` preguntan `is not None`. Y no es una banda sobre el bono como
+la vieja `tasa_sospechosa`: es la tasa de 1816 **a NUESTRO precio**
+(`/indicadores/{ticker}`, input manual, `alta._tea_de_1816_a_nuestro_precio`),
+así que lo que canta es cuadro, escala o convención — nunca el precio. Dos
+pasos: a SU precio (barato, un lote de 50 por llamada) y, sólo para los que se
+apartan, al nuestro. Si al mismo precio coinciden, **no es hallazgo**.
+
+Umbral `bps` = `alta._BPS_MIRAR` (150), la banda que el pre-flight del alta ya
+usa para decir «mirar»; `max_cotejos` topea el paso caro. Sujeto `bono`.
+
+#### `on_faltante` — habilidad NUEVA (2026-09-04)
+
+ONs hard dólar que 1816 lista, **Primary cotiza**, y no están en
+`mercado.curvas`. Es `soberanos_faltantes` para el otro lado del mostrador
+(`ALCANCE = {soberano, bcra}` las dejaba afuera a propósito). Historia en §0.dp.
+
+Dos diferencias con su hermano, ninguna de gusto: **Primary es condición, no
+filtro** (sin foto → `SinDatos`, no se ofrece nada), y **no tiene arreglo**
+porque la rama `on` no está en `alta.RAMAS_AUTOMATICAS` — un botón que siempre
+bloquea enseña a no apretar. El `que_hacer` trae emisor, moneda y curva para
+tipear en Manager → TÍTULOS → BONOS → CARGAR → Corporativo (ON).
+
 #### `deteccion_primary` — habilidad NUEVA, tipo `consulta`
 
 Contesta *"¿este símbolo cotiza en Primary?"* para quien la necesite.
@@ -4848,3 +4877,82 @@ para que se vuelva a redactar. No es una limpieza de una vez: **es la contracara
 de tocar el prompt o un validador**, porque el texto se escribe UNA vez por
 hallazgo y una corrección no alcanza sola a lo que ya está en pantalla. Acepta
 `--skill` para una sola habilidad.
+
+---
+
+### 0.do LA TASA CONTRA ALGUIEN — la primera habilidad que juzga un VALOR, y por qué no es una banda (2026-09-04)
+
+**Qué había.** El user pidió *«validar si hay alguna habilidad que valide si
+las TASAS están raras o compare contra 1816, en especial corporativos»*. La
+respuesta, medida en el código: en las 25 habilidades la palabra `tea` aparece
+en DOS lugares, y los dos son `is not None`. El agente sabía contestar «¿hay
+tasa?» y no sabía contestar «¿esta tasa tiene sentido?». Contra 1816 comparaba,
+pero sólo para TAPAR el agujero (`agente/tasa_1816`, el fallback cuando la TEA
+está vacía), nunca para contrastar. Y la que sí juzgaba —`tasa_sospechosa`,
+seis reglas con bandas a dedo (TEA −30%/+60%, paridad 40-160)— se había
+borrado con el veredicto del user: *«NO FUNCIONA HOY EN DÍA»*.
+
+**Por qué una banda vuelve a fallar.** Una TEA sola no dice nada: 8% puede ser
+un bono sano o un cuadro con la escala mal, y la banda no distingue. Lo que
+distingue es compararla contra alguien que calculó lo mismo. Pero comparar a
+secas tampoco alcanza: cada uno calcula sobre SU precio (Primary live contra
+BYMA con delay), así que una diferencia puede ser la fórmula o el insumo. Lo
+que cierra la pregunta es el endpoint de input manual de 1816 —que ya existía
+en el pre-flight del alta, `_tea_de_1816_a_nuestro_precio`—: se le pasa el
+MISMO número que consumió el motor y lo que queda es cronograma, escala o
+convención. **Eso y no otra cosa es el hallazgo.** Si al mismo precio
+coinciden, era el precio, y eso no es un bug de nadie.
+
+**Lo que se encontró al hacerla, y era un bug del alta.** `moneda_cotejo_1816`
+devolvía `mep` sólo para la rama `soberanos` y `ars` para todo lo demás — la
+rama `on` incluida. Pero un corporativo hard dólar tiene rama `on` y adentro el
+motor hace EXACTAMENTE lo que hace con un soberano: `precio_soberano_a_usd` y
+la TIR en dólares. O sea que el pre-flight cotejaba una paridad calculada en
+dólares contra la que 1816 publica en pesos: la trampa de GD46 (4,07% afuera
+contra 0,24%), aplicada a las ~130 ONs en dólares. Ahora la función pregunta
+por `moneda_flujo`, y la habilidad y el pre-flight usan la misma respuesta.
+
+**Por qué al cierre.** Cuesta créditos (tickers × 2, más ~3 por cada uno que
+se aparta) y su respuesta no cambia con la rueda abierta. `tasas_al_cierre`
+dejó de ser «la única con ventana `cierre`». Umbral: `_BPS_MIRAR` del alta, no
+un número nuevo — REGLA #2: no había con qué medir uno.
+
+**Lo que NO hace.** No tiene arreglo: lo que hay que mirar es el cuadro del
+bono en Manager, y eso lo decide una persona. Y no mira soberanos ni patas
+TAMAR: los soberanos ya tienen su cotejo en el pre-flight del alta, y un
+TAMAR no tiene dos cálculos que comparar (la tasa ES la de 1816).
+
+---
+
+### 0.dp LA ON QUE 1816 TIENE Y NOSOTROS NO — y por qué Primary es condición (2026-09-04)
+
+**Qué había.** `soberanos_faltantes` cruza el censo de 1816 contra el master y
+ofrece el alta. Su `ALCANCE` es `{soberano, bcra}`, a propósito: los ~140
+corporativos entran al sistema por Manager → TÍTULOS → BONOS → CARGAR →
+Corporativo (ON), a mano, y nadie avisaba cuando 1816 publicaba una ON nueva.
+El user (2026-09-04): *«así como hoy agregamos de saber de los CEDEARs, el
+agente tiene que poder detectar ONs hard dólar que estén en 1816 y no en
+nuestro modelo, y antes de ofrecer agregarlas que también valide que se
+encuentra en Primary»*.
+
+**Lo que se comparte, se comparte de verdad.** Mismo censo
+(`fuentes.universo_1816`), misma foto de Primary (`fuentes.tickers_en_primary`),
+misma regla de «se está yendo» (`curvas_sql.sale_del_master`, la lección de
+M31G6) y misma excepción de cartera. El corte es estructural sobre los EJES de
+la curva de 1816 —corporativo, USD, fija—, no una lista de nombres: «Corporativos
+USD Linked» es corporativo y USD y NO entra.
+
+**Primary como condición.** En los soberanos, «no pude leer la foto» deja pasar
+el hallazgo y se descarta sólo lo que la foto NIEGA. Acá se invierte: sin foto,
+`SinDatos`. Es lo que pidió el user y es lo correcto para un alta manual —
+mandar a alguien a cargar un cronograma de una ON que después no cotiza es peor
+que avisarle un día tarde. La excepción sigue siendo la cartera: si la tenemos
+y no valúa, se canta aunque Primary no la liste, y el hallazgo lo dice.
+
+**Por qué no tiene botón.** La rama `on` no está en `alta.RAMAS_AUTOMATICAS`.
+No es olvido: 1816 manda algunos cuadros de ONs en NOMINALES y no en base 100
+(medido, RESEARCH.md §A.4.9), y esa conversión no está verificada. Declarar
+`alta_bono` haría que cada preview dijera «no aplicable» — un botón que
+siempre bloquea enseña a no apretar. Hasta que la conversión se mida, el
+`que_hacer` trae lo que hay que tipear.
+

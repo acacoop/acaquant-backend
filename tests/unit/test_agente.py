@@ -3376,3 +3376,212 @@ def test_el_alcance_del_redactor_lo_pone_la_query():
     assert "arreglo = ''" in src, "la query no limita a los avisos"
     assert "ia_intentos < %s" in src, "la query no respeta el tope de intentos"
     assert "estado = ANY(%s)" in src, "redactaría hallazgos ya cerrados"
+
+
+# ── tasa_vs_1816 y on_faltante (§0.do, §0.dp) ──────────────────────────────
+
+def _corp_hd(tk: str, tea: float, precio: float = 80.0, sufijo: str = "D") -> tuple[dict, dict]:
+    """Un corporativo hard dólar del master + su fila de snapshot."""
+    simbolo = f"MERV - XMEV - {tk}{sufijo} - 24hs"
+    doc = {"ticker_corto": tk, "ticker": simbolo, "emisor_tipo": "corporativo",
+           "moneda_eje": "USD", "ajuste": "fija", "moneda_flujo": "USD"}
+    return doc, {simbolo: {"last_price": precio, "tea": tea, "duration": 2.0}}
+
+
+def _armar_tasa_vs_1816(monkeypatch, docs, snap, su_precio: dict, nuestro_precio: dict):
+    """Inyecta las fuentes y los DOS endpoints de 1816: a SU precio (lote) y al
+    NUESTRO (input manual). `nuestro_precio` puede ser un callable para contar."""
+    from agente import alta, fuentes
+    from api.services import curvas_vista
+    from core import mercado_1816
+
+    monkeypatch.setattr(mercado, "_feed_o_sindatos", lambda: None)
+    monkeypatch.setattr(mercado_1816, "disponible", lambda: True)
+    monkeypatch.setattr(fuentes, "master", lambda: docs)
+    monkeypatch.setattr(fuentes, "snapshot", lambda cols=None: snap)
+    monkeypatch.setattr(fuentes, "mep", lambda: 1500.0)
+    monkeypatch.setattr(curvas_vista, "pills_del_master",
+                        lambda: {d["ticker_corto"]: ("hard_dolar",) for d in docs})
+    monkeypatch.setattr(mercado_1816, "grafias_de", lambda tks, ajuste="fija": {t: t for t in tks})
+    llamadas = {"lote": [], "manual": []}
+
+    def _vigentes(tickers, campos, **kw):
+        llamadas["lote"].append((list(tickers), kw.get("moneda")))
+        return {"fechaOperacion": "2026-09-04",
+                "instrumentos": {t: {"tea": su_precio[t], "tna": su_precio[t] * 0.97}
+                                 for t in tickers if t in su_precio}}
+    monkeypatch.setattr(mercado_1816, "indicadores_vigentes", _vigentes)
+
+    def _manual(ticker, precio, moneda):
+        llamadas["manual"].append((ticker, precio, moneda))
+        v = nuestro_precio.get(ticker)
+        return {"tea": v, "paridad": 0.8, "convencion_tna": "plazo-rem", "precio": precio}
+    monkeypatch.setattr(alta, "_tea_de_1816_a_nuestro_precio", _manual)
+    return llamadas
+
+
+def test_tasa_vs_1816_solo_canta_lo_que_NO_coincide_al_MISMO_precio(monkeypatch):
+    """La diferencia a SU precio no es un hallazgo: cada uno calculó sobre su
+    insumo. El hallazgo es la diferencia al NUESTRO — cuadro o convención.
+    Tres bonos, tres respuestas distintas."""
+    d1, s1 = _corp_hd("IGUAL", 0.0800)          # coincide a su precio → nada
+    d2, s2 = _corp_hd("PRECIO", 0.0800)         # se aparta a su precio, coincide al nuestro
+    d3, s3 = _corp_hd("CUADRO", 0.0800)         # se aparta en los dos → hallazgo
+    ll = _armar_tasa_vs_1816(
+        monkeypatch, [d1, d2, d3], {**s1, **s2, **s3},
+        su_precio={"IGUAL": 0.0805, "PRECIO": 0.1100, "CUADRO": 0.1100},
+        nuestro_precio={"PRECIO": 0.0810, "CUADRO": 0.1050})
+    out = mercado.tasa_vs_1816({"bps": 150, "max_cotejos": 40})
+    assert [h.sujeto for h in out] == ["CUADRO"]
+    h = out[0]
+    assert h.regla == "tasa_no_coincide"
+    assert h.evidencia["tea_1816_nuestro_precio"] == 0.1050
+    assert "MISMO precio" in h.problema and "Manager" in h.que_hacer
+    # El paso caro corrió SOLO para los que se apartaron, y en `mep`.
+    assert sorted(t for t, _, _ in ll["manual"]) == ["CUADRO", "PRECIO"]
+    assert {m for _, _, m in ll["manual"]} == {"mep"}
+    assert {m for _, m in ll["lote"]} == {"mep"}, "1816 divide por CCL: se pide en mep"
+
+
+def test_tasa_vs_1816_pasa_el_precio_como_lo_expresa_el_motor(monkeypatch):
+    """Símbolo en PESOS → el precio va dividido por el MEP; símbolo D → tal
+    cual. Es `precio_soberano_a_usd`, la función del motor, no una copia."""
+    d1, s1 = _corp_hd("PESOS", 0.08, precio=120_000.0, sufijo="")
+    d2, s2 = _corp_hd("DOLAR", 0.08, precio=80.0, sufijo="D")
+    ll = _armar_tasa_vs_1816(monkeypatch, [d1, d2], {**s1, **s2},
+                             su_precio={"PESOS": 0.12, "DOLAR": 0.12},
+                             nuestro_precio={"PESOS": 0.08, "DOLAR": 0.08})
+    mercado.tasa_vs_1816({"bps": 150, "max_cotejos": 40})
+    px = {t: p for t, p, _ in ll["manual"]}
+    assert px["DOLAR"] == 80.0
+    assert px["PESOS"] == 120_000.0 / 1500.0
+
+
+def test_tasa_vs_1816_no_afirma_nada_si_no_pudo_cotejar(monkeypatch):
+    """Había apartados y el paso caro no contestó para ninguno: eso NO es «no
+    hay nada» (invariante 1). Se levanta SinDatos, no se devuelve []."""
+    d, s = _corp_hd("X", 0.08)
+    _armar_tasa_vs_1816(monkeypatch, [d], s, su_precio={"X": 0.12}, nuestro_precio={})
+    with pytest.raises(tipos.SinDatos):
+        mercado.tasa_vs_1816({"bps": 150, "max_cotejos": 40})
+
+
+def test_tasa_vs_1816_sin_TEA_del_motor_no_es_su_problema(monkeypatch):
+    """Sin TEA nuestra no hay qué comparar: eso lo canta `bono_sin_tasa`. Y sin
+    candidatos no se le pide nada a 1816 (cero créditos)."""
+    d, s = _corp_hd("SINTEA", 0.08)
+    s[d["ticker"]]["tea"] = None
+    ll = _armar_tasa_vs_1816(monkeypatch, [d], s, su_precio={"SINTEA": 0.12},
+                             nuestro_precio={})
+    assert mercado.tasa_vs_1816({"bps": 150}) == []
+    assert ll["lote"] == []
+
+
+def test_tasa_vs_1816_troza_de_a_50_porque_la_api_trunca(monkeypatch):
+    """`indicadores` hace `list(tickers)[:50]` sin avisar: del 51 en adelante
+    1816 «no tendría» el bono. Se pide en lotes."""
+    docs, snap, su = [], {}, {}
+    for i in range(120):
+        d, s = _corp_hd(f"ON{i:03d}", 0.08)
+        docs.append(d); snap.update(s); su[d["ticker_corto"]] = 0.0805
+    ll = _armar_tasa_vs_1816(monkeypatch, docs, snap, su_precio=su, nuestro_precio={})
+    assert mercado.tasa_vs_1816({"bps": 150}) == []
+    assert [len(t) for t, _ in ll["lote"]] == [50, 50, 20]
+    assert mercado.LOTE_1816 == 50
+
+
+def test_moneda_cotejo_1816_una_ON_en_dolares_se_coteja_en_mep():
+    """La rama `on` NO decide sola: un corporativo hard dólar se calcula en
+    dólares (`precio_soberano_a_usd`, igual que un soberano) y cotejarlo en
+    `ars` era la trampa de GD46 aplicada a ~130 ONs. Uno en pesos sigue en ars."""
+    from agente import alta
+    assert alta.moneda_cotejo_1816("on", "USD") == "mep"
+    assert alta.moneda_cotejo_1816("on", "ARS") == "ars"
+    assert alta.moneda_cotejo_1816("on", "DL") == "ars"
+    assert alta.moneda_cotejo_1816("soberanos") == "mep"
+    assert alta.moneda_cotejo_1816("cer") == "ars"
+    # Y el pre-flight se lo pasa: sin esto el arreglo de la función no cambia nada.
+    src = inspect.getsource(alta._simular_tasa)
+    assert 'moneda_cotejo_1816(rama_doc, doc.get("moneda_flujo"))' in src
+
+
+def test_la_habilidad_de_tasa_usa_el_umbral_de_la_casa_y_cierra_una_vez():
+    """No se inventó un número: `bps` es la banda «mirar» del pre-flight del
+    alta. Y corre al cierre — cuesta créditos y la rueda no cambia la respuesta."""
+    from agente import alta
+    h = catalogo.HABILIDADES["tasa_vs_1816"]
+    assert h.ventana == "cierre" and h.dominio == "MERCADO" and h.sujeto_es == "bono"
+    assert h.umbrales["bps"] == alta._BPS_MIRAR
+    assert not h.arreglos, "lo que hay que mirar es el cuadro: lo decide una persona"
+    # Los campos que se piden en el lote son los que `jobs/tamar_1816` ya probó.
+    src = inspect.getsource(mercado.tasa_vs_1816)
+    assert '["tea", "tna"]' in src
+
+
+def _universo_on(*tickers: str, curva: str = "Corporativos USD") -> dict:
+    return {"fuente": "1816", "instrumentos": {
+        t: {"_curva": curva, "fechaVencimiento": "2028-06-30",
+            "denominacion": f"ON {t}", "emisorNombre": "YPF"} for t in tickers}}
+
+
+def _armar_on_faltante(monkeypatch, univ, primary, cartera=frozenset()):
+    from agente import fuentes
+    from core import curvas_sql
+    monkeypatch.setattr(fuentes, "universo_1816", lambda: univ)
+    monkeypatch.setattr(fuentes, "master", lambda: [{"ticker_corto": "YMCXO"}])
+    monkeypatch.setattr(fuentes, "en_cartera", lambda: set(cartera))
+    monkeypatch.setattr(fuentes, "tickers_en_primary", lambda: primary)
+    monkeypatch.setattr(fuentes, "primary_fecha", lambda: None)
+    monkeypatch.setattr(curvas_sql, "calendario_habil", lambda: set())
+    monkeypatch.setattr(curvas_sql, "sale_del_master", lambda *a, **k: False)
+
+
+def test_on_faltante_solo_ofrece_lo_que_primary_cotiza(monkeypatch):
+    """User: *«antes de ofrecer agregarlas, validar que se encuentra en
+    Primary»*. La que 1816 lista y Primary no → no existe para nosotros. La
+    que ya tenemos → no falta. La que tenemos en CARTERA y no valúa → se canta
+    aunque Primary no la liste, y lo dice."""
+    _armar_on_faltante(monkeypatch, _universo_on("YMCXO", "COTIZA", "NOCOTZ", "ENCART"),
+                       primary={"COTIZA", "YMCXO"}, cartera={"ENCART"})
+    por = {h.sujeto: h for h in mercado.on_faltante({})}
+    assert set(por) == {"COTIZA", "ENCART"}
+    assert por["COTIZA"].regla == "no_esta_en_curvas" and por["COTIZA"].severidad == "media"
+    assert por["COTIZA"].evidencia["cotiza_en_primary"] is True
+    assert "YPF" in por["COTIZA"].que_hacer and "Corporativo (ON)" in por["COTIZA"].que_hacer
+    assert por["ENCART"].severidad == "alta" and "CARTERA" in por["ENCART"].problema
+    assert "Primary NO la lista" in por["ENCART"].problema
+
+
+def test_on_faltante_sin_foto_de_primary_no_ofrece_nada(monkeypatch):
+    """Primary es CONDICIÓN, no filtro (al revés que en los soberanos): sin foto
+    no se puede afirmar que cotice, y sin eso no se manda a nadie a cargar un
+    cronograma. SinDatos, no []."""
+    _armar_on_faltante(monkeypatch, _universo_on("COTIZA"), primary=None)
+    with pytest.raises(tipos.SinDatos):
+        mercado.on_faltante({})
+
+
+def test_on_faltante_es_solo_hard_dolar_por_los_EJES_de_la_curva(monkeypatch):
+    """El corte es estructural: corporativo + USD + fija. «Corporativos USD
+    Linked» es corporativo y USD y NO entra; un soberano tampoco (eso es de
+    `soberanos_faltantes`, que a su vez excluye corporativos: sin solape)."""
+    univ = {"fuente": "1816", "instrumentos": {
+        "ONHD": {"_curva": "Corporativos USD", "fechaVencimiento": "2028-01-01"},
+        "ONDL": {"_curva": "Corporativos USD Linked", "fechaVencimiento": "2028-01-01"},
+        "ONARS": {"_curva": "Corporativos ARS Fijo", "fechaVencimiento": "2028-01-01"},
+        "GD30": {"_curva": "Soberanos USD", "fechaVencimiento": "2030-07-09"},
+        "RARO": {"_curva": "Curva que no existe", "fechaVencimiento": "2028-01-01"},
+    }}
+    _armar_on_faltante(monkeypatch, univ, primary={"ONHD", "ONDL", "ONARS", "GD30", "RARO"})
+    assert [h.sujeto for h in mercado.on_faltante({})] == ["ONHD"]
+    assert "corporativo" not in mercado.ALCANCE, "los dos censos no se solapan"
+
+
+def test_on_faltante_no_declara_un_boton_que_siempre_bloquea():
+    """La rama `on` no está en RAMAS_AUTOMATICAS: declarar `alta_bono` haría que
+    cada preview dijera «no aplicable». Sin arreglo, y el que_hacer lo explica."""
+    from agente import alta
+    h = catalogo.HABILIDADES["on_faltante"]
+    assert not h.arreglos and h.sujeto_es == "bono" and h.ventana == "rueda"
+    assert "on" not in alta.RAMAS_AUTOMATICAS, (
+        "si la rama `on` ya convierte sola, on_faltante puede declarar alta_bono")

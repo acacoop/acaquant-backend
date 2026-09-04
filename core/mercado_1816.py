@@ -797,3 +797,72 @@ def parse_series(data: dict) -> list[dict]:
                 out.append({"ticker": ticker, "fecha": fecha, "campo": campo,
                             "valor": valor, **meta})
     return out
+
+
+# ── LA GRAFÍA CON LA QUE 1816 CONOCE A NUESTRO TICKER ──────────────────────
+#
+# 1816 publica las patas de un dual como tickers APARTE (`TXMD9 @TAMAR`,
+# `TTD26 @BONCAP`), y la grafía exacta —el espacio, la mayúscula, el sufijo— la
+# decide su catálogo, no nosotros. Armarla a mano (`f"{tk} @TAMAR"`) parece
+# obvio y es frágil: un espacio distinto y la llamada devuelve vacío sin un solo
+# error, que se lee como «1816 no lo tiene».
+#
+# Esta función contesta UNA pregunta: «¿con qué grafía le pido a 1816 la pata
+# `ajuste` de este ticker?». Vivía copiada en `scripts/diag_tasa_fija`,
+# `scripts/diag_tea_corp_hd` y —con la pregunta hermana, ticker→TODAS sus
+# patas— en `jobs/tamar_1816.universo`. Tres copias de la misma tabla de sufijos
+# es la REGLA #9 esperando a pasar; acá vive una vez y la leen el detector
+# `tasa_vs_1816` y los diags.
+SUFIJO_A_AJUSTE = {"TAMAR": "tamar", "CER": "cer", "TASA FIJA": "fija",
+                   "BONCAP": "fija", "USD-L": "dolar_linked"}
+
+
+def _sufijo_1816(tk: str) -> str:
+    return tk.split("@", 1)[1].strip().upper() if "@" in tk else ""
+
+
+def grafias_de(tickers: list[str], ajuste: str = "fija") -> dict[str, str]:
+    """`grafía de 1816 → nuestro ticker`, para la pata `ajuste`.
+
+    Un ticker SIN variantes `@` en el catálogo se pide pelado — es lo correcto
+    para un bono de una sola pata. Con variantes, entran las que mapean al
+    `ajuste` pedido, y también el ALIAS de la `denominacion` cuando difiere de la
+    grafía del ticker: en TTD26/TTS26 el catálogo guarda `@TASA FIJA` y la
+    denominación dice `@BONCAP`, y sólo la segunda trae datos (2026-08-16). Se
+    piden las dos y gana la que conteste; el caller resuelve el empate.
+
+    Lee `research.mkt_1816_instrumentos` (la llena `mercado_1816_discovery
+    --catalogo`). Si la tabla no se puede leer, cae a «pelado» para todos: peor
+    que un dual mal pedido es no pedir nada.
+    """
+    por_base: dict[str, list[dict]] = {}
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT ticker, denominacion FROM research.mkt_1816_instrumentos "
+                        "WHERE ticker ILIKE '%@%'")
+            for t, den in cur.fetchall():
+                base = str(t).split("@", 1)[0].strip().upper()
+                por_base.setdefault(base, []).append({"ticker": t, "denominacion": den})
+    except Exception as e:                       # sin catálogo: todos pelados
+        logger.warning("mercado_1816.grafias_de: sin catálogo de variantes (%s)", e)
+
+    out: dict[str, str] = {}
+    for tk in tickers:
+        tk = (tk or "").strip()
+        if not tk:
+            continue
+        vs = por_base.get(tk.upper())
+        if not vs:
+            out[tk] = tk
+            continue
+        for v in vs:
+            g = str(v["ticker"])
+            if SUFIJO_A_AJUSTE.get(_sufijo_1816(g)) == ajuste:
+                out[g] = tk
+            suf_den = _sufijo_1816(str(v.get("denominacion") or ""))
+            if suf_den and suf_den != _sufijo_1816(g) \
+                    and SUFIJO_A_AJUSTE.get(suf_den) == ajuste:
+                out[f"{tk} @{suf_den}"] = tk
+        out.setdefault(tk, tk)
+    return out

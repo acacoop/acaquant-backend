@@ -55,13 +55,39 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=15 * _M, ventana="rueda",
         correr=mercado.bono_sin_tasa, sujeto_es="bono"),
 
-    # ⚠️ **LA ÚNICA CON VENTANA `cierre`.** Corre UNA vez, 17:30 ART, con la
+    # ⚠️ **VENTANA `cierre`** (la primera; `tasa_vs_1816` es la otra). Corre UNA vez, 17:30 ART, con la
     # rueda cerrada: lo que se le pide al mercado deja de pedirse a las 17.
     Habilidad(
         nombre="tasas_al_cierre", tipo="detector", dominio="MERCADO",
         que_mira="rellena con 1816 lo que quedó sin tasa, y canta lo que ni así",
         cada_segundos=12 * _H, ventana="cierre",
         correr=mercado.tasas_al_cierre, sujeto_es="bono"),
+
+    # ⚠️ **LA SEGUNDA CON VENTANA `cierre`**, y por el mismo motivo que la
+    # primera: cuesta créditos de 1816 (tickers × 2, más ~3 por cada uno que se
+    # aparta) y su respuesta no cambia con la rueda abierta. Una vez, con el día
+    # cerrado. NO es una banda sobre el bono como la vieja `tasa_sospechosa`: es
+    # la tasa de 1816 AL MISMO PRECIO que consumió el motor, así que lo que
+    # canta es cuadro o convención, nunca el precio. Sin arreglo, y declarado:
+    # lo que hay que mirar es el cronograma, y eso lo decide una persona. §0.do.
+    Habilidad(
+        nombre="tasa_vs_1816", tipo="detector", dominio="MERCADO",
+        que_mira="corporativos hard dólar cuya TEA no coincide con 1816 al MISMO precio",
+        cada_segundos=12 * _H, ventana="cierre",
+        correr=mercado.tasa_vs_1816, sujeto_es="bono",
+        # `bps` = la banda «mirar» del pre-flight del alta (`alta._BPS_MIRAR`),
+        # no un número nuevo. `max_cotejos` topea el paso caro por corrida.
+        umbrales={"bps": 150.0, "max_cotejos": 40}),
+
+    # `soberanos_faltantes` para las ONs en dólares (§0.dp). Dos diferencias, y
+    # ninguna es de gusto: Primary es CONDICIÓN (sin foto no se ofrece nada), y
+    # no tiene arreglo porque la rama `on` no convierte el cuadro sola todavía —
+    # un botón que siempre bloquea enseña a no apretar.
+    Habilidad(
+        nombre="on_faltante", tipo="detector", dominio="MERCADO",
+        que_mira="ONs hard dólar que 1816 lista, Primary cotiza y no están en el master",
+        cada_segundos=2 * _H, ventana="rueda",
+        correr=mercado.on_faltante, sujeto_es="bono"),
 
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",

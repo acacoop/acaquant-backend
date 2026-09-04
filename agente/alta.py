@@ -1716,9 +1716,19 @@ def moneda_pedido_1816(simbolo: str, moneda_eje: str) -> str:
     return "mep" if (tk[-1:].upper() in ("D", "C")) else "ars"
 
 
-def moneda_cotejo_1816(rama: str) -> str:
+def moneda_cotejo_1816(rama: str, moneda_flujo: str | None = None) -> str:
     """En qué moneda COMPARAR el resultado = **la moneda en la que el motor lo
     calcula**, que no tiene por qué ser la del precio que le damos de comer.
+
+    ⚠️ **La rama `on` NO decide sola: decide con `moneda_flujo`** (2026-09-04).
+    Un corporativo hard dólar tiene rama `on`, y adentro de esa rama el motor
+    hace EXACTAMENTE lo que hace con un soberano — `precio_soberano_a_usd` y
+    la TIR en dólares (`engines/curvas.py`, el `if moneda == "USD"`). Hasta hoy
+    esta función devolvía `ars` para toda la rama, o sea que cotejaba una
+    paridad calculada en dólares contra la que 1816 publica en pesos: la misma
+    trampa que GD46 midió abajo (4,07% afuera contra 0,24%), aplicada a las ~130
+    ONs en dólares. Lo encontró la habilidad `tasa_vs_1816` al necesitar la
+    misma respuesta. Un ON en pesos o dólar linked sigue en `ars`.
 
     Suena a lo mismo que `moneda_pedido_1816` y es la pregunta opuesta:
 
@@ -1738,7 +1748,11 @@ def moneda_cotejo_1816(rama: str) -> str:
     números pesificados al MISMO TC —o sea que no depende de la moneda— y encima
     1816 no publica `mep` para ellos (D30O6 devolvió todo `None`).
     """
-    return "mep" if rama == "soberanos" else "ars"
+    if rama == "soberanos":
+        return "mep"
+    if rama == "on" and (moneda_flujo or "").strip().upper() == "USD":
+        return "mep"
+    return "ars"
 
 
 def _sin_rueda(intentos: list[str]) -> str:
@@ -2212,7 +2226,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
         # que consumió el motor, expresado como el motor lo expresa: para un
         # soberano eso es el precio ya pasado a dólares por `precio_soberano_a_usd`
         # —la función del motor, no una copia— y la pregunta va en `mep`.
-        moneda_cot = moneda_cotejo_1816(rama_doc)
+        moneda_cot = moneda_cotejo_1816(rama_doc, doc.get("moneda_flujo"))
         px_cot = float(precio)
         if moneda_cot == "mep":
             from engines.curvas import precio_soberano_a_usd

@@ -77,6 +77,13 @@ HERRAMIENTAS: dict[str, str] = {
                              "abiertos les pegaría, con qué fundamento y de qué fuente, sin escribir "
                              "una fila. Un cierre automático que no se puede mirar antes es fe, no "
                              "ingeniería (REGLA #2). Se borra cuando el tema cierre (REGLA #5).",
+    "diag_tea_corp_hd":      "las TNA/TEA de los CORPORATIVOS HARD DOLAR, nuestras contra las de "
+                             "1816, una fila por ticker. Hoy NINGUNA habilidad del agente compara el "
+                             "VALOR de una tasa contra nadie (la que lo hacía, `tasa_sospechosa`, se "
+                             "borró por ruidosa): las dos que tocan `tea` preguntan `is not None`. "
+                             "Hasta que exista esa habilidad, esta es la única forma de mirarlo, y "
+                             "pide con `moneda=mep` porque el default de 1816 divide por CCL y "
+                             "nuestro motor por MEP. Se borra cuando el tema cierre (REGLA #5).",
     "diag_contabilidad_cierre": "contesta «¿por qué el informe de CONTABILIDAD no ve una tenencia que SÍ "
                              "está en la tabla?». Mide las tres puertas por las que una fila se cae "
                              "(la fecha del cierre, el filtro de cartera, el cruce unidad→key) en vez "

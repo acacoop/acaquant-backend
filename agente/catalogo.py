@@ -55,7 +55,7 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=15 * _M, ventana="rueda",
         correr=mercado.bono_sin_tasa, sujeto_es="bono"),
 
-    # ⚠️ **VENTANA `cierre`** (la primera; `tasa_vs_1816` es la otra). Corre UNA vez, 17:30 ART, con la
+    # ⚠️ **LA ÚNICA CON VENTANA `cierre`.** Corre UNA vez, 17:30 ART, con la
     # rueda cerrada: lo que se le pide al mercado deja de pedirse a las 17.
     Habilidad(
         nombre="tasas_al_cierre", tipo="detector", dominio="MERCADO",
@@ -63,21 +63,16 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=12 * _H, ventana="cierre",
         correr=mercado.tasas_al_cierre, sujeto_es="bono"),
 
-    # ⚠️ **LA SEGUNDA CON VENTANA `cierre`**, y por el mismo motivo que la
-    # primera: cuesta créditos de 1816 (tickers × 2, más ~3 por cada uno que se
-    # aparta) y su respuesta no cambia con la rueda abierta. Una vez, con el día
-    # cerrado. NO es una banda sobre el bono como la vieja `tasa_sospechosa`: es
-    # la tasa de 1816 AL MISMO PRECIO que consumió el motor, así que lo que
-    # canta es cuadro o convención, nunca el precio. Sin arreglo, y declarado:
-    # lo que hay que mirar es el cronograma, y eso lo decide una persona. §0.do.
+    # `scripts/diag_tea_corp_hd` hecho habilidad (§0.do): nuestra TNA/TEA contra
+    # la de 1816 en los corporativos hard dólar, un hallazgo por bono que se
+    # aparta más de `bps`. Cuesta créditos de 1816 (tickers × 2 por corrida), por
+    # eso cada 2 h como `soberanos_faltantes`. Sin arreglo: se mira el cuadro.
     Habilidad(
         nombre="tasa_vs_1816", tipo="detector", dominio="MERCADO",
-        que_mira="corporativos hard dólar cuya TEA no coincide con 1816 al MISMO precio",
-        cada_segundos=12 * _H, ventana="cierre",
+        que_mira="corporativos hard dólar: nuestra TNA/TEA contra la de 1816",
+        cada_segundos=2 * _H, ventana="rueda",
         correr=mercado.tasa_vs_1816, sujeto_es="bono",
-        # `bps` = la banda «mirar» del pre-flight del alta (`alta._BPS_MIRAR`),
-        # no un número nuevo. `max_cotejos` topea el paso caro por corrida.
-        umbrales={"bps": 150.0, "max_cotejos": 40}),
+        umbrales={"bps": 150.0}),
 
     # `soberanos_faltantes` para las ONs en dólares (§0.dp). Dos diferencias, y
     # ninguna es de gusto: Primary es CONDICIÓN (sin foto no se ofrece nada), y

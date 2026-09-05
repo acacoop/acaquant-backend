@@ -635,20 +635,10 @@ que **relee el master cada 60 s** y lo suscribe sin reiniciar.
 
 #### `tasa_vs_1816` — habilidad NUEVA (2026-09-04)
 
-Corporativos HARD DÓLAR cuya TEA **no coincide con la de 1816 al mismo precio**.
-Ventana `cierre` (una vez, 17:30 ART, como `tasas_al_cierre`). Sin arreglo.
-Historia y decisiones en §0.do.
-
-**Es la primera habilidad que juzga el VALOR de una tasa** — hasta acá las dos
-que tocan `tea` preguntan `is not None`. Y no es una banda sobre el bono como
-la vieja `tasa_sospechosa`: es la tasa de 1816 **a NUESTRO precio**
-(`/indicadores/{ticker}`, input manual, `alta._tea_de_1816_a_nuestro_precio`),
-así que lo que canta es cuadro, escala o convención — nunca el precio. Dos
-pasos: a SU precio (barato, un lote de 50 por llamada) y, sólo para los que se
-apartan, al nuestro. Si al mismo precio coinciden, **no es hallazgo**.
-
-Umbral `bps` = `alta._BPS_MIRAR` (150), la banda que el pre-flight del alta ya
-usa para decir «mirar»; `max_cotejos` topea el paso caro. Sujeto `bono`.
+Corporativos HARD DÓLAR: nuestra TNA/TEA contra la de 1816, un hallazgo por
+bono que se aparta más de `bps` (150). Es `scripts/diag_tea_corp_hd` hecho
+habilidad — los cuatro números viajan en la evidencia. Ventana `rueda`, cada
+2 h (cuesta créditos: tickers × 2 por corrida). Sin arreglo. Historia en §0.do.
 
 #### `on_faltante` — habilidad NUEVA (2026-09-04)
 
@@ -4880,47 +4870,29 @@ hallazgo y una corrección no alcanza sola a lo que ya está en pantalla. Acepta
 
 ---
 
-### 0.do LA TASA CONTRA ALGUIEN — la primera habilidad que juzga un VALOR, y por qué no es una banda (2026-09-04)
+### 0.do LA TASA CONTRA 1816 — la primera habilidad que compara un valor (2026-09-04)
 
 **Qué había.** El user pidió *«validar si hay alguna habilidad que valide si
 las TASAS están raras o compare contra 1816, en especial corporativos»*. La
 respuesta, medida en el código: en las 25 habilidades la palabra `tea` aparece
 en DOS lugares, y los dos son `is not None`. El agente sabía contestar «¿hay
-tasa?» y no sabía contestar «¿esta tasa tiene sentido?». Contra 1816 comparaba,
-pero sólo para TAPAR el agujero (`agente/tasa_1816`, el fallback cuando la TEA
-está vacía), nunca para contrastar. Y la que sí juzgaba —`tasa_sospechosa`,
-seis reglas con bandas a dedo (TEA −30%/+60%, paridad 40-160)— se había
-borrado con el veredicto del user: *«NO FUNCIONA HOY EN DÍA»*.
+tasa?» y no «¿coincide con alguien?». Contra 1816 comparaba sólo para TAPAR el
+agujero (`agente/tasa_1816`, el fallback cuando la TEA está vacía).
 
-**Por qué una banda vuelve a fallar.** Una TEA sola no dice nada: 8% puede ser
-un bono sano o un cuadro con la escala mal, y la banda no distingue. Lo que
-distingue es compararla contra alguien que calculó lo mismo. Pero comparar a
-secas tampoco alcanza: cada uno calcula sobre SU precio (Primary live contra
-BYMA con delay), así que una diferencia puede ser la fórmula o el insumo. Lo
-que cierra la pregunta es el endpoint de input manual de 1816 —que ya existía
-en el pre-flight del alta, `_tea_de_1816_a_nuestro_precio`—: se le pasa el
-MISMO número que consumió el motor y lo que queda es cronograma, escala o
-convención. **Eso y no otra cosa es el hallazgo.** Si al mismo precio
-coinciden, era el precio, y eso no es un bug de nadie.
+**Qué se hizo, y qué NO.** Primero un script —`scripts/diag_tea_corp_hd`—
+con la tabla que pidió el user: ticker · TNA mía · TNA 1816 · TEA mía · TEA
+1816, y nada más. Después, la MISMA tabla como habilidad: un hallazgo por bono
+cuya TEA se aparta más de `bps` de la de 1816, con los cuatro números en la
+evidencia. **Y nada más** — la primera versión sumó un segundo cotejo por el
+endpoint de input manual, un tope de llamadas y una ventana al cierre que nadie
+pidió, y el user la frenó: *«solo te dije que tenía que saber la tasa y
+compararla»*. Se sacó todo. Lo que no se pide no se agrega.
 
-**Lo que se encontró al hacerla, y era un bug del alta.** `moneda_cotejo_1816`
-devolvía `mep` sólo para la rama `soberanos` y `ars` para todo lo demás — la
-rama `on` incluida. Pero un corporativo hard dólar tiene rama `on` y adentro el
-motor hace EXACTAMENTE lo que hace con un soberano: `precio_soberano_a_usd` y
-la TIR en dólares. O sea que el pre-flight cotejaba una paridad calculada en
-dólares contra la que 1816 publica en pesos: la trampa de GD46 (4,07% afuera
-contra 0,24%), aplicada a las ~130 ONs en dólares. Ahora la función pregunta
-por `moneda_flujo`, y la habilidad y el pre-flight usan la misma respuesta.
-
-**Por qué al cierre.** Cuesta créditos (tickers × 2, más ~3 por cada uno que
-se aparta) y su respuesta no cambia con la rueda abierta. `tasas_al_cierre`
-dejó de ser «la única con ventana `cierre`». Umbral: `_BPS_MIRAR` del alta, no
-un número nuevo — REGLA #2: no había con qué medir uno.
-
-**Lo que NO hace.** No tiene arreglo: lo que hay que mirar es el cuadro del
-bono en Manager, y eso lo decide una persona. Y no mira soberanos ni patas
-TAMAR: los soberanos ya tienen su cotejo en el pre-flight del alta, y un
-TAMAR no tiene dos cálculos que comparar (la tasa ES la de 1816).
+**Dos decisiones que sí hacen falta para que la comparación sea comparación**,
+las dos ya medidas antes: se pide con `moneda='mep'` (el default de 1816 divide
+por CCL y el motor por MEP — los 202 bps de GD46), y la TNA nuestra se deriva
+con TEM×12, que es lo que la pantalla muestra en esta pill. Se troza de a 50
+porque `/indicadores` trunca ahí sin avisar.
 
 ---
 

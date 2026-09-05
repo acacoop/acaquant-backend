@@ -664,79 +664,48 @@ LOTE_1816 = 50
 
 
 def tasa_vs_1816(u: dict) -> list[Hallazgo]:
-    """Corporativos HARD DÓLAR cuya TEA no coincide con la de 1816 **al mismo
-    precio**. Doc: §0.do.
+    """Corporativos HARD DÓLAR: nuestra TNA/TEA contra la de 1816. Doc: §0.do.
 
-    Hasta hoy ninguna habilidad juzgaba el VALOR de una tasa: las dos que tocan
-    `tea` preguntan `is not None`. La que lo hacía, `tasa_sospechosa`, se borró
-    por ruidosa — bandas a dedo sobre el número suelto. Esto NO es una banda
-    sobre el bono: es una comparación contra alguien que calculó lo mismo, y
-    en DOS pasos, porque el primero solo no alcanza:
+    Es `scripts/diag_tea_corp_hd` hecho habilidad: la misma tabla —TNA mía, TNA
+    1816, TEA mía, TEA 1816— y un hallazgo por bono cuando la TEA se aparta más
+    de `bps`. Los cuatro números viajan en la evidencia.
 
-      1. **A SU precio** (barato: una llamada por lote de 50, `tea`+`tna`). Si
-         coinciden, listo. Si no, todavía no se sabe nada: cada uno calculó
-         sobre SU precio (Primary live contra BYMA con delay) y la diferencia
-         puede ser el insumo y no la fórmula.
-      2. **A NUESTRO precio** (`/indicadores/{ticker}`, input manual, solo para
-         los que se apartaron). Se le pasa el MISMO número que consumió el motor
-         y lo que quede es exclusivamente cronograma, escala o convención. **Eso
-         y no otra cosa es el hallazgo**: si al mismo precio coinciden, era el
-         precio, y eso no es un bug de nadie.
-
-    La moneda del cotejo la decide `alta.moneda_cotejo_1816` con el
-    `moneda_flujo` del bono — la misma pregunta que el pre-flight del alta, con
-    la misma respuesta (`mep`, porque el motor divide por MEP y 1816 por CCL).
-
-    El umbral por defecto es `_BPS_MIRAR` del pre-flight del alta, no un número
-    nuevo: es la banda que la casa ya usa para decir «mirar» una TEA. Sin
-    arreglo a propósito: lo que hay que mirar es el cuadro del bono, y eso lo
-    decide una persona en Manager.
+    Se pide con `moneda='mep'`: el default de 1816 divide por CCL y nuestro
+    motor por MEP (`engines/curvas.py::precio_soberano_a_usd`). La TNA nuestra
+    se deriva de la TEA con la convención de la casa (TEM×12), que es lo que la
+    pantalla muestra en esta pill. Sin TEA nuestra no hay qué comparar (eso lo
+    canta `bono_sin_tasa`). Sin arreglo: lo que hay que mirar es el cuadro.
     """
-    from agente import alta
     from api.services.curvas_vista import pills_del_master
     from core import mercado_1816
-    from engines.curvas import precio_soberano_a_usd
+    from quant.tasas import tna_desde_tea
 
     _feed_o_sindatos()
     if not mercado_1816.disponible():
         raise SinDatos("1816 no está configurado: no puedo comparar contra nadie")
-    docs, snap, mep = fuentes.master(), fuentes.snapshot(), fuentes.mep()
+    docs, snap = fuentes.master(), fuentes.snapshot()
     if docs is None or snap is None:
         raise SinDatos("no pude leer el master o el snapshot")
     pills = pills_del_master()
-    bps_max = float(u.get("bps", alta._BPS_MIRAR))
-    max_cotejos = int(u.get("max_cotejos", 40))
+    bps_max = float(u.get("bps", 150.0))
 
-    # El universo: corporativos de la pill HARD DOLAR —la MISMA taxonomía que la
-    # vista, por `pills_del_master`— con precio Y con TEA del motor. Sin TEA no
-    # hay qué comparar (eso ya lo canta `bono_sin_tasa`); sin precio no hubo rueda.
+    # El universo: corporativos de la pill HARD DOLAR —la misma taxonomía que la
+    # vista, por `pills_del_master`— con precio y con TEA del motor.
     cand: dict[str, dict] = {}
-    otra_moneda: list[str] = []
     for d in docs:
         tk, simbolo = _tk(d.get("ticker_corto")), (d.get("ticker") or "").strip()
         if not tk or not simbolo or d.get("emisor_tipo") != "corporativo":
             continue
         if "hard_dolar" not in pills.get(tk, ()):
             continue
-        # El mismo default que la rama `on` del motor (`moneda_flujo or "USD"`).
-        moneda_cot = alta.moneda_cotejo_1816("on", d.get("moneda_flujo") or "USD")
-        if moneda_cot != "mep":
-            otra_moneda.append(tk)        # el motor lo calcula en pesos: otra pregunta
-            continue
         m = snap.get(simbolo) or {}
         precio, tea = _num(m.get("last_price")), _num(m.get("tea"))
         if not precio or tea is None:
             continue
-        cand[tk] = {"simbolo": simbolo, "precio": precio, "tea": tea,
-                    "duration": _num(m.get("duration")), "moneda": moneda_cot}
-    if otra_moneda:
-        logger.info("tasa_vs_1816: %d corporativo(s) de la pill HARD DOLAR con "
-                    "moneda_flujo que no es USD, fuera del cotejo: %s",
-                    len(otra_moneda), ", ".join(sorted(otra_moneda)[:10]))
+        cand[tk] = {"simbolo": simbolo, "precio": precio, "tea": tea}
     if not cand:
         return []
 
-    # ── PASO 1: su tasa a SU precio ────────────────────────────────────────
     g = mercado_1816.grafias_de(sorted(cand), "fija")
     pedidos, suyas, fecha = sorted(g), {}, None
     for i in range(0, len(pedidos), LOTE_1816):
@@ -759,85 +728,36 @@ def tasa_vs_1816(u: dict) -> list[Hallazgo]:
         raise SinDatos("1816 contestó sin una sola TEA para los corporativos HD: "
                        "no puedo afirmar que coincidan")
 
-    # ── PASO 2: a NUESTRO precio, solo los que se apartaron, los peores primero ─
-    # Se ordena por diferencia para que el tope de cotejos —si se alcanza— deje
-    # afuera a los que menos se apartan, no a los que más.
-    apartados = sorted(
-        ((abs(c["tea"] - suyas[tk]["tea"]) * 10_000, tk) for tk, c in cand.items()
-         if tk in suyas and suyas[tk].get("tea") is not None),
-        reverse=True)
-    apartados = [(b, tk) for b, tk in apartados if b > bps_max]
-    sin_1816 = sorted(set(cand) - {tk for tk in suyas if suyas[tk].get("tea") is not None})
-
-    # DOS contadores y no uno: `intentos` topea los créditos (cada llamada cuesta
-    # conteste o no) y `cotejados` sostiene el invariante 1 — una llamada que
-    # volvió vacía NO es un cotejo hecho, y contarla como tal dejaba que una
-    # corrida sin una sola respuesta terminara en `ok` y cerrara por ausencia
-    # lo que ayer sí se vio (lo encontró el test).
-    out, era_el_precio, sin_cotejo, intentos, cotejados = [], [], [], 0, 0
-    for bps, tk in apartados:
-        c = cand[tk]
-        if intentos >= max_cotejos:
-            sin_cotejo.append(tk)
+    out, sin_1816 = [], []
+    for tk, c in sorted(cand.items()):
+        suya = suyas.get(tk) or {}
+        if suya.get("tea") is None:
+            sin_1816.append(tk)
             continue
-        # EL MISMO NÚMERO que consumió el motor, expresado como el motor lo
-        # expresa: la función del motor, no una copia (§0.cy).
-        px = precio_soberano_a_usd(c["precio"], c["simbolo"], mep)
-        if px is None:
-            sin_cotejo.append(tk)
+        bps = abs(c["tea"] - suya["tea"]) * 10_000
+        tna_mia = tna_desde_tea(c["tea"])
+        if bps <= bps_max:
             continue
-        intentos += 1
-        mismo = alta._tea_de_1816_a_nuestro_precio(tk, px, c["moneda"])
-        if mismo.get("tea") is None:
-            sin_cotejo.append(tk)
-            continue
-        cotejados += 1
-        bps_mismo = abs(c["tea"] - float(mismo["tea"])) * 10_000
-        if bps_mismo <= bps_max:
-            era_el_precio.append(tk)
-            continue
-        conv = mismo.get("convencion_tna") or ""
         out.append(Hallazgo(
             sujeto=tk, regla="tasa_no_coincide", severidad="media",
-            problema=(f"al MISMO precio ({px:,.2f} USD) 1816 da TEA "
-                      f"{float(mismo['tea']):.2%} y el motor {c['tea']:.2%} "
-                      f"({bps_mismo:,.0f} bps) · {reloj.hhmm()}"),
-            detalle=(f"a su propio precio 1816 publica {suyas[tk]['tea']:.2%} "
-                     f"({bps:,.0f} bps de la nuestra) · rueda 1816 {fecha or '?'}"
-                     + (f" · ellos anualizan «{conv}»" if conv else "")),
-            que_hacer=("No es el precio: es el cuadro o la convención. Revisar el "
-                       "cronograma y la escala de los flujos de este bono en "
-                       "Manager → TÍTULOS → BONOS (ver/editar) contra el cuadro de "
-                       "1816. `python -m scripts.diag_tea_corp_hd` trae la tabla "
-                       "entera de corporativos HD."),
-            evidencia={"simbolo": c["simbolo"], "precio_usd": round(px, 4),
-                       "precio_crudo": c["precio"], "mep": mep,
-                       "tea_motor": c["tea"], "duration_motor": c["duration"],
-                       "tea_1816_su_precio": suyas[tk]["tea"],
-                       "tna_1816_su_precio": suyas[tk].get("tna"),
-                       "tea_1816_nuestro_precio": mismo["tea"],
-                       "paridad_1816_nuestro_precio": mismo.get("paridad"),
-                       "convencion_tna_1816": conv, "bps_su_precio": round(bps, 1),
-                       "bps_mismo_precio": round(bps_mismo, 1),
-                       "umbral_bps": bps_max, "fecha_1816": fecha}))
-
-    # Lo que se decidió NO mostrar se dice: un descarte mudo es indistinguible de
-    # un detector que dejó de mirar.
-    if era_el_precio:
-        logger.info("tasa_vs_1816: %d se apartaban a su precio y coinciden al "
-                    "nuestro (era el precio): %s", len(era_el_precio),
-                    ", ".join(era_el_precio[:10]))
+            problema=(f"TEA {c['tea']:.2%} contra {suya['tea']:.2%} de 1816 "
+                      f"({bps:,.0f} bps) · {reloj.hhmm()}"),
+            detalle=(f"TNA mía {tna_mia:.2%} · TNA 1816 "
+                     + (f"{suya['tna']:.2%}" if suya.get("tna") is not None else "--")
+                     + f" · rueda 1816 {fecha or '?'}"),
+            que_hacer=("Revisar el cronograma y la escala de los flujos de este bono "
+                       "en Manager → TÍTULOS → BONOS contra el cuadro de 1816. "
+                       "`python -m scripts.diag_tea_corp_hd` trae la tabla entera."),
+            evidencia={"simbolo": c["simbolo"], "precio": c["precio"],
+                       "tna_mia": tna_mia, "tna_1816": suya.get("tna"),
+                       "tea_mia": c["tea"], "tea_1816": suya["tea"],
+                       "bps": round(bps, 1), "umbral_bps": bps_max,
+                       "fecha_1816": fecha}))
     if sin_1816:
+        # Se dice lo que se decidió no mostrar: un descarte mudo es
+        # indistinguible de un detector que dejó de mirar.
         logger.info("tasa_vs_1816: %d sin TEA en 1816: %s", len(sin_1816),
                     ", ".join(sin_1816[:10]))
-    if sin_cotejo:
-        logger.warning("tasa_vs_1816: %d apartados que NO pude cotejar a nuestro "
-                       "precio (tope %d o sin respuesta): %s", len(sin_cotejo),
-                       max_cotejos, ", ".join(sin_cotejo[:10]))
-    if apartados and cotejados == 0:
-        # Había qué mirar y no se pudo mirar ni uno: eso no es «no hay nada».
-        raise SinDatos(f"{len(apartados)} corporativos se apartan de 1816 y no pude "
-                       "cotejar ninguno a nuestro precio")
     return out
 
 

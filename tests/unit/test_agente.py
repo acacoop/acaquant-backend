@@ -3380,18 +3380,17 @@ def test_el_alcance_del_redactor_lo_pone_la_query():
 
 # ── tasa_vs_1816 y on_faltante (§0.do, §0.dp) ──────────────────────────────
 
-def _corp_hd(tk: str, tea: float, precio: float = 80.0, sufijo: str = "D") -> tuple[dict, dict]:
+def _corp_hd(tk: str, tea: float, precio: float = 80.0) -> tuple[dict, dict]:
     """Un corporativo hard dólar del master + su fila de snapshot."""
-    simbolo = f"MERV - XMEV - {tk}{sufijo} - 24hs"
+    simbolo = f"MERV - XMEV - {tk}D - 24hs"
     doc = {"ticker_corto": tk, "ticker": simbolo, "emisor_tipo": "corporativo",
            "moneda_eje": "USD", "ajuste": "fija", "moneda_flujo": "USD"}
-    return doc, {simbolo: {"last_price": precio, "tea": tea, "duration": 2.0}}
+    return doc, {simbolo: {"last_price": precio, "tea": tea}}
 
 
-def _armar_tasa_vs_1816(monkeypatch, docs, snap, su_precio: dict, nuestro_precio: dict):
-    """Inyecta las fuentes y los DOS endpoints de 1816: a SU precio (lote) y al
-    NUESTRO (input manual). `nuestro_precio` puede ser un callable para contar."""
-    from agente import alta, fuentes
+def _armar_tasa_vs_1816(monkeypatch, docs, snap, su: dict):
+    """Inyecta las fuentes y la respuesta de 1816 (`ticker → tea`)."""
+    from agente import fuentes
     from api.services import curvas_vista
     from core import mercado_1816
 
@@ -3399,71 +3398,36 @@ def _armar_tasa_vs_1816(monkeypatch, docs, snap, su_precio: dict, nuestro_precio
     monkeypatch.setattr(mercado_1816, "disponible", lambda: True)
     monkeypatch.setattr(fuentes, "master", lambda: docs)
     monkeypatch.setattr(fuentes, "snapshot", lambda cols=None: snap)
-    monkeypatch.setattr(fuentes, "mep", lambda: 1500.0)
     monkeypatch.setattr(curvas_vista, "pills_del_master",
                         lambda: {d["ticker_corto"]: ("hard_dolar",) for d in docs})
     monkeypatch.setattr(mercado_1816, "grafias_de", lambda tks, ajuste="fija": {t: t for t in tks})
-    llamadas = {"lote": [], "manual": []}
+    llamadas = []
 
     def _vigentes(tickers, campos, **kw):
-        llamadas["lote"].append((list(tickers), kw.get("moneda")))
+        llamadas.append((list(tickers), kw.get("moneda")))
         return {"fechaOperacion": "2026-09-04",
-                "instrumentos": {t: {"tea": su_precio[t], "tna": su_precio[t] * 0.97}
-                                 for t in tickers if t in su_precio}}
+                "instrumentos": {t: {"tea": su[t], "tna": su[t] * 0.97}
+                                 for t in tickers if t in su}}
     monkeypatch.setattr(mercado_1816, "indicadores_vigentes", _vigentes)
-
-    def _manual(ticker, precio, moneda):
-        llamadas["manual"].append((ticker, precio, moneda))
-        v = nuestro_precio.get(ticker)
-        return {"tea": v, "paridad": 0.8, "convencion_tna": "plazo-rem", "precio": precio}
-    monkeypatch.setattr(alta, "_tea_de_1816_a_nuestro_precio", _manual)
     return llamadas
 
 
-def test_tasa_vs_1816_solo_canta_lo_que_NO_coincide_al_MISMO_precio(monkeypatch):
-    """La diferencia a SU precio no es un hallazgo: cada uno calculó sobre su
-    insumo. El hallazgo es la diferencia al NUESTRO — cuadro o convención.
-    Tres bonos, tres respuestas distintas."""
-    d1, s1 = _corp_hd("IGUAL", 0.0800)          # coincide a su precio → nada
-    d2, s2 = _corp_hd("PRECIO", 0.0800)         # se aparta a su precio, coincide al nuestro
-    d3, s3 = _corp_hd("CUADRO", 0.0800)         # se aparta en los dos → hallazgo
-    ll = _armar_tasa_vs_1816(
-        monkeypatch, [d1, d2, d3], {**s1, **s2, **s3},
-        su_precio={"IGUAL": 0.0805, "PRECIO": 0.1100, "CUADRO": 0.1100},
-        nuestro_precio={"PRECIO": 0.0810, "CUADRO": 0.1050})
-    out = mercado.tasa_vs_1816({"bps": 150, "max_cotejos": 40})
-    assert [h.sujeto for h in out] == ["CUADRO"]
-    h = out[0]
-    assert h.regla == "tasa_no_coincide"
-    assert h.evidencia["tea_1816_nuestro_precio"] == 0.1050
-    assert "MISMO precio" in h.problema and "Manager" in h.que_hacer
-    # El paso caro corrió SOLO para los que se apartaron, y en `mep`.
-    assert sorted(t for t, _, _ in ll["manual"]) == ["CUADRO", "PRECIO"]
-    assert {m for _, _, m in ll["manual"]} == {"mep"}
-    assert {m for _, m in ll["lote"]} == {"mep"}, "1816 divide por CCL: se pide en mep"
-
-
-def test_tasa_vs_1816_pasa_el_precio_como_lo_expresa_el_motor(monkeypatch):
-    """Símbolo en PESOS → el precio va dividido por el MEP; símbolo D → tal
-    cual. Es `precio_soberano_a_usd`, la función del motor, no una copia."""
-    d1, s1 = _corp_hd("PESOS", 0.08, precio=120_000.0, sufijo="")
-    d2, s2 = _corp_hd("DOLAR", 0.08, precio=80.0, sufijo="D")
+def test_tasa_vs_1816_canta_el_que_se_aparta_con_los_cuatro_numeros(monkeypatch):
+    """Es la tabla del diag hecha habilidad: TNA mía · TNA 1816 · TEA mía ·
+    TEA 1816 en la evidencia, y hallazgo sólo si la TEA se aparta más de `bps`."""
+    d1, s1 = _corp_hd("IGUAL", 0.0800)
+    d2, s2 = _corp_hd("LEJOS", 0.0800)
     ll = _armar_tasa_vs_1816(monkeypatch, [d1, d2], {**s1, **s2},
-                             su_precio={"PESOS": 0.12, "DOLAR": 0.12},
-                             nuestro_precio={"PESOS": 0.08, "DOLAR": 0.08})
-    mercado.tasa_vs_1816({"bps": 150, "max_cotejos": 40})
-    px = {t: p for t, p, _ in ll["manual"]}
-    assert px["DOLAR"] == 80.0
-    assert px["PESOS"] == 120_000.0 / 1500.0
-
-
-def test_tasa_vs_1816_no_afirma_nada_si_no_pudo_cotejar(monkeypatch):
-    """Había apartados y el paso caro no contestó para ninguno: eso NO es «no
-    hay nada» (invariante 1). Se levanta SinDatos, no se devuelve []."""
-    d, s = _corp_hd("X", 0.08)
-    _armar_tasa_vs_1816(monkeypatch, [d], s, su_precio={"X": 0.12}, nuestro_precio={})
-    with pytest.raises(tipos.SinDatos):
-        mercado.tasa_vs_1816({"bps": 150, "max_cotejos": 40})
+                             su={"IGUAL": 0.0805, "LEJOS": 0.1100})
+    out = mercado.tasa_vs_1816({"bps": 150})
+    assert [h.sujeto for h in out] == ["LEJOS"]
+    ev = out[0].evidencia
+    assert out[0].regla == "tasa_no_coincide"
+    assert ev["tea_mia"] == 0.08 and ev["tea_1816"] == 0.11 and ev["bps"] == 300.0
+    assert ev["tna_1816"] == pytest.approx(0.11 * 0.97)
+    from quant.tasas import tna_desde_tea
+    assert ev["tna_mia"] == tna_desde_tea(0.08), "la TNA de la pantalla: TEM×12"
+    assert {m for _, m in ll} == {"mep"}, "1816 divide por CCL: se pide en mep"
 
 
 def test_tasa_vs_1816_sin_TEA_del_motor_no_es_su_problema(monkeypatch):
@@ -3471,10 +3435,17 @@ def test_tasa_vs_1816_sin_TEA_del_motor_no_es_su_problema(monkeypatch):
     candidatos no se le pide nada a 1816 (cero créditos)."""
     d, s = _corp_hd("SINTEA", 0.08)
     s[d["ticker"]]["tea"] = None
-    ll = _armar_tasa_vs_1816(monkeypatch, [d], s, su_precio={"SINTEA": 0.12},
-                             nuestro_precio={})
+    ll = _armar_tasa_vs_1816(monkeypatch, [d], s, su={"SINTEA": 0.12})
     assert mercado.tasa_vs_1816({"bps": 150}) == []
-    assert ll["lote"] == []
+    assert ll == []
+
+
+def test_tasa_vs_1816_si_1816_no_trae_ninguna_tea_no_afirma_nada(monkeypatch):
+    """Una respuesta vacía NO es «coinciden todos» (invariante 1): SinDatos."""
+    d, s = _corp_hd("X", 0.08)
+    _armar_tasa_vs_1816(monkeypatch, [d], s, su={})
+    with pytest.raises(tipos.SinDatos):
+        mercado.tasa_vs_1816({"bps": 150})
 
 
 def test_tasa_vs_1816_troza_de_a_50_porque_la_api_trunca(monkeypatch):
@@ -3484,38 +3455,18 @@ def test_tasa_vs_1816_troza_de_a_50_porque_la_api_trunca(monkeypatch):
     for i in range(120):
         d, s = _corp_hd(f"ON{i:03d}", 0.08)
         docs.append(d); snap.update(s); su[d["ticker_corto"]] = 0.0805
-    ll = _armar_tasa_vs_1816(monkeypatch, docs, snap, su_precio=su, nuestro_precio={})
+    ll = _armar_tasa_vs_1816(monkeypatch, docs, snap, su=su)
     assert mercado.tasa_vs_1816({"bps": 150}) == []
-    assert [len(t) for t, _ in ll["lote"]] == [50, 50, 20]
+    assert [len(t) for t, _ in ll] == [50, 50, 20]
     assert mercado.LOTE_1816 == 50
 
 
-def test_moneda_cotejo_1816_una_ON_en_dolares_se_coteja_en_mep():
-    """La rama `on` NO decide sola: un corporativo hard dólar se calcula en
-    dólares (`precio_soberano_a_usd`, igual que un soberano) y cotejarlo en
-    `ars` era la trampa de GD46 aplicada a ~130 ONs. Uno en pesos sigue en ars."""
-    from agente import alta
-    assert alta.moneda_cotejo_1816("on", "USD") == "mep"
-    assert alta.moneda_cotejo_1816("on", "ARS") == "ars"
-    assert alta.moneda_cotejo_1816("on", "DL") == "ars"
-    assert alta.moneda_cotejo_1816("soberanos") == "mep"
-    assert alta.moneda_cotejo_1816("cer") == "ars"
-    # Y el pre-flight se lo pasa: sin esto el arreglo de la función no cambia nada.
-    src = inspect.getsource(alta._simular_tasa)
-    assert 'moneda_cotejo_1816(rama_doc, doc.get("moneda_flujo"))' in src
-
-
-def test_la_habilidad_de_tasa_usa_el_umbral_de_la_casa_y_cierra_una_vez():
-    """No se inventó un número: `bps` es la banda «mirar» del pre-flight del
-    alta. Y corre al cierre — cuesta créditos y la rueda no cambia la respuesta."""
-    from agente import alta
+def test_tasa_vs_1816_es_un_aviso_y_pide_lo_que_tamar_1816_ya_probo():
+    """Sin arreglo (se mira el cuadro), y los campos del lote son los que
+    `jobs/tamar_1816` ya probó contra la API — un campo inventado es HTTP 400."""
     h = catalogo.HABILIDADES["tasa_vs_1816"]
-    assert h.ventana == "cierre" and h.dominio == "MERCADO" and h.sujeto_es == "bono"
-    assert h.umbrales["bps"] == alta._BPS_MIRAR
-    assert not h.arreglos, "lo que hay que mirar es el cuadro: lo decide una persona"
-    # Los campos que se piden en el lote son los que `jobs/tamar_1816` ya probó.
-    src = inspect.getsource(mercado.tasa_vs_1816)
-    assert '["tea", "tna"]' in src
+    assert h.dominio == "MERCADO" and h.sujeto_es == "bono" and not h.arreglos
+    assert '["tea", "tna"]' in inspect.getsource(mercado.tasa_vs_1816)
 
 
 def _universo_on(*tickers: str, curva: str = "Corporativos USD") -> dict:

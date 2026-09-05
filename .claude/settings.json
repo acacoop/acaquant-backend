@@ -54,6 +54,12 @@
             "command": "python .claude/hooks/check_agente.py",
             "timeout": 180,
             "statusMessage": "Tests del AV AGENT (REGLA #10)…"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/check_contexto.py",
+            "timeout": 90,
+            "statusMessage": "Techo del contexto de Claude…"
           }
         ]
       }

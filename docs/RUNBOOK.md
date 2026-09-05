@@ -339,3 +339,10 @@ systemctl restart api.service          # activa el middleware de telemetría
   typecheck/import-chain OK; vault regenerado). Borrado `MAR_14_JULIO_00_28_AM.md`
   (temporal, auto-destruible, ya cumplió). Hallazgo del golden (`_to_float`)
   pendiente de decisión del user.
+
+## Pendiente fuera del repo — Cloudflare Access
+
+Sacar la app `acaquant-mcp-bypass` del panel de **Cloudflare Access**. El MCP
+server se borró el 2026-08-28, pero esa app sigue dejando 5 paths (`/mcp`,
+`/oauth/register`, `/oauth/token` y compañía) sin login —hoy contra 404s— y
+ocupa **5/5 destinations**, la cuota entera, por una superficie que ya no existe.

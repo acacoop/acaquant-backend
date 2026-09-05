@@ -16,6 +16,19 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | Regla | Qué fija |
 |---|---|
 | `fable-orquesta` | Cuando el principal es Fable/Opus: **diseña y revisa**; la ejecución mecánica va a sub-agentes baratos (`explorador` · `implementador` · `revisor` · `pre-deploy-check`). Qué se delega, qué no, y el contrato del informe que devuelve un sub-agente. |
+| `agente` | EL AV AGENT: las 4 tablas del modelo + 5 de infra, los 12 invariantes, las 3 pantallas, REGLA #10 completa. Carga al tocar `agente/`, `jobs/agente.py`, `docs/AGENT.md`. |
+| `api-superficie` | `MAPA_APP.md` (§0 autogenerado) y la trampa de `app.routes` / `api/superficie.py`. Carga al tocar `api/**`. |
+| `sistema-deploy` | `deploy/SISTEMA.md` (`gen_sistema`) y el deploy que NO reinicia motores. Carga al tocar `deploy/**`. |
+| `operaciones` | Tablero comercial + `operaciones.operaciones`: HOT/COLD, arancel vs bruto, `es_cierre`. Carga al tocar los services/jobs de operaciones. |
+| `curvas` | `mercado.curvas`: shape CER/tasa fija/soberanos, columna vs blob invertido, breakevens, forwards, TC breakeven, CER T-10. Carga al tocar curvas/renta fija. |
+| `valuacion` | AuM/tenencias: el divisor lo decide la CARTERA, join chain de AuM. Carga al tocar PnL, tenencias, assets. |
+| `jobs` | Los jobs críticos diarios con hora, qué hacen y sus trampas (assets_autofill, validar_instrumentos, ficha_1816, tamar_1816, movimientos_propias…). Carga al tocar `jobs/**` o el crontab. |
+
+**Techo, congelado por `tests/unit/test_contexto_claude.py` y por el hook de push
+`check_contexto.py`**: `CLAUDE.md` raíz ≤ 200 líneas / 16 kB y **sin fechas** (si
+tiene fecha es historia → `docs/`); cada regla ≤ 250 líneas / 32 kB; cada `paths:`
+tiene que matchear un archivo que existe (si no, la regla muere en silencio); cada
+regla figura en esta tabla. Los techos solo bajan.
 
 ## Slash commands (`/nombre`)
 
@@ -57,6 +70,7 @@ también es Sonnet (`settings.json` → `env.CLAUDE_CODE_SUBAGENT_MODEL`).
 | Hook | Qué hace |
 |---|---|
 | PreToolUse · `git push` | `check_imports.sh` — corre `from api.main import app` y **BLOQUEA** el push si no importa (enforcement de la REGLA #1). |
+| PreToolUse · `git push` | `check_contexto.py` — corre `test_contexto_claude.py` y **BLOQUEA** el push si el CLAUDE.md raíz superó su techo, tiene fechas, o una regla apunta a un archivo que no existe. |
 | PreToolUse · `git push` | `check_agente.py` — si el push toca `agente/`, `docs/AGENT.md`, el registro de diagnóstico o el crontab, corre los tests del agente y **BLOQUEA** si están rojos (REGLA #10). |
 | PostToolUse · `Write\|Edit` | `ruff_check.sh` — `ruff check` sobre el `.py` editado, informativo (no bloquea). |
 | PostToolUse · `Write\|Edit` | `sistema_drift.sh` — drift de docs autogenerados: `deploy/systemd/*`/`crontab.txt` → `SISTEMA.md`; `scripts/*.py` → `docs/HERRAMIENTAS.md`. Avisa si quedaron desincronizados (no bloquea). |

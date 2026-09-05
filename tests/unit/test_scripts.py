@@ -67,6 +67,15 @@ HERRAMIENTAS: dict[str, str] = {
                              "y hasta que existió esto la única forma era SQL a mano — así que "
                              "«editable en caliente» era una frase. Rechaza una clave que el código "
                              "no declara: escribirla no haría nada y nadie se enteraría.",
+    # ⚠️ TEMPORAL — vive mientras dure el trabajo de `sin_emisor`, y se BORRA en
+    # el commit que lo cierre (REGLA #5). Se declara acá y no se deja colgando
+    # porque el motivo se puede escribir; que se pueda escribir CUÁNDO muere es
+    # parte del motivo.
+    "diag_emisor":           "mide de dónde puede salir cada `emisor` que falta ANTES de "
+                             "automatizarlo: cuánto ya está en 1816 y no llegó (plomería), cuánto "
+                             "sale de una regla, y cuánto necesita de verdad un modelo. Sin estos "
+                             "números, meter un LLM sería pagarle para tapar un join roto. Se borra "
+                             "cuando la habilidad esté hecha.",
     "diag_redaccion":        "la ÚNICA forma de juzgar si el texto que el modelo le escribe a los "
                              "avisos (AGENT.md §0.di) sirve o es berreta: pone el piso determinista "
                              "y el texto del modelo uno debajo del otro, y agrupa lo que la "

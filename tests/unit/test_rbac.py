@@ -197,7 +197,20 @@ def test_la_bandeja_tiene_puerta_y_el_job_puede_escribirla():
     assert ("/api/avisos", ("GET",)) in rutas
     assert ("/api/avisos/visto", ("POST",)) in rutas
     # Montado en la app, sin módulo (un operador no tiene `ia`) y sin invitado.
-    montado = any(getattr(r, "path", "") == "/api/avisos" for r in app.routes)
+    #
+    # ⚠️ **Por `api.superficie.rutas()`, NO por `app.routes`.** Este assert
+    # estuvo ROJO en `main` mientras el router SÍ estaba montado
+    # (`api/main.py`: `app.include_router(avisos.router, ...)`): cayó en la
+    # trampa que el propio CLAUDE.md documenta —`app.routes` no trae las rutas
+    # de un `include_router`, y según la versión de FastAPI devuelve
+    # envoltorios `_IncludedRouter` o una lista plana—. Un `for r in
+    # app.routes` ingenuo ve el 7% de la superficie y no falla: devuelve poco,
+    # en silencio. `superficie.rutas()` cubre los DOS mundos y es la única
+    # implementación del repo, la misma que usan `audit_rbac` y
+    # `gen_mapa_app` — reimplementarla acá es el bug que superficie vino a
+    # matar (37 de 541 rutas auditadas, en verde).
+    from api.superficie import rutas
+    montado = any(r.path == "/api/avisos" for r in rutas(app))
     assert montado, "el router existe y no está montado en api/main.py"
     assert "is_guest_portal" in inspect.getsource(avisos.bandeja)
     # La firma acepta lo que el job manda.

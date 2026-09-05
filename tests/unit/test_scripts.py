@@ -146,13 +146,6 @@ HERRAMIENTAS: dict[str, str] = {
                              "por rueda en los dos tapes y cuánto tardan las DOS queries agregadas "
                              "que la tab va a pedir. Elegir 1 rueda o 5 sin medir esto es adivinar "
                              "(2026-09-04, abierto).",
-    "diag_contabilidad_propias": "el ANTES de cambiarle la FUENTE al informe contable "
-                             "(operaciones.operaciones → movimientos_propias): mide las dos cosas "
-                             "que lo romperían SIN fallar —si la `unidad` cruza el catálogo de "
-                             "assets y de dónde sale la plata cuando la línea de título solo trae "
-                             "nominales— más qué comprobantes se pierden y cómo se corta el mes. "
-                             "Una fila que no cruza no explota: cae en «sin conciliar» y el mes da "
-                             "cero con la pantalla en verde (2026-09-04, abierto).",
     "diag_ctas_ops":         "mide cuánto cambia CTAS OPS del INFORME si el número pasa a salir de "
                              "operaciones.operaciones (para que las cuentas OTC cuenten como operativas). Sin este número la decisión se toma a ciegas.",
 }

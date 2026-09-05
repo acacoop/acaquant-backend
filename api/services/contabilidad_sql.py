@@ -680,6 +680,18 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
     tot["excluidos"] = sum(t["excluidos"] for t in todos)
     tot["excluido_total"] = round(sum(t["excluido_total"] for t in todos), 2)
     tot["ajustes"] = sum(t["n_ajustes"] for t in todos)
+    # ⚠️ LAS ALTAS PURAS SALEN DE LA TABLA Y HASTA HOY NO DEJABAN RASTRO EN LA
+    # PANTALLA (2026-09-05). Un título comprado y no vendido no es resultado de
+    # ESTE mes —su RxT entra el que viene— así que no va en la tabla ni en los
+    # totales, y el bloque visual se quitó el 2026-09-01 a pedido del back
+    # office. Resultado: desaparecía del informe SIN un número que lo explicara,
+    # y quien lo buscaba no tenía forma de distinguir «no es de este mes» de
+    # «se rompió algo». Sobrevivían solo como hoja del Excel, que es el último
+    # lugar donde alguien mira cuando falta una fila.
+    # Se declaran igual que los descuadres: un título que no está tiene que
+    # poder contarse desde la barra.
+    tot["altas"] = len(altas)
+    tot["altas_valuacion"] = round(sum(t["v_fin"] for t in altas), 2)
     # Exclusiones que apuntan a una línea que ya no existe (Aunesa la corrigió y
     # cambió su hash). No aplican, y en vez de desaparecer se cuentan.
     tot["excluidos_huerfanos"] = _excluidos_huerfanos(id_cuenta, mes)

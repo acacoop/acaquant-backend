@@ -567,16 +567,44 @@ class CompletarFicha(Arreglo):
             return {"ok": False,
                     "error": f"«{sujeto}» no es un campo de la ficha"}
         filas = det.faltantes(c)
+        # ⚠️ **EL VALOR VIENE PROPUESTO, PERO NO ESCRITO** (2026-09-05).
+        #
+        # Por default este listado sale vacío y hay que tipear los N valores. Para
+        # el EMISOR eso ya no hace falta: `agente/emisor.proponer` arma una
+        # propuesta por fila y le cuelga DE DÓNDE SALIÓ, así el que mira destilda
+        # en vez de escribir.
+        #
+        # Lo que NO cambia es quién decide: `aplicar` sigue recibiendo lo que la
+        # pantalla mandó, sigue verificándolo contra la lista viva y sigue
+        # escribiendo por `set_campos`. Una propuesta que nadie confirma no toca
+        # la base — y si el gateway no contesta, las filas vuelven sin propuesta
+        # y esto queda exactamente como estaba.
+        #
+        # Sólo el emisor: la CARTERA y la CLASE_ACTIVO son criterio de la mesa y
+        # no hay de dónde derivarlas. Proponerlas sería inventar.
+        propuestas = 0
+        if c["campo"] == "emisor" and filas:
+            from agente import emisor as em
+            try:
+                filas = em.proponer(
+                    filas, det.valores_usados("emisor"),
+                    subyacentes=em.subyacentes([f.get("ticker", "") for f in filas]))
+                propuestas = sum(1 for f in filas if f.get("propuesto"))
+            except Exception as e:
+                logger.warning("completar_ficha: sin propuestas de emisor (%s)", e)
         return {
             "ok": True,
             "que_escribe": (f"{c['campo'].upper()} en {len(filas)} título(s) de "
-                            f"carteras de clientes"),
+                            f"carteras de clientes"
+                            + (f" · {propuestas} con valor propuesto"
+                               if propuestas else "")),
             "donde": self.donde,
             "porque": c["rompe"],
             "puede_aplicar": bool(filas),
             # LO QUE LA PANTALLA DESPLIEGA. Cada fila trae el resto de la ficha
             # para que se pueda decidir sin salir de acá: la cartera y el ticker
-            # son lo que dice qué es ese título.
+            # son lo que dice qué es ese título. Y, si es el emisor, `propuesto`
+            # + `fuente`.
             "campo": c["campo"],
             "filas": filas,
             # Los valores que ese campo YA tiene, para elegir en vez de tipear.

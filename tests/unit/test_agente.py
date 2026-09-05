@@ -3579,3 +3579,153 @@ def test_on_faltante_no_declara_un_boton_que_siempre_bloquea():
     assert not h.arreglos and h.sujeto_es == "bono" and h.ventana == "rueda"
     assert "on" not in alta.RAMAS_AUTOMATICAS, (
         "si la rama `on` ya convierte sola, on_faltante puede declarar alta_bono")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL EMISOR PROPUESTO — `agente/emisor.py` (2026-09-05)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_el_modelo_elige_de_la_lista_y_lo_de_afuera_se_descarta(monkeypatch):
+    """**LA GUARDA QUE HACE QUE ESTO NO ENSUCIE EL CATÁLOGO.**
+
+    El modelo puede contestar un emisor que no existe —inventado, o una variante
+    de grafía— y escribirlo sería fabricar el duplicado que este campo no puede
+    tener: `CREDICUOTAS` y `Credicuotas Consumo` son el mismo emisor partido en
+    dos, y por eso cualquier cosa que agrupe por emisor cuenta mal.
+
+    Y lo que se devuelve es **la grafía del CATÁLOGO**, no la del modelo: aceptar
+    `iam` y escribirlo así dejaría `iam` al lado de `IAM` sin que nada falle.
+    """
+    from agente import emisor
+
+    monkeypatch.setattr(
+        "core.ai.completar",
+        lambda *a, **k: '{"[1] Ciclo Nova": "iam", "[2] X": "Banco Inventado", '
+                        '"[3] Y": "", "[4] Z": "OTROS"}')
+    r = emisor.por_modelo(
+        [{"unidad": f"[{i}] X"} for i in (1, 2, 3, 4)], ["IAM", "OTROS"])
+
+    # `iam` se acepta (la comparación no mira mayúsculas) pero entra la del catálogo.
+    assert r["[1] Ciclo Nova"] == "IAM"
+    assert r["[4] Z"] == "OTROS"
+    # Un emisor que NO está en la lista no entra, aunque suene razonable.
+    assert "[2] X" not in r
+    # Y «no sé» tampoco escribe nada: es una respuesta válida, no un hueco.
+    assert "[3] Y" not in r
+
+
+def test_si_el_gateway_no_contesta_las_filas_quedan_como_estaban(monkeypatch):
+    """**Meter IA acá no puede agregar un modo de falla nuevo.**
+
+    Sin key, sin presupuesto o con el proveedor caído, el listado tiene que
+    quedar exactamente como estaba antes de que este módulo existiera: vacío y
+    tipeable. Es el mismo criterio que el PISO de `agente/redactar.py`.
+    """
+    from agente import emisor
+
+    filas = [{"unidad": "[15154] Ciclo Nova Ahorro Plus", "ticker": "x"}]
+    monkeypatch.setattr("core.ai.completar", lambda *a, **k: None)
+    assert emisor.proponer(filas, ["IEB"]) == [
+        {**filas[0], "propuesto": "", "fuente": ""}]
+
+    # Y si el gateway LEVANTA, tampoco se cae la pantalla.
+    def _revienta(*a, **k):
+        raise RuntimeError("proveedor caído")
+    monkeypatch.setattr("core.ai.completar", _revienta)
+    assert emisor.proponer(filas, ["IEB"])[0]["propuesto"] == ""
+
+
+def test_la_cadena_respeta_el_orden_de_confianza(monkeypatch):
+    """El primero que contesta gana, y **el orden ES el de la confianza**.
+
+    Lo de arriba se verifica sin abrir nada (el nombre está a la vista); lo de
+    abajo hay que mirarlo. Por eso cada fila se lleva su `fuente` hasta la
+    pantalla: confirmar «Finnhub dice Chevron Corp» no es el mismo acto que
+    confirmar «el modelo eligió IEB».
+    """
+    from agente import emisor
+
+    # Finnhub contesta por la acción y NO por el ETF — que es lo que se midió
+    # de verdad el 2026-09-05: `profile2` es un perfil de EMPRESA.
+    monkeypatch.setattr(emisor, "por_finnhub",
+                        lambda u: "Chevron Corp" if u == "CVX" else "")
+    monkeypatch.setattr(emisor, "por_modelo",
+                        lambda f, e: {x["unidad"]: "OTROS" for x in f})
+    filas = [
+        {"unidad": "[903] CAFCI462-903 - Allaria Ahorro Plus", "ticker": "AAP"},
+        {"unidad": "[8013] CVX", "ticker": "CVX"},
+        {"unidad": "[8671] XLK", "ticker": "XLK"},
+    ]
+    r = emisor.proponer(filas, ["ALLARIA", "Chevron Corp", "OTROS"],
+                        subyacentes={"CVX": "CVX", "XLK": "XLK"})
+    # 1. el nombre gana aunque el ticker tuviera subyacente
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("ALLARIA", emisor.NOMBRE)
+    # 2. Finnhub, cuando hay subyacente y contesta
+    assert (r[1]["propuesto"], r[1]["fuente"]) == ("Chevron Corp", emisor.FINNHUB)
+    # 3. el modelo, para lo que quedó (el ETF: Finnhub contestaría vacío)
+    assert (r[2]["propuesto"], r[2]["fuente"]) == ("OTROS", emisor.MODELO)
+
+
+def test_finnhub_vacio_no_se_lee_como_es_un_etf(monkeypatch):
+    """⚠️ **«No contestó» NO es un veredicto** — el invariante 1, un nivel abajo.
+
+    `profile2` devuelve vacío para un ETF, pero también para un símbolo mal
+    escrito, para la red caída y para `AGRO`, que es una empresa de verdad. Si
+    ese vacío se leyera como «es un ETF → OTROS», `AGRO` terminaría en el mismo
+    balde que `XLK` y nadie lo notaría.
+
+    Por eso la fila cae al siguiente eslabón en vez de resolverse acá.
+    """
+    from agente import emisor
+
+    monkeypatch.setattr(emisor, "por_finnhub", lambda u: "")
+    visto: list = []
+    monkeypatch.setattr(emisor, "por_modelo",
+                        lambda f, e: visto.extend(x["unidad"] for x in f) or {})
+    r = emisor.proponer([{"unidad": "[19] AGRO", "ticker": "AGRO"}],
+                        ["OTROS"], subyacentes={"AGRO": "AGRO"})
+    assert visto == ["[19] AGRO"], "un Finnhub vacío tiene que caer al modelo"
+    assert r[0]["propuesto"] == "" and r[0]["fuente"] == ""
+
+
+def test_el_emisor_propuesto_no_escribe_nada_por_su_cuenta():
+    """**Propone, no aplica.** La escritura sigue donde estaba.
+
+    `emisor.py` no puede tocar la base: quien escribe es
+    `arreglos.CompletarFicha.aplicar` → `set_campos(crear=False)`, contra la
+    lista VIVA de faltantes y con una línea de libro por título. Una propuesta
+    que nadie confirma no llega a ninguna tabla.
+    """
+    # ⚠️ El CÓDIGO, no la prosa: el docstring del módulo NOMBRA `set_campos`
+    # para decir dónde vive la escritura. Grepear el archivo entero haría fallar
+    # este test justo cuando la explicación está bien escrita (ver `_codigo`).
+    from agente import emisor
+    src = _codigo(emisor)
+    for prohibido in ("set_campos", "UPDATE ", "INSERT ", "DELETE "):
+        assert prohibido not in src, (
+            f"`agente/emisor.py` escribe ({prohibido!r}): tiene que PROPONER. "
+            "La escritura vive en el arreglo, que verifica contra la lista viva.")
+    # Y la única query que sí hace es de LECTURA del master de CEDEARs.
+    assert src.count("cur.execute") == 1 and "SELECT" in src
+
+    # El preview sólo propone para el EMISOR: cartera y clase_activo son
+    # criterio de la mesa y no hay de dónde derivarlas — proponerlas sería
+    # inventar, que es justo lo que este diseño no hace.
+    arr = (RAIZ / "agente" / "arreglos.py").read_text()
+    i = arr.index("propuestas = 0")
+    assert 'if c["campo"] == "emisor"' in arr[i:i + 200]
+
+
+def test_la_tarea_de_emisor_esta_declarada_en_el_gateway():
+    """Una tarea sin fila en `core/ai.py` corre igual, con la config default y
+    sin presupuesto propio — o sea, gasta sin techo y su traza no se puede
+    rastrear. Declararla es lo que la hace auditable."""
+    from agente import emisor
+    from core.ai import _TAREAS
+
+    cfg = _TAREAS.get(emisor.TAREA)
+    assert cfg, f"«{emisor.TAREA}» no está declarada en core/ai.py::_TAREAS"
+    # `pro`: acá no se redacta, se RECONOCE, y equivocarse escribe un dato en un
+    # campo por el que se agrupa plata.
+    assert cfg["tier"] == "pro" and cfg["timeout_s"] <= 45

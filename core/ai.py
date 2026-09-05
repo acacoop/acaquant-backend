@@ -80,9 +80,9 @@ _TAREAS: dict[str, dict] = {
     # se fue del front). Antes de sumar una tarea nueva: **quién la mira**.
     #
     # ⚠️ Se fueron también las TRES del AV AGENT viejo (`av_agent_informe`,
-    # `av_agent_accion`, `av_agent_error`): AGENT 2.0 no usa IA en ninguna de sus
-    # 17 habilidades —`usa_ia` es False en las 17— y los services que las
-    # invocaban ya no existen. Quedaba la CONFIG (tier, tokens, timeout) de tres
+    # `av_agent_accion`, `av_agent_error`): ninguna habilidad de AGENT 2.0
+    # DETECTA con IA —`usa_ia` es False en TODAS, y un test lo congela— y los
+    # services que las invocaban ya no existen. Quedaba la CONFIG (tier, tokens, timeout) de tres
     # tareas que nadie podía llamar, que es la peor clase de código muerto: hace
     # creer que el agente usa IA cuando no la usa.
     "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
@@ -119,6 +119,22 @@ _TAREAS: dict[str, dict] = {
     # caracteres: darle más es invitarlo a escribir de más.
     "agente_texto": {"tier": "flash", "max_tokens": 400, "timeout_s": 45,
                      "thinking": "disabled"},
+    # Quién la mira: **el listado de `completar_ficha`** en la tab ENCONTRÓ del
+    # modal del AV AGENT (`agente/emisor.py`). Propone el EMISOR de los títulos
+    # que ninguna regla determinista pudo derivar, ELIGIENDO de la lista cerrada
+    # de emisores que el catálogo ya usa — lo que contesta fuera de esa lista se
+    # descarta. **No escribe nada**: una persona confirma en la misma pantalla.
+    #
+    # Corre A PEDIDO (cuando alguien abre el listado), no en una pasada del
+    # daemon: es una sola llamada por pantalla y su costo lo dispara un click.
+    #
+    # `pro` y no `flash`: acá no se redacta, se RECONOCE —que «Ciclo Nova Ahorro
+    # Plus» es un fondo de IEB no sale de leer el string— y equivocarse escribe
+    # un dato en un campo por el que se agrupa plata. Mismo criterio que el
+    # investigador. 2000 tokens porque la salida es un JSON de N pares cortos, y
+    # 45 s por lo mismo que la cadena de alta: detrás de Cloudflare hay un reloj.
+    "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
+                      "thinking": "disabled"},
     # ⚠️ `research_destilar` se fue el 2026-08-28 con su job: era la ÚLTIMA tarea
     # productiva del sistema. Se probó cuatro días (14-17/07), se apagó el 17/07
     # y ninguna pantalla llegó a dibujar su salida. Con ella, `smoke` quedó como

@@ -3729,3 +3729,60 @@ def test_la_tarea_de_emisor_esta_declarada_en_el_gateway():
     # `pro`: acá no se redacta, se RECONOCE, y equivocarse escribe un dato en un
     # campo por el que se agrupa plata.
     assert cfg["tier"] == "pro" and cfg["timeout_s"] <= 45
+
+
+def test_lo_que_ya_TIENE_emisor_no_se_toca_nunca():
+    """⚠️⚠️ **SOLO SE COMPLETAN VACÍOS. NI EL JOB NI EL BOTÓN NI EL MODELO
+    PUEDEN PISAR UN EMISOR CARGADO.**
+
+    Regla del user (2026-09-05), en mayúsculas: *«esto tiene que funcionar con
+    los que están VACÍOS, ahora y de acá en adelante, no modificar lo que hay»*.
+
+    No es una preferencia: un emisor cargado a mano es la ÚNICA información que
+    el sistema no puede reconstruir. Y pisar acá no fallaría —quedaría un
+    catálogo internamente coherente diciendo otra cosa—, que es el modo de falla
+    que este repo persigue en todos lados.
+
+    La garantía es de TRES capas independientes, y este test las congela a las
+    tres. Que sean tres no es redundancia: cada una protege una vía de entrada
+    distinta (el cron, el botón, y de qué universo salen las propuestas).
+    """
+    import inspect as _i
+
+    from agente import arreglos, emisor
+    from agente.detectores.catalogo import CAMPOS
+
+    # ── 1. EL CRON. `assets_autofill` escribe SOLO si el valor está vacío; si
+    #       la regla propone algo distinto de lo cargado, lo REPORTA.
+    job = (RAIZ / "jobs" / "assets_autofill.py").read_text()
+    i = job.index("if _vacio(actual):")
+    rama = job[i:i + 500]
+    assert "cambios[unidad][col] = val" in rama, "el job dejó de mirar si está vacío"
+    assert "conflictos.append" in rama, (
+        "lo que difiere de lo cargado tiene que REPORTARSE, no escribirse")
+
+    # ── 2. EL BOTÓN. `aplicar` recalcula el permitido contra la lista VIVA de
+    #       faltantes, así que una unidad que se completó entre que se abrió la
+    #       pantalla y se apretó GUARDAR se saltea en vez de pisarse.
+    ap = _i.getsource(arreglos.CompletarFicha.aplicar)
+    assert "permitidas = {" in ap and "if unidad not in permitidas" in ap
+    assert "saltados.append(unidad)" in ap, (
+        "lo que ya no está vacío tiene que saltearse, nunca escribirse")
+
+    # ── 3. DE DÓNDE SALEN LAS PROPUESTAS. El modelo nunca ve un asset que ya
+    #       tenga emisor: `preview` le pasa `det.faltantes(c)`, y «faltante» lo
+    #       define el SQL del detector — que es literalmente «está vacío».
+    #       Sin esto, el modelo podría proponer sobre algo cargado y la pantalla
+    #       lo ofrecería para escribir.
+    pv = _i.getsource(arreglos.CompletarFicha.preview)
+    assert "filas = det.faltantes(c)" in pv
+    j = pv.index("em.proponer")
+    assert "filas" in pv[j:j + 80], (
+        "el modelo tiene que recibir SOLO los faltantes, no el catálogo")
+    falta = next(c["falta"] for c in CAMPOS if c["campo"] == "emisor")
+    assert "IS NULL" in falta and "= ''" in falta, (
+        f"«sin emisor» dejó de significar «vacío»: {falta}")
+
+    # ── Y el módulo que propone no tiene forma de escribir, ni siquiera por
+    #    accidente: no importa la puerta de escritura.
+    assert "assets_sql" not in _codigo(emisor)

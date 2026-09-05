@@ -1,5 +1,5 @@
 ---
-name: security-review
+name: seguridad-acaquant
 description: >
   Usar ANTES de exponer/pushear un endpoint nuevo, un cambio de RBAC, un router,
   o algo que toque auth, secretos, MCP o CF Access. Checklist de seguridad a

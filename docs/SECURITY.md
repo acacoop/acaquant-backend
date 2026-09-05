@@ -129,7 +129,7 @@ Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
 - En prod `API_KEY`, `CF_ACCESS_TEAM` y `CF_ACCESS_AUD` **tienen que** estar
   seteados — sin ellos la auth es fail-open.
 - Antes de pushear router/service: REGLA #1 (ver `api/CLAUDE.md`).
-- Revisión de cambios con impacto en auth/datos: `/security-review`.
+- Revisión de cambios con impacto en auth/datos: `/seguridad-acaquant`.
 
 ### Verificar la superficie HTTP
 

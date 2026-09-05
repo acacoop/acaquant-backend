@@ -168,7 +168,7 @@ def _emit() -> None:
     print("  □ Atlas → Network Access: la IP allowlist NO debe ser 0.0.0.0/0")
     print("    (solo la IP del Droplet + tu IP). Si está abierta + se filtró la URI = acceso total.")
     print("  □ Droplet: 'sudo ufw status' (solo 22/80/443), fail2ban activo, SSH con key (no password).")
-    print("  □ Cada cambio de código sensible: pasalo por el skill /security-review.")
+    print("  □ Cada cambio de código sensible: pasalo por el skill /seguridad-acaquant.")
 
 
 def main() -> None:

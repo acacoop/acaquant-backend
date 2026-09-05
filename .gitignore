@@ -13,6 +13,7 @@ Excel/response_cuenta_*.json
 !.claude/commands/
 !.claude/skills/
 !.claude/agents/
+!.claude/rules/
 !.claude/hooks/
 !.claude/settings.json
 !.claude/INDEX.md

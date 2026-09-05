@@ -74,7 +74,7 @@ TAREA = "agente_emisor"
 
 # De dónde salió cada propuesta. Viaja hasta la pantalla: confirmar «Finnhub
 # dice Chevron Corp» no es el mismo acto que confirmar «el modelo eligió IEB».
-NOMBRE, FINNHUB, MODELO = "nombre", "finnhub", "modelo"
+REGLA, NOMBRE, FINNHUB, MODELO = "regla", "nombre", "finnhub", "modelo"
 
 # Cuántas filas van al modelo por pantalla. Un tope que no está escrito no es un
 # tope — mismo criterio que `redactar.TOPE_POR_PASADA` y `triage.TOPE_DIARIO`.
@@ -83,6 +83,46 @@ TOPE_MODELO = 80
 # nombre. Con menos, un match es casualidad: `MAX` adentro de «Maxinta» no dice
 # nada, y emparejar mal es peor que no emparejar (REGLA #9).
 MIN_LARGO_NOMBRE = 5
+
+
+# ── 0. LO QUE EL SISTEMA YA SABE DERIVAR ───────────────────────────────────
+def por_regla(fila: dict) -> str:
+    """El emisor que `jobs/assets_autofill` derivaría, o "". **PURA.**
+
+    ⚠️⚠️ **NO SE REIMPLEMENTA NINGUNA REGLA: SE LLAMAN LAS DEL JOB.**
+
+    Es la corrección de un error de diseño real (2026-09-05). Las reglas
+    deterministas —FINANCIAMIENTO → OTROS, DERIVADOS → OTROS— vivían SOLO en el
+    cron nocturno, así que la pantalla mostraba nueve pagarés con el emisor
+    vacío mientras el sistema sabía perfectamente qué iba ahí. El user lo dijo
+    con todas las letras: *«no entiendo por qué justo el más fácil no lo hace»*.
+
+    Y tenía razón dos veces. La pantalla quedaba peor que el cron, y **la
+    pantalla es donde se trabaja**: obligaba a esperar a la noche para ver
+    resuelto lo que no requiere pensar.
+
+    Copiar las reglas acá habría sido peor todavía (REGLA #9): dos definiciones
+    de «qué emisor le toca a un pagaré», cada una coherente consigo misma, y el
+    día que una cambie la otra sigue contestando lo de antes sin fallar. Por eso
+    se importan las funciones del job. `agente/alta_cedear.py` ya usa `jobs/` de
+    la misma forma, y el test de capas lo permite.
+
+    Va PRIMERO en la cadena porque es lo único gratis, lo único determinista y
+    lo único que no puede equivocarse: si hay una regla, no hay nada que
+    proponer ni que confirmar.
+    """
+    try:
+        from jobs.assets_autofill import (
+            _regla_emisor_derivados,
+            _regla_emisor_financiamiento,
+        )
+    except Exception as e:                       # el job no importa: se sigue
+        logger.warning("emisor: no pude leer las reglas del catálogo (%s)", e)
+        return ""
+    for regla in (_regla_emisor_financiamiento, _regla_emisor_derivados):
+        if (v := (regla(fila) or {}).get("emisor")):
+            return str(v)
+    return ""
 
 
 # ── 1. EL NOMBRE LO DICE ───────────────────────────────────────────────────
@@ -230,6 +270,7 @@ def proponer(filas: list[dict], emisores: list[str], *,
              usar_modelo: bool = True) -> list[dict]:
     """Cada fila con `propuesto` y `fuente`. **El primero que contesta gana.**
 
+        0. una REGLA del sistema ya lo sabe        → gratis y determinista
         1. el nombre trae un emisor que ya existe   → barato, sin red
         2. hay subyacente y Finnhub da el nombre    → una fuente externa
         3. el modelo elige de la lista cerrada      → una sola llamada
@@ -248,7 +289,9 @@ def proponer(filas: list[dict], emisores: list[str], *,
     out, pendientes = [], []
     for f in filas:
         fila = {**f, "propuesto": "", "fuente": ""}
-        if (v := por_nombre(f.get("unidad", ""), emisores)):
+        if (v := por_regla(f)):
+            fila["propuesto"], fila["fuente"] = v, REGLA
+        elif (v := por_nombre(f.get("unidad", ""), emisores)):
             fila["propuesto"], fila["fuente"] = v, NOMBRE
         elif (und := subs.get((f.get("ticker") or "").strip().upper())):
             if (v := por_finnhub(und)):

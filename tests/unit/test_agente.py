@@ -3731,6 +3731,51 @@ def test_la_tarea_de_emisor_esta_declarada_en_el_gateway():
     assert cfg["tier"] == "pro" and cfg["timeout_s"] <= 45
 
 
+def test_la_pantalla_resuelve_lo_MISMO_que_el_cron():
+    """⚠️⚠️ **LO QUE EL SISTEMA YA SABE DERIVAR NO PUEDE ESPERAR A LA NOCHE.**
+
+    El bug (2026-09-05): las reglas deterministas —FINANCIAMIENTO → OTROS,
+    DERIVADOS → OTROS— vivían SOLO en el cron nocturno. La pantalla mostraba
+    nueve pagarés con el emisor vacío mientras el sistema sabía perfectamente
+    qué iba ahí, y para verlo resuelto había que esperar a que corriera el job.
+    El user: *«no entiendo por qué justo el más fácil no lo hace»*.
+
+    La pantalla es donde se trabaja, así que **la pantalla no puede saber menos
+    que el cron**.
+
+    ⚠️ Y la corrección NO fue copiar las reglas: se IMPORTAN las del job. Dos
+    definiciones de «qué emisor le toca a un pagaré» serían dos verdades sin
+    árbitro (REGLA #9) — el día que una cambie, la otra sigue contestando lo de
+    antes y ninguna falla.
+    """
+    from agente import emisor
+
+    # La regla gana sobre todo lo demás: es gratis, determinista, y si hay regla
+    # no hay nada que proponer ni que confirmar.
+    fin = {"unidad": "[#UBI260170001] #UBI260170001 Nro. 163214 Vto. 28/01/2027",
+           "cartera": "FINANCIAMIENTO", "ticker": "#UBI260170001"}
+    der = {"unidad": "[GFGC8000OC]", "cartera": "DERIVADOS", "ticker": "GFGC8000OC"}
+    r = emisor.proponer([fin, der], ["OTROS", "ALLARIA"], usar_modelo=False)
+    assert [(x["propuesto"], x["fuente"]) for x in r] == [
+        ("OTROS", emisor.REGLA), ("OTROS", emisor.REGLA)]
+
+    # Y lo que NO tiene regla sigue cayendo a los eslabones de abajo — la regla
+    # no puede convertirse en un balde que se traga todo.
+    fci = {"unidad": "[903] CAFCI462-903 - Allaria Ahorro Plus - Clase B",
+           "cartera": "FCI", "ticker": "Allaria Ahorro Plus - Clase B"}
+    otro = emisor.proponer([fci], ["OTROS", "ALLARIA"], usar_modelo=False)[0]
+    assert (otro["propuesto"], otro["fuente"]) == ("ALLARIA", emisor.NOMBRE)
+
+    # ⚠️ Las reglas se LLAMAN, no se copian: el módulo no puede tener su propia
+    # versión de «FINANCIAMIENTO va a OTROS».
+    src = _codigo(emisor)
+    assert "assets_autofill" in src, (
+        "`por_regla` tiene que importar las reglas del job, no reimplementarlas")
+    assert "FINANCIAMIENTO" not in src and "DERIVADOS" not in src, (
+        "el nombre de una cartera escrito acá es una SEGUNDA definición de la "
+        "regla (REGLA #9): el día que el job la cambie, esto sigue con la vieja")
+
+
 def test_lo_que_ya_TIENE_emisor_no_se_toca_nunca():
     """⚠️⚠️ **SOLO SE COMPLETAN VACÍOS. NI EL JOB NI EL BOTÓN NI EL MODELO
     PUEDEN PISAR UN EMISOR CARGADO.**

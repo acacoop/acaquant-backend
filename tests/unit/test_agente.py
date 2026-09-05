@@ -1819,11 +1819,28 @@ def test_lo_de_derivados_no_tiene_emisor_y_eso_se_declara():
     src = (RAIZ / "jobs" / "assets_autofill.py").read_text()
     mod = _ast.parse(src)
     fns = {n.name: n for n in mod.body if hasattr(n, "name")}
-    ns: dict = {"_norm": lambda x: (x or "").strip(),
-                "CARTERA_DERIVADOS": "DERIVADOS", "EMISOR_DERIVADOS": "OTROS",
+    import datetime as _dt
+    import re as _re
+
+    # `_regla_emisor_financiamiento` cae en `_regla_financiamiento` cuando la
+    # cartera todavía está vacía —el mecanismo que hace que un pagaré nuevo no
+    # espere a la corrida de mañana—, así que necesita el regex y `date`.
+    #
+    # ⚠️ El regex se EJECUTA desde el AST del job, no se copia acá. Una segunda
+    # escritura de esa firma sería la REGLA #9 adentro del test que la verifica:
+    # el día que el job la cambie, el test seguiría en verde contra la vieja.
+    ns: dict = {"_norm": lambda x: (x or "").strip(), "re": _re, "date": _dt.date,
+                "CARTERA_DERIVADOS": "DERIVADOS", "EMISOR_OTROS": "OTROS",
+                "CARTERA_FINANCIAMIENTO": "FINANCIAMIENTO",
                 "_PREFIJOS_AGRO": ("MAI.", "SOJ.", "TRI."),
                 "_regla_ticker": lambda r: {}}
-    for n in ("_regla_derivados_otc", "_regla_emisor_derivados"):
+    for asig in mod.body:
+        if (isinstance(asig, _ast.Assign)
+                and getattr(asig.targets[0], "id", "") == "_RE_FINANCIAMIENTO"):
+            exec(compile(_ast.Module([asig], []), "<t>", "exec"), ns)
+    assert "_RE_FINANCIAMIENTO" in ns, "cambió el nombre del regex en el job"
+    for n in ("_regla_derivados_otc", "_regla_emisor_derivados",
+              "_regla_financiamiento", "_regla_emisor_financiamiento"):
         exec(compile(_ast.Module([fns[n]], []), "<t>", "exec"), ns)
     regla = ns["_regla_emisor_derivados"]
 
@@ -1834,6 +1851,29 @@ def test_lo_de_derivados_no_tiene_emisor_y_eso_se_declara():
     # Nada más se toca.
     assert regla({"unidad": "[8295] BHP", "cartera": "RENTA VARIABLE"}) == {}
     assert regla({"unidad": "[AL30]", "cartera": "HD"}) == {}
+
+    # ── FINANCIAMIENTO usa el MISMO balde por OTRO motivo (2026-09-05) ──────
+    #
+    # User: *«si en cartera es FINANCIAMIENTO en emisor va OTROS, no se negocia
+    # esto»*. Un pagaré SÍ tiene librador —a diferencia de un futuro—, así que
+    # esto no es una propiedad del instrumento sino una decisión de la mesa: el
+    # negocio se sigue por papel y vencimiento, no por quién lo libró.
+    #
+    # Son DOS reglas y no una con dos carteras, para que mañana una pueda
+    # cambiar sin tocar la otra. Lo que sí es uno solo es el VALOR: un
+    # `EMISOR_FINANCIAMIENTO = "OTROS"` al lado sería la REGLA #9 en dos
+    # constantes.
+    fin = ns["_regla_emisor_financiamiento"]
+    unidad = "[#UBI260170001] #UBI260170001 Nro. 163214 Vto. 28/01/2027"
+    assert fin({"unidad": unidad, "cartera": "FINANCIAMIENTO"}) == {"emisor": "OTROS"}
+    # Y el pagaré que entra HOY, antes de que nadie le ponga la cartera: si no,
+    # esperaría a la corrida de mañana para recibir su emisor.
+    assert fin({"unidad": unidad, "cartera": ""}) == {"emisor": "OTROS"}
+    # Nada más se toca — y en particular NO se toca lo de derivados ni al revés.
+    assert fin({"unidad": "[8295] BHP", "cartera": "RENTA VARIABLE"}) == {}
+    assert fin({"unidad": "[GFGC8000OC]", "cartera": "DERIVADOS"}) == {}
+    assert regla({"unidad": unidad, "cartera": "FINANCIAMIENTO"}) == {}
+    assert 'Regla("emisor_financiamiento"' in src
 
     # La regla está declarada en el catálogo y `emisor` es un campo escribible:
     # sin lo segundo el job levanta `ValueError` en vez de escribir en silencio.

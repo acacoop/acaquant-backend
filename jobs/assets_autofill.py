@@ -34,6 +34,10 @@ Reglas v1:
   * fci — `[<id>] CAFCI<n>-<m> - <nombre>` → CARTERA, TICKER (nombre del fondo) y
     CAFCI (código). Es la misma derivación que hace el auto-alta del writer diario
     (`core.cafci`), acá backfilleada sobre lo que ya está en el catálogo.
+  * emisor_derivados / emisor_financiamiento — EMISOR = OTROS para esas dos
+    carteras. Mismo valor y motivos distintos (un futuro no tiene emisor; un
+    pagaré lo tiene pero el negocio no se sigue por él), y por eso son dos
+    reglas: mañana una puede cambiar sin tocar la otra.
   * ticker — TICKER para el resto del catálogo, sea cual sea la cartera: sale del
     `[<id>] <descripción>` de Aunesa.
   * especies — los DOS símbolos de mercado (INSTRUMENTO en pesos e INSTRUMENTO_USD
@@ -496,7 +500,12 @@ class Regla:
 # mismo.
 CARTERA_DERIVADOS = "DERIVADOS"
 # El balde de emisor que ya usa la mesa para lo que no tiene emisor propio.
-EMISOR_DERIVADOS = "OTROS"
+#
+# ⚠️ Se llamaba `EMISOR_DERIVADOS` y lo usaba una sola regla. Hoy lo usan DOS
+# carteras (DERIVADOS y FINANCIAMIENTO) por motivos DISTINTOS, así que el nombre
+# pasó a decir lo que es —el balde— y no de quién es. Un `EMISOR_FINANCIAMIENTO`
+# al lado con el mismo string sería la REGLA #9 en dos constantes.
+EMISOR_OTROS = "OTROS"
 
 # El TOKEN del commodity, no un `startswith` suelto: `MAI.ROS/ABR27` y
 # `MAI.MIN/JUL27` empiezan con `MAI.`, pero un ticker que casualmente arranque
@@ -522,7 +531,39 @@ def _regla_emisor_derivados(row: dict) -> dict[str, str]:
     """
     cartera = (_norm(row.get("cartera"))
                or _norm(_regla_derivados_otc(row).get("cartera"))).upper()
-    return {"emisor": EMISOR_DERIVADOS} if cartera == CARTERA_DERIVADOS else {}
+    return {"emisor": EMISOR_OTROS} if cartera == CARTERA_DERIVADOS else {}
+
+
+def _regla_emisor_financiamiento(row: dict) -> dict[str, str]:
+    """EMISOR = OTROS para todo lo de cartera FINANCIAMIENTO.
+
+    Regla del user (2026-09-05), sobre los 9 pagarés que quedaban sin emisor:
+    *«si en cartera es FINANCIAMIENTO en emisor va OTROS, no se negocia esto y
+    ya lo puede aplicar fielmente»*.
+
+    ⚠️ **El motivo NO es el mismo que en derivados, y por eso son dos reglas.**
+    Un futuro no tiene emisor —no hay nadie que se haya endeudado—; un pagaré SÍ
+    tiene librador. Lo que dice esta regla es que **ese nombre no se sigue por
+    emisor**: el negocio de financiamiento se mira por papel y por vencimiento,
+    no por quién lo libró. Es una decisión de la mesa, no una propiedad del
+    instrumento — y escribirla en su propia regla es lo que deja que mañana
+    cambie una sin tocar la otra.
+
+    Y por eso es DETERMINISTA y no va al modelo: no hay nada que entender.
+    Mandarla a un LLM sería pagar por una constante, y agregarle un modo de
+    falla a lo único de este problema que hoy no lo tiene.
+
+    Mira la CARTERA ya cargada Y la que derivaría `_regla_financiamiento` en
+    esta misma pasada: sin lo segundo, un pagaré que entra hoy al catálogo
+    tendría que esperar a la corrida de mañana para recibir su emisor.
+
+    ⚠️ Rige el invariante del job: **solo completa vacíos, nunca pisa lo cargado
+    a mano.** Si alguien le puso el librador a un pagaré, queda como está y la
+    diferencia sale como conflicto.
+    """
+    cartera = (_norm(row.get("cartera"))
+               or _norm(_regla_financiamiento(row).get("cartera"))).upper()
+    return {"emisor": EMISOR_OTROS} if cartera == CARTERA_FINANCIAMIENTO else {}
 
 
 def _regla_derivados_otc(row: dict) -> dict[str, str]:
@@ -552,6 +593,10 @@ REGLAS: list[Regla] = [
     # eso: pregunta por la cartera derivada en la misma pasada.
     Regla("emisor_derivados", "EMISOR = OTROS para todo lo de DERIVADOS",
           _regla_emisor_derivados),
+    # Mismo balde, otro motivo: un pagaré tiene librador, pero el negocio no se
+    # sigue por emisor. Ver el docstring de la regla.
+    Regla("emisor_financiamiento", "EMISOR = OTROS para todo lo de FINANCIAMIENTO",
+          _regla_emisor_financiamiento),
     Regla("derivados_otc", "CARTERA de los OTC y los futuros de agro",
           _regla_derivados_otc),
     Regla("ticker", "Ticker derivado de la unidad (resto del catálogo)", _regla_ticker),

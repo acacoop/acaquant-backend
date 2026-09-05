@@ -86,7 +86,8 @@ REPORTES: tuple[Reporte, ...] = (
               "revisar a mano en Manager → TÍTULOS · ASSETS; el detalle dice qué "
               "dice cada lado.")
       for regla in ("financiamiento", "financiamiento_clase", "fci", "emisor_derivados",
-                    "derivados_otc", "ticker", "especies", "herencia")],
+                    "emisor_financiamiento", "derivados_otc", "ticker", "especies",
+                    "herencia")],
     Reporte("saldos_a_operadores", "sin_operador",
             "cuenta(s) con saldo que no tienen operador asignado: nadie recibió su aviso",
             "Asignarles operador en Manager → CLIENTES (SIN OPERADOR). Hasta entonces "

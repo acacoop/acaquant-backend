@@ -122,12 +122,20 @@ def test_fci_deriva_codigo_y_nombre():
 
 
 def test_planificar_completa_solo_lo_vacio():
+    """Y el EMISOR entra en la MISMA pasada que la cartera (2026-09-05).
+
+    ⚠️ Es la parte que se puede romper sin que nada falle: `emisor_financiamiento`
+    lee la cartera que `financiamiento` deriva en esta misma corrida. Si dependiera
+    de la cartera ya escrita, un pagaré nuevo saldría hoy sin emisor y lo recibiría
+    recién mañana — apareciendo un día entero en `ficha_incompleta` por nada.
+    """
     rows = [{"unidad": _UNIDAD_FIN, "cartera": None, "ticker": "",
              "vencimiento": "NO APLICA"}]
     cambios, _ = planificar(rows, REGLAS)
     assert cambios[_UNIDAD_FIN] == {"cartera": "FINANCIAMIENTO",
                                     "ticker": "*BIN031000050",
-                                    "vencimiento": "2026-10-03"}
+                                    "vencimiento": "2026-10-03",
+                                    "emisor": "OTROS"}
 
 
 def test_planificar_no_pisa_lo_cargado_y_reporta_conflicto():

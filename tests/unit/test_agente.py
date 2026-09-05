@@ -2165,15 +2165,21 @@ def test_reincide_el_item_no_el_grupo():
     reincidencia. Reincidencia sería que si yo agrego un emisor de un bono, ese
     bono vuelva a estar sin emisor»*. El sujeto de `ficha_incompleta` es el
     CAMPO, así que un título nuevo sin cartera «reincidía» sobre un arreglo
-    que escribió otros títulos. La puerta cruza los `items` de hoy contra lo
-    que la acción escribió, y sin intersección no hay reincidencia."""
+    que escribió otros títulos. La puerta cruza los `_items` de hoy contra lo
+    que la acción escribió, y sin intersección no hay reincidencia.
+
+    ⚠️ La clave lleva `_` a propósito (2026-09-05): es dato de MÁQUINA —la
+    identidad para decidir la reincidencia— y no algo para leer. El `_` es lo
+    que hace que la pantalla no lo dibuje, misma convención que `_fuentes` en
+    `agente/explicar.py`. Sin eso, la tarjeta de EMISOR desplegaba las 379
+    unidades adentro de la evidencia."""
     src = inspect.getsource(registro._ver)
     i = src.index("INSERT INTO agente.reincidencias")
     antes = src[:i]
-    assert '"items"' in antes and "agente.acciones" in antes
+    assert '"_items"' in antes and "agente.acciones" in antes
     assert "previo = None" in antes
     det = inspect.getsource(cat_det.ficha_incompleta)
-    assert '"items": [f["unidad"] for f in filas]' in det
+    assert '"_items": [f["unidad"] for f in filas]' in det
     # Y la base deja UNA fila abierta por trío, `reincidio` incluido.
     schema = (RAIZ / "sql" / "schema.sql").read_text(encoding="utf-8")
     j = schema.index("CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico")

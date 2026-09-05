@@ -266,10 +266,11 @@ def _ver(conn, habilidad: str, h) -> dict:
         # completar 4 títulos cerraba por acción, y el 5.º que entraba nuevo a
         # cartera «reincidía» — sobre un arreglo que nunca lo tocó. El user:
         # *«reincidencia sería que si yo agrego un emisor, ese bono vuelva a
-        # estar sin emisor»*. Así que si el hallazgo trae sus `items`, sólo hay
+        # estar sin emisor»*. Así que si el hallazgo trae sus `_items`, sólo hay
         # reincidencia cuando alguno de ELLOS fue escrito por la acción que
-        # cerró el anterior. Sin `items` (el sujeto ES el item) no cambia nada.
-        items = (h.evidencia or {}).get("items")
+        # cerró el anterior. Sin `_items` (el sujeto ES el item) no cambia nada.
+        # El `_` marca que es dato de MÁQUINA y la pantalla no lo dibuja.
+        items = (h.evidencia or {}).get("_items")
         if previo is not None and isinstance(items, list):
             cur.execute(
                 "SELECT DISTINCT sujeto FROM agente.acciones "

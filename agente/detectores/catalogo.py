@@ -4,7 +4,6 @@ Devuelven `list[Hallazgo]` o levantan `SinDatos`. **Ninguno escribe.**
 """
 from __future__ import annotations
 
-from agente import reloj
 from agente.tipos import Hallazgo, SinDatos
 from core.postgres import get_pool
 
@@ -78,11 +77,6 @@ _EN_CARTERA_DE_CLIENTE = (
     f"EXISTS (SELECT 1 FROM portafolio.tenencia t "
     f"         WHERE t.unidad = a.unidad AND t.fecha = {_ULTIMA_FECHA})")
 
-# Cuántas unidades viajan en la evidencia. **Es una muestra para leer el aviso,
-# no la lista de trabajo**: la lista viva la recalcula el arreglo cada vez que
-# se mira, así que lo que se completó ya no aparece. Guardar las 379 acá dejaría
-# una foto que envejece dentro de un jsonb.
-MUESTRA = 8
 
 
 def _filas(sql: str, params: tuple = ()) -> list[tuple]:
@@ -161,24 +155,36 @@ def ficha_incompleta(u: dict) -> list[Hallazgo]:
             raise SinDatos(f"no pude contar «{c['campo']}»: {e}") from e
         if not filas:
             continue
-        muestra = [f["unidad"] for f in filas[:MUESTRA]]
         out.append(Hallazgo(
             sujeto=c["campo"], regla=c["regla"], severidad=c["severidad"],
             nombre=c["campo"].upper(),
-            problema=(f"{len(filas)} título(s) en carteras de clientes no "
-                      f"tienen {c['campo'].upper()} · {reloj.hhmm()}"),
-            detalle=(f"{c['rompe']} · foto de tenencia del {fecha} · "
-                     + " · ".join(m[:40] for m in muestra)
-                     + (f" · y {len(filas) - MUESTRA} más"
-                        if len(filas) > MUESTRA else "")),
+            # ⚠️⚠️ **ACÁ NO HAY UN «PROBLEMA» QUE EXPLICAR: HAY UN CAMPO, UN
+            # NÚMERO Y UN BOTÓN.** (2026-09-05, pedido del user: *«son de
+            # clasificación de datos, no hay un problema ni se necesita
+            # evidencia»*.)
+            #
+            # La tarjeta decía cuatro veces «EMISOR» —el título, el tag de la
+            # regla, el `problema` y el `detalle`—, repetía la hora que la
+            # cabecera ya muestra, y arrancaba con una frase constante sobre por
+            # qué importa el campo. Cada pedazo se había agregado resolviendo
+            # algo real; juntos hacían un choclo que nadie lee.
+            #
+            # Lo que se sacó y a dónde fue:
+            #   · el nombre del campo → ya es el TÍTULO de la tarjeta (`nombre`)
+            #   · el sello de hora    → ya está en la cabecera (`detectado_at` y
+            #                           `visto_ultima_vez`), y encima éste se
+            #                           reescribía en cada corrida
+            #   · el `rompe`          → lo devuelve el PREVIEW del arreglo, en
+            #                           `porque`: se lee al apretar «ver qué
+            #                           haría», que es cuando importa
+            #   · la MUESTRA truncada → el listado del arreglo trae la lista
+            #                           entera y bien formateada, a un click
+            problema=f"{len(filas)} título(s) en carteras de clientes",
             que_hacer=("Abrir el listado y completar el campo. Se escribe desde "
                        "acá mismo y lo completado sale de la lista."),
-            evidencia={"campo": c["campo"], "n": len(filas),
+            evidencia={"n": len(filas),
                        "fecha_tenencia": str(fecha),
-                       # La MUESTRA, no la lista: ver §MUESTRA arriba.
-                       "muestra": muestra,
-                       "rompe": c["rompe"],
-                       # ⚠️ **`items` NO es para la pantalla: es la IDENTIDAD
+                       # ⚠️ **`_items` NO es para la pantalla: es la IDENTIDAD
                        # (§0.cz).** El sujeto es el CAMPO, así que para el
                        # registro «CARTERA sin_cartera» de hoy y el de hace un
                        # mes son el mismo problema — y un título NUEVO sin
@@ -186,5 +192,7 @@ def ficha_incompleta(u: dict) -> list[Hallazgo]:
                        # títulos. Con la lista, `registro._ver` sólo declara
                        # reincidencia si alguno de estos lo escribió la acción
                        # que cerró el anterior. Son unidades, no fichas.
-                       "items": [f["unidad"] for f in filas]}))
+                       # El `_` lo esconde de la pantalla — misma convención
+                       # que `_fuentes` en `agente/explicar.py`.
+                       "_items": [f["unidad"] for f in filas]}))
     return out

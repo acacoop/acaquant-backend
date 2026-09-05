@@ -184,14 +184,21 @@ de emisores que el catálogo YA usa.
 Tu trabajo es elegir, para cada título, cuál de esos emisores le corresponde.
 
 REGLAS DURAS:
-- **Elegí SIEMPRE un valor de la lista, copiado TAL CUAL** (misma grafía, mismas
-  mayúsculas). No inventes emisores nuevos ni escribas variantes.
-- **Si no sabés, devolvé cadena vacía.** No adivines: un emisor equivocado se
-  suma a los totales y nadie lo nota, un campo vacío se ve.
+- Si contestás algo, tiene que ser **un valor de la lista, copiado TAL CUAL**
+  (misma grafía, mismas mayúsculas). No inventes emisores ni escribas variantes.
+- ⚠️⚠️ **SI EL EMISOR CORRECTO NO ESTÁ EN LA LISTA, DEVOLVÉ CADENA VACÍA.**
+  Nunca elijas «el más parecido», «el del mismo rubro» ni «el que más se
+  aproxima». Si el título es de una empresa que no figura, la respuesta es
+  vacío — no el competidor de esa empresa, no otro banco, no otra minera.
+  Un emisor equivocado se suma a los totales de la casa y NADIE lo nota; un
+  campo vacío se ve y alguien lo completa. Vacío es la respuesta correcta y
+  no un fracaso tuyo.
+- **Si dudás entre dos, devolvé vacío.** No hay premio por contestar.
 - Un FCI lleva el emisor de su SOCIEDAD GERENTE, que suele estar en el nombre
   del fondo o ser conocida por el nombre de la familia de fondos.
-- Una ACCIÓN lleva la empresa. Ojo: muchas ya están en la lista porque la misma
-  empresa emitió bonos.
+- Una ACCIÓN lleva la empresa que la emitió, **esa y no otra**. Ojo con los
+  tickers argentinos: muchos ya están en la lista porque la misma empresa
+  emitió bonos, pero sólo sirve si es LA MISMA empresa.
 - **Un ETF, un índice o cualquier cosa que no sea una empresa ni un fondo lleva
   `OTROS`**, que está en la lista.
 
@@ -224,6 +231,21 @@ def _json_de(crudo: str) -> dict:
 
 def por_modelo(filas: list[dict], emisores: list[str]) -> dict[str, str]:
     """`{unidad: emisor}` para los que el modelo supo. **Nunca levanta.**
+
+    ⚠️⚠️ **LA LISTA CERRADA TIENE UN FILO, Y SE VIO EN LA PRIMERA CORRIDA REAL**
+    (2026-09-05). Obligar a elegir de una lista impide inventar un emisor nuevo,
+    pero **cuando el correcto no está en la lista, empuja a contestar el más
+    parecido**: `BHP → RIO TINTO`, `BBD → BANCO DO BRASIL`, `GGB → GEMSA`,
+    `MOS → MOLINOS`. Los cuatro son CEDEARs de empresas que el catálogo no
+    tiene, y los cuatro salieron mal — plausibles, del rubro correcto, y falsos.
+
+    El prompt se contradecía: pedía «elegí SIEMPRE de la lista» y «si no sabés,
+    vacío». Ahora dice explícitamente que **si el emisor correcto no está en la
+    lista, la respuesta es vacío** — nunca el competidor, nunca otro del mismo
+    rubro. Pero eso ACOTA el daño, no lo cierra: la guarda de verdad para un
+    CEDEAR es que su emisor salga de la FICHA del subyacente (Finnhub) y no de
+    lo que el modelo recuerde. Los que fallaron son justamente los que no tienen
+    `underlying` en `mercado.cedears`, y para eso ya existe `alta_cedear`.
 
     ⚠️ **LO QUE NO ESTÁ EN LA LISTA SE DESCARTA.** El modelo puede contestar un
     emisor que no existe —una variante de grafía, o uno inventado— y escribirlo

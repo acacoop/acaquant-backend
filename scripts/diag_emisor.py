@@ -300,6 +300,14 @@ def main() -> int:
     # ── 3 ──────────────────────────────────────────────────────────────────
     _titulo("3. LOS QUE SON CEDEAR — ¿tienen subyacente para preguntarle a Finnhub?")
     subs = subyacentes(tickers)
+    # La foto de Primary: si el ticker está ahí, ES un instrumento que cotiza y
+    # `alta_cedear` puede darlo de alta con su subyacente.
+    try:
+        from agente import fuentes
+        prim = fuentes.tickers_en_primary() or set()
+    except Exception as e:                       # no bloquea el resto del diag
+        print(f"  (no pude leer la foto de Primary: {e})")
+        prim = set()
     rv = [f for f in filas
           if (f.get("cartera") or "").strip().upper() == "RENTA VARIABLE"]
     con_und = [(f["ticker"], subs[(f["ticker"] or "").strip().upper()])
@@ -350,6 +358,45 @@ def main() -> int:
         _titulo("6. FINNHUB — no se probó")
         print("  Corré con `--finnhub 12` para ver qué contesta de verdad con "
               "una acción\n  y con un ETF. Es la única parte que sale a la red.")
+
+    # ── 7 ──────────────────────────────────────────────────────────────────
+    _titulo("7. LO QUE YA SE ESCRIBIÓ — para revisar UNO POR UNO")
+    print("  ⚠️ El modelo elige de una lista CERRADA. Si el emisor correcto no\n"
+          "  está en esa lista, no puede proponerlo — y el prompt le pide elegir\n"
+          "  igual. Ahí es donde contesta el más PARECIDO en vez de nada.\n"
+          "  Sospechosos: un CEDEAR cuyo emisor es una empresa extranjera que el\n"
+          "  catálogo todavía no tiene.\n")
+    esc = _filas("""
+        SELECT a.at, a.sujeto, a.despues, a.por
+          FROM agente.acciones a
+         WHERE a.arreglo = 'completar_ficha' AND a.campo = 'emisor' AND a.ok
+         ORDER BY a.at DESC LIMIT 60
+    """)
+    if not esc:
+        print("  todavía no se escribió ningún emisor desde el agente.")
+    else:
+        _tabla([(str(x[0])[:16], x[1][:34], x[2], (x[3] or "")[:18]) for x in esc],
+               ("CUÁNDO", "UNIDAD", "EMISOR ESCRITO", "QUIÉN"), (17, 36, 32, 18))
+
+    # ── 8 ──────────────────────────────────────────────────────────────────
+    _titulo("8. LOS QUE QUEDARON SIN PROPUESTA — por qué, uno por uno")
+    sin = [f for f in filas if not subs.get((f.get("ticker") or "").strip().upper())
+           and (f.get("cartera") or "").strip().upper() == "RENTA VARIABLE"]
+    print(f"  {len(sin)} de RENTA VARIABLE sin `underlying` en `mercado.cedears`.\n"
+          "  Sin subyacente no se le puede preguntar a Finnhub, así que caen al\n"
+          "  modelo — y el modelo sólo puede elegir de la lista.\n"
+          "  La columna que decide es la última: si el emisor correcto NO está en\n"
+          "  la lista, el problema no es el modelo, es el alcance que le dimos.\n")
+    existentes = {e[0].upper() for e in ex}
+    _tabla([(f["ticker"], "no" if f["ticker"].upper() not in prim else "sí",
+             "sí" if f["ticker"].upper() in existentes else "NO")
+            for f in sin],
+           ("TICKER", "¿EN LA FOTO DE PRIMARY?", "¿SU TICKER ES UN EMISOR YA?"),
+           (12, 24, 28))
+    print("\n  ⚠️ Estos son CEDEARs que `mercado.cedears` no tiene. El sistema ya\n"
+          "  sabe resolverlo: la habilidad `cedear_faltante` los detecta y el\n"
+          "  arreglo `alta_cedear` los da de alta CON su subyacente. Con eso,\n"
+          "  Finnhub contesta y el modelo deja de tener que adivinar.")
 
     _titulo("QUÉ HACER CON ESTO")
     print("  · Lo del bloque 2 es PLOMERÍA: el dato existe y no llegó.")

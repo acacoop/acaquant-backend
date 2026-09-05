@@ -984,8 +984,12 @@ def contabilidad_resumen(
     email: str = Depends(get_user_email),
 ):
     """El informe del mes: una fila por título con RxT / intermediación / total
-    + cuadre de nominales, y los totales sumados en el backend."""
-    return svc_conta.resumen(id_cuenta=id_cuenta, mes=mes)
+    + cuadre de nominales, y los totales sumados en el backend.
+
+    El id se normaliza a la CANÓNICA del grupo (`config.CUENTAS_UNIFICADAS`)
+    ANTES de entrar: `resumen` está cacheado por argumento, así que pedir «100»
+    y pedir «255» calcularían dos veces exactamente el mismo informe."""
+    return svc_conta.resumen(id_cuenta=svc_conta.canonica(id_cuenta), mes=mes)
 
 
 @router.get("/contabilidad/detalle")
@@ -996,4 +1000,4 @@ def contabilidad_detalle(
     email: str = Depends(get_user_email),
 ):
     """Drill-down auditable: los boletos del mes que componen la fila."""
-    return svc_conta.detalle(id_cuenta=id_cuenta, mes=mes, key=key)
+    return svc_conta.detalle(id_cuenta=svc_conta.canonica(id_cuenta), mes=mes, key=key)

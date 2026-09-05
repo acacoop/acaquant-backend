@@ -673,3 +673,81 @@ def test_el_id_vacio_se_rechaza_sin_tocar_la_base(monkeypatch):
     monkeypatch.setattr(svc, "_q", q)
     assert svc.agregar_cuenta("yo@aca", "   ", None)["ok"] is False
     assert not vistas
+
+
+# ── CUENTAS UNIFICADAS: 100 y 255 son LA MISMA (2026-09-05) ──────────────────
+#
+# Aunesa parte una cuenta de la casa en dos ids. Tratarlas por separado NO da un
+# error: da dos informes con la mitad de la historia cada uno — la tenencia
+# arranca partida, los boletos de una no explican los nominales de la otra, y el
+# cuadre chilla en las dos filas teniendo todo bien.
+
+def test_las_unificadas_resuelven_al_grupo_entero():
+    from api.services.contabilidad_sql import ids_de
+    assert ids_de("100") == ["100", "255"]
+    assert ids_de("255") == ["100", "255"]      # da igual por cuál se entre
+
+
+def test_una_cuenta_suelta_es_ella_misma():
+    """El default no puede ser el grupo: una cuenta que no está unificada tiene
+    que seguir viéndose sola."""
+    from api.services.contabilidad_sql import display, ids_de
+    assert ids_de("1839") == ["1839"]
+    assert display("1839") == "1839"
+
+
+def test_la_canonica_es_la_misma_por_cualquier_puerta():
+    """Es lo que hace que una exclusión escrita mirando «255» la encuentre el
+    informe que pregunta por «100». Sin esto quedaría escrita y sin efecto."""
+    from api.services.contabilidad_sql import canonica
+    assert canonica("100") == canonica("255") == "100"
+
+
+def test_el_nombre_visible_es_el_grupo():
+    from api.services.contabilidad_sql import display
+    assert display("100") == "100 / 255"
+    assert display("255") == "100 / 255"
+
+
+def test_la_lista_no_muestra_dos_botones_para_la_misma_cuenta():
+    """Con las dos en el ABM, la pantalla tiene que ver UNA. Dos botones serían
+    dos medios informes, que es el problema que la unificación viene a matar."""
+    from api.services.contabilidad_sql import _plegar
+    filas = _plegar([{"id_cuenta": "100", "etiqueta": "ACA A"},
+                     {"id_cuenta": "255", "etiqueta": "ACA B"},
+                     {"id_cuenta": "1839", "etiqueta": "TRADING"}])
+    assert [r["id_cuenta"] for r in filas] == ["100", "1839"]
+    assert filas[0]["display"] == "100 / 255"
+    assert filas[1]["display"] == "1839"
+
+
+def test_al_plegar_se_suman_los_movimientos_y_se_estira_el_rango():
+    """La fila plegada tiene que contar las DOS: si mostrara solo las de 100,
+    el modal de alta diría que la cuenta tiene menos movimientos de los que
+    tiene, y eso es lo que se mira para decidir si vale la pena agregarla."""
+    from api.services.contabilidad_sql import _plegar
+    filas = _plegar([
+        {"id_cuenta": "100", "movimientos": 120, "desde": "2026-07-01", "hasta": "2026-08-20"},
+        {"id_cuenta": "255", "movimientos": 80, "desde": "2026-06-15", "hasta": "2026-09-04"},
+    ])
+    assert len(filas) == 1
+    assert filas[0]["movimientos"] == 200
+    assert filas[0]["desde"] == "2026-06-15" and filas[0]["hasta"] == "2026-09-04"
+
+
+def test_entrar_por_255_lee_las_dos(monkeypatch):
+    """El invariante de verdad: sea cual sea la puerta, la query pide el GRUPO.
+    Una query que filtre por un solo id ve media cuenta y no falla."""
+    from api.services import contabilidad_sql as svc
+    pedidos = []
+
+    def q(sql, params=None):
+        pedidos.append((sql, params))
+        # Un `SELECT max(...)` SIEMPRE devuelve una fila (con NULL si no hay
+        # datos): el fake tiene que comportarse como Postgres, no como una lista
+        # vacía, o el test falla por el fake y no por el código.
+        return [{"f": None}] if "max(fecha)" in sql else []
+    monkeypatch.setattr(svc, "_q", q)
+    svc._cierre_mes("255", 2026, 8)
+    assert pedidos, "no se consultó nada"
+    assert all(p[1].get("c") == ["100", "255"] for p in pedidos if p[1] and "c" in p[1])

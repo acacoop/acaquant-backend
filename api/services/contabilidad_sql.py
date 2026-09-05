@@ -119,6 +119,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+import config
 from api.cache import cached
 from api.services._sql import _f, _q
 
@@ -155,6 +156,41 @@ _CAT_AJUSTE = "ajuste"
 # Redondeo del cuadre de nominales: por debajo de esto es ruido de float, no un
 # boleto que falta.
 _TOL_NOMINALES = 1e-6
+
+
+# ── Cuentas que son LA MISMA cuenta ─────────────────────────────────────────
+#
+# Aunesa parte una cuenta de la casa en más de un `id_cuenta` (hoy: 100 y 255).
+# Para el custodio son ids distintos; para el informe son UNA. Tratarlas por
+# separado NO da un error: da dos filas donde cada una tiene la mitad de la
+# historia — la tenencia arranca partida, los boletos de una no explican los
+# nominales de la otra, y el cuadre chilla en las dos teniendo todo bien.
+#
+# La lista vive en `config.CUENTAS_UNIFICADAS` porque es un hecho del negocio y
+# no de esta pantalla. Acá solo se resuelve.
+
+
+def ids_de(id_cuenta: str) -> list[str]:
+    """TODOS los ids que son esta misma cuenta. Es lo que va en cada `WHERE`:
+    una query que filtre por un solo id ve media cuenta y no falla."""
+    idc = (id_cuenta or "").strip()
+    for grupo in config.CUENTAS_UNIFICADAS:
+        if idc in grupo:
+            return list(grupo)
+    return [idc]
+
+
+def canonica(id_cuenta: str) -> str:
+    """El id con el que se GUARDA (el primero del grupo). Sin esto, excluir un
+    movimiento mirando «255» lo escribiría bajo 255 y el informe, que pregunta
+    por 100, no lo encontraría."""
+    return ids_de(id_cuenta)[0]
+
+
+def display(id_cuenta: str) -> str:
+    """Cómo se llama en pantalla: «100 / 255». Un solo id sigue siendo él mismo."""
+    ids = ids_de(id_cuenta)
+    return " / ".join(ids)
 
 
 def _mes_anterior(anio: int, mes: int) -> tuple[int, int]:
@@ -371,9 +407,13 @@ def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
     no tiene filas, usa el último día CON datos dentro del mes y lo declara."""
     from core.calendario import ultimo_habil_del_mes
     objetivo = ultimo_habil_del_mes(anio, mes)
+    # `ANY(ids)` y no `= id`: si la cuenta está partida en dos, filtrar por uno
+    # solo trae MEDIA tenencia y el informe arranca el mes con la mitad de la
+    # posición — sin fallar, y con el cuadre chillando en cada fila.
+    ids = ids_de(id_cuenta)
     sel = ("SELECT unidad, ticker, cartera, cantidad, valuacion "
            "FROM portafolio.tenencia "
-           "WHERE id_cuenta = %(c)s AND fecha = %(f)s "
+           "WHERE id_cuenta = ANY(%(c)s) AND fecha = %(f)s "
            # `cartera` es NULLABLE y `NULL <> 'MONEDAS'` NO es TRUE: es NULL.
            # Con `<>` toda fila sin cartera se caía en SILENCIO — la tenencia
            # del 31/07 existía y el informe la leía vacía, así que el mes
@@ -382,15 +422,15 @@ def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
            # boletos no tienen punta y jamás cuadrarían (medido 2026-09-04).
            "AND cartera IS DISTINCT FROM 'MONEDAS' "
            "AND cartera IS DISTINCT FROM 'DERIVADOS'")
-    filas = _q(sel, {"c": id_cuenta, "f": objetivo})
+    filas = _q(sel, {"c": ids, "f": objetivo})
     usada = objetivo
     if not filas:
         alt = _q("SELECT max(fecha) AS f FROM portafolio.tenencia "
-                 "WHERE id_cuenta = %(c)s AND fecha >= %(ini)s AND fecha <= %(fin)s",
-                 {"c": id_cuenta, "ini": date(anio, mes, 1), "fin": objetivo})[0]["f"]
+                 "WHERE id_cuenta = ANY(%(c)s) AND fecha >= %(ini)s AND fecha <= %(fin)s",
+                 {"c": ids, "ini": date(anio, mes, 1), "fin": objetivo})[0]["f"]
         if alt:
             usada = alt
-            filas = _q(sel, {"c": id_cuenta, "f": alt})
+            filas = _q(sel, {"c": ids, "f": alt})
     for r in filas:
         r["cantidad"], r["valuacion"] = _f(r["cantidad"]), _f(r["valuacion"])
     return {"fecha_objetivo": objetivo.isoformat(),
@@ -533,7 +573,7 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
     El corte de mes sigue siendo por LIQUIDACIÓN (`pertenece_al_mes`), leyendo
     el plazo de la columna `plazo` del propio movimiento.
     """
-    p: dict = {"c": id_cuenta, "mon": list(_MONEDAS)}
+    p: dict = {"c": ids_de(id_cuenta), "mon": list(_MONEDAS)}
     if mes_str:
         from datetime import timedelta
 
@@ -567,7 +607,7 @@ def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> li
         "  LEFT JOIN operaciones.contabilidad_excluidos x "
         "         ON x.fecha = t.fecha AND x.id_linea = t.id_linea "
         "        AND x.ocurrencia = t.ocurrencia "
-        f" WHERE t.id_cuenta = %(c)s {w_mes}"
+        f" WHERE t.id_cuenta = ANY(%(c)s) {w_mes}"
         "   AND t.anulado_en IS NULL "
         "   AND upper(btrim(COALESCE(t.unidad,''))) <> ALL(%(mon)s) "
         " ORDER BY t.fecha, t.comprobante, t.ocurrencia", p)
@@ -651,7 +691,8 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
         if b.get("categoria") is None:
             et = (b.get("op") or "sin tipo").strip()
             ignorados[et] = ignorados.get(et, 0) + 1
-    return {"id_cuenta": id_cuenta, "mes": mes, "ignorados": ignorados,
+    return {"id_cuenta": canonica(id_cuenta), "display": display(id_cuenta),
+            "mes": mes, "ignorados": ignorados,
             "cierre_ini": {"fecha_objetivo": ini["fecha_objetivo"],
                            "fecha_usada": ini["fecha_usada"]},
             "cierre_fin": {"fecha_objetivo": fin["fecha_objetivo"],
@@ -783,7 +824,7 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
     filas, ag = libro(key=key, qty_ini=qty_ini, v_ini=v_ini,
                       fecha_ini=ini["fecha_usada"] or ini["fecha_objetivo"],
                       boletos=boletos)
-    return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": filas,
+    return {"id_cuenta": canonica(id_cuenta), "mes": mes, "key": key, "boletos": filas,
             "intermediacion": round(ag["intermediacion"], 2),
             # Para que el modal pueda tildar/destildar sin derivar nada: cada
             # boleto ya viaja con su `id_linea`/`ocurrencia` y su estado.
@@ -792,20 +833,53 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
 
 # ── Las CUENTAS del proceso (ABM acotado a movimientos_propias) ─────────────
 
+def _plegar(filas: list[dict], clave: str = "id_cuenta") -> list[dict]:
+    """Colapsa un grupo de cuentas unificadas en UNA fila, con el id canónico y
+    el nombre del grupo en `display` («100 / 255»).
+
+    Sin esto la pantalla mostraría dos botones para la misma cuenta y cada uno
+    daría medio informe — que es exactamente el problema que la unificación
+    viene a resolver, pero en la lista."""
+    salida: list[dict] = []
+    vistos: set[str] = set()
+    for r in filas:
+        idc = str(r.get(clave) or "")
+        canon = canonica(idc)
+        if canon in vistos:
+            # Un hermano del grupo ya entró: se suma lo contable y se descarta
+            # la fila (no se pierde nada, es la misma cuenta).
+            previa = next(x for x in salida if x[clave] == canon)
+            for campo in ("movimientos",):
+                if campo in r and campo in previa:
+                    previa[campo] = (previa[campo] or 0) + (r[campo] or 0)
+            for campo, menor in (("desde", True), ("hasta", False)):
+                if r.get(campo) and previa.get(campo):
+                    previa[campo] = (min if menor else max)(previa[campo], r[campo])
+            continue
+        vistos.add(canon)
+        r[clave] = canon
+        r["display"] = display(canon)
+        salida.append(r)
+    return salida
+
+
 def cuentas() -> list[dict]:
     """Las cuentas que el equipo eligió para el proceso. Sigue siendo un ABM: la
     LISTA la elige la mesa, no se deriva sola — hay cuentas con movimientos
-    propios que no son de este informe."""
+    propios que no son de este informe.
+
+    Las UNIFICADAS salen como una sola fila (`display` = «100 / 255»)."""
     filas = _q("SELECT id_cuenta, etiqueta, agregada_por, agregada_en "
                "FROM operaciones.contabilidad_cuentas ORDER BY id_cuenta")
     for r in filas:
         r["agregada_en"] = r["agregada_en"].isoformat() if r["agregada_en"] else None
-    return filas
+    return _plegar(filas)
 
 
 def _tiene_movimientos(id_cuenta: str) -> bool:
     r = _q("SELECT 1 FROM operaciones.movimientos_propias "
-           " WHERE id_cuenta = %(c)s AND anulado_en IS NULL LIMIT 1", {"c": id_cuenta})
+           " WHERE id_cuenta = ANY(%(c)s) AND anulado_en IS NULL LIMIT 1",
+           {"c": ids_de(id_cuenta)})
     return bool(r)
 
 
@@ -813,13 +887,16 @@ def cuentas_elegibles() -> list[dict]:
     """El universo del que se puede elegir: las que TIENEN movimientos propios,
     con cuántos y desde cuándo. Es lo que el ABM ofrece para no tener que
     tipear un id a ciegas."""
-    return _q(
+    filas = _q(
         "SELECT id_cuenta, max(cuenta) AS cuenta, count(*) AS movimientos, "
         "       to_char(min(fecha),'YYYY-MM-DD') AS desde, "
         "       to_char(max(fecha),'YYYY-MM-DD') AS hasta "
         "  FROM operaciones.movimientos_propias "
         " WHERE anulado_en IS NULL AND id_cuenta IS NOT NULL "
         " GROUP BY id_cuenta ORDER BY count(*) DESC")
+    plegadas = _plegar(filas)
+    plegadas.sort(key=lambda r: -(r.get("movimientos") or 0))
+    return plegadas
 
 
 def agregar_cuenta(actor: str, id_cuenta: str, etiqueta: str | None) -> dict:
@@ -844,22 +921,28 @@ def agregar_cuenta(actor: str, id_cuenta: str, etiqueta: str | None) -> dict:
         # El nombre visible sale del MISMO feed que el informe. Respaldo: la
         # tenencia (que es de donde salía antes y puede tener la cuenta igual).
         f = _q("SELECT max(cuenta) AS c FROM operaciones.movimientos_propias "
-               " WHERE id_cuenta = %(c)s AND anulado_en IS NULL", {"c": id_cuenta})
+               " WHERE id_cuenta = ANY(%(c)s) AND anulado_en IS NULL",
+               {"c": ids_de(id_cuenta)})
         etiqueta = (f[0]["c"] if f else None) or None
     if not etiqueta:
         f = _q("SELECT max(cuenta) AS c FROM portafolio.tenencia "
-               "WHERE id_cuenta = %(c)s", {"c": id_cuenta})
+               "WHERE id_cuenta = ANY(%(c)s)", {"c": ids_de(id_cuenta)})
         etiqueta = (f[0]["c"] if f else None) or id_cuenta
+    # Se guarda la CANÓNICA del grupo: dos filas para la misma cuenta darían dos
+    # botones, cada uno con medio informe.
+    canon = canonica(id_cuenta)
     _q("INSERT INTO operaciones.contabilidad_cuentas "
        "(id_cuenta, etiqueta, agregada_por) VALUES (%(c)s, %(e)s, %(a)s) "
        "ON CONFLICT (id_cuenta) DO UPDATE SET etiqueta = EXCLUDED.etiqueta "
-       "RETURNING id_cuenta", {"c": id_cuenta, "e": etiqueta, "a": actor})
-    return {"ok": True, "id_cuenta": id_cuenta, "etiqueta": etiqueta}
+       "RETURNING id_cuenta", {"c": canon, "e": etiqueta, "a": actor})
+    return {"ok": True, "id_cuenta": canon, "display": display(canon), "etiqueta": etiqueta}
 
 
 def borrar_cuenta(actor: str, id_cuenta: str) -> dict:
+    # Por GRUPO: si quedara el hermano, la cuenta seguiría en la lista a medias.
     filas = _q("DELETE FROM operaciones.contabilidad_cuentas "
-               "WHERE id_cuenta = %(c)s RETURNING id_cuenta", {"c": id_cuenta})
+               "WHERE id_cuenta = ANY(%(c)s) RETURNING id_cuenta",
+               {"c": ids_de(id_cuenta)})
     return {"ok": bool(filas)}
 
 
@@ -873,11 +956,11 @@ def _excluidos_huerfanos(id_cuenta: str, mes: str) -> int:
     movimiento volvió con otro hash, el informe tiene que poder decirlo."""
     r = _q(
         "SELECT count(*) AS n FROM operaciones.contabilidad_excluidos x "
-        " WHERE x.id_cuenta = %(c)s AND to_char(x.fecha,'YYYY-MM') = %(mes)s "
+        " WHERE x.id_cuenta = ANY(%(c)s) AND to_char(x.fecha,'YYYY-MM') = %(mes)s "
         "   AND NOT EXISTS (SELECT 1 FROM operaciones.movimientos_propias m "
         "                    WHERE m.fecha = x.fecha AND m.id_linea = x.id_linea "
         "                      AND m.ocurrencia = x.ocurrencia AND m.anulado_en IS NULL)",
-        {"c": id_cuenta, "mes": mes})
+        {"c": ids_de(id_cuenta), "mes": mes})
     return int(r[0]["n"]) if r else 0
 
 
@@ -894,7 +977,9 @@ def excluir(actor: str, *, id_cuenta: str, fecha: str, id_linea: str,
         "ON CONFLICT (fecha, id_linea, ocurrencia) DO UPDATE SET "
         "motivo = EXCLUDED.motivo, excluido_por = EXCLUDED.excluido_por, "
         "excluido_en = now() RETURNING id_linea",
-        {"f": fecha, "l": id_linea, "o": int(ocurrencia), "c": id_cuenta,
+        # Se guarda la CANÓNICA: excluir mirando «255» y que el informe pregunte
+        # por «100» dejaría la exclusión escrita y sin efecto, en silencio.
+        {"f": fecha, "l": id_linea, "o": int(ocurrencia), "c": canonica(id_cuenta),
          "m": (motivo or "").strip() or None, "a": actor})
     # El informe está cacheado 300s: sin invalidar, tildar la casilla no movía
     # el número hasta cinco minutos después y la pantalla se veía rota.
@@ -928,8 +1013,8 @@ def excluidos(id_cuenta: str, mes: str) -> list[dict]:
         "  LEFT JOIN operaciones.movimientos_propias m "
         "         ON m.fecha = x.fecha AND m.id_linea = x.id_linea "
         "        AND m.ocurrencia = x.ocurrencia "
-        " WHERE x.id_cuenta = %(c)s AND to_char(x.fecha,'YYYY-MM') = %(mes)s "
-        " ORDER BY x.fecha, x.excluido_en", {"c": id_cuenta, "mes": mes})
+        " WHERE x.id_cuenta = ANY(%(c)s) AND to_char(x.fecha,'YYYY-MM') = %(mes)s "
+        " ORDER BY x.fecha, x.excluido_en", {"c": ids_de(id_cuenta), "mes": mes})
     for r in filas:
         r["excluido_en"] = r["excluido_en"].isoformat() if r["excluido_en"] else None
         r["importe"] = _f(r["importe"])

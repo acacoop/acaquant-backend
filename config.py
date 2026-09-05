@@ -114,6 +114,31 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 # pero motor_curvas los IGNORA (no calcula TEA/duration porque no están
 # en Trading.Curvas). Se usan para análisis derivados que solo necesitan
 # precio: ej. canje AL30C/AL30D, brecha CCL/MEP, etc.
+# ── CUENTAS QUE SON LA MISMA CUENTA ──────────────────────────────────────────
+#
+# Aunesa parte una misma cuenta de la casa en más de un `id_cuenta`. Para el
+# custodio son ids distintos; para el negocio son UNA sola, y cualquier informe
+# que las trate por separado cuenta dos veces la mitad de las cosas: la tenencia
+# arranca partida, los boletos de una no explican los nominales de la otra, y el
+# cuadre chilla en las dos filas teniendo todo bien.
+#
+# El PRIMER id de cada grupo es el CANÓNICO: es el que se guarda cuando hay que
+# escribir (una exclusión, una fila del ABM) y el que viaja en la respuesta. El
+# nombre visible es el grupo entero («100 / 255»), para que nadie tenga que
+# recordar que atrás hay dos.
+#
+# ⚠️ Vive ACÁ y no adentro de un service porque es un hecho del NEGOCIO, no de
+# una pantalla: el día que otra vista tenga que unirlas, lee de este mismo lugar
+# en vez de escribir su propia lista — que es cómo dos mitades del sistema
+# empiezan a contestar distinto sin que falle nada (REGLA #9).
+#
+# Hoy lo consume `api/services/contabilidad_sql.py`. Ojo: `tenencia_hd.CUENTAS`
+# lista `["100", "255", "256"]` como las cuentas propias de esa vista — eso es
+# "cuáles mostrar", no "cuáles son la misma", y son cosas distintas.
+CUENTAS_UNIFICADAS: tuple[tuple[str, ...], ...] = (
+    ("100", "255"),
+)
+
 TICKERS_EXTRA_PRECIOS: list[str] = [
     "MERV - XMEV - AL30C - 24hs",  # canje AL30C/AL30D
     # Operativa MEP (api/services/operativa_mep.py): la versión pesos (AL30

@@ -790,33 +790,77 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
             "excluidos": ag["excluidos"], "n_ajustes": ag["n_ajustes"]}
 
 
-# ── Las CUENTAS del proceso: las DERIVA movimientos_propias ─────────────────
+# ── Las CUENTAS del proceso (ABM acotado a movimientos_propias) ─────────────
 
 def cuentas() -> list[dict]:
-    """El universo de cuentas del informe. **No es un ABM** (regla del user,
-    2026-09-05): una cuenta existe para CONTABILIDAD si tiene movimientos en
-    `operaciones.movimientos_propias`, y punto.
+    """Las cuentas que el equipo eligió para el proceso. Sigue siendo un ABM: la
+    LISTA la elige la mesa, no se deriva sola — hay cuentas con movimientos
+    propios que no son de este informe."""
+    filas = _q("SELECT id_cuenta, etiqueta, agregada_por, agregada_en "
+               "FROM operaciones.contabilidad_cuentas ORDER BY id_cuenta")
+    for r in filas:
+        r["agregada_en"] = r["agregada_en"].isoformat() if r["agregada_en"] else None
+    return filas
 
-    Antes esto era una tabla de texto libre donde `POST /contabilidad/cuentas`
-    aceptaba cualquier string sin validar contra nada: se podía elegir una cuenta
-    sin un solo movimiento y el informe salía vacío sin decir por qué. Ahora la
-    lista NO se puede inventar — sale de los datos.
 
-    `operaciones.contabilidad_cuentas` sobrevive con un único uso: si tiene una
-    etiqueta para ese id, PISA al nombre que trae el feed (la mesa a veces quiere
-    llamarla de otra forma). Una fila suya cuyo id no tenga movimientos no
-    aparece: no puede sumar una cuenta al proceso."""
+def _tiene_movimientos(id_cuenta: str) -> bool:
+    r = _q("SELECT 1 FROM operaciones.movimientos_propias "
+           " WHERE id_cuenta = %(c)s AND anulado_en IS NULL LIMIT 1", {"c": id_cuenta})
+    return bool(r)
+
+
+def cuentas_elegibles() -> list[dict]:
+    """El universo del que se puede elegir: las que TIENEN movimientos propios,
+    con cuántos y desde cuándo. Es lo que el ABM ofrece para no tener que
+    tipear un id a ciegas."""
     return _q(
-        "SELECT m.id_cuenta, "
-        "       COALESCE(c.etiqueta, max(m.cuenta)) AS etiqueta, "
-        "       count(*) AS movimientos, "
-        "       to_char(min(m.fecha),'YYYY-MM-DD') AS desde, "
-        "       to_char(max(m.fecha),'YYYY-MM-DD') AS hasta "
-        "  FROM operaciones.movimientos_propias m "
-        "  LEFT JOIN operaciones.contabilidad_cuentas c ON c.id_cuenta = m.id_cuenta "
-        " WHERE m.anulado_en IS NULL AND m.id_cuenta IS NOT NULL "
-        " GROUP BY m.id_cuenta, c.etiqueta "
-        " ORDER BY count(*) DESC")
+        "SELECT id_cuenta, max(cuenta) AS cuenta, count(*) AS movimientos, "
+        "       to_char(min(fecha),'YYYY-MM-DD') AS desde, "
+        "       to_char(max(fecha),'YYYY-MM-DD') AS hasta "
+        "  FROM operaciones.movimientos_propias "
+        " WHERE anulado_en IS NULL AND id_cuenta IS NOT NULL "
+        " GROUP BY id_cuenta ORDER BY count(*) DESC")
+
+
+def agregar_cuenta(actor: str, id_cuenta: str, etiqueta: str | None) -> dict:
+    """Suma una cuenta al proceso (o le cambia la etiqueta si ya estaba).
+
+    ⚠️ **ACOTADO A `operaciones.movimientos_propias` (2026-09-05, regla del
+    user).** Antes esto era texto libre: aceptaba cualquier string sin validar
+    contra nada, así que se podía sumar una cuenta que no tiene un solo
+    movimiento propio y el informe salía VACÍO sin decir por qué — un error de
+    tipeo se veía igual que un mes sin actividad. Ahora el id tiene que existir
+    en el feed de la cartera propia, que es de donde sale el informe: si no
+    está, no se puede elegir, y el mensaje dice exactamente eso."""
+    id_cuenta = (id_cuenta or "").strip()
+    if not id_cuenta:
+        return {"ok": False, "error": "id_cuenta vacío"}
+    if not _tiene_movimientos(id_cuenta):
+        return {"ok": False, "error": (
+            f"La cuenta [{id_cuenta}] no tiene movimientos en operaciones.movimientos_propias. "
+            "El informe sale de ahí, así que agregarla mostraría un informe vacío. "
+            "Solo se pueden elegir cuentas con movimientos propios.")}
+    if not etiqueta:
+        # El nombre visible sale del MISMO feed que el informe. Respaldo: la
+        # tenencia (que es de donde salía antes y puede tener la cuenta igual).
+        f = _q("SELECT max(cuenta) AS c FROM operaciones.movimientos_propias "
+               " WHERE id_cuenta = %(c)s AND anulado_en IS NULL", {"c": id_cuenta})
+        etiqueta = (f[0]["c"] if f else None) or None
+    if not etiqueta:
+        f = _q("SELECT max(cuenta) AS c FROM portafolio.tenencia "
+               "WHERE id_cuenta = %(c)s", {"c": id_cuenta})
+        etiqueta = (f[0]["c"] if f else None) or id_cuenta
+    _q("INSERT INTO operaciones.contabilidad_cuentas "
+       "(id_cuenta, etiqueta, agregada_por) VALUES (%(c)s, %(e)s, %(a)s) "
+       "ON CONFLICT (id_cuenta) DO UPDATE SET etiqueta = EXCLUDED.etiqueta "
+       "RETURNING id_cuenta", {"c": id_cuenta, "e": etiqueta, "a": actor})
+    return {"ok": True, "id_cuenta": id_cuenta, "etiqueta": etiqueta}
+
+
+def borrar_cuenta(actor: str, id_cuenta: str) -> dict:
+    filas = _q("DELETE FROM operaciones.contabilidad_cuentas "
+               "WHERE id_cuenta = %(c)s RETURNING id_cuenta", {"c": id_cuenta})
+    return {"ok": bool(filas)}
 
 
 # ── Movimientos EXCLUIDOS a mano ────────────────────────────────────────────

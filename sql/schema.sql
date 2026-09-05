@@ -756,15 +756,13 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_traders (
 -- + admin (mismo gate que Interbanking). El cálculo NO se persiste: sale en
 -- vivo de portafolio.tenencia (cierres de mes) + operaciones.negocio_movimientos
 -- (boletos), ver api/services/contabilidad_sql.py.
--- ⚠️ YA NO ES UN ABM (2026-09-05). El universo de cuentas del informe contable
--- lo DEFINE `operaciones.movimientos_propias`: una cuenta existe para el proceso
--- si tiene movimientos propios, y punto (regla del user). Antes esto era texto
--- libre —`POST /contabilidad/cuentas` aceptaba cualquier string sin validar
--- contra nada—, así que se podía elegir una cuenta que no tenía un solo
--- movimiento y el informe salía vacío sin decir por qué.
--- La tabla SOBREVIVE con un único uso: **etiqueta manual que PISA al nombre que
--- trae el feed**. No puede sumar una cuenta al proceso: una fila cuyo id no esté
--- en movimientos_propias no se muestra en ningún lado.
+-- SIGUE SIENDO UN ABM: la LISTA la elige la mesa (hay cuentas con movimientos
+-- propios que no son de este proceso). Lo que cambió el 2026-09-05 es que ya no
+-- acepta cualquier cosa: **solo se pueden agregar cuentas CON movimientos en
+-- `operaciones.movimientos_propias`**, que es la fuente del informe. Antes era
+-- texto libre —`POST /contabilidad/cuentas` no validaba contra nada—, así que un
+-- id mal tipeado entraba, el informe salía VACÍO y eso se veía idéntico a un mes
+-- sin actividad: nadie podía distinguir el error de tipeo de la cuenta quieta.
 CREATE TABLE IF NOT EXISTS operaciones.contabilidad_cuentas (
     id_cuenta    text PRIMARY KEY,
     etiqueta     text,                       -- nombre visible; pisa a movimientos_propias.cuenta

@@ -912,13 +912,32 @@ _RE_MES = r"^\d{4}-(0[1-9]|1[0-2])$"
 
 @router.get("/contabilidad/cuentas")
 def contabilidad_cuentas(email: str = Depends(get_user_email)):
-    """Las cuentas del proceso. **NO es un ABM** (2026-09-05): el universo lo
-    define `operaciones.movimientos_propias` — una cuenta existe si tiene
-    movimientos propios. Ya no hay alta ni baja: los endpoints POST/DELETE se
-    borraron porque aceptaban cualquier string sin validar contra nada, y así se
-    podía elegir una cuenta sin un solo movimiento y ver un informe vacío sin
-    saber por qué."""
-    return {"cuentas": svc_conta.cuentas()}
+    """Cuentas propias del proceso (las que eligió el equipo desde la vista).
+
+    `elegibles` es el universo del que se puede elegir: las que TIENEN
+    movimientos en `operaciones.movimientos_propias`, que es de donde sale el
+    informe. Viaja acá para que el ABM ofrezca la lista en vez de obligar a
+    tipear un id a ciegas."""
+    return {"cuentas": svc_conta.cuentas(), "elegibles": svc_conta.cuentas_elegibles()}
+
+
+@router.post("/contabilidad/cuentas")
+def contabilidad_cuenta_alta(
+    id_cuenta: str = Body(..., embed=True),
+    etiqueta: str | None = Body(None, embed=True),
+    actor: str = Depends(require_escritura_tesoreria),
+):
+    """Suma una cuenta al proceso (o le cambia la etiqueta si ya estaba).
+    ⚠️ Solo cuentas CON movimientos en `movimientos_propias` (2026-09-05): sin
+    eso, un id mal tipeado mostraba un informe vacío indistinguible de un mes
+    sin actividad."""
+    return svc_conta.agregar_cuenta(actor, id_cuenta, etiqueta)
+
+
+@router.delete("/contabilidad/cuentas/{id_cuenta}")
+def contabilidad_cuenta_baja(id_cuenta: str, actor: str = Depends(require_escritura_tesoreria)):
+    """Saca una cuenta del proceso (no borra ningún dato de tenencia/boletos)."""
+    return svc_conta.borrar_cuenta(actor, id_cuenta)
 
 
 @router.get("/contabilidad/excluidos")

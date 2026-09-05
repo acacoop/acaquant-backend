@@ -618,3 +618,58 @@ def test_la_clave_cae_al_ticker_si_el_catalogo_no_conoce_la_unidad():
     assert _clave("[100] AL30 - GD", "XXX", _U2M) == "AL30"      # gana el catálogo
     assert _clave("[999] NUEVO", "NUEVO", _U2M) == "NUEVO"       # cae al ticker
     assert _clave("[999] SIN NADA", None, _U2M) == "[999] SIN NADA"
+
+
+# ── EL ABM, ACOTADO A LAS CUENTAS CON MOVIMIENTOS PROPIOS (2026-09-05) ───────
+#
+# El ABM sigue siendo un ABM: la LISTA la elige la mesa. Lo que cambió es que ya
+# no acepta cualquier string. Antes un id mal tipeado entraba, el informe salía
+# VACÍO y eso se veía idéntico a un mes sin actividad — nadie podía distinguir
+# «me equivoqué al escribir» de «esta cuenta no operó».
+
+def _fake_q(respuestas):
+    """`_q` de mentira: devuelve la respuesta que toca y ANOTA cada SQL, para
+    poder afirmar que un rechazo no escribió nada."""
+    vistas = []
+
+    def q(sql, params=None):
+        vistas.append(sql)
+        for patron, filas in respuestas:
+            if patron in sql:
+                return filas
+        return []
+    return q, vistas
+
+
+def test_no_se_puede_agregar_una_cuenta_sin_movimientos_propios(monkeypatch):
+    """El refuerzo. Y el rechazo NO puede escribir: si insertara igual, la
+    cuenta quedaría en la lista mostrando un informe vacío para siempre."""
+    from api.services import contabilidad_sql as svc
+    q, vistas = _fake_q([("FROM operaciones.movimientos_propias", [])])
+    monkeypatch.setattr(svc, "_q", q)
+    r = svc.agregar_cuenta("yo@aca", "9999", None)
+    assert r["ok"] is False
+    assert "movimientos" in r["error"]
+    assert not any("INSERT INTO operaciones.contabilidad_cuentas" in s for s in vistas)
+
+
+def test_se_puede_agregar_una_cuenta_que_si_tiene_movimientos(monkeypatch):
+    from api.services import contabilidad_sql as svc
+    q, vistas = _fake_q([
+        ("LIMIT 1", [{"?column?": 1}]),
+        ("max(cuenta)", [{"c": "[1839] ACA VALORES TRADING"}]),
+        ("INSERT INTO operaciones.contabilidad_cuentas", [{"id_cuenta": "1839"}]),
+    ])
+    monkeypatch.setattr(svc, "_q", q)
+    r = svc.agregar_cuenta("yo@aca", "1839", None)
+    assert r["ok"] is True
+    assert r["etiqueta"] == "[1839] ACA VALORES TRADING"
+    assert any("INSERT INTO operaciones.contabilidad_cuentas" in s for s in vistas)
+
+
+def test_el_id_vacio_se_rechaza_sin_tocar_la_base(monkeypatch):
+    from api.services import contabilidad_sql as svc
+    q, vistas = _fake_q([])
+    monkeypatch.setattr(svc, "_q", q)
+    assert svc.agregar_cuenta("yo@aca", "   ", None)["ok"] is False
+    assert not vistas

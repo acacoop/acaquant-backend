@@ -121,6 +121,28 @@ class Arreglo:
     # igual a esta (REGLA #9).
     pide_datos = False
 
+    # ⚠️⚠️ **¿EL DETECTOR PUEDE CONFIRMARLO YA, Y GRATIS?**
+    #
+    # Un hallazgo lleva su `problema`, su `detalle` y su evidencia ESCRITOS en
+    # la fila, y el único que los reescribe es el detector cuando vuelve a
+    # correr. `ficha_incompleta` corre cada SEIS HORAS — así que completabas 28
+    # títulos, la lista de abajo pasaba a 10 (se recalcula al mirar) y la
+    # tarjeta de arriba seguía diciendo 44 hasta la noche.
+    #
+    # Dos números sobre lo mismo, de instantes distintos, uno al lado del otro:
+    # exactamente lo que este subsistema existe para no hacer. El user lo vio en
+    # un minuto: *«dice 44 pero son 6, está 100% desactualizado»*.
+    #
+    # Con esto, el arreglo que puede probarse solo vuelve a correr su detector
+    # apenas escribe. La tarjeta queda con el número de verdad, el texto se
+    # regenera, y si no quedaba nada el hallazgo se cierra POR ACCIÓN.
+    #
+    # **Es `False` por default y cada arreglo lo declara**, porque volver a
+    # correr NO es gratis para todos: `soberanos_faltantes` cuesta créditos de
+    # 1816, y el job de `rehacer_job` tarda ocho minutos — ahí la respuesta
+    # todavía no existe y preguntarla sería medir antes de tiempo.
+    confirma_ya = False
+
     def preview(self, sujeto: str, ev: dict) -> dict:
         raise NotImplementedError
 
@@ -451,6 +473,10 @@ class ArbitrarCopia(Arreglo):
     titulo = "Escribir la copia que pierde con el valor de la que manda"
     donde = "core/duplicados (la tabla del duplicado)"
     campo = "copia"
+    # `dato_partido` vuelve a comparar las dos copias con SQL y nada más — y
+    # después de arbitrar, la respuesta correcta es «ya coinciden». Que lo diga
+    # en el momento es la mitad de la confianza en el botón.
+    confirma_ya = True
 
     @staticmethod
     def _tabla(d) -> str:
@@ -550,6 +576,10 @@ class CompletarFicha(Arreglo):
     donde = "portafolio.assets"
     campo = "ficha"
     pide_datos = True
+    # Su detector son cinco consultas contra `portafolio.assets`: no toca la
+    # red, no cuesta créditos y contesta en el acto. No hay razón para que la
+    # tarjeta espere seis horas a decir la verdad.
+    confirma_ya = True
 
     def _campo(self, sujeto: str, ev: dict) -> dict | None:
         """La definición del campo. **Sale del catálogo de detectores, no del
@@ -838,6 +868,28 @@ def aplicar(hallazgo_id: int, *, por: str = "",
         cur.execute("UPDATE agente.hallazgos SET estado = %s, "
                     "  arreglo_aplicado = %s WHERE id = %s",
                     (tipos.EN_CURSO, a.id, hallazgo_id))
+
+    # ⚠️ **EL DETECTOR VUELVE A MIRAR AHORA, si su arreglo declaró que puede.**
+    #
+    # Va DESPUÉS del `UPDATE` a `en_curso` a propósito: si el problema ya no
+    # está, `registro._cerrar_ausentes` lo encuentra en ese estado y lo cierra
+    # **POR ACCIÓN** —que es lo que hay que anotar, y lo único que después
+    # habilita una reincidencia—. Corriéndolo antes, el cierre caería en
+    # AUSENCIA y se perdería que fue este botón el que lo resolvió.
+    #
+    # **Nunca levanta.** Que el refresco falle no puede tirar abajo una
+    # escritura que ya pasó: lo peor que puede ocurrir es que la tarjeta siga
+    # con el número viejo hasta la próxima pasada, o sea exactamente lo que
+    # había antes de esto.
+    if a.confirma_ya:
+        try:
+            from agente import fuentes, motor
+            fuentes.refrescar()
+            motor.correr_una(h["habilidad"])
+        except Exception:
+            logger.warning("arreglos: %s escribió, pero no pude refrescar %s",
+                           a.id, h["habilidad"], exc_info=True)
+
     return {"ok": True, "detalle": r.detalle, "estado": tipos.EN_CURSO,
             "inmediato": r.inmediato,
             "aviso": ("" if r.inmediato else

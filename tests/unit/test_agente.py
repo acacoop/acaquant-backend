@@ -3837,3 +3837,48 @@ def test_lo_que_ya_TIENE_emisor_no_se_toca_nunca():
     # ── Y el módulo que propone no tiene forma de escribir, ni siquiera por
     #    accidente: no importa la puerta de escritura.
     assert "assets_sql" not in _codigo(emisor)
+
+
+def test_el_arreglo_que_puede_probarse_solo_refresca_su_tarjeta():
+    """⚠️⚠️ **DOS NÚMEROS SOBRE LO MISMO, DE INSTANTES DISTINTOS.**
+
+    El bug (2026-09-05). `ficha_incompleta` corre cada SEIS HORAS, y el
+    `problema`/`detalle`/`evidencia` de un hallazgo son texto ESCRITO en la
+    fila que sólo reescribe el detector cuando vuelve a correr. Entonces:
+    completabas 28 títulos, el listado de abajo pasaba a 10 —se recalcula al
+    mirar— y la tarjeta de arriba seguía diciendo 44 hasta la noche.
+
+    El user: *«dice 44 pero son 6, está 100% desactualizado»*. Y es justo lo que
+    este subsistema existe para no hacer: el badge y la lista salen de la misma
+    query para que no puedan decir cosas distintas (invariante 11) — pero nadie
+    había mirado el par tarjeta/listado.
+
+    **El orden importa y es lo que este test congela**: el detector se corre
+    DESPUÉS de dejar el hallazgo en `en_curso`. Si corriera antes, el cierre
+    caería en AUSENCIA en vez de ACCIÓN y se perdería que fue el botón el que
+    lo resolvió — con eso se pierde también la única señal que después habilita
+    una reincidencia (invariante 4).
+    """
+    import inspect as _i
+
+    from agente import arreglos
+
+    src = _i.getsource(arreglos.aplicar)
+    assert "if a.confirma_ya:" in src and "motor.correr_una" in src
+    # El UPDATE a `en_curso` va ANTES del re-run. Sin esto, el cierre no es
+    # POR ACCIÓN y la reincidencia deja de poder existir.
+    assert src.index("tipos.EN_CURSO, a.id, hallazgo_id") < src.index("correr_una"), (
+        "el detector se corre DESPUÉS de dejar el hallazgo en_curso, o el "
+        "cierre cae en ausencia y se pierde que lo arregló el botón")
+    # Y no puede tirar abajo una escritura que ya pasó.
+    j = src.index("if a.confirma_ya:")
+    assert "try:" in src[j:j + 200] and "except Exception" in src[j:j + 500]
+
+    # ⚠️ Es una DECLARACIÓN por arreglo, no un default: volver a correr no es
+    # gratis para todos. `soberanos_faltantes` cuesta créditos de 1816 y el job
+    # de `rehacer_job` tarda ocho minutos — ahí la respuesta todavía no existe.
+    assert arreglos.Arreglo.confirma_ya is False, "el default tiene que ser NO"
+    ya = {a.id for a in arreglos.ARREGLOS.values() if a.confirma_ya}
+    assert ya == {"completar_ficha", "arbitrar_copia"}, (
+        f"cambió quién se auto-confirma: {sorted(ya)}. Sumá uno sólo si su "
+        "detector es SQL y contesta en el acto — y decí por qué en el código.")

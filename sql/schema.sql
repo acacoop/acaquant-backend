@@ -756,12 +756,55 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_traders (
 -- + admin (mismo gate que Interbanking). El cálculo NO se persiste: sale en
 -- vivo de portafolio.tenencia (cierres de mes) + operaciones.negocio_movimientos
 -- (boletos), ver api/services/contabilidad_sql.py.
+-- ⚠️ YA NO ES UN ABM (2026-09-05). El universo de cuentas del informe contable
+-- lo DEFINE `operaciones.movimientos_propias`: una cuenta existe para el proceso
+-- si tiene movimientos propios, y punto (regla del user). Antes esto era texto
+-- libre —`POST /contabilidad/cuentas` aceptaba cualquier string sin validar
+-- contra nada—, así que se podía elegir una cuenta que no tenía un solo
+-- movimiento y el informe salía vacío sin decir por qué.
+-- La tabla SOBREVIVE con un único uso: **etiqueta manual que PISA al nombre que
+-- trae el feed**. No puede sumar una cuenta al proceso: una fila cuyo id no esté
+-- en movimientos_propias no se muestra en ningún lado.
 CREATE TABLE IF NOT EXISTS operaciones.contabilidad_cuentas (
     id_cuenta    text PRIMARY KEY,
-    etiqueta     text,                       -- nombre visible; default: cuenta de la tenencia
+    etiqueta     text,                       -- nombre visible; pisa a movimientos_propias.cuenta
     agregada_por text,
     agregada_en  timestamptz DEFAULT now()
 );
+
+-- ── CONTABILIDAD · MOVIMIENTOS EXCLUIDOS A MANO (2026-09-05) ─────────────────
+--
+-- El back office puede sacar del informe un movimiento puntual (pedido del user:
+-- «el usuario puede elegir qué movimientos no contabilizar»). Una fila acá = una
+-- línea de `operaciones.movimientos_propias` que NO suma plata en el mes.
+--
+-- ⚠️ **SACA LA PLATA, NO EL HECHO.** El movimiento sigue contando para el CUADRE
+-- de nominales. Si saliera de las dos cosas, excluir un solo boleto rompería el
+-- cuadre de su título, la fila entera se iría a «sin conciliar» y dejaría de
+-- sumar — o sea que sacar un movimiento borraría el título completo del informe,
+-- que no es lo que nadie quiere al tildar una casilla. Excluir es una decisión
+-- CONTABLE («esto no es resultado del mes»), no una afirmación de que el
+-- movimiento no existió.
+--
+-- Se guarda QUIÉN y CUÁNDO porque es una decisión que cambia un número que
+-- después se informa: sin eso, el mes que viene nadie puede explicar por qué el
+-- informe no da lo mismo que los boletos.
+--
+-- La FK es lógica, no dura: `movimientos_propias` se reconcilia cada media hora y
+-- una línea corregida cambia de `id_linea`. Una exclusión que quedó apuntando a
+-- una línea que ya no existe simplemente no aplica — y el informe lo declara en
+-- `totales.excluidos_huerfanos` en vez de que desaparezca en silencio.
+CREATE TABLE IF NOT EXISTS operaciones.contabilidad_excluidos (
+    fecha        date NOT NULL,
+    id_linea     text NOT NULL,
+    ocurrencia   smallint NOT NULL DEFAULT 1,
+    id_cuenta    text,                       -- denormalizado: filtra por índice
+    motivo       text,                       -- por qué se saca (lo escribe la persona)
+    excluido_por text NOT NULL,
+    excluido_en  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, id_linea, ocurrencia)
+);
+CREATE INDEX IF NOT EXISTS ix_cexc_cuenta ON operaciones.contabilidad_excluidos(id_cuenta, fecha);
 
 CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_escritores (
     email        text PRIMARY KEY,           -- usuario de la app con permiso de ESCRITURA

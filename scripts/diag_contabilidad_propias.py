@@ -13,12 +13,12 @@ BLOQUEANTES: si cualquiera da mal, el cambio no se hace como está pensado.
   1. **LAS CUENTAS.** Las del ABM de hoy contra las que existen de verdad en
      `movimientos_propias`. Si no se pisan, restringir el ABM deja la vista sin
      cuentas.
-  2. **🔴 EL JOIN DEL TÍTULO.** `movimientos_propias.unidad` de una línea de
+  2. **EL JOIN DEL TÍTULO.** `movimientos_propias.unidad` de una línea de
      TÍTULO, ¿es la misma `unidad` de `portafolio.assets` que usa el mapping
      `unidad → clave`? Si no, NINGUNA fila cruza contra la tenencia y TODO el
      informe cae en «sin conciliar». Se mide contra la MISMA vara que la fuente
      actual (`operaciones.instrumento`), así el número se puede comparar.
-  3. **🔴 EL IMPORTE.** Filtrando a líneas de título queda la CANTIDAD, pero la
+  3. **EL IMPORTE.** Filtrando a líneas de título queda la CANTIDAD, pero la
      PLATA vive en la línea de dinero del mismo comprobante (`total` de la línea
      de título son los NOMINALES, no pesos). Se cuenta cuántas líneas de título
      tienen hermana de dinero, cuántas no (= las administrativas, que el user
@@ -50,7 +50,7 @@ from api.services._sql import _f, _q
 from api.services.contabilidad_sql import (
     _CATS_COMPRA,
     _CATS_VENTA,
-    _direccion,
+    _clasificar,
     plazo_habiles,
 )
 
@@ -98,7 +98,7 @@ def cuentas(mes: str) -> list[str]:
 
 # ── 2. el join del título (BLOQUEANTE) ───────────────────────────────────────
 def join_titulo(ids: list[str], mes: str, top: int) -> None:
-    _hdr(2, "🔴 EL JOIN DEL TÍTULO — ¿`unidad` cruza contra portafolio.assets?")
+    _hdr(2, "EL JOIN DEL TÍTULO — ¿`unidad` cruza contra portafolio.assets?")
     from api.services.pnl_sql import _mapas_assets
     u2m = _mapas_assets()["unidad_to_match"]
     print(f"\n  catálogo `portafolio.assets`: {len(u2m)} unidades mapeadas a una clave")
@@ -152,7 +152,7 @@ def join_titulo(ids: list[str], mes: str, top: int) -> None:
 
 # ── 3. el importe (BLOQUEANTE) ───────────────────────────────────────────────
 def importe(ids: list[str], mes: str, top: int) -> None:
-    _hdr(3, "🔴 EL IMPORTE — la plata NO está en la línea de título")
+    _hdr(3, "EL IMPORTE — la plata NO está en la línea de título")
     filas = _q(
         "SELECT t.comprobante, t.unidad, t.categoria, t.cantidad, t.precio, "
         "       t.importe AS importe_titulo, t.informacion, "
@@ -268,8 +268,13 @@ def punta(ids: list[str], mes: str, top: int) -> None:
     print(f"\n    {'categoria':<26}{'op':<40}{'n':>6}  punta")
     for r in filas[:top * 2]:
         cat = r["categoria"] or "(null)"
-        p = ("compra" if cat in _CATS_COMPRA else "venta" if cat in _CATS_VENTA
-             else _direccion(None, r["op"]) or "—")
+        # La MISMA función que usa el informe: si acá dice `ajuste`, en el
+        # informe mueve nominales y no plata.
+        p = _clasificar(cat if cat != "(null)" else "", 1.0, None if cat else 1.0) or "—"
+        if cat in _CATS_COMPRA:
+            p = "compra"
+        elif cat in _CATS_VENTA:
+            p = "venta"
         print(f"    {cat[:25]:<26}{str(r['op'] or '')[:39]:<40}{r['n']:>6}  {p}")
 
 

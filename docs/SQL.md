@@ -51,7 +51,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 | `macro` | series_macro, uva, rem |
 | `valuaciones` | consolidado, pnl_totales_cache, portfolio_snapshot, dolar, dolar_snapshot, dolar_oficial_live |
 | `portafolio` | tenencia, assets, backfill_log |
-| `operaciones` | operaciones, negocio_movimientos, movimientos_propias, acreencias, movimientos, tipos_operacion, ordenes_live, ordenes_audit, ordenes_idempotency, triggers_mep, brackets_live, operativas_mep, motor_heartbeat, accounts_descubiertas |
+| `operaciones` | operaciones, negocio_movimientos, movimientos_propias, contabilidad_excluidos, acreencias, movimientos, tipos_operacion, ordenes_live, ordenes_audit, ordenes_idempotency, triggers_mep, brackets_live, operativas_mep, motor_heartbeat, accounts_descubiertas |
 | `clientes` | comitentes, cuentas, contrapartes, accionistas, actividad_mensual, operadores, objetivos_comerciales |
 | `manager` | manager_users, role_matrix, role_audit, grupos, job_runs, pyrofex_instruments, pyrofex_discovery |
 | `home` | market_quotes, news_headlines |
@@ -165,6 +165,15 @@ jsonb pisaría al otro motor.
     fecha · comprobante · informacion · total · **operador**) y `comprobante`
     identifica al BOLETO. `raw` jsonb guarda la fila entera por si Aunesa suma una
     undécima clave. `operador` es info NUEVA: el pipeline de comitentes lo ignora.
+- `operaciones.contabilidad_excluidos` — los movimientos que el back office sacó del
+  RESULTADO del informe contable (2026-09-05). Una fila = una línea de
+  `movimientos_propias` que no suma plata en el mes. ⚠️ **Saca la plata, NO el hecho**:
+  sus nominales siguen contando para el cuadre, porque si salieran de las dos cosas
+  tildar una casilla rompería el cuadre del título y la fila entera se iría a «sin
+  conciliar» — sacar UN movimiento borraría el título completo del informe. Guarda
+  quién y cuándo: es una decisión que cambia un número que después se informa. La FK
+  es LÓGICA, no dura (una línea corregida por Aunesa cambia de `id_linea` y la
+  exclusión deja de aplicar; el informe lo declara en `totales.excluidos_huerfanos`).
 
 #### MOTOR DE ÓRDENES (transaccional, en vivo)
 8 tablas en `operaciones`: `ordenes_live` (PK `cl_ord_id`, columnas account/ticker/

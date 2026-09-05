@@ -912,24 +912,50 @@ _RE_MES = r"^\d{4}-(0[1-9]|1[0-2])$"
 
 @router.get("/contabilidad/cuentas")
 def contabilidad_cuentas(email: str = Depends(get_user_email)):
-    """Cuentas propias del proceso (las que eligió el equipo desde la vista)."""
+    """Las cuentas del proceso. **NO es un ABM** (2026-09-05): el universo lo
+    define `operaciones.movimientos_propias` — una cuenta existe si tiene
+    movimientos propios. Ya no hay alta ni baja: los endpoints POST/DELETE se
+    borraron porque aceptaban cualquier string sin validar contra nada, y así se
+    podía elegir una cuenta sin un solo movimiento y ver un informe vacío sin
+    saber por qué."""
     return {"cuentas": svc_conta.cuentas()}
 
 
-@router.post("/contabilidad/cuentas")
-def contabilidad_cuenta_alta(
+@router.get("/contabilidad/excluidos")
+def contabilidad_excluidos(
+    id_cuenta: str = Query(...),
+    mes: str = Query(..., pattern=_RE_MES),
+    email: str = Depends(get_user_email),
+):
+    """Los movimientos que el back office sacó del mes, con quién y cuándo."""
+    return {"excluidos": svc_conta.excluidos(id_cuenta, mes)}
+
+
+@router.post("/contabilidad/excluir")
+def contabilidad_excluir(
     id_cuenta: str = Body(..., embed=True),
-    etiqueta: str | None = Body(None, embed=True),
+    fecha: str = Body(..., embed=True),
+    id_linea: str = Body(..., embed=True),
+    ocurrencia: int = Body(1, embed=True),
+    motivo: str | None = Body(None, embed=True),
     actor: str = Depends(require_escritura_tesoreria),
 ):
-    """Suma una cuenta al proceso (o le cambia la etiqueta si ya estaba)."""
-    return svc_conta.agregar_cuenta(actor, id_cuenta, etiqueta)
+    """Saca un movimiento del resultado del mes. Cambia un número que después se
+    informa, así que va con el mismo gate de escritura que el resto de Tesorería
+    y queda firmado."""
+    return svc_conta.excluir(actor, id_cuenta=id_cuenta, fecha=fecha,
+                             id_linea=id_linea, ocurrencia=ocurrencia, motivo=motivo)
 
 
-@router.delete("/contabilidad/cuentas/{id_cuenta}")
-def contabilidad_cuenta_baja(id_cuenta: str, actor: str = Depends(require_escritura_tesoreria)):
-    """Saca una cuenta del proceso (no borra ningún dato de tenencia/boletos)."""
-    return svc_conta.borrar_cuenta(actor, id_cuenta)
+@router.post("/contabilidad/incluir")
+def contabilidad_incluir(
+    fecha: str = Body(..., embed=True),
+    id_linea: str = Body(..., embed=True),
+    ocurrencia: int = Body(1, embed=True),
+    actor: str = Depends(require_escritura_tesoreria),
+):
+    """Vuelve a contabilizar un movimiento excluido."""
+    return svc_conta.incluir(actor, fecha=fecha, id_linea=id_linea, ocurrencia=ocurrencia)
 
 
 @router.get("/contabilidad/resumen")

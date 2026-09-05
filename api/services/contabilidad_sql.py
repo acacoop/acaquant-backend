@@ -74,15 +74,32 @@ Fuentes (todo existe, nada nuevo se persiste):
     foto diaria que usa Tenencia Valorizada). Cash (cartera MONEDAS) queda afuera:
     no es un título. Si el último hábil no tiene snapshot se usa el último día CON
     datos del mes y la respuesta lo dice (`fecha_usada` ≠ `fecha_objetivo`).
-  · Compras/ventas → **`operaciones.operaciones`** (decisión del user 2026-09-01:
-    `negocio_movimientos` no traería las cuentas propias, y el precio por boleto
-    no hace falta — con los aranceles AFUERA del proceso, el `bruto` ES la plata
-    de la pata). Filtros canónicos de esa tabla: sin anulados, `etapa` ≠
-    solicitud, sin cierres de caución. La dirección la da el enrich `operacion`
-    del catálogo `tipos_operacion` (compra/venta; suscripción/rescate de FCI
-    cuentan como compra/venta). Lo que no mueve posición (cauciones, futuros,
-    `otro`) NO se suma y se CUENTA en `ignorados` — si el catálogo usara otras
-    grafías se vería ahí, no fallaría en silencio.
+  · Compras/ventas → **`operaciones.movimientos_propias`** (cambio de fuente
+    2026-09-05, regla del user; antes era `operaciones.operaciones`). Es el feed
+    de la cartera PROPIA de la casa, a grano LÍNEA y sin filtros.
+    **Una fila del informe = una línea de TÍTULO**: se descartan las líneas cuya
+    `unidad` es una moneda, que son la pata de DINERO del mismo comprobante.
+    La PLATA se toma de esa pata hermana (el `total` de una línea de título son
+    NOMINALES, no pesos — así lo trata `aunesa_negocio.agrupar_boletos`), lo que
+    además trae la MONEDA de verdad y evita tener que adivinar el divisor por
+    cartera de un bono que cotiza en paridad. La dirección la da la `categoria`
+    del feed, con las MISMAS constantes de siempre; las solicitudes de FCI no
+    entran a ninguna (ahí muere el doble conteo provisional/final). Lo que no
+    mueve posición NO se suma y se CUENTA en `ignorados`.
+  · **AJUSTES administrativos** — línea de título que mueve CANTIDAD y no lleva
+    plata (canje, split, amortización, rebautizo de especie). Son VÁLIDOS
+    (regla del user) y son lo que la fuente anterior NO traía: sin ellos el
+    cuadre de nominales fallaba y el título se iba a «sin conciliar» teniendo la
+    tenencia toda la razón. Van como dirección PROPIA, jamás como una compra de
+    importe 0 — eso ensuciaría el precio promedio con el que se costea lo que
+    quedó en cartera.
+  · **EXCLUIDOS a mano** — el back office puede sacar un movimiento del
+    resultado del mes (`operaciones.contabilidad_excluidos`). Saca la PLATA, no
+    el HECHO: sus nominales siguen contando para el cuadre, porque si no,
+    tildar una casilla rompería el cuadre del título y la fila entera se caería
+    a «sin conciliar» — o sea que sacar un movimiento borraría el título del
+    informe, que no es lo que nadie quiere al tildar. Se declara en los totales
+    (`excluidos`, `excluido_total`), nunca en silencio.
 
 Boletos en USD se pesifican con el `mep` snapshot del propio boleto (fallback
 `get_mep_for_date`), igual que el motor de PnL. Magnitudes en valor absoluto —
@@ -110,6 +127,30 @@ from api.services._sql import _f, _q
 _CATS_COMPRA = {"compra", "suscripcion_fci"}
 _CATS_VENTA = {"venta", "rescate_fci"}
 _CATS_TODAS = _CATS_COMPRA | _CATS_VENTA
+
+# ⚠️ Las SOLICITUDES de FCI (`solicitud_suscripcion_fci` / `solicitud_rescate_fci`)
+# NO están en ninguno de los dos conjuntos, y es lo que evita el doble conteo:
+# Aunesa manda el pedido y la liquidación como movimientos distintos del MISMO
+# hecho. La liquidación (`suscripcion_fci` / `rescate_fci`) es la que mueve
+# posición; la solicitud se declara en `ignorados` y no suma. Con la fuente
+# anterior esto lo resolvía `emparejar_provisional_final` leyendo
+# `tipo_operacion` — un campo que `movimientos_propias` no tiene; acá lo resuelve
+# la categoría, que es un dato y no una heurística de texto.
+
+# La LÍNEA DE DINERO de un boleto: su `unidad` es una moneda. Todo lo demás es
+# una línea de TÍTULO, y esas son las filas del informe (regla del user,
+# 2026-09-05). El `total` de una línea de título son NOMINALES, no pesos: la
+# plata vive en la línea de dinero del MISMO comprobante.
+_MONEDAS = ("ARS", "USD", "USDL", "USDC")
+
+# Movimiento ADMINISTRATIVO: línea de título que mueve CANTIDAD y no tiene plata
+# (canje, split, amortización, rebautizo de especie). Es VÁLIDO y es exactamente
+# lo que la fuente anterior no traía — por eso el cuadre de nominales fallaba y
+# la fila se iba a «sin conciliar» teniendo la tenencia razón. Va como dirección
+# propia y NO como una compra de importe 0: si entrara como compra contaminaría
+# `px_compra = compras / qty_compras` (plata real dividida por nominales que
+# incluyen los ajustes) y el RxT saldría mal sin que nada falle.
+_CAT_AJUSTE = "ajuste"
 
 # Redondeo del cuadre de nominales: por debajo de esto es ruido de float, no un
 # boleto que falta.
@@ -217,8 +258,21 @@ def calcular_titulos(
         # brutas se le acreditaba esa posición entera como tenencia nueva y
         # el mes volvía a los 1.325 millones de la fórmula vieja. Ante un
         # descuadre, no se valúa: se marca (`cuadra`) y se deja pasar.
-        neto_boletos = ag["qty_compras"] - ag["qty_ventas"]
-        entraron = min(max(0.0, qf - qi), max(0.0, neto_boletos))
+        # ⚠️ DOS netos distintos, y confundirlos INVENTA plata.
+        #  · `neto_precio` — solo lo que tiene PRECIO (compras y ventas). Es el
+        #    tope de lo que se puede reclasificar entre canales, porque valuar
+        #    exige un precio y un ajuste no tiene ninguno. Si un ajuste entrara
+        #    acá, excluir una venta a mano dejaba el `costo_salida` cobrándose
+        #    sin su ingreso y la fila mostraba una pérdida inventada (medido:
+        #    −30.000 en una venta de 33.000 excluida).
+        #  · `neto_cuadre` — TODO lo que movió posición, ajustes incluidos. Es
+        #    lo único que puede decir si la foto de tenencia está explicada, y
+        #    es la mejora concreta de la fuente nueva: la anterior no traía los
+        #    movimientos administrativos, así que un canje descuadraba la fila y
+        #    la mandaba a «sin conciliar» teniendo la tenencia toda la razón.
+        neto_precio = ag["qty_compras"] - ag["qty_ventas"]
+        neto_cuadre = neto_precio + ag["qty_ajustes"]
+        entraron = min(max(0.0, qf - qi), max(0.0, neto_precio))
         px_compra = (ag["compras"] / ag["qty_compras"]) if ag["qty_compras"] else 0.0
         costo_nuevo = entraron * px_compra
         rxt_nueva = (entraron * px_fin if px_fin is not None else 0.0) - costo_nuevo
@@ -230,7 +284,7 @@ def calcular_titulos(
         # entera (AO29 inflaba 2.218.620 = 1.545 × 1.436; una venta SENEBI
         # llegó a mostrar 6.465 millones de PnL). Mismo criterio: solo se
         # costea lo que las VENTAS explican en neto.
-        salieron = min(max(0.0, qi - qf), max(0.0, -neto_boletos))
+        salieron = min(max(0.0, qi - qf), max(0.0, -neto_precio))
         costo_salida = salieron * px_ini if px_ini is not None else 0.0
         # INTERMEDIACIÓN: la sumatoria de los boletos, menos el activo que
         # salió, y sin el costo de lo que quedó en cartera (ese se lo llevó la
@@ -240,7 +294,7 @@ def calcular_titulos(
         # vendió-todo-y-recompró. Congelado por tests.
         rxt = _r2(rxt)
         intermediacion = _r2(ag["intermediacion"] - costo_salida + costo_nuevo)
-        residual = qf - qi - ag["qty_compras"] + ag["qty_ventas"]
+        residual = qf - qi - neto_cuadre
         out.append({
             "titulo": d["titulo"], "key": key, "unidades": d["unidades"],
             "qty_ini": qi, "qty_fin": qf, "v_ini": _r2(vi), "v_fin": _r2(vf),
@@ -266,6 +320,13 @@ def calcular_titulos(
             "cuadre_nominales": residual,
             "cuadra": abs(residual) < _TOL_NOMINALES,
             "mep_faltantes": ag["mep_faltantes"],
+            # Lo administrativo y lo que una persona sacó a mano viajan en la
+            # fila: un total que cambió porque alguien tildó una casilla tiene
+            # que poder explicarse SIN abrir el modal.
+            "n_ajustes": ag["n_ajustes"],
+            "qty_ajustes": ag["qty_ajustes"],
+            "excluidos": ag["excluidos"],
+            "excluido_total": _r2(ag["excluido_total"]),
         })
     out.sort(key=lambda r: abs(r["total"]), reverse=True)
     return out
@@ -337,34 +398,6 @@ def _cierre_mes(id_cuenta: str, anio: int, mes: int) -> dict:
             "filas": filas}
 
 
-def _direccion(operacion: str | None, tipo_operacion: str | None = None) -> str | None:
-    """Punta del boleto → compra / venta / None (no mueve posición de títulos).
-
-    Primero manda el enrich `operacion` del catálogo (suscripción/rescate de FCI
-    cuentan como compra/venta). Si el catálogo no define la punta (`otro`/vacío),
-    RESPALDO: se lee del descriptor de Aunesa (`tipo_operacion`), que la trae en
-    el texto («SENEBI Contado - Venta», «Concurrencia Contado - Venta»). Caso
-    real 2026-09-01: la venta SENEBI del 100% de TTCBO venía sin punta del
-    catálogo → VENTAS daba 0, el cuadre chillaba y la intermediación salía toda
-    negativa teniendo el boleto A LA VISTA. Guarda: cauciones/futuros/opciones
-    jamás — mueven plata, no nominales de títulos."""
-    op = (operacion or "").strip().lower()
-    if op == "compra" or "suscri" in op or "licita" in op:
-        return "compra"
-    if op == "venta" or "rescate" in op:
-        return "venta"
-    t = (tipo_operacion or "").strip().lower()
-    if "cauci" in t or "futuro" in t or "opcion" in t or "opción" in t:
-        return None
-    # «Licitación» del primario = adjudicación de títulos nuevos = COMPRA
-    # (misma regla que el motor de PnL; caso real: «COLP - Licitación»).
-    if "suscri" in t or "compra" in t or "licita" in t:
-        return "compra"
-    if "rescate" in t or "venta" in t:
-        return "venta"
-    return None
-
-
 _RE_HORAS = re.compile(r"(\d+)\s*h")
 _RE_DIAS = re.compile(r"(\d+)\s*d")
 
@@ -407,143 +440,170 @@ def pertenece_al_mes(fecha: str, condiciones: str | None, *, mes: str) -> bool:
     return fecha_liquidacion(fecha, condiciones).strftime("%Y-%m") == mes
 
 
-# Días máximos entre el provisional y su final para considerarlos la misma
-# operación. Es también cuánto se estira la ventana de lectura a cada lado del
-# mes para ver parejas que lo cruzan.
-_VENTANA_PAREJA = 20
+def _clave(unidad: str, ticker: str | None, u2m: dict[str, str]) -> str:
+    """Título de la fila. DOS claves con fallback, a propósito.
+
+    `unidad_to_match` es el mapping del catálogo (`portafolio.assets`) y es el
+    que usa el resto del sistema, así que manda. Pero el motor de PnL joinea
+    ESTOS MISMOS boletos por el `ticker` parseado del texto
+    (`pnl_sql._SEL_BOLETOS`: `WHERE ticker IS NOT NULL`), que vive en el MISMO
+    espacio de claves. Usar los dos hace que una unidad que el catálogo todavía
+    no conoce —un rebautizo de especie, un asset recién dado de alta— caiga en
+    su ticker en vez de quedar huérfana: una fila que no cruza no falla, se va a
+    «sin conciliar» y el mes da de menos con la pantalla en verde."""
+    return u2m.get(unidad) or (ticker or "").strip() or unidad
 
 
-def _fase_fci(tipo_operacion: str | None) -> str | None:
-    t = (tipo_operacion or "").lower()
-    if "provisional" in t:
-        return "provisional"
-    if "final" in t:
-        return "final"
-    return None
+def _es_dinero(unidad: str | None) -> bool:
+    return (unidad or "").strip().upper() in _MONEDAS
 
 
-def emparejar_provisional_final(ops: list[dict]) -> list[dict]:
-    """Un FCI vía Aunesa entra como DOS boletos del MISMO movimiento: el
-    «provisional» (el pedido) y el «final» (el liquidado). Contar los dos
-    duplica; borrar uno a ciegas ROMPE cuando el otro cayó en otro mes.
+def _clasificar(cat: str, cantidad: float | None, importe: float | None) -> str | None:
+    """Qué hace esta línea de título con la posición y con la plata.
 
-    MEDIDO 2026-09-04 (83 boletos, 3 cuentas propias, 08/26): las dos patas
-    caen casi siempre el MISMO día y la cantidad NO sirve de ficha —
-      · suscripción: el provisional viene con cantidad 0 (35/35) y el FINAL
-        trae las cuotapartes (28/28);
-      · rescate: el PROVISIONAL trae la cantidad pedida (13/13) y el final la
-        liquidada, parecida pero distinta.
-    Emparejar por cantidad fallaba en 81 de 83 y contaba la venta dos veces.
+    El orden importa y cada rama es una decisión de negocio, no un caso borde:
 
-    Regla: ficha = instrumento + punta. Cada FINAL busca hacia atrás el
-    PROVISIONAL más cercano (mismo día o hasta `_VENTANA_PAREJA` días antes).
-    La pareja es UNA fila fechada en el provisional; la CANTIDAD la pone el
-    final en suscripción y el provisional en rescate (si esa pata la trae),
-    y el importe el final (lo liquidado) si lo trae. Lo que no encuentra
-    pareja viaja tal cual: «no pude emparejar» ≠ «no existe» (REGLA #9)."""
-    from datetime import timedelta
-
-    def _ficha(r: dict) -> tuple:
-        return (r.get("instrumento") or "",
-                _direccion(r.get("operacion"), r.get("tipo_operacion")))
-
-    usados: set[int] = set()
-    salida: list[dict] = []
-    provisionales: dict[tuple, list[int]] = {}
-    for i, r in enumerate(ops):
-        if _fase_fci(r.get("tipo_operacion")) == "provisional":
-            provisionales.setdefault(_ficha(r), []).append(i)
-    for i, r in enumerate(ops):
-        if i in usados:
-            continue
-        if _fase_fci(r.get("tipo_operacion")) != "final":
-            salida.append(r)
-            continue
-        f_fin = date.fromisoformat(r["fecha"])
-        candidato = None
-        for j in provisionales.get(_ficha(r), []):
-            if j in usados:
-                continue
-            f_prov = date.fromisoformat(ops[j]["fecha"])
-            if f_prov <= f_fin <= f_prov + timedelta(days=_VENTANA_PAREJA):
-                if candidato is None or f_prov > date.fromisoformat(ops[candidato]["fecha"]):
-                    candidato = j
-        if candidato is None:
-            salida.append(r)
-            continue
-        prov = ops[candidato]
-        usados.add(candidato)
-        pareja = dict(prov)
-        punta = _ficha(r)[1]
-        q_prov, q_fin = _f(prov.get("cantidad")) or 0.0, _f(r.get("cantidad")) or 0.0
-        if punta == "compra":
-            pareja["cantidad"] = q_fin or q_prov
-        else:
-            pareja["cantidad"] = q_prov or q_fin
-        if _f(r.get("bruto")):
-            pareja["bruto"] = r.get("bruto")
-        base = (r.get("tipo_operacion") or "").lower().replace("final", "").strip().capitalize()
-        pareja["tipo_operacion"] = (f"{base} (provisional {prov['fecha'][8:]}/{prov['fecha'][5:7]}"
-                                    f" → final {r['fecha'][8:]}/{r['fecha'][5:7]})")
-        pareja["boleto"] = f"{prov.get('boleto') or '?'} + {r.get('boleto') or '?'}"
-        salida = [x for x in salida if x is not prov]
-        salida.append(pareja)
-    orden = {id(r): i for i, r in enumerate(ops)}
-    salida.sort(key=lambda r: (r["fecha"], orden.get(id(r), 10**9)))
-    return salida
+    1. **compra / venta** — la categoría del feed lo dice. Manda sobre todo.
+    2. **sin cantidad → nada.** No mueve posición: se cuenta en `ignorados`.
+    3. **sin plata → AJUSTE.** Mueve nominales y no hay importe: canje, split,
+       amortización, rebautizo de especie. Declarado VÁLIDO por el user, y es lo
+       que la fuente anterior no traía — sin estas filas el cuadre fallaba y el
+       título se iba a «sin conciliar» teniendo la tenencia razón.
+    4. **categoría desconocida con las dos cosas → por el SIGNO.** Un `TRD` es
+       una operación de trading genérica cuyo texto no dice «Compra» ni «Venta»;
+       con el importe ya en signo cliente, negativo (pagamos) es compra y
+       positivo (cobramos) es venta. Es LA MISMA regla que aplica
+       `aunesa_negocio.agrupar_boletos` para el mismo caso — sin esto un TRD
+       caía en `ignorados` y el motor de PnL tuvo ese bug con YFCOO.
+    5. **categoría conocida que NO es compra/venta, pero mueve nominales →
+       AJUSTE.** Una amortización (`acreencia`) baja los nominales de verdad: la
+       foto de tenencia lo va a mostrar. Sus nominales tienen que contar para el
+       cuadre y su plata NO tiene que entrar al informe — que es exactamente lo
+       que hace un ajuste, y lo que dice la regla «no hay rentas».
+    """
+    if cat in _CATS_TODAS:
+        return cat
+    if not cantidad:
+        return None
+    if not importe:
+        return _CAT_AJUSTE
+    if cat in ("", "otro"):
+        return "compra" if importe < 0 else "venta"
+    return _CAT_AJUSTE
 
 
 def _boletos_mes(id_cuenta: str, mes_str: str | None, u2m: dict[str, str]) -> list[dict]:
-    """Boletos del MES CONTABLE traducidos al shape que consume
-    `calcular_titulos`: compras/ventas desde `operaciones.operaciones`
-    (importe = bruto, título por `instrumento` = unidad → clave del mapping)
-    El corte de mes es por
-    LIQUIDACIÓN, no por concertación — ver `pertenece_al_mes`. Los boletos sin
-    dirección viajan con categoria=None: no suman, pero el detalle y el
-    contador `ignorados` los muestran."""
-    p: dict = {"c": id_cuenta}
+    """Boletos del MES CONTABLE desde **`operaciones.movimientos_propias`**.
+
+    Cambio de fuente 2026-09-05 (regla del user): las compras/ventas ya no salen
+    de `operaciones.operaciones` sino de los movimientos de la cartera PROPIA,
+    que es el feed de la casa y trae cosas que la otra tabla no tiene.
+
+    UNA FILA DEL INFORME = UNA LÍNEA DE TÍTULO. Se descartan las líneas cuya
+    `unidad` es una moneda (ARS/USD/USDL/USDC): esas son la PATA DE DINERO del
+    mismo comprobante, no un movimiento de posición. Contarlas sería sumar dos
+    veces el mismo hecho.
+
+    ⚠️ **LA PLATA NO ESTÁ EN LA LÍNEA DE TÍTULO** — o al menos no se puede
+    depender de eso. En el consolidador de comitentes (`aunesa_negocio.
+    agrupar_boletos`) el `total` de una línea de título es la CANTIDAD y el de
+    la línea de dinero es el IMPORTE. Por eso el importe se toma de la HERMANA
+    de dinero del mismo comprobante y solo se cae al de la propia línea si no
+    hay hermana. Sale igual esté como esté el dato: si la línea de título ya
+    trae plata, la hermana trae la misma; si trae nominales, la hermana es la
+    única que tiene la plata. Además la hermana trae la MONEDA de verdad, que
+    `cantidad × precio` no puede decir (y que decidiría si hay que dividir por
+    100 en un bono que cotiza en paridad — el divisor por cartera, que así no
+    hace falta adivinar).
+
+    TRES DIRECCIONES, no dos:
+      · compra / venta  → `categoria` del catálogo del feed, las MISMAS
+        constantes que ya usaba el informe.
+      · **ajuste**      → línea de título que mueve CANTIDAD y no tiene plata
+        (canje, split, amortización, rebautizo). Declarado VÁLIDO por el user, y
+        es lo que la fuente anterior no traía: sin estos movimientos el cuadre
+        de nominales fallaba y la fila se iba a «sin conciliar» teniendo la
+        tenencia razón.
+      · sin dirección   → categoría que no mueve posición (caución, `otro`):
+        viaja con `categoria=None`, no suma, y se cuenta en `ignorados`.
+
+    Las SOLICITUDES de FCI no entran a ningún conjunto: ver el comentario de
+    `_CATS_COMPRA`. Ahí muere el doble conteo que antes resolvía el emparejador.
+
+    El corte de mes sigue siendo por LIQUIDACIÓN (`pertenece_al_mes`), leyendo
+    el plazo de la columna `plazo` del propio movimiento.
+    """
+    p: dict = {"c": id_cuenta, "mon": list(_MONEDAS)}
     if mes_str:
         from datetime import timedelta
 
         from core.calendario import ultimo_habil_del_mes
         anio, m = int(mes_str[:4]), int(mes_str[5:7])
         a0, m0 = _mes_anterior(anio, m)
-        # Rango ampliado a cada lado del mes: atrás para que entren los que
-        # concertaron antes y LIQUIDAN acá (plazo), y `_VENTANA_PAREJA` días
-        # de más en las dos puntas para ver ENTERA una pareja provisional/
-        # final que cruza el mes. El corte fino lo hace `pertenece_al_mes`.
-        desde = (ultimo_habil_del_mes(a0, m0) - timedelta(days=_VENTANA_PAREJA)).isoformat()
-        hasta = (ultimo_habil_del_mes(anio, m) + timedelta(days=_VENTANA_PAREJA)).isoformat()
-        w_mes = "AND concertacion >= %(desde)s AND concertacion <= %(hasta)s "
+        # Ventana ampliada hacia atrás: un boleto concertado el último hábil del
+        # mes anterior en 24hs LIQUIDA acá y tiene que entrar. El corte fino lo
+        # hace `pertenece_al_mes`.
+        desde = (ultimo_habil_del_mes(a0, m0) - timedelta(days=10)).isoformat()
+        hasta = (ultimo_habil_del_mes(anio, m) + timedelta(days=10)).isoformat()
+        w_mes = "AND t.fecha >= %(desde)s AND t.fecha <= %(hasta)s "
         p |= {"desde": desde, "hasta": hasta}
     else:
         w_mes = ""
-    ops = _q(
-        "SELECT to_char(concertacion,'YYYY-MM-DD') AS fecha, instrumento, operacion, "
-        "tipo_operacion, condiciones, cantidad, bruto, moneda, mep, boleto "
-        "FROM operaciones.operaciones "
-        f"WHERE id_cuenta = %(c)s {w_mes}"
-        "AND anulado_en IS NULL AND etapa IS DISTINCT FROM 'solicitud' "
-        "AND COALESCE(es_cierre, false) = false "
-        "ORDER BY concertacion, boleto", p)
-    # FCI vía Aunesa: cada suscripción/rescate son DOS boletos (provisional +
-    # final) del MISMO movimiento. Se juntan ANTES del corte de mes, sobre la
-    # ventana ampliada, así una pareja que cruza el mes cuenta UNA vez y en UN
-    # solo mes. Ver `emparejar_provisional_final`.
-    ops = emparejar_provisional_final(ops)
+    filas = _q(
+        "SELECT to_char(t.fecha,'YYYY-MM-DD') AS fecha, t.id_linea, t.ocurrencia, "
+        "       t.unidad, t.ticker, t.categoria, t.op, t.cantidad, t.precio, "
+        "       t.importe, t.moneda, t.mep, t.comprobante, t.plazo, t.informacion, "
+        # La PLATA y su MONEDA: de la línea de dinero del mismo comprobante.
+        "       d.importe AS importe_dinero, d.moneda AS moneda_dinero, d.mep AS mep_dinero, "
+        "       (x.id_linea IS NOT NULL) AS excluido, x.motivo AS excluido_motivo "
+        "  FROM operaciones.movimientos_propias t "
+        "  LEFT JOIN LATERAL ("
+        "        SELECT sum(m.importe) AS importe, max(m.moneda) AS moneda, max(m.mep) AS mep "
+        "          FROM operaciones.movimientos_propias m "
+        "         WHERE m.fecha = t.fecha AND m.comprobante = t.comprobante "
+        "           AND m.anulado_en IS NULL "
+        "           AND upper(btrim(COALESCE(m.unidad,''))) = ANY(%(mon)s)"
+        "       ) d ON true "
+        "  LEFT JOIN operaciones.contabilidad_excluidos x "
+        "         ON x.fecha = t.fecha AND x.id_linea = t.id_linea "
+        "        AND x.ocurrencia = t.ocurrencia "
+        f" WHERE t.id_cuenta = %(c)s {w_mes}"
+        "   AND t.anulado_en IS NULL "
+        "   AND upper(btrim(COALESCE(t.unidad,''))) <> ALL(%(mon)s) "
+        " ORDER BY t.fecha, t.comprobante, t.ocurrencia", p)
     if mes_str:
-        ops = [r for r in ops if pertenece_al_mes(r["fecha"], r.get("condiciones"), mes=mes_str)]
+        filas = [r for r in filas
+                 if pertenece_al_mes(r["fecha"], r.get("plazo"), mes=mes_str)]
     boletos: list[dict] = []
-    for r in ops:
-        unidad = r.get("instrumento") or ""
-        dir_ = _direccion(r.get("operacion"), r.get("tipo_operacion"))
-        cat = {"compra": "compra", "venta": "venta"}.get(dir_ or "")
+    for r in filas:
+        cat = (r.get("categoria") or "").strip()
+        importe = _f(r.get("importe_dinero"))
+        moneda = r.get("moneda_dinero") or r.get("moneda")
+        mep = _f(r.get("mep_dinero")) or _f(r.get("mep"))
+        if importe is None:
+            # Sin hermana de dinero: o es administrativo (no hay plata que
+            # buscar) o el feed la trae en la propia línea. Se usa la que haya.
+            importe, moneda, mep = _f(r.get("importe")), r.get("moneda"), _f(r.get("mep"))
+        cantidad = _f(r.get("cantidad"))
+        if cantidad is None:
+            # El parser saca `cantidad` del TEXTO del boleto y no siempre puede.
+            # Los NOMINALES de la línea de título son su propio `importe`
+            # (= −total, signo cliente) — así lo trata `agrupar_boletos`.
+            cantidad = _f(r.get("importe"))
+        categoria = _clasificar(cat, cantidad, importe)
         boletos.append({
-            "fecha": r["fecha"], "categoria": cat, "op": r.get("tipo_operacion"),
-            "ticker": u2m.get(unidad, unidad), "unidad": unidad,
-            "cantidad": _f(r.get("cantidad")), "importe": _f(r.get("bruto")),
-            "moneda": r.get("moneda"), "mep": _f(r.get("mep")),
-            "comprobante": r.get("boleto"), "condiciones": r.get("condiciones"),
+            "fecha": r["fecha"], "categoria": categoria,
+            "op": r.get("op") or r.get("informacion"),
+            "ticker": _clave(r.get("unidad") or "", r.get("ticker"), u2m),
+            "unidad": r.get("unidad"),
+            "cantidad": cantidad, "importe": importe,
+            "moneda": moneda, "mep": mep,
+            "comprobante": r.get("comprobante"), "condiciones": r.get("plazo"),
+            # La identidad de la LÍNEA: es lo que el front manda para excluirla.
+            "id_linea": r.get("id_linea"), "ocurrencia": r.get("ocurrencia"),
+            "excluido": bool(r.get("excluido")),
+            "excluido_motivo": r.get("excluido_motivo"),
+            "informacion": r.get("informacion"),
         })
     return boletos
 
@@ -574,6 +634,15 @@ def resumen(*, id_cuenta: str, mes: str) -> dict:
     tot["descuadres"] = len(sin_conciliar)
     tot["sin_conciliar_total"] = round(sum(t["total"] for t in sin_conciliar), 2)
     tot["mep_faltantes"] = sum(t["mep_faltantes"] for t in todos)
+    # Lo que una PERSONA sacó del informe y lo que movió sin plata: se DECLARA.
+    # Un total que cambió porque alguien tildó una casilla tiene que poder
+    # explicarse desde la barra, sin abrir un modal ni comparar con el mes pasado.
+    tot["excluidos"] = sum(t["excluidos"] for t in todos)
+    tot["excluido_total"] = round(sum(t["excluido_total"] for t in todos), 2)
+    tot["ajustes"] = sum(t["n_ajustes"] for t in todos)
+    # Exclusiones que apuntan a una línea que ya no existe (Aunesa la corrigió y
+    # cambió su hash). No aplican, y en vez de desaparecer se cuentan.
+    tot["excluidos_huerfanos"] = _excluidos_huerfanos(id_cuenta, mes)
     # Boletos que NO mueven posición (cauciones, futuros, `otro` del catálogo):
     # se declaran en vez de desaparecer — si el enrich usara otra grafía para
     # compra/venta, TODO caería acá y se vería en la pantalla.
@@ -612,13 +681,37 @@ def ledger(boletos: list[dict]) -> dict:
     nominales = acum = 0.0
     ag = {"compras": 0.0, "ventas": 0.0,
           "qty_compras": 0.0, "qty_ventas": 0.0,
-          "n_boletos": 0, "mep_faltantes": 0}
+          "qty_ajustes": 0.0, "n_ajustes": 0,
+          "n_boletos": 0, "mep_faltantes": 0,
+          "excluidos": 0, "excluido_total": 0.0}
     for b in boletos:
         cat = b.get("categoria")
         q = abs(b.get("cantidad") or 0.0)
         imp = abs(b.get("importe_ars") or 0.0)
+        if b.get("excluido") and cat in _CATS_TODAS:
+            # EXCLUIDO A MANO: saca la PLATA, no el HECHO. Se comporta como un
+            # ajuste — mueve la posición (así el cuadre del título sigue dando
+            # y la fila NO se cae a «sin conciliar» por tildar una casilla) y no
+            # suma un peso. Tampoco entra en compras/ventas: si entrara, sus
+            # nominales diluirían `px_compra` con plata que ya no está.
+            nominales += q if cat in _CATS_COMPRA else -q
+            ag["qty_ajustes"] += q if cat in _CATS_COMPRA else -q
+            ag["excluidos"] += 1
+            ag["excluido_total"] += imp if cat in _CATS_VENTA else -imp
+            b["nominales_acum"] = round(nominales, 2)
+            b["pnl_acum"] = round(acum, 2)
+            continue
         if cat == "saldo_inicial":
             nominales += q                      # posición, NO plata
+        elif cat == _CAT_AJUSTE:
+            # ADMINISTRATIVO: mueve la posición y no hay plata que sumar. El
+            # signo lo trae la cantidad (Aunesa lo manda con signo cliente), así
+            # que acá NO se toma valor absoluto — un canje que resta nominales
+            # tiene que restar. Tampoco entra en compras/ventas: si entrara,
+            # ensuciaría el precio promedio con el que se costea lo que quedó.
+            nominales += b.get("cantidad") or 0.0
+            ag["qty_ajustes"] += b.get("cantidad") or 0.0
+            ag["n_ajustes"] += 1
         elif cat in _CATS_COMPRA:
             acum -= imp                         # la compra RESTA
             nominales += q
@@ -691,36 +784,112 @@ def detalle(*, id_cuenta: str, mes: str, key: str) -> dict:
                       fecha_ini=ini["fecha_usada"] or ini["fecha_objetivo"],
                       boletos=boletos)
     return {"id_cuenta": id_cuenta, "mes": mes, "key": key, "boletos": filas,
-            "intermediacion": round(ag["intermediacion"], 2)}
+            "intermediacion": round(ag["intermediacion"], 2),
+            # Para que el modal pueda tildar/destildar sin derivar nada: cada
+            # boleto ya viaja con su `id_linea`/`ocurrencia` y su estado.
+            "excluidos": ag["excluidos"], "n_ajustes": ag["n_ajustes"]}
 
 
-# ── ABM de cuentas del proceso ───────────────────────────────────────────────
+# ── Las CUENTAS del proceso: las DERIVA movimientos_propias ─────────────────
 
 def cuentas() -> list[dict]:
-    filas = _q("SELECT id_cuenta, etiqueta, agregada_por, agregada_en "
-               "FROM operaciones.contabilidad_cuentas ORDER BY id_cuenta")
+    """El universo de cuentas del informe. **No es un ABM** (regla del user,
+    2026-09-05): una cuenta existe para CONTABILIDAD si tiene movimientos en
+    `operaciones.movimientos_propias`, y punto.
+
+    Antes esto era una tabla de texto libre donde `POST /contabilidad/cuentas`
+    aceptaba cualquier string sin validar contra nada: se podía elegir una cuenta
+    sin un solo movimiento y el informe salía vacío sin decir por qué. Ahora la
+    lista NO se puede inventar — sale de los datos.
+
+    `operaciones.contabilidad_cuentas` sobrevive con un único uso: si tiene una
+    etiqueta para ese id, PISA al nombre que trae el feed (la mesa a veces quiere
+    llamarla de otra forma). Una fila suya cuyo id no tenga movimientos no
+    aparece: no puede sumar una cuenta al proceso."""
+    return _q(
+        "SELECT m.id_cuenta, "
+        "       COALESCE(c.etiqueta, max(m.cuenta)) AS etiqueta, "
+        "       count(*) AS movimientos, "
+        "       to_char(min(m.fecha),'YYYY-MM-DD') AS desde, "
+        "       to_char(max(m.fecha),'YYYY-MM-DD') AS hasta "
+        "  FROM operaciones.movimientos_propias m "
+        "  LEFT JOIN operaciones.contabilidad_cuentas c ON c.id_cuenta = m.id_cuenta "
+        " WHERE m.anulado_en IS NULL AND m.id_cuenta IS NOT NULL "
+        " GROUP BY m.id_cuenta, c.etiqueta "
+        " ORDER BY count(*) DESC")
+
+
+# ── Movimientos EXCLUIDOS a mano ────────────────────────────────────────────
+
+def _excluidos_huerfanos(id_cuenta: str, mes: str) -> int:
+    """Exclusiones que ya no apuntan a ninguna línea viva. `movimientos_propias`
+    se reconcilia cada media hora y una línea corregida cambia de `id_linea`: la
+    exclusión queda apuntando a algo que no existe y deja de aplicar. Se CUENTA
+    para que no desaparezca en silencio — si alguien sacó un movimiento y el
+    movimiento volvió con otro hash, el informe tiene que poder decirlo."""
+    r = _q(
+        "SELECT count(*) AS n FROM operaciones.contabilidad_excluidos x "
+        " WHERE x.id_cuenta = %(c)s AND to_char(x.fecha,'YYYY-MM') = %(mes)s "
+        "   AND NOT EXISTS (SELECT 1 FROM operaciones.movimientos_propias m "
+        "                    WHERE m.fecha = x.fecha AND m.id_linea = x.id_linea "
+        "                      AND m.ocurrencia = x.ocurrencia AND m.anulado_en IS NULL)",
+        {"c": id_cuenta, "mes": mes})
+    return int(r[0]["n"]) if r else 0
+
+
+def excluir(actor: str, *, id_cuenta: str, fecha: str, id_linea: str,
+            ocurrencia: int = 1, motivo: str | None = None) -> dict:
+    """Saca un movimiento del resultado del mes. **La plata, no el hecho**: sus
+    nominales siguen contando para el cuadre (ver el comentario de la tabla en
+    `sql/schema.sql`). Idempotente: volver a excluir lo mismo actualiza el
+    motivo."""
+    filas = _q(
+        "INSERT INTO operaciones.contabilidad_excluidos "
+        "(fecha, id_linea, ocurrencia, id_cuenta, motivo, excluido_por) "
+        "VALUES (%(f)s, %(l)s, %(o)s, %(c)s, %(m)s, %(a)s) "
+        "ON CONFLICT (fecha, id_linea, ocurrencia) DO UPDATE SET "
+        "motivo = EXCLUDED.motivo, excluido_por = EXCLUDED.excluido_por, "
+        "excluido_en = now() RETURNING id_linea",
+        {"f": fecha, "l": id_linea, "o": int(ocurrencia), "c": id_cuenta,
+         "m": (motivo or "").strip() or None, "a": actor})
+    # El informe está cacheado 300s: sin invalidar, tildar la casilla no movía
+    # el número hasta cinco minutos después y la pantalla se veía rota.
+    from api.cache import invalidate
+    invalidate("resumen")
+    return {"ok": bool(filas), "id_linea": id_linea, "excluido": True}
+
+
+def incluir(actor: str, *, fecha: str, id_linea: str, ocurrencia: int = 1) -> dict:
+    """Vuelve a contabilizar un movimiento excluido."""
+    filas = _q(
+        "DELETE FROM operaciones.contabilidad_excluidos "
+        " WHERE fecha = %(f)s AND id_linea = %(l)s AND ocurrencia = %(o)s "
+        " RETURNING id_linea", {"f": fecha, "l": id_linea, "o": int(ocurrencia)})
+    # El informe está cacheado 300s: sin invalidar, tildar la casilla no movía
+    # el número hasta cinco minutos después y la pantalla se veía rota.
+    from api.cache import invalidate
+    invalidate("resumen")
+    return {"ok": bool(filas), "id_linea": id_linea, "excluido": False}
+
+
+def excluidos(id_cuenta: str, mes: str) -> list[dict]:
+    """Lo que hay sacado del mes, con quién y cuándo. Es el libro de la decisión:
+    sin esto, el mes que viene nadie puede explicar por qué el informe no da lo
+    mismo que los boletos."""
+    filas = _q(
+        "SELECT to_char(x.fecha,'YYYY-MM-DD') AS fecha, x.id_linea, x.ocurrencia, "
+        "       x.motivo, x.excluido_por, x.excluido_en, "
+        "       m.informacion, m.comprobante, m.unidad, m.importe, m.cantidad "
+        "  FROM operaciones.contabilidad_excluidos x "
+        "  LEFT JOIN operaciones.movimientos_propias m "
+        "         ON m.fecha = x.fecha AND m.id_linea = x.id_linea "
+        "        AND m.ocurrencia = x.ocurrencia "
+        " WHERE x.id_cuenta = %(c)s AND to_char(x.fecha,'YYYY-MM') = %(mes)s "
+        " ORDER BY x.fecha, x.excluido_en", {"c": id_cuenta, "mes": mes})
     for r in filas:
-        r["agregada_en"] = r["agregada_en"].isoformat() if r["agregada_en"] else None
+        r["excluido_en"] = r["excluido_en"].isoformat() if r["excluido_en"] else None
+        r["importe"] = _f(r["importe"])
+        r["cantidad"] = _f(r["cantidad"])
+        # Sin fila viva, la exclusión no aplica — y la vista tiene que decirlo.
+        r["vive"] = r["comprobante"] is not None
     return filas
-
-
-def agregar_cuenta(actor: str, id_cuenta: str, etiqueta: str | None) -> dict:
-    id_cuenta = (id_cuenta or "").strip()
-    if not id_cuenta:
-        return {"ok": False, "error": "id_cuenta vacío"}
-    if not etiqueta:
-        # Nombre visible desde la tenencia (si la cuenta existe ahí).
-        f = _q("SELECT max(cuenta) AS c FROM portafolio.tenencia "
-               "WHERE id_cuenta = %(c)s", {"c": id_cuenta})
-        etiqueta = (f[0]["c"] if f else None) or id_cuenta
-    _q("INSERT INTO operaciones.contabilidad_cuentas "
-       "(id_cuenta, etiqueta, agregada_por) VALUES (%(c)s, %(e)s, %(a)s) "
-       "ON CONFLICT (id_cuenta) DO UPDATE SET etiqueta = EXCLUDED.etiqueta "
-       "RETURNING id_cuenta", {"c": id_cuenta, "e": etiqueta, "a": actor})
-    return {"ok": True, "id_cuenta": id_cuenta, "etiqueta": etiqueta}
-
-
-def borrar_cuenta(actor: str, id_cuenta: str) -> dict:
-    filas = _q("DELETE FROM operaciones.contabilidad_cuentas "
-               "WHERE id_cuenta = %(c)s RETURNING id_cuenta", {"c": id_cuenta})
-    return {"ok": bool(filas)}

@@ -361,34 +361,6 @@ def test_alta_pura_se_separa_del_informe():
     assert [t["titulo"] for t in con_resultado] == ["FCI X"]  # alta que vendió → queda
 
 
-def test_direccion_del_catalogo():
-    """El enrich `operacion` de operaciones.operaciones → compra/venta/None.
-    Cauciones, futuros y `otro` no mueven posición de títulos."""
-    from api.services.contabilidad_sql import _direccion
-    assert _direccion("compra") == "compra"
-    assert _direccion("Venta") == "venta"
-    assert _direccion("suscripción FCI") == "compra"
-    assert _direccion("rescate FCI") == "venta"
-    for x in ("caución tomadora", "caución colocadora", "futuros", "otro", "", None):
-        assert _direccion(x) is None
-
-
-def test_direccion_respaldo_por_tipo_operacion():
-    """Caso TTCBO (2026-09-01): el catálogo no definía la punta de la venta
-    SENEBI y el boleto quedaba afuera del cálculo teniéndolo a la vista.
-    Cuando el enrich no resuelve, la punta se lee del descriptor de Aunesa —
-    salvo cauciones/futuros/opciones, que nunca mueven nominales de títulos."""
-    from api.services.contabilidad_sql import _direccion
-    assert _direccion("otro", "SENEBI Contado - Venta") == "venta"
-    assert _direccion(None, "Concurrencia Contado - Venta") == "venta"
-    assert _direccion("otro", "SENEBI Contado - Compra") == "compra"
-    assert _direccion("otro", "COLP - Licitación") == "compra"  # primario = compra
-    assert _direccion("licitacion", None) == "compra"
-    assert _direccion("otro", "Caución Colocadora - Venta") is None
-    assert _direccion("otro", "Futuros - Compra") is None
-    assert _direccion("venta", "lo que sea") == "venta"  # el catálogo manda si resuelve
-
-
 def test_boleto_sin_direccion_no_mueve_nada():
     """Un boleto con categoria None (caución/futuro/otro) no toca compras,
     ventas ni el cuadre — se declara en `ignorados`, no se suma."""
@@ -509,79 +481,6 @@ def _fci(fecha, tipo, cant, boleto, bruto=1_000.0, instrumento="TT AHORRO B",
             "bruto": bruto, "moneda": "ARS", "mep": None, "boleto": boleto}
 
 
-def test_pareja_rescate_toma_cantidad_del_provisional():
-    """Medido 2026-09-04: en RESCATE el provisional trae la cantidad pedida y
-    el final la liquidada (parecida, distinta). Una fila, cantidad del
-    provisional, importe del final (lo liquidado), fecha del provisional."""
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-03", "Rescate provisional", 23_210_649.49, "A", bruto=0),
-           _fci("2026-08-03", "Rescate final", 23_210_700.00, "B", bruto=1_500_000)]
-    out = emparejar_provisional_final(ops)
-    assert len(out) == 1
-    assert out[0]["cantidad"] == 23_210_649.49
-    assert out[0]["bruto"] == 1_500_000
-    assert out[0]["boleto"] == "A + B"
-    assert "provisional 03/08" in out[0]["tipo_operacion"]
-
-
-def test_pareja_suscripcion_toma_cantidad_del_final():
-    """Medido: en SUSCRIPCIÓN el provisional viene con cantidad 0 y el final
-    trae las cuotapartes."""
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-13", "Suscripción provisional", 0, "A", bruto=252_288_981,
-                operacion="Suscripción"),
-           _fci("2026-08-13", "Suscripción final", 4_301_608.13, "B", bruto=252_288_981,
-                operacion="Suscripción")]
-    out = emparejar_provisional_final(ops)
-    assert len(out) == 1
-    assert out[0]["cantidad"] == 4_301_608.13
-    assert out[0]["bruto"] == 252_288_981
-
-
-def test_pareja_que_cruza_el_mes_va_al_provisional():
-    """El provisional del 31/08 con final el 01/09: una sola fila, en AGOSTO."""
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-31", "Rescate provisional", 100.0, "A"),
-           _fci("2026-09-01", "Rescate final", 100.0, "B")]
-    out = emparejar_provisional_final(ops)
-    assert len(out) == 1 and out[0]["fecha"] == "2026-08-31"
-
-
-def test_sin_pareja_no_se_borra_nada():
-    """Distinto instrumento, distinta punta o el final ANTES del provisional:
-    no son la misma operación → las filas viajan tal cual. «No pude
-    emparejar» ≠ «no existe»."""
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-03", "Rescate provisional", 100.0, "A"),
-           _fci("2026-08-05", "Rescate final", 100.0, "C", instrumento="OTRO"),
-           _fci("2026-08-06", "Suscripción final", 100.0, "S", operacion="Suscripción"),
-           _fci("2026-08-10", "Rescate final", 500.0, "D"),
-           _fci("2026-08-12", "Rescate provisional", 500.0, "E")]
-    out = emparejar_provisional_final(ops)
-    # A+D emparejan (mismo fondo, misma punta, 7 días); C, S y E quedan sueltos
-    assert [r["boleto"] for r in out] == ["A + D", "C", "S", "E"]
-
-
-def test_cada_final_toma_el_provisional_mas_cercano():
-    """Dos rescates iguales en la semana: cada final se lleva SU provisional
-    (el más cercano hacia atrás), no el primero que encuentra."""
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-03", "Rescate provisional", 100.0, "P1"),
-           _fci("2026-08-04", "Rescate final", 100.0, "F1"),
-           _fci("2026-08-10", "Rescate provisional", 100.0, "P2"),
-           _fci("2026-08-11", "Rescate final", 100.0, "F2")]
-    out = emparejar_provisional_final(ops)
-    assert [r["boleto"] for r in out] == ["P1 + F1", "P2 + F2"]
-
-
-def test_boletos_no_fci_pasan_intactos():
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [{"fecha": "2026-08-03", "instrumento": "AL30", "operacion": "Compra",
-            "tipo_operacion": "Concurrencia Contado - Compra", "cantidad": 10,
-            "bruto": 5.0, "boleto": "X"}]
-    assert emparejar_provisional_final(ops) == ops
-
-
 def test_sin_conciliar_no_suma_al_total():
     """La TENENCIA manda (user, 2026-09-04): una fila cuyos boletos no
     explican los nominales del cierre es PARTIDA SIN CONCILIAR — se muestra
@@ -594,12 +493,128 @@ def test_sin_conciliar_no_suma_al_total():
     assert con == [ok] and altas == [alta] and sin == [rota]
 
 
-def test_pareja_con_el_final_listado_antes_que_el_provisional():
-    """Mismo día, el final ordena antes por número de boleto: la pareja igual
-    es UNA fila (bug real 2026-09-04: el provisional quedaba suelto)."""
-    from api.services.contabilidad_sql import emparejar_provisional_final
-    ops = [_fci("2026-08-12", "Suscripción final", 100.0, "B1", operacion="Suscripción"),
-           _fci("2026-08-12", "Suscripción provisional", 0.0, "B0", operacion="Suscripción")]
-    out = emparejar_provisional_final(ops)
-    assert [r["boleto"] for r in out] == ["B0 + B1"]
-    assert out[0]["cantidad"] == 100.0
+
+
+# ── LA FUENTE NUEVA: movimientos_propias (2026-09-05) ────────────────────────
+#
+# Tres cosas cambiaron y las tres pueden fallar EN SILENCIO:
+#   · los AJUSTES administrativos (mueven cantidad, no llevan plata) — son lo que
+#     la fuente anterior no traía y por lo que el cuadre fallaba;
+#   · los EXCLUIDOS a mano — sacan la plata y NO el hecho, si sacaran las dos
+#     cosas tildar una casilla borraría el título entero del informe;
+#   · la clasificación de una línea de título, que decide las dos anteriores.
+
+def test_un_ajuste_mueve_nominales_y_no_plata():
+    """Un canje/amortización cambia la posición sin importe. Si sumara plata,
+    inventaría resultado; si no moviera nominales, el título descuadraría."""
+    ag = ledger([_mov("ajuste", -300.0, None)])
+    assert ag["intermediacion"] == 0.0
+    assert ag["qty_ajustes"] == -300.0 and ag["n_ajustes"] == 1
+    assert ag["compras"] == 0.0 and ag["ventas"] == 0.0
+
+
+def test_el_ajuste_no_ensucia_el_precio_de_compra():
+    """Si un ajuste entrara como compra de importe 0, `px_compra = compras /
+    qty_compras` se diluiría y el costo de lo que quedó en cartera saldría mal."""
+    ag = ledger([_mov("compra", 100.0, 1_000.0), _mov("ajuste", 900.0, None)])
+    assert ag["qty_compras"] == 100.0          # el ajuste NO entra acá
+    assert ag["compras"] / ag["qty_compras"] == 10.0
+
+
+def test_el_ajuste_hace_cuadrar_lo_que_antes_no_cuadraba():
+    """EL motivo del cambio de fuente. Una amortización baja 300 nominales sin
+    boleto de venta: con la fuente vieja la fila descuadraba y se iba a «sin
+    conciliar»; ahora cuadra y suma al mes."""
+    t = _calc([_t("[100] AL30 - GD", 1000, 100_000)],
+              [_t("[100] AL30 - GD", 700, 77_000)],
+              [_b("ajuste", "AL30", -300.0, None)])[0]
+    assert t["cuadra"] is True
+    assert t["cuadre_nominales"] == 0
+
+
+def test_sin_el_ajuste_la_fila_no_cuadra():
+    """La contracara del anterior: es exactamente lo que pasaba antes."""
+    t = _calc([_t("[100] AL30 - GD", 1000, 100_000)],
+              [_t("[100] AL30 - GD", 700, 77_000)], [])[0]
+    assert t["cuadra"] is False
+
+
+def test_excluir_saca_la_plata_pero_no_el_hecho():
+    """La regla del módulo. La venta excluida no suma un peso PERO sus nominales
+    siguen moviéndose: si no, el título descuadraría por tildar una casilla."""
+    b = _mov("venta", 300.0, 33_000.0)
+    b["excluido"] = True
+    ag = ledger([b])
+    assert ag["intermediacion"] == 0.0        # la plata NO entró
+    assert ag["qty_ajustes"] == -300.0        # el hecho SÍ movió la posición
+    assert ag["excluidos"] == 1
+
+
+def test_excluir_no_manda_la_fila_a_sin_conciliar():
+    """El bug que la regla evita: excluir un movimiento no puede borrar el
+    título entero del informe."""
+    b = _b("venta", "AL30", 300.0, 33_000.0)
+    b["excluido"] = True
+    t = _calc([_t("[100] AL30 - GD", 1000, 100_000)],
+              [_t("[100] AL30 - GD", 700, 77_000)], [b])[0]
+    assert t["cuadra"] is True
+    assert t["excluidos"] == 1
+    assert t["intermediacion"] == 0.0
+
+
+def test_el_excluido_se_declara_no_desaparece():
+    """Un total que cambió porque alguien tildó una casilla tiene que poder
+    explicarse desde la fila, sin abrir el modal."""
+    b = _b("venta", "AL30", 300.0, 33_000.0)
+    b["excluido"] = True
+    t = _calc([_t("[100] AL30 - GD", 1000, 100_000)],
+              [_t("[100] AL30 - GD", 700, 77_000)], [b])[0]
+    assert t["excluido_total"] == 33_000.0
+
+
+def test_clasificar_respeta_la_categoria_del_feed():
+    from api.services.contabilidad_sql import _clasificar
+    assert _clasificar("compra", 100, 1000) == "compra"
+    assert _clasificar("venta", 100, 1000) == "venta"
+    assert _clasificar("suscripcion_fci", 100, 1000) == "suscripcion_fci"
+
+
+def test_clasificar_sin_cantidad_no_mueve_nada():
+    from api.services.contabilidad_sql import _clasificar
+    assert _clasificar("otro", None, 5000) is None
+    assert _clasificar("comision", 0, 5000) is None
+
+
+def test_clasificar_sin_plata_es_ajuste():
+    """Lo que el user declaró VÁLIDO: mueve cantidad, no lleva precio ni importe."""
+    from api.services.contabilidad_sql import _clasificar
+    assert _clasificar("otro", -300, None) == "ajuste"
+    assert _clasificar("", 500, 0) == "ajuste"
+
+
+def test_clasificar_trd_se_decide_por_el_signo():
+    """Un TRD no dice «Compra» ni «Venta» en el texto. Con el importe en signo
+    cliente: negativo = pagamos = compra. Misma regla que `agrupar_boletos` —
+    sin esto, un TRD cae en `ignorados` (el bug de YFCOO en el motor de PnL)."""
+    from api.services.contabilidad_sql import _clasificar
+    assert _clasificar("otro", 100, -71_500) == "compra"
+    assert _clasificar("otro", 100, 71_500) == "venta"
+
+
+def test_una_acreencia_que_mueve_nominales_es_ajuste_no_renta():
+    """Una amortización baja nominales de verdad y la foto lo va a mostrar: sus
+    NOMINALES tienen que contar para el cuadre y su PLATA no puede entrar al
+    informe. Eso es exactamente un ajuste — y es la regla «no hay rentas»."""
+    from api.services.contabilidad_sql import _clasificar
+    assert _clasificar("acreencia", -300, 12_000) == "ajuste"
+
+
+def test_la_clave_cae_al_ticker_si_el_catalogo_no_conoce_la_unidad():
+    """El catálogo manda, pero una unidad que todavía no está en `assets` (un
+    rebautizo, un alta reciente) cae a su ticker — el MISMO espacio de claves que
+    usa el motor de PnL. Sin el fallback, esa fila queda huérfana y el mes da de
+    menos con la pantalla en verde."""
+    from api.services.contabilidad_sql import _clave
+    assert _clave("[100] AL30 - GD", "XXX", _U2M) == "AL30"      # gana el catálogo
+    assert _clave("[999] NUEVO", "NUEVO", _U2M) == "NUEVO"       # cae al ticker
+    assert _clave("[999] SIN NADA", None, _U2M) == "[999] SIN NADA"

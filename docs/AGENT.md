@@ -635,10 +635,11 @@ que **relee el master cada 60 s** y lo suscribe sin reiniciar.
 
 #### `tasa_vs_1816` — habilidad NUEVA (2026-09-04)
 
-Corporativos HARD DÓLAR: nuestra TNA/TEA contra la de 1816, un hallazgo por
-bono que se aparta más de `bps` (150). Es `scripts/diag_tea_corp_hd` hecho
-habilidad — los cuatro números viajan en la evidencia. Ventana `rueda`, cada
-2 h (cuesta créditos: tickers × 2 por corrida). Sin arreglo. Historia en §0.do.
+Corporativos HARD DÓLAR: la tabla de nuestra TNA/TEA al lado de la de 1816
+(ticker · TNA mía · TNA 1816 · TEA mía · TEA 1816), en **UN hallazgo** que el
+registro refresca cada corrida. **Sin umbral, sin filtro, sin decir cuál está
+mal**: compara, no concluye. Es `scripts/diag_tea_corp_hd` hecho habilidad.
+Aviso (vive en AHORA), rueda, cada 2 h. Historia en §0.do.
 
 #### `on_faltante` — habilidad NUEVA (2026-09-04)
 
@@ -4881,12 +4882,16 @@ agujero (`agente/tasa_1816`, el fallback cuando la TEA está vacía).
 
 **Qué se hizo, y qué NO.** Primero un script —`scripts/diag_tea_corp_hd`—
 con la tabla que pidió el user: ticker · TNA mía · TNA 1816 · TEA mía · TEA
-1816, y nada más. Después, la MISMA tabla como habilidad: un hallazgo por bono
-cuya TEA se aparta más de `bps` de la de 1816, con los cuatro números en la
-evidencia. **Y nada más** — la primera versión sumó un segundo cotejo por el
-endpoint de input manual, un tope de llamadas y una ventana al cierre que nadie
-pidió, y el user la frenó: *«solo te dije que tenía que saber la tasa y
-compararla»*. Se sacó todo. Lo que no se pide no se agrega.
+1816, y nada más. Después, la MISMA tabla como habilidad: UN hallazgo por
+corrida (sujeto `CORPORATIVOS HD`, como la familia de `cedear_faltante`), con
+la tabla entera en `detalle` —que AHORA dibuja monoespaciado— y los cuatro
+números de cada bono en la evidencia. El registro le refresca la tabla cada
+vez que la vuelve a ver. **Sin umbral y sin filtro**: la primera versión sumó
+un segundo cotejo por el endpoint de input manual, un tope de llamadas y una
+ventana al cierre; la segunda, un umbral en bps que decidía «cuál se aparta».
+El user frenó las dos: *«no quiero NADA de análisis, solamente COMPARAR, uno
+vs otro y listo»*. Se sacó todo. La habilidad compara; concluir es de la
+persona que la lee.
 
 **Dos decisiones que sí hacen falta para que la comparación sea comparación**,
 las dos ya medidas antes: se pide con `moneda='mep'` (el default de 1816 divide

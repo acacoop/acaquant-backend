@@ -1586,7 +1586,7 @@ que es exactamente la regla que este doc proponía escribir a mano.
 | 7 | Bono no cotiza tras un alta o un cambio | **los motores cargan `mercado.curvas` una sola vez al arrancar** | `bono_sin_precio · no_suscripto` → botón `pedir_pata`; si no, `systemctl try-restart motor_rofex motor_curvas` **fuera de rueda** |
 | 8 | Bono cargado que no valúa nada | sin cronograma de pagos | `bono_sin_flujo` → botón `alta_flujos` |
 | 9 | El bono existe en 1816 y no en el master | alta pendiente | `soberanos_faltantes` → botón `alta_bono` |
-| 10 | TEA de un corporativo HD distinta a la de 1816 | cuadro mal convertido, escala del flujo, o el precio de cada uno | `tasa_vs_1816` (rueda, cada 2 h; aviso, sin botón — se mira el cuadro en Manager). A mano: `scripts.diag_tea_corp_hd` |
+| 10 | ¿Nuestra TNA/TEA de un corporativo HD es la de 1816? | (no concluye: es la tabla uno contra otro) | `tasa_vs_1816` (rueda, cada 2 h; un aviso en AHORA con la tabla entera). A mano: `scripts.diag_tea_corp_hd` |
 | 11 | Una ON hard dólar existe en 1816 y cotiza en Primary, y no está en el master | alta pendiente (manual: la rama `on` no convierte el cuadro sola) | `on_faltante` (aviso con emisor/curva para cargar en Manager → TÍTULOS → BONOS → CARGAR → ON) |
 
 ⚠️ **La falla #7 es la que más se paga y la única que no se arregla con un dato**:

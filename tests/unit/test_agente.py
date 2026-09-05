@@ -3412,40 +3412,43 @@ def _armar_tasa_vs_1816(monkeypatch, docs, snap, su: dict):
     return llamadas
 
 
-def test_tasa_vs_1816_canta_el_que_se_aparta_con_los_cuatro_numeros(monkeypatch):
-    """Es la tabla del diag hecha habilidad: TNA mía · TNA 1816 · TEA mía ·
-    TEA 1816 en la evidencia, y hallazgo sólo si la TEA se aparta más de `bps`."""
+def test_tasa_vs_1816_es_la_tabla_del_diag_sin_umbral_ni_filtro(monkeypatch):
+    """User (2026-09-05): *«no quiero NADA de análisis, solamente comparar, uno
+    vs otro y listo»*. UN hallazgo, la tabla adentro, TODOS los bonos: el que
+    coincide, el que no, el que no tiene TEA nuestra y el que 1816 no publica."""
     d1, s1 = _corp_hd("IGUAL", 0.0800)
     d2, s2 = _corp_hd("LEJOS", 0.0800)
-    ll = _armar_tasa_vs_1816(monkeypatch, [d1, d2], {**s1, **s2},
-                             su={"IGUAL": 0.0805, "LEJOS": 0.1100})
-    out = mercado.tasa_vs_1816({"bps": 150})
-    assert [h.sujeto for h in out] == ["LEJOS"]
-    ev = out[0].evidencia
-    assert out[0].regla == "tasa_no_coincide"
-    assert ev["tea_mia"] == 0.08 and ev["tea_1816"] == 0.11 and ev["bps"] == 300.0
-    assert ev["tna_1816"] == pytest.approx(0.11 * 0.97)
+    d3, s3 = _corp_hd("SINTEA", 0.0800); s3[d3["ticker"]]["tea"] = None
+    d4, s4 = _corp_hd("SIN1816", 0.0800)
+    ll = _armar_tasa_vs_1816(monkeypatch, [d1, d2, d3, d4], {**s1, **s2, **s3, **s4},
+                             su={"IGUAL": 0.0805, "LEJOS": 0.1100, "SINTEA": 0.0900})
+    out = mercado.tasa_vs_1816({})
+    assert len(out) == 1
+    h = out[0]
+    assert h.sujeto == mercado.FAMILIA_CORP_HD and h.regla == "tabla"
+    assert [b["ticker"] for b in h.evidencia["bonos"]] == ["IGUAL", "LEJOS", "SIN1816", "SINTEA"]
+    por = {b["ticker"]: b for b in h.evidencia["bonos"]}
+    assert por["LEJOS"]["tea_mia"] == 0.08 and por["LEJOS"]["tea_1816"] == 0.11
+    assert por["SINTEA"]["tea_mia"] is None and por["SINTEA"]["tea_1816"] == 0.09
+    assert por["SIN1816"]["tea_1816"] is None and por["SIN1816"]["tna_1816"] is None
     from quant.tasas import tna_desde_tea
-    assert ev["tna_mia"] == tna_desde_tea(0.08), "la TNA de la pantalla: TEM×12"
+    assert por["IGUAL"]["tna_mia"] == tna_desde_tea(0.08), "la TNA de la pantalla: TEM×12"
+    # La tabla, en el detalle, con las columnas del script y una fila por bono.
+    lineas = h.detalle.split("\n")
+    assert lineas[0].split() == ["TICKER", "TNA", "MIA", "TNA", "1816", "TEA", "MIA", "TEA", "1816"]
+    assert len(lineas) == 5 and lineas[3].startswith("SIN1816") and "--" in lineas[3]
     assert {m for _, m in ll} == {"mep"}, "1816 divide por CCL: se pide en mep"
-
-
-def test_tasa_vs_1816_sin_TEA_del_motor_no_es_su_problema(monkeypatch):
-    """Sin TEA nuestra no hay qué comparar: eso lo canta `bono_sin_tasa`. Y sin
-    candidatos no se le pide nada a 1816 (cero créditos)."""
-    d, s = _corp_hd("SINTEA", 0.08)
-    s[d["ticker"]]["tea"] = None
-    ll = _armar_tasa_vs_1816(monkeypatch, [d], s, su={"SINTEA": 0.12})
-    assert mercado.tasa_vs_1816({"bps": 150}) == []
-    assert ll == []
+    # Ninguna conclusión: ni «se aparta», ni bps, ni umbral.
+    assert "bps" not in h.problema and "bps" not in h.detalle
+    assert "umbral" not in h.evidencia
 
 
 def test_tasa_vs_1816_si_1816_no_trae_ninguna_tea_no_afirma_nada(monkeypatch):
-    """Una respuesta vacía NO es «coinciden todos» (invariante 1): SinDatos."""
+    """Una respuesta vacía NO es una tabla (invariante 1): SinDatos."""
     d, s = _corp_hd("X", 0.08)
     _armar_tasa_vs_1816(monkeypatch, [d], s, su={})
     with pytest.raises(tipos.SinDatos):
-        mercado.tasa_vs_1816({"bps": 150})
+        mercado.tasa_vs_1816({})
 
 
 def test_tasa_vs_1816_troza_de_a_50_porque_la_api_trunca(monkeypatch):
@@ -3456,16 +3459,16 @@ def test_tasa_vs_1816_troza_de_a_50_porque_la_api_trunca(monkeypatch):
         d, s = _corp_hd(f"ON{i:03d}", 0.08)
         docs.append(d); snap.update(s); su[d["ticker_corto"]] = 0.0805
     ll = _armar_tasa_vs_1816(monkeypatch, docs, snap, su=su)
-    assert mercado.tasa_vs_1816({"bps": 150}) == []
+    assert len(mercado.tasa_vs_1816({})[0].evidencia["bonos"]) == 120
     assert [len(t) for t, _ in ll] == [50, 50, 20]
     assert mercado.LOTE_1816 == 50
 
 
-def test_tasa_vs_1816_es_un_aviso_y_pide_lo_que_tamar_1816_ya_probo():
-    """Sin arreglo (se mira el cuadro), y los campos del lote son los que
-    `jobs/tamar_1816` ya probó contra la API — un campo inventado es HTTP 400."""
+def test_tasa_vs_1816_es_un_aviso_por_familia_y_pide_lo_que_tamar_1816_ya_probo():
+    """Sin arreglo, sin umbral, sin sujeto que pueda caducar (es una tabla), y
+    los campos del lote son los que `jobs/tamar_1816` ya probó contra la API."""
     h = catalogo.HABILIDADES["tasa_vs_1816"]
-    assert h.dominio == "MERCADO" and h.sujeto_es == "bono" and not h.arreglos
+    assert h.dominio == "MERCADO" and not h.arreglos and not h.umbrales and h.sujeto_es == ""
     assert '["tea", "tna"]' in inspect.getsource(mercado.tasa_vs_1816)
 
 

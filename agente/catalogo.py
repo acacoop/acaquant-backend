@@ -63,16 +63,18 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=12 * _H, ventana="cierre",
         correr=mercado.tasas_al_cierre, sujeto_es="bono"),
 
-    # `scripts/diag_tea_corp_hd` hecho habilidad (§0.do): nuestra TNA/TEA contra
-    # la de 1816 en los corporativos hard dólar, un hallazgo por bono que se
-    # aparta más de `bps`. Cuesta créditos de 1816 (tickers × 2 por corrida), por
-    # eso cada 2 h como `soberanos_faltantes`. Sin arreglo: se mira el cuadro.
+    # `scripts/diag_tea_corp_hd` hecho habilidad (§0.do): la tabla TNA/TEA
+    # nuestras contra las de 1816 en los corporativos hard dólar. UN hallazgo con
+    # la tabla adentro, que el registro refresca cada corrida — sin umbral y sin
+    # decir cuál está mal: compara, no concluye. Cuesta créditos de 1816
+    # (tickers × 2 por corrida), por eso cada 2 h como `soberanos_faltantes`.
+    # ⚠️ SIN `sujeto_es`: el sujeto es una familia, no un bono (como
+    # `cedear_faltante`), y no hay partida de defunción de una tabla.
     Habilidad(
         nombre="tasa_vs_1816", tipo="detector", dominio="MERCADO",
-        que_mira="corporativos hard dólar: nuestra TNA/TEA contra la de 1816",
+        que_mira="corporativos hard dólar: la tabla de nuestra TNA/TEA contra la de 1816",
         cada_segundos=2 * _H, ventana="rueda",
-        correr=mercado.tasa_vs_1816, sujeto_es="bono",
-        umbrales={"bps": 150.0}),
+        correr=mercado.tasa_vs_1816),
 
     # `soberanos_faltantes` para las ONs en dólares (§0.dp). Dos diferencias, y
     # ninguna es de gusto: Primary es CONDICIÓN (sin foto no se ofrece nada), y

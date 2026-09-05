@@ -663,18 +663,31 @@ def cedear_faltante(u: dict) -> list[Hallazgo]:
 LOTE_1816 = 50
 
 
-def tasa_vs_1816(u: dict) -> list[Hallazgo]:
-    """Corporativos HARD DÓLAR: nuestra TNA/TEA contra la de 1816. Doc: §0.do.
+# El SUJETO del único hallazgo. Es una familia, no un bono (mismo patrón que
+# `cedear_faltante`): el registro lo vuelve a ver cada corrida y le refresca la
+# tabla, en vez de crear 130 filas por día que nadie lee.
+FAMILIA_CORP_HD = "CORPORATIVOS HD"
 
-    Es `scripts/diag_tea_corp_hd` hecho habilidad: la misma tabla —TNA mía, TNA
-    1816, TEA mía, TEA 1816— y un hallazgo por bono cuando la TEA se aparta más
-    de `bps`. Los cuatro números viajan en la evidencia.
+
+def _pct(v: float | None) -> str:
+    return "--" if v is None else f"{v * 100:.2f}%"
+
+
+def tasa_vs_1816(u: dict) -> list[Hallazgo]:
+    """Corporativos HARD DÓLAR: nuestra TNA/TEA al lado de la de 1816. Doc: §0.do.
+
+    Es `scripts/diag_tea_corp_hd` hecho habilidad, y **hace exactamente lo que
+    hace el script**: la tabla —ticker · TNA mía · TNA 1816 · TEA mía · TEA
+    1816— en UN hallazgo, sin umbral, sin filtro, sin decir cuál está mal. Uno
+    contra otro y listo (pedido del user, 2026-09-05). Los cuatro números de
+    cada bono viajan también en la evidencia, por si alguien los quiere leer
+    de otro lado.
 
     Se pide con `moneda='mep'`: el default de 1816 divide por CCL y nuestro
     motor por MEP (`engines/curvas.py::precio_soberano_a_usd`). La TNA nuestra
     se deriva de la TEA con la convención de la casa (TEM×12), que es lo que la
-    pantalla muestra en esta pill. Sin TEA nuestra no hay qué comparar (eso lo
-    canta `bono_sin_tasa`). Sin arreglo: lo que hay que mirar es el cuadro.
+    pantalla muestra en esta pill. Un bono sin TEA nuestra sale con `--` (eso
+    lo canta `bono_sin_tasa`); uno que 1816 no publica, con `--` del otro lado.
     """
     from api.services.curvas_vista import pills_del_master
     from core import mercado_1816
@@ -687,11 +700,10 @@ def tasa_vs_1816(u: dict) -> list[Hallazgo]:
     if docs is None or snap is None:
         raise SinDatos("no pude leer el master o el snapshot")
     pills = pills_del_master()
-    bps_max = float(u.get("bps", 150.0))
 
-    # El universo: corporativos de la pill HARD DOLAR —la misma taxonomía que la
-    # vista, por `pills_del_master`— con precio y con TEA del motor.
-    cand: dict[str, dict] = {}
+    # El universo: corporativos de la pill HARD DOLAR — la misma taxonomía que
+    # la vista, por `pills_del_master`. Con o sin TEA: la tabla los lista a todos.
+    filas: dict[str, dict] = {}
     for d in docs:
         tk, simbolo = _tk(d.get("ticker_corto")), (d.get("ticker") or "").strip()
         if not tk or not simbolo or d.get("emisor_tipo") != "corporativo":
@@ -699,14 +711,12 @@ def tasa_vs_1816(u: dict) -> list[Hallazgo]:
         if "hard_dolar" not in pills.get(tk, ()):
             continue
         m = snap.get(simbolo) or {}
-        precio, tea = _num(m.get("last_price")), _num(m.get("tea"))
-        if not precio or tea is None:
-            continue
-        cand[tk] = {"simbolo": simbolo, "precio": precio, "tea": tea}
-    if not cand:
+        filas[tk] = {"simbolo": simbolo, "precio": _num(m.get("last_price")),
+                     "tea_mia": _num(m.get("tea"))}
+    if not filas:
         return []
 
-    g = mercado_1816.grafias_de(sorted(cand), "fija")
+    g = mercado_1816.grafias_de(sorted(filas), "fija")
     pedidos, suyas, fecha = sorted(g), {}, None
     for i in range(0, len(pedidos), LOTE_1816):
         try:
@@ -725,40 +735,29 @@ def tasa_vs_1816(u: dict) -> list[Hallazgo]:
                                         and v.get("tea") is not None):
                 suyas[nuestro] = {"tea": _num(v.get("tea")), "tna": _num(v.get("tna"))}
     if not any(s.get("tea") is not None for s in suyas.values()):
-        raise SinDatos("1816 contestó sin una sola TEA para los corporativos HD: "
-                       "no puedo afirmar que coincidan")
+        raise SinDatos("1816 contestó sin una sola TEA para los corporativos HD")
 
-    out, sin_1816 = [], []
-    for tk, c in sorted(cand.items()):
+    lineas = [f"{'TICKER':<10}{'TNA MIA':>10}{'TNA 1816':>11}{'TEA MIA':>10}{'TEA 1816':>11}"]
+    bonos = []
+    for tk, f in sorted(filas.items()):
         suya = suyas.get(tk) or {}
-        if suya.get("tea") is None:
-            sin_1816.append(tk)
-            continue
-        bps = abs(c["tea"] - suya["tea"]) * 10_000
-        tna_mia = tna_desde_tea(c["tea"])
-        if bps <= bps_max:
-            continue
-        out.append(Hallazgo(
-            sujeto=tk, regla="tasa_no_coincide", severidad="media",
-            problema=(f"TEA {c['tea']:.2%} contra {suya['tea']:.2%} de 1816 "
-                      f"({bps:,.0f} bps) · {reloj.hhmm()}"),
-            detalle=(f"TNA mía {tna_mia:.2%} · TNA 1816 "
-                     + (f"{suya['tna']:.2%}" if suya.get("tna") is not None else "--")
-                     + f" · rueda 1816 {fecha or '?'}"),
-            que_hacer=("Revisar el cronograma y la escala de los flujos de este bono "
-                       "en Manager → TÍTULOS → BONOS contra el cuadro de 1816. "
-                       "`python -m scripts.diag_tea_corp_hd` trae la tabla entera."),
-            evidencia={"simbolo": c["simbolo"], "precio": c["precio"],
-                       "tna_mia": tna_mia, "tna_1816": suya.get("tna"),
-                       "tea_mia": c["tea"], "tea_1816": suya["tea"],
-                       "bps": round(bps, 1), "umbral_bps": bps_max,
-                       "fecha_1816": fecha}))
-    if sin_1816:
-        # Se dice lo que se decidió no mostrar: un descarte mudo es
-        # indistinguible de un detector que dejó de mirar.
-        logger.info("tasa_vs_1816: %d sin TEA en 1816: %s", len(sin_1816),
-                    ", ".join(sin_1816[:10]))
-    return out
+        fila = {"ticker": tk, "tna_mia": tna_desde_tea(f["tea_mia"]),
+                "tna_1816": suya.get("tna"), "tea_mia": f["tea_mia"],
+                "tea_1816": suya.get("tea")}
+        bonos.append(fila)
+        lineas.append(f"{tk:<10}{_pct(fila['tna_mia']):>10}{_pct(fila['tna_1816']):>11}"
+                      f"{_pct(fila['tea_mia']):>10}{_pct(fila['tea_1816']):>11}")
+
+    return [Hallazgo(
+        sujeto=FAMILIA_CORP_HD, regla="tabla", severidad="baja",
+        problema=(f"TNA/TEA nuestras contra las de 1816 · {len(bonos)} bonos · "
+                  f"rueda 1816 {fecha or '?'} · {reloj.hhmm()}"),
+        detalle="\n".join(lineas),
+        # Obligatorio por el CHECK de la base. Acá no hay nada que hacer más que
+        # mirar: la habilidad compara, no concluye.
+        que_hacer="Leer la tabla: es nuestra tasa al lado de la de 1816, bono por bono.",
+        evidencia={"n": len(bonos), "fecha_1816": fecha, "moneda_1816": "mep",
+                   "bonos": bonos})]
 
 
 # ═══ on_faltante ═══════════════════════════════════════════════════════════

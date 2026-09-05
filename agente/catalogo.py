@@ -23,6 +23,7 @@ import logging
 from agente.detectores import catalogo as cat
 from agente.detectores import datos, mercado, sistema
 from agente.tipos import Habilidad
+from agente.umbrales import PARIDAD_MAX, PARIDAD_MIN
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,11 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         que_mira="bonos de curva USD cuyo precio llega en pesos",
         cada_segundos=5 * _M, ventana="rueda",
         correr=mercado.precio_moneda, sujeto_es="bono",
-        umbrales={"paridad_min": 40, "paridad_max": 160},
+        # ⚠️ La banda NO se escribe acá: la lee `agente/umbrales.py`, que es de
+        # donde también la toma la cadena de alta. Con el número repetido, el
+        # detector podría marcar un bono que el alta considera sano y ninguna
+        # de las dos mitades fallaría (REGLA #9).
+        umbrales={"paridad_min": PARIDAD_MIN, "paridad_max": PARIDAD_MAX},
         arreglos={"pata_equivocada": "apuntar_pata",
                   "cotiza_en_pesos": "pata_dolar"}),
 

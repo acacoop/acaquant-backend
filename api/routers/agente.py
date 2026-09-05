@@ -215,8 +215,9 @@ def explicar(body: Explicar, email: str = Depends(get_user_email)):
 
 # ── EL LABORATORIO (`lab/langgraph/`) ──────────────────────────────────────
 #
-# El INVESTIGADOR: cuando el agente detecta algo y se queda ahí —16 de sus 24
-# habilidades son avisos sin botón—, esto averigua por qué y propone qué hacer.
+# El INVESTIGADOR: cuando el agente detecta algo y se queda ahí —la mayoría de
+# sus habilidades son avisos sin botón—, esto averigua por qué y propone qué
+# hacer.
 #
 # ⚠️ **NO HAY UN ENDPOINT QUE INVESTIGUE Y DEVUELVA EL RESULTADO.** Una
 # investigación son 8 a 18 idas y vueltas al modelo: uno o dos minutos. El

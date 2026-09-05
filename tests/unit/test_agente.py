@@ -751,7 +751,7 @@ def test_ninguna_habilidad_detecta_con_ia():
     modelo el texto de los avisos. Lo que este test congela es la mitad que no
     se negocia — **ninguna habilidad decide con IA**. `usa_ia` significa «esta
     habilidad usa un modelo para saber si hay un problema», y eso sigue en
-    False en las 24: si un modelo pudiera abrir o cerrar un hallazgo, el
+    False en TODAS: si un modelo pudiera abrir o cerrar un hallazgo, el
     invariante #1 (una corrida que no pudo mirar no cierra nada) dejaría de ser
     verificable, porque «no pudo mirar» pasaría a ser una opinión.
 
@@ -3229,7 +3229,7 @@ def test_el_piso_nunca_se_pisa():
 
 
 def test_el_redactor_no_escribe_ni_conoce_detectores():
-    """Un solo prompt para las 24, y para la 25.
+    """Un solo prompt para todas las habilidades de hoy, y para la que se sume.
 
     Un prompt por habilidad sería la misma frase de molde de vuelta, escrita en
     otro archivo y encima pagándola. Lo que varía lo aportan el hallazgo y el

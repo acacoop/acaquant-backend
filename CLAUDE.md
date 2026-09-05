@@ -124,7 +124,7 @@ Historia: `docs/AGENT.md` §0.y y §0.aa.
 
 Toda funcionalidad nueva del agente es **una fila en `agente/catalogo.py`**, que obliga a declarar
 qué mira, cuándo, qué arreglo tiene (o que no tiene), dónde escribe (solo por `agente/registro.py`)
-y qué hacer con cada hallazgo. Detalle y los 12 invariantes: `.claude/rules/agente.md` y
+y qué hacer con cada hallazgo. Detalle e invariantes: `.claude/rules/agente.md` y
 `docs/AGENT.md` §8. Skill `add-habilidad`.
 
 ## Reglas que rompen todo si se olvidan

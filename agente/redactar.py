@@ -5,9 +5,13 @@ Doc: `docs/AGENT.md` §0.dn.
 EL PROBLEMA
 ===========
 
-De las 24 habilidades, **16 no tienen ningún arreglo**: todo lo que producen es
-un aviso, y en un aviso el TEXTO es el entregable entero. Ese texto se escribía
-a mano en el detector, así que era el mismo para todos los casos de esa regla:
+**La mayoría de las habilidades no tiene ningún arreglo**: todo lo que producen
+es un aviso, y en un aviso el TEXTO es el entregable entero. (Cuántas son lo
+dice `agente/catalogo.py`. Acá había un conteo escrito a mano y quedó viejo sin
+que nada fallara — el mismo defecto que este módulo persigue en los avisos.)
+
+Ese texto se escribía a mano en el detector, así que era el mismo para todos los
+casos de esa regla:
 
     que_hacer="Nada: es el número del día. Si el salto de la semana no se
                explica con las cinco de arriba, mirar qué creció."
@@ -42,10 +46,10 @@ antes de mostrarse. Cinco decisiones, en orden de importancia:
    entera. Un texto lindo con un número inventado es peor que la frase de molde.
 4. **EL ALCANCE SE DERIVA, no se lista.** Se redacta lo que NO tiene arreglo.
    Una habilidad nueva sin botón entra sola; una con botón queda afuera sola
-   (ahí el texto es el botón, y el modelo no aporta). No hay una lista de 16
+   (ahí el texto es el botón, y el modelo no aporta). No hay una lista de
    nombres que alguien se olvide de actualizar — eso es lo que la REGLA #10
    pide y lo que `test_solo_los_avisos_se_redactan` congela.
-5. **UN SOLO PROMPT PARA LAS 16, Y PARA LA 25.** Lo que varía lo aporta el
+5. **UN SOLO PROMPT PARA TODAS, Y PARA LA QUE SE SUME.** Lo que varía lo aporta el
    hallazgo (`problema`, `detalle`, `evidencia`) y el catálogo (`que_mira`, ya
    declarado en castellano por la REGLA #10). **Cero prompts por detector**: un
    prompt por habilidad sería la misma frase de molde de vuelta, escrita en
@@ -182,7 +186,7 @@ def hechos(fila: dict) -> str:
 #
 # Cada validador recibe (texto, hechos, fila) y devuelve el MOTIVO del rechazo
 # o "" si pasa. Sumar una validación es una función y una línea en la tupla, y
-# ninguna sabe de qué detector viene el hallazgo — por eso valen para las 16.
+# ninguna sabe de qué detector viene el hallazgo — por eso valen para todas.
 
 _NUM = re.compile(r"\d+")
 # Lo que se BORRA sin rechazar: son marcas de formato, no errores de contenido.

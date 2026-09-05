@@ -21,12 +21,14 @@ paths:
 > `hallazgos` (los eventos, con `id` único) · `reincidencias` (**la que DEBE
 > estar vacía**) · `acciones` (el libro: qué escribió, de qué valor a qué valor).
 >
-> ⚠️ El schema tiene **nueve** tablas, no cuatro: las otras cinco son de
+> ⚠️ El schema tiene MÁS tablas que esas cuatro (cuántas, lo dice
+> `sql/schema.sql` — acá decía «nueve» y ya eran once): las demás son de
 > INFRAESTRUCTURA y ninguna nace de un detector — `latido` (el pulso del daemon,
 > UNA fila) · `silenciados` (lo que una persona mandó a callar; **no borra el
 > hallazgo, evita crearlo de nuevo**) · `db_peso` (la serie del tamaño de la
-> base) · `avisos_dirigidos` (la bandeja hacia un usuario) · `tasa_1816` (el
-> dato que trae el único cron del agente). Decir «cuatro» a secas hacía que
+> base) · `avisos_dirigidos` (la bandeja hacia un usuario) · `tasa_1816` (la
+> lista de prioridad) · `pulso_cliente` (lo que reporta el navegador) ·
+> `explicaciones` (el caché de «explicámelo»). Decir «cuatro» a secas hacía que
 > `silenciados` pareciera no existir, y es la que explica por qué un problema
 > real no aparece en pantalla.
 >
@@ -54,15 +56,31 @@ paths:
 > 9. A ENCONTRÓ **solo entra lo que tiene arreglo**; lo demás es aviso y vive en AHORA.
 > 10. **Un arreglo ESCRIBE.** Un botón que vuelve a mirar no es un arreglo.
 > 11. Ninguna pantalla deriva nada; **ningún contador se suma en el navegador**.
-> 12. **El agente no se autoevalúa**: sin votos, sin eval set, sin confianza.
+> 12. **No encontrar el sujeto NO prueba que no exista.** Para CADUCAR un
+>     hallazgo hace falta una fuente que AFIRME la baja, con fecha; si dos
+>     fuentes se contradicen, es «no sé» y no se cierra nada.
+> 13. **El agente no se autoevalúa**: sin votos, sin eval set, sin confianza.
 >
-> **TRES pantallas** (`/api/agente`, admin-only, REGLA #8 congelada por test):
-> **AHORA** = hallazgos de HOY sin leer y sin resolver (informativo; el único
-> botón es «leído», que **no resuelve**) · **ENCONTRÓ** = lo abierto que tiene
-> arreglo · **HISTORIAL** = el libro, paginado del backend.
+> **Las pantallas** (`/api/agente`, admin-only, REGLA #8 congelada por test).
+> TRES son el ciclo de trabajo: **AHORA** = hallazgos de HOY sin leer y sin
+> resolver (informativo; el único botón es «leído», que **no resuelve**) ·
+> **ENCONTRÓ** = lo abierto que tiene arreglo · **HISTORIAL** = el libro,
+> paginado del backend. Y tres son de lectura: **PATRONES** (los crónicos —
+> §6.10, lo que pasa SIEMPRE es una configuración mal puesta, no un incidente) ·
+> **HABILIDADES** (qué sabe hacer y **cuándo miró cada cosa**) · **LAB** (el
+> investigador, `lab/langgraph/`). Todo el modal viaja en UN request (`/vista`)
+> para que se dibuje con UNA sola noción de «ahora».
 >
-> **`docs/AGENT.md` es HISTÓRICO**: explica por qué las cosas quedaron como
-> quedaron (cada §0.x es un bug real), **no cómo funciona el agente hoy**.
+> **`docs/AGENT.md` tiene DOS PARTES y no se confunden.** La **A manda**: es la
+> especificación viva —el modelo, el motor, las pantallas, los invariantes—, y
+> si el código y ella se contradicen, es un bug de una de las dos. La **B es el
+> diario**: cada §0.x es un bug real y explica por qué las cosas quedaron como
+> quedaron, **no cómo funciona el agente hoy**.
+>
+> ⚠️ Ni la parte A ni este archivo llevan el DDL ni la lista de habilidades:
+> **el schema manda desde `sql/schema.sql` y el catálogo desde
+> `agente/catalogo.py`.** Un conteo escrito a mano acá queda viejo sin que nada
+> falle — lo congela `test_ningun_conteo_de_habilidades_quedo_viejo`.
 
 
 ## ⚠️ REGLA #10 — LEY DE CONEXIÓN del AV AGENT: nada nuevo queda suelto

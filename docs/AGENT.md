@@ -31,9 +31,9 @@ El user, después de cuatro semanas seguidas con bugs nuevos:
 > esas tablas no sirven de nada, ya he resuelto algunas cosas con el agent pero
 > son poquísimas»*
 
-Y el tamaño le da la razón. Medido sobre el repo:
+Y el tamaño le da la razón. Medido sobre el repo **antes de rehacerlo**:
 
-| | Hoy |
+| | El agente viejo |
 |---|---|
 | Services `av_agent_*` | **37 archivos, 24.319 líneas** (el más grande, 4.090) |
 | Tablas `av_agent_*` en la base | **18** |
@@ -131,7 +131,7 @@ problema más grave del agente viejo.**
 | `nombre` | guardado |
 | `tipo` | guardado — `detector` · `consulta` · `accion` |
 | `que_mira` | guardado — en castellano |
-| `usa_ia` | guardado — **es «¿DETECTA con IA?», y es `no` en las 24**. Desde §0.dn el agente sí usa el gateway, pero sólo para REDACTAR el texto de los avisos (`agente/redactar.py`): ningún hallazgo se abre ni se cierra por lo que diga un modelo, y un test lo congela. |
+| `usa_ia` | guardado — **es «¿DETECTA con IA?», y es `no` en TODAS**. Desde §0.dn el agente sí usa el gateway, pero sólo para REDACTAR el texto de los avisos (`agente/redactar.py`): ningún hallazgo se abre ni se cierra por lo que diga un modelo, y un test lo congela. |
 | `cada_cuanto` | guardado — su propio ritmo |
 | `ventana` | guardado — cuándo tiene sentido mirar |
 | `activa` | guardado — se puede apagar sin tocar código |
@@ -263,10 +263,10 @@ pantalla, para siempre.
 
 ## 2. El motor — un agente, una agenda
 
-### 2.1 El problema de hoy
+### 2.1 El problema que había
 
-Cuatro programas separados hacen exactamente lo mismo —despertarse, mirar,
-anotar— y lo único que los diferencia es el ritmo:
+El agente viejo tenía CUATRO programas separados haciendo exactamente lo mismo
+—despertarse, mirar, anotar— y lo único que los diferenciaba era el ritmo:
 
 | Reloj | Ritmo | Qué mira |
 |---|---|---|
@@ -275,16 +275,18 @@ anotar— y lo único que los diferencia es el ritmo:
 | `jobs.av_agent` (cron) | 4×/día hábil | bonos contra 1816 |
 | `jobs.db_tamano` (cron) | 23:30 | permisos flojos |
 
-El cuarto es el peor: **hay un detector de seguridad viviendo adentro de un job
-que no es del agente.** Alguien que toque ese job por otro motivo apaga un
-chequeo sin enterarse.
+El cuarto era el peor: **un detector de seguridad viviendo adentro de un job que
+no era del agente.** Alguien que tocara ese job por otro motivo apagaba un
+chequeo sin enterarse. (Es el invariante #8, que nació de acá.)
 
-Y hay dos consecuencias que se ven en pantalla todos los días:
+Y tenía dos consecuencias que se veían en pantalla todos los días:
 
-1. **Si se cae uno, los otros tres siguen mostrando datos frescos.** La pantalla
-   se ve viva con un cuarto del agente muerto. Eso es peor que estar caído entero.
-2. **Cada reloj lleva su propio horario**, y la pantalla los mezcla: te muestra
-   algo de hace 10 minutos al lado de algo de hace 4 horas sin decir cuál es cuál.
+1. **Si se caía uno, los otros tres seguían mostrando datos frescos.** La
+   pantalla se veía viva con un cuarto del agente muerto — peor que estar caído
+   entero.
+2. **Cada reloj llevaba su propio horario**, y la pantalla los mezclaba:
+   mostraba algo de hace 10 minutos al lado de algo de hace 4 horas sin decir
+   cuál era cuál.
 
 ### 2.2 Cómo queda
 
@@ -299,14 +301,14 @@ Sumar una habilidad es **una fila en el catálogo**, no un programa nuevo.
 una rápida. Si el barrido de bonos tarda 2 minutos, el monitor de 30 segundos no
 puede quedarse esperando. Es una decisión, no algo que se descubre después.
 
-### 2.3 El modo de guardado deja de existir
+### 2.3 El modo de guardado no existe
 
-Hoy la puerta de escritura mira **el nombre del alcance** y decide sola si pisa
-o si acumula. Son **tres nombres escritos a mano** (`live`, `sistema`,
-`superficie`): un reloj nuevo que se llame distinto entra al modo equivocado y
-nadie se entera.
+En el agente viejo la puerta de escritura miraba **el nombre del alcance** y
+decidía sola si pisaba o si acumulaba. Eran **tres nombres escritos a mano**
+(`live`, `sistema`, `superficie`): un reloj nuevo que se llamara distinto entraba
+al modo equivocado y nadie se enteraba.
 
-En 2.0 **no hay modos**. Un hallazgo es un evento y siempre se inserta. Lo que
+Acá **no hay modos**. Un hallazgo es un evento y siempre se inserta. Lo que
 antes resolvía el modo "reemplazo" —no dejar 2.880 avisos del mismo problema por
 día— lo resuelve la identidad: si el trío ya tiene un hallazgo abierto, se
 actualiza su `visto_ultima_vez`; no nace otro.
@@ -317,13 +319,13 @@ Es la pregunta más importante del sistema, porque **"no encontré nada" y "no
 pude mirar" se ven iguales en la pantalla**, y uno significa que está todo bien
 y el otro que estás ciego.
 
-Hoy **cada uno de los 19 detectores la contesta por su cuenta**, con su propio
-bloque de código, y no la contestan igual: unos devuelven vacío en silencio,
-otros emiten un hallazgo que dice "no pude mirar", y uno revienta a propósito.
-Los tres comportamientos son defendibles; el problema es que es **la misma
-decisión tomada 19 veces por separado**, y la vigésima se va a tomar mal.
+En el agente viejo **la contestaba cada detector por su cuenta**, con su propio
+bloque de código, y no la contestaban igual: unos devolvían vacío en silencio,
+otros emitían un hallazgo que lo decía, y uno reventaba a propósito. Los tres
+comportamientos son defendibles; el problema es que era **la misma decisión
+tomada diecinueve veces por separado**, y la vigésima se iba a tomar mal.
 
-**En 2.0 no es problema del detector.** El detector mira y devuelve, o falla. El
+**Acá no es problema del detector.** El detector mira y devuelve, o falla. El
 agente decide qué significa un fallo:
 
 - Devolvió → `ultimo_resultado = ok`. Lo que no vino, se cierra **por ausencia**.
@@ -352,261 +354,140 @@ que_hacer       darlo de alta en mercado.curvas con los ejes sugeridos
 ```
 
 **`arreglo` puede estar vacío**, pero eso es una declaración explícita: *esta
-skill encuentra algo que hoy nadie sabe arreglar*. Hoy pasa con 5 de 19
-detectores y no está dicho en ningún lado — el user los ve en la lista, no hay
-botón, y la lista nunca baja.
+habilidad encuentra algo que hoy nadie sabe arreglar*. En el agente viejo pasaba
+y no estaba dicho en ningún lado — el user los veía en la lista, no había botón,
+y la lista nunca bajaba.
+
+⚠️ **Y se declara por REGLA, no por habilidad** (§6.3): una habilidad puede
+tener reglas de las dos clases.
 
 ---
 
 ## 4. El esquema SQL
 
-Vive en el schema `agente`, al lado de las tablas viejas (que no se dropean,
-§8). Prefijo **sin** `av_agent_`: las nuevas se distinguen solas de las 18 que
-quedan apagadas.
+> ⚠️⚠️ **EL DDL NO SE COPIA ACÁ. Vive en `sql/schema.sql` y ahí manda.**
+>
+> Hasta el 2026-09-05 esta sección traía el `CREATE TABLE` de las tres tablas
+> pegado. **Quedó viejo sin que nada fallara**, que es exactamente el modo de
+> falla que el agente persigue en los datos (REGLA #9): dos copias del mismo
+> dato, cada una coherente consigo misma, ninguna arbitrando. Lo que la copia
+> decía y la base desmiente: no tenía `cerrado_como = 'caducidad'` (§6.8), ni
+> la columna `sujeto_es`, ni `reincidio` adentro del índice único de abiertos
+> (§0.cz), ni las columnas `ia_*` (§0.dn), ni `detalle`, y colgaba `arreglo` de
+> la HABILIDAD cuando hoy cuelga de la REGLA (§6.3).
+>
+> Un doc que se declara la especificación viva no puede tener una copia del
+> schema: o la genera un script, o se la pide a la fuente. Acá se la pide.
 
-### 4.1 `agente.habilidades` — el catálogo
+**Dónde vive cada cosa:**
 
-```sql
-CREATE TABLE IF NOT EXISTS agente.habilidades (
-    nombre              text PRIMARY KEY,
-    tipo                text NOT NULL,          -- detector | consulta | accion
-    que_mira            text NOT NULL,          -- en castellano, para la pantalla
-    dominio             text NOT NULL,          -- MERCADO | SISTEMA | DATOS | SEGURIDAD
-    usa_ia              boolean NOT NULL DEFAULT false,
+| Qué | Fuente única |
+|---|---|
+| Las tablas del schema `agente`, sus índices y sus CHECK | `sql/schema.sql`, bloque «EL AV AGENT» |
+| Las vistas que dibujan las pantallas (`v_ahora`, `v_encontro`, `v_habilidades`) | ídem, al final de ese bloque |
+| Qué habilidades hay, con su ritmo, su ventana y sus umbrales | `agente/catalogo.py` |
+| Qué significa cada estado, cada cierre y cada severidad | `agente/tipos.py` |
+| Cuántas tablas y cuántas habilidades hay | las dos fuentes de arriba, nunca este doc |
 
-    -- SU PROPIO RITMO. El agente lee esto para armar la agenda (§2.2).
-    cada_segundos       integer NOT NULL,
-    ventana             text NOT NULL DEFAULT 'siempre',  -- rueda | habil | siempre
-    activa              boolean NOT NULL DEFAULT true,
+Lo que **sí** vive acá son las decisiones que ese DDL codifica y que un
+`CREATE TABLE` no explica. Son las que hay que respetar al tocarlo.
 
-    -- SUS PROPIOS UMBRALES (§7). Editable sin deploy.
-    umbrales            jsonb NOT NULL DEFAULT '{}'::jsonb,
+### 4.1 Cuatro tablas llevan el MODELO; el resto es infraestructura
 
-    -- EL ARREGLO. Vacío es una declaración explícita: "esto hoy nadie lo
-    -- sabe arreglar" — hoy pasa en 5 de 19 y no está dicho en ningún lado.
-    arreglo             text NOT NULL DEFAULT '',
+`habilidades` (el catálogo, y cuándo corrió cada una) · `hallazgos` (los
+eventos) · `reincidencias` (la que debe estar vacía) · `acciones` (el libro).
+**Ninguna otra decide si algo es un problema** — ese es el invariante #5.
 
-    -- LA ÚLTIMA CORRIDA. Se GUARDA, no se deriva: una corrida que no encontró
-    -- nada no deja rastro en `hallazgos`, y sin esto "corrí y estaba todo bien"
-    -- y "no corrí" se ven idénticos. Es el bug estructural del agente viejo.
-    ultima_corrida_at   timestamptz,
-    ultimo_resultado    text,                   -- ok | sin_datos | error
-    ultimo_error        text NOT NULL DEFAULT '',
-    ultima_duracion_ms  integer,
-    corridas_hoy        integer NOT NULL DEFAULT 0,
-    corridas_dia        date,                   -- de qué día es el contador
+Las demás son infraestructura y ninguna nace de un detector: `latido` (una
+fila) · `silenciados` (lo que una persona mandó a callar) · `db_peso` (la serie
+del tamaño de la base) · `avisos_dirigidos` (la bandeja hacia una persona) ·
+`tasa_1816` (la lista de prioridad) · `pulso_cliente` (lo que reporta el
+navegador, §0.dg) · `explicaciones` (el caché de «explicámelo», §0.dh).
 
-    creada_at           timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT habilidades_tipo_ok
-        CHECK (tipo IN ('detector','consulta','accion')),
-    CONSTRAINT habilidades_ventana_ok
-        CHECK (ventana IN ('rueda','habil','siempre')),
-    CONSTRAINT habilidades_resultado_ok
-        CHECK (ultimo_resultado IS NULL
-               OR ultimo_resultado IN ('ok','sin_datos','error'))
-);
-```
+⚠️ Decir «cuatro» a secas hace que `silenciados` parezca no existir, y es la
+que explica por qué un problema real puede no aparecer en pantalla.
 
-⚠️ **`corridas_hoy` va con `corridas_dia`.** Un contador sin la fecha del día
-que cuenta miente en el primer cambio de día: se resetea en la primera corrida
-cuya fecha no coincide, en el mismo UPDATE. Sin cron de limpieza que se pueda
-olvidar.
+### 4.2 Las decisiones que el DDL codifica
 
-⚠️ **`hallazgos_total`, `ultimo_hallazgo_at` y `reincidencias` NO son columnas.**
-Se derivan en la lectura de las otras dos tablas. Guardarlos sería una segunda
-verdad que se desincroniza sola — la REGLA #9 del repo.
+**`corridas_hoy` va con `corridas_dia`.** Un contador sin la fecha del día que
+cuenta miente en el primer cambio de día. Se resetea en el mismo `UPDATE` que lo
+incrementa: sin cron de limpieza que se pueda olvidar.
 
-### 4.2 `agente.hallazgos` — los eventos
+**`hallazgos_total`, `ultimo_hallazgo_at` y `reincidencias` NO son columnas.**
+Se derivan en la lectura, en `v_habilidades`. Guardarlos sería una segunda
+verdad que se desincroniza sola (REGLA #9).
 
-```sql
-CREATE TABLE IF NOT EXISTS agente.hallazgos (
-    id                  bigserial PRIMARY KEY,  -- ÚNICO POR EVENTO, nunca se reusa
+**El índice único parcial de `hallazgos` es lo que reemplaza al «modo
+reemplazo»** del agente viejo: `UNIQUE (habilidad, sujeto, regla) WHERE estado`
+abierto. Si el trío ya está abierto se actualiza `veces` y `visto_ultima_vez`;
+no nace otro. Sin él, un monitor de 30 segundos deja 2.880 filas del mismo
+problema por día. ⚠️ Y `reincidio` tiene que estar adentro de ese `WHERE`: sin
+eso, cada corrida que volvía a ver un trío reincidente insertaba otra fila
+(§0.cz).
 
-    -- LA IDENTIDAD DEL PROBLEMA es el trío, no el id (§1.1).
-    habilidad           text NOT NULL REFERENCES agente.habilidades(nombre),
-    sujeto              text NOT NULL,          -- el bono, la tabla, el motor
-    regla               text NOT NULL,          -- la causa concreta
+**Dos CHECK sostienen invariantes, no formatos.** `btrim(que_hacer) <> ''` es el
+invariante #2 puesto en la base; `(estado = 'resuelto') = (cerrado_at IS NOT
+NULL)` impide un cerrado sin fecha o una fecha sin cierre, que no significan
+nada ninguno de los dos.
 
-    nombre              text NOT NULL DEFAULT '',  -- legible: "AL30", "motor_curvas"
-    severidad           text NOT NULL,          -- alta | media | baja
+**No hay constraint que impida una reincidencia sobre un cierre por ausencia.**
+La base no puede expresar «el previo tiene que estar cerrado como `accion`» sin
+un trigger, así que **la guarda vive en la única función que inserta**
+(`registro._ver`) y la sostiene un test. Es el mismo criterio que la puerta
+única de escritura: donde la base no puede, el código tiene UN solo lugar.
 
-    problema            text NOT NULL,          -- qué está mal
-    -- SIN ESTO NO SE GUARDA (invariante 2). Si no se puede decir qué hacer,
-    -- la regla está mal pensada.
-    que_hacer           text NOT NULL,
-    evidencia           jsonb NOT NULL DEFAULT '{}'::jsonb,
+**`dias_aguanto` es una columna generada**: se calcula de sus dos insumos y no
+puede contradecirlos. Es lo contrario de un acumulado que se deriva en la
+lectura — acá los insumos no cambian nunca.
 
-    detectado_at        timestamptz NOT NULL DEFAULT now(),
-    visto_ultima_vez    timestamptz NOT NULL DEFAULT now(),
-    veces               integer NOT NULL DEFAULT 1,
+**Las columnas nuevas van PEGADAS a su tabla, no al final del archivo.**
+`apply_schema` ejecuta en orden y las vistas del final seleccionan esas
+columnas: un `ALTER` después de la vista corta el deploy con «column no
+exists». Y las vistas se **dropean antes de recrearse**: `CREATE OR REPLACE
+VIEW` solo sabe agregar columnas al final, así que una columna nueva en el
+medio se lee como un renombre y también corta el deploy. Los dos casos están
+congelados por test.
 
-    -- LEÍDO ≠ RESUELTO (§6.1). `leido_at` lo saca de AHORA y NADA MÁS: el
-    -- hallazgo sigue abierto, sigue en LA LISTA y sigue con su botón. Son dos
-    -- ejes independientes y por eso son dos columnas y no un estado.
-    leido_at            timestamptz,
-    leido_por           text NOT NULL DEFAULT '',
+### 4.3 Lo que NO tiene tabla, a propósito
 
-    estado              text NOT NULL DEFAULT 'nuevo',
-    cerrado_at          timestamptz,
-    -- accion | ausencia. SOLO `accion` habilita reincidencia (§1.3).
-    cerrado_como        text,
-    cerrado_por         text NOT NULL DEFAULT '',
-    arreglo_aplicado    text NOT NULL DEFAULT '',
-
-    CONSTRAINT hallazgos_severidad_ok
-        CHECK (severidad IN ('alta','media','baja')),
-    CONSTRAINT hallazgos_estado_ok
-        CHECK (estado IN ('nuevo','en_curso','resuelto','ignorado','reincidio')),
-    CONSTRAINT hallazgos_cierre_ok
-        CHECK (cerrado_como IS NULL OR cerrado_como IN ('accion','ausencia')),
-    -- Un cerrado sin fecha, o una fecha sin cierre, no significan nada.
-    CONSTRAINT hallazgos_cierre_completo
-        CHECK ((estado = 'resuelto') = (cerrado_at IS NOT NULL)),
-    CONSTRAINT hallazgos_que_hacer
-        CHECK (btrim(que_hacer) <> '')
-);
-
--- UN SOLO hallazgo ABIERTO por problema. Es lo que reemplaza al "modo
--- reemplazo" del agente viejo (§1.3): si el trío ya está abierto se actualiza
--- `visto_ultima_vez` y `veces`; no nace otro. Sin esto, el monitor de 30
--- segundos deja 2.880 filas del mismo problema por día.
-CREATE UNIQUE INDEX IF NOT EXISTS hallazgos_abierto_unico
-    ON agente.hallazgos (habilidad, sujeto, regla)
-    WHERE estado IN ('nuevo','en_curso');
-
-CREATE INDEX IF NOT EXISTS hallazgos_problema
-    ON agente.hallazgos (habilidad, sujeto, regla, detectado_at DESC);
-CREATE INDEX IF NOT EXISTS hallazgos_abiertos
-    ON agente.hallazgos (estado, severidad, detectado_at DESC);
-CREATE INDEX IF NOT EXISTS hallazgos_por_habilidad
-    ON agente.hallazgos (habilidad, detectado_at DESC);
--- AHORA: lo de hoy sin leer. Parcial, así el índice pesa lo que la tab muestra
--- y no lo que la tabla acumula.
-CREATE INDEX IF NOT EXISTS hallazgos_ahora
-    ON agente.hallazgos (detectado_at DESC)
-    WHERE leido_at IS NULL AND estado NOT IN ('resuelto','ignorado');
-```
-
-### 4.3 `agente.reincidencias` — la que debe estar vacía
-
-```sql
-CREATE TABLE IF NOT EXISTS agente.reincidencias (
-    id                  bigserial PRIMARY KEY,
-    hallazgo_id         bigint NOT NULL REFERENCES agente.hallazgos(id),
-    hallazgo_previo_id  bigint NOT NULL REFERENCES agente.hallazgos(id),
-
-    -- Copiados del par para poder leer la tabla sin joins: es la que se mira
-    -- primero cuando algo salió mal.
-    habilidad           text NOT NULL,
-    sujeto              text NOT NULL,
-    regla               text NOT NULL,
-    arreglo_aplicado    text NOT NULL,
-
-    resuelto_at         timestamptz NOT NULL,   -- cuándo se dio por arreglado
-    volvio_at           timestamptz NOT NULL,   -- cuándo reapareció
-    dias_aguanto        numeric GENERATED ALWAYS AS
-                        (EXTRACT(epoch FROM volvio_at - resuelto_at) / 86400) STORED,
-
-    visto_por           text NOT NULL DEFAULT '',
-    visto_at            timestamptz,
-
-    -- El mismo par no entra dos veces por el mismo regreso.
-    CONSTRAINT reincidencias_par_unico UNIQUE (hallazgo_id, hallazgo_previo_id),
-    -- Volver ANTES de haberse resuelto no es reincidir.
-    CONSTRAINT reincidencias_orden_ok CHECK (volvio_at > resuelto_at)
-);
-
-CREATE INDEX IF NOT EXISTS reincidencias_recientes
-    ON agente.reincidencias (volvio_at DESC);
-```
-
-⚠️ **No hay constraint que impida insertar una reincidencia de un cierre por
-ausencia** — la base no puede expresar "el previo tiene que estar cerrado como
-accion" sin un trigger. **La guarda vive en la única función que inserta**, y un
-test la sostiene. Es el mismo criterio que la puerta única de escritura.
-
-⚠️ **`dias_aguanto` es una columna generada**: se calcula sola de sus dos
-insumos y no puede contradecirlos. Es lo contrario del acumulado de ACA, que se
-deriva en la lectura porque ahí los insumos cambian.
-
-### 4.4 Las dos vistas que se derivan
-
-```sql
--- La tabla de habilidades como la pide el user: nombre, cuántos hallazgos,
--- cuándo fue el último, cuándo corrió por última vez.
-CREATE OR REPLACE VIEW agente.v_habilidades AS
-SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia,
-       h.cada_segundos, h.ventana, h.activa, h.arreglo,
-       h.ultima_corrida_at, h.ultimo_resultado, h.ultimo_error,
-       CASE WHEN h.corridas_dia = current_date THEN h.corridas_hoy ELSE 0 END
-           AS corridas_hoy,
-       coalesce(f.total, 0)      AS hallazgos_total,
-       coalesce(f.abiertos, 0)   AS hallazgos_abiertos,
-       f.ultimo_hallazgo_at,
-       -- Cuántas veces algo que esta habilidad dio por arreglado volvió. Es
-       -- un CONTEO, no un puntaje (§1.3).
-       coalesce(r.n, 0)          AS reincidencias
-  FROM agente.habilidades h
-  LEFT JOIN LATERAL (
-        SELECT count(*) AS total,
-               count(*) FILTER (WHERE estado IN ('nuevo','en_curso','reincidio')) AS abiertos,
-               max(detectado_at) AS ultimo_hallazgo_at
-          FROM agente.hallazgos WHERE habilidad = h.nombre) f ON true
-  LEFT JOIN LATERAL (
-        SELECT count(*) AS n
-          FROM agente.reincidencias WHERE habilidad = h.nombre) r ON true;
-
--- AHORA (§6.1): lo de HOY sin leer. Una condición, un COUNT, sin sumas en el
--- navegador. El día es ART, no UTC: el día UTC arranca a las 21:00 de acá y
--- mezclaría dos días bajo el mismo rótulo.
-CREATE OR REPLACE VIEW agente.v_ahora AS
-SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
-       f.problema, f.que_hacer, f.detectado_at, hab.dominio
-  FROM agente.hallazgos f
-  JOIN agente.habilidades hab ON hab.nombre = f.habilidad
- WHERE f.leido_at IS NULL
-   AND f.estado NOT IN ('resuelto','ignorado')
-   AND (f.detectado_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
-       = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
- ORDER BY f.detectado_at DESC;
-
--- LO QUE PIDE TRABAJO. Un hallazgo ignorado o resuelto no está acá.
-CREATE OR REPLACE VIEW agente.v_abiertos AS
-SELECT f.*, hab.dominio, hab.tipo, hab.que_mira
-  FROM agente.hallazgos f
-  JOIN agente.habilidades hab ON hab.nombre = f.habilidad
- WHERE f.estado IN ('nuevo','en_curso','reincidio')
- ORDER BY CASE f.severidad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
-          f.detectado_at DESC;
-```
-
-### 4.5 Lo que NO tiene tabla
-
-- **La foto por corrida.** El agente viejo guarda 60 corridas de fotos
-  (`TTL_CORRIDAS = 60`). Con un hallazgo abierto que lleva `veces` y
-  `visto_ultima_vez`, la foto no agrega nada que no esté.
-- **Los objetos aparte de los eventos.** Hoy son dos tablas (`hallazgos` +
-  `items`) que se escriben juntas y "no pueden divergir". Acá el hallazgo
-  abierto **es** el objeto: una tabla, una verdad.
-- **El estado de las acciones.** Vive donde vive hoy (familia 3 no se toca); el
-  hallazgo solo guarda `arreglo_aplicado`.
+- **La foto por corrida.** El agente viejo guardaba 60 corridas de fotos. Con un
+  hallazgo abierto que lleva `veces` y `visto_ultima_vez`, la foto no agrega
+  nada que no esté.
+- **Los objetos aparte de los eventos.** En el agente viejo eran dos tablas
+  (`hallazgos` + `items`) que se escribían juntas y «no podían divergir». Acá el
+  hallazgo abierto **es** el objeto: una tabla, una verdad.
+- **El estado de un arreglo.** El hallazgo guarda `arreglo_aplicado` y el LIBRO
+  guarda qué escribió; no hay una máquina de estados aparte.
+- **Una tabla de propuestas.** `preview` se recalcula al mirar y `aplicar`
+  vuelve a calcular antes de escribir: lo que se aplica es lo cierto AHORA, no
+  lo que era cierto cuando alguien abrió la pantalla.
 
 ---
 
----
+## 5. Las habilidades — la decisión de cada una
 
-## 5. Las habilidades de familia 1, una por una
+> ⚠️ **LA LISTA NO ESTÁ ACÁ: está en `agente/catalogo.py`.** Una fila por
+> habilidad, con su ritmo, su ventana, sus umbrales y sus arreglos. Copiarla acá
+> sería la REGLA #9 otra vez, y ya pasó: esta sección describía habilidades que
+> nunca existieron (`deteccion_primary`) y otras que se borraron hace meses
+> (`respuesta`, `recuperado`, `motor_ruidoso`), con el mismo tono de spec que el
+> resto.
+>
+> Lo que vive acá es **el POR QUÉ de las que no son obvias**: la que reemplazó a
+> otra, la que se partió en dos, la que decide algo raro. Una habilidad que hace
+> lo que dice su `que_mira` no necesita párrafo.
 
-### 5.1 Renombres y rediseños
+### 5.1 Las que reemplazaron a otra, y por qué
 
-#### `soberanos_faltantes` (era `falta_en_base`)
+#### `soberanos_faltantes` (reemplazó a `falta_en_base`)
 
 Bonos que 1816 lista y no están en `mercado.curvas`.
 
-**Cambio:** el cruce va por `mercado.curvas.ticker` **directo**. Hoy el detector
-le saca la letra D/C final "por las dudas" — una defensa contra un caso que
-después del renombre de columnas ya no debería existir (`ticker` es la PK
-`AL30`; el símbolo de mercado vive en `instrumento`).
+**El cruce va por `mercado.curvas.ticker` DIRECTO.** El detector viejo le sacaba
+la letra D/C final «por las dudas», y eso era una defensa contra un caso que el
+renombre de columnas de 2026-08-15 ya cerró: `ticker` es la PK (`AL30`) y el
+símbolo de mercado vive en `instrumento`. Sacar un sufijo para adivinar el
+ticker base es exactamente la REGLA #9(A) — `TXAD` se convierte en `TXA`.
 
 **La clasificación por curva se conserva** tal cual: tabla explícita de 28
 nombres de 1816, y una curva desconocida se reporta como tal en vez de
@@ -653,17 +534,21 @@ porque la rama `on` no está en `alta.RAMAS_AUTOMATICAS` — un botón que siemp
 bloquea enseña a no apretar. El `que_hacer` trae emisor, moneda y curva para
 tipear en Manager → TÍTULOS → BONOS → CARGAR → Corporativo (ON).
 
-#### `deteccion_primary` — habilidad NUEVA, tipo `consulta`
+#### «¿Este símbolo cotiza en Primary?» — NO es una habilidad
 
-Contesta *"¿este símbolo cotiza en Primary?"* para quien la necesite.
+Se planeó como una habilidad tipo `consulta` (`deteccion_primary`) y **fue la
+decisión equivocada**: una consulta no produce hallazgos, así que habría
+figurado en el catálogo con 0 para siempre y se habría leído como rota.
 
-Hoy esa pregunta se hace **adentro** de `falta_en_base`, pero la necesitan
-también `bono_sin_precio`, `precio_moneda` y las tres acciones de patas — y cada
-una la resuelve a su manera.
+La pregunta la hacen cuatro detectores y tres arreglos, y la respuesta tiene que
+ser UNA. Vive en `agente/fuentes.primary()`, que a su vez **delega en
+`core/instrumentos_validos`** — el mismo criterio que `core/websocket.py` aplica
+a todas las suscripciones de todos los motores. Dos lectores de «¿esto cotiza?»
+terminan siempre igual: uno se queda viejo y nadie sabe cuál manda.
 
-**Por eso el catálogo necesita la columna `tipo`.** Una consulta no produce
-hallazgos: si figurara como detector, aparecería con 0 hallazgos para siempre y
-parecería rota.
+⚠️ Y la degradación vive allá también: `None` cuando el catálogo no se puede
+leer o tiene menos de 100 símbolos. **Ante la duda no se filtra** — filtrar de
+más deja papeles sin precio.
 
 #### `bono_sin_flujo` (era `sin_flujo`)
 
@@ -671,19 +556,21 @@ Bonos cargados sin cronograma de pagos. **El predicado se conserva** (mira la
 definición de flujo, no si el array está vacío — una LECAP es cupón cero y no le
 falta nada).
 
-**El cambio no es el detector: es el cableado.** Verificado — las dos piezas del
-arreglo ya existen y están desconectadas:
+**Lo que se arregló no fue el detector: fue el CABLEADO.** Las dos piezas del
+arreglo ya existían y estaban desconectadas:
 
 - `core/mercado_1816.cashflow(ticker)` trae el cronograma completo.
-- La acción `mercado.alta_flujos` hace todo el trabajo: ticker → catálogo 1816
-  ya persistido (0 créditos) → baja el cuadro → simula la TEA → coteja → **solo
-  escribe si la cadena cierra**. Y si 1816 no lo tiene, lo dice.
+- La cadena de alta (`agente/alta.py`) hace todo el trabajo: ticker → catálogo
+  1816 ya persistido (0 créditos) → baja el cuadro → simula la TEA → coteja →
+  **solo escribe si la cadena cierra**. Y si 1816 no lo tiene, lo dice.
 
-**El problema:** esa acción cuelga de **otro** control (`titulos_sin_flujo`, de
-Manager, que habla en unidades de Aunesa) y no del detector (que habla en
-tickers del master). Son dos mundos puenteados a mano.
+El problema era que esa acción colgaba de **otro** control (`titulos_sin_flujo`,
+de Manager, que habla en unidades de Aunesa) y no del detector (que habla en
+tickers del master): dos mundos puenteados a mano.
 
-En 2.0 la habilidad **declara su arreglo** y eso deja de poder pasar.
+Hoy la habilidad **declara su arreglo en su fila** (`arreglos={"sin_flujo":
+"alta_flujos"}`) y eso no puede volver a pasar — un test exige que todo arreglo
+declarado exista.
 
 #### `bono_sin_tasa` (reemplaza a `tasa_sospechosa`)
 
@@ -740,95 +627,76 @@ que nadie más lo redefina.
 Con eso la habilidad deja de ser "te aviso que falta algo" y pasa a **tapar el
 agujero**: la mesa deja de ver `--` y ve la tasa de 1816, marcada como tal.
 
-#### `motor_caido` — hay que rehacer cómo sabe el horario
+#### `motor_caido` y `motor_latido` — se partió en DOS, y por eso funciona
 
-> *«yo no sé si hoy hay una regla que SEPA detectar exactamente el horario de
-> cada uno»* — user. **No la hay.**
+Al principio `motor_caido` juzgaba las 53 piezas con **una sola definición de
+«caído»**: su tabla no recibió escrituras en X segundos, con X puesto a mano. Y
+la ventana horaria salía de una **expresión regular sobre prosa** (la cadencia
+declarada como texto libre, `"cada 30m :05,:35 · 15-22 UTC L-V"`); si la prosa
+estaba escrita distinto no encontraba nada y **avisaba igual**.
 
-Verificado. Hoy son dos mecanismos y los dos son flojos:
+Las dos mitades se corrigieron por separado, y la lección es la misma:
 
-1. **La ventana es una categoría de 4 valores** (`rueda`, `rueda_agro`,
-   `always`, `diario`). **Todas las piezas de `rueda` comparten una única
-   ventana hardcodeada: 10:00–17:05 ART.** Las de `always` y `diario` **no
-   tienen ventana**: están "en ventana" las 24 horas.
-2. **La hora de arranque sale de un regex sobre prosa.** Cada pieza declara su
-   cadencia como texto libre (`"cada 30m :05,:35 · 15-22 UTC L-V"`) y el código
-   le busca las horas con una expresión regular. Si la prosa está escrita
-   distinto, no encuentra nada y **decide avisar igual**.
+**(a) Un PROCESO no se juzga por su tabla** (§0.da). Un motor de precios sobre un
+papel ilíquido no escribe y no está caído — «mercado quieto» y «muerto» se veían
+iguales. Los procesos pasaron a `motor_latido`, que los juzga por **su propio
+latido** (`operaciones.latidos`, que cada motor escribe solo) con cuatro
+veredictos que se atienden distinto: `apagado` · `sin_latido` · `colgado` ·
+`sin_feed`/`feed_mudo`. Y el universo no es una lista: sale de
+`deploy/systemd/*.service` + `deploy/crontab.txt`, así que **un motor nuevo se
+espera solo**. `motor_caido` quedó para los JOBS, que sí se juzgan por resultado.
 
-**El horario real —`deploy/crontab.txt` y los units de systemd— no se lee.**
+**(b) El horario sale del CRON, no de un regex** (§0.db). Lo evalúa
+`salud.ultima_ejecucion_esperada`, el único evaluador cron del repo, sobre los
+`schedules` que `rehacer.rehacibles()` deriva de `deploy/crontab.txt`. La misma
+fuente que ya leía `cron_desalineado`, usada una vez.
 
-**Lo que hay que hacer:** derivar el horario de cada pieza de esa fuente. Ya está
-al alcance: el agente **ya lee el crontab** para la habilidad `cron_desalineado`.
-Es la misma fuente, usada dos veces.
+Las tres guardas originales quedaron porque eran correctas: gracia de arranque,
+no juzgar una pieza fuera de su ventana, y no juzgar un job al que todavía no le
+tocó.
 
-**Y la segunda mitad, que es la más importante:** hoy *"caído"* significa **una
-sola cosa para las 53 piezas** — que su tabla no recibió escrituras en X
-segundos, con X puesto a mano. Eso no es entender qué es que se cayó. Un motor
-de precios sobre un papel ilíquido no escribe y no está caído.
+⚠️ Y la corrección más cara vino después: **el día que falta no depende de que
+alguien haya notado el fallo.** El veredicto del árbol PARPADEA —el 28/08 el job
+del AuM falló a las 08:00, la tarjeta apareció, y al mediodía `motor_caido` tenía
+cero abiertos con el día todavía sin escribirse—. La pregunta que decide («¿está
+el día en la tabla?») no se apaga nunca, así que ahora se hace igual, la haya
+visto el árbol o no.
 
-**Cada pieza declara su propia prueba de vida:** qué escribe, con qué ritmo, y
-qué es normal *para ella*.
-
-Las tres guardas actuales se conservan porque son correctas — gracia de arranque
-de 30 minutos, no juzgar una pieza fuera de su ventana, no juzgar un job al que
-todavía no le tocó — **pero apoyadas en el horario real y no en un regex.**
-
-#### `db_cambio` → peso en vivo + alarma
+#### `db_peso` (reemplazó a `db_cambio`) — en vivo, y dos preguntas distintas
 
 > *«esto tiene que ser más realtime y mostrar el peso que va dando de cada
 > tabla, no con la foto de ayer»* — user.
 
-El tamaño de una tabla es **una query barata contra el catálogo de Postgres**.
-No hace falta una foto diaria.
+El tamaño de una tabla es **una query barata contra el catálogo de Postgres**: no
+hace falta una foto diaria. Lo que cambia al medir en vivo es contra qué se
+compara — se guarda una serie horaria (se purga sola) y de la misma fuente salen
+dos cosas que **no son lo mismo**:
 
-Cambia la pregunta: si es en vivo, **¿contra qué compara?** Se guarda una serie
-por hora (barata, se purga sola) y salen **dos cosas de la misma fuente**:
+- **el peso de cada tabla** → información, no hallazgo. Llenar la pantalla con
+  200 tamaños es el ruido que hace que nadie mire;
+- **lo que creció fuera de lo suyo en 24 h** → eso sí.
 
-- **El peso actual de cada tabla** — información, siempre visible.
-- **Lo que creció fuera de lo suyo en 24h** — eso sí es hallazgo.
+⚠️ Y una tercera, que es la que enseñó algo: **«estaba hace 24 h y ahora no»
+sirve UN día.** La referencia se mueve, así que una tabla borrada el martes deja
+de verse el miércoles a la noche — y sigue sin estar. La pregunta que no caduca
+(«¿está la que `sql/schema.sql` dice que tiene que existir?») se contesta
+siempre. Las dos conviven: la primera atrapa lo que no está declarado, la
+segunda no vence nunca.
 
-### 5.2 Se elimina
+### 5.2 Las que se descartaron, y no volver sobre esto
 
-#### `motor_ruidoso`
-
-> *«no sé si sirve sinceramente, con que esté bien el motor_caido alcanza»* —
-> user. De acuerdo.
-
-**Se conserva una sola cosa, como evidencia y no como skill:** cuando
-`motor_caido` dispara, que el hallazgo traiga *lo último que dijo ese motor
-antes de morir*. Eso vale. Una skill propia que cuenta que un motor sano loguea
-warnings, no.
-
-### 5.3 Se conservan con retoques menores
-
-| Habilidad | Retoque |
+| | Por qué |
 |---|---|
-| `hueco_de_curva` | Sin cambios. Reporta por AJUSTE, no por bono, y declara que no tiene arreglo automático (es desarrollo, no dato). |
-| `salud` | Es un traductor de otro sistema y está bien que lo sea. Solo: el hallazgo tiene que traer **el horario real del job**, no el schedule como texto. |
-| `bono_sin_precio` | Las 4 causas se conservan (sin símbolo · no suscripto · sin punta · precio viejo). El umbral de 20 minutos pasa al catálogo. |
-| `precio_moneda` | Se conserva. La prueba es aritmética (paridad cruda vs paridad ÷ MEP) y es sólida. |
-| `actividad` | Se conserva. Es de los mejores: razonamiento invertido, y en día hábil no toca la base. |
-| `cron_desalineado` | Se conserva. **Además pasa a ser la fuente de horarios de `motor_caido`.** |
-| `tabla_quieta` | Se conserva. La cadencia se mide observando, no se declara. |
-| `latencia` | Se conserva. Compara cada endpoint contra su propia mediana, con tres guardas. Los umbrales pasan al catálogo. |
-| `proveedor_caido` | Se conserva. Lee el rastro de llamadas reales y solo llama cuando ya hay falla. |
-| `dato_partido` | Se conserva. Es de los mejores: no necesita mercado abierto ni precio. |
-| `permiso_flojo` | Se conserva, **pero se muda**: hoy vive adentro de `jobs/db_tamano`, que no es del agente. |
-| `respuesta` | Se conserva. Cierra el círculo de una acción cuyo efecto lo contesta el mercado. |
-| `recuperado` | Se conserva. Avisa cuando algo vuelve, por el mismo canal que avisó la caída. |
+| `motor_ruidoso` | *«no sé si sirve sinceramente, con que esté bien el motor_caido alcanza»*. Se conservó UNA cosa, como evidencia y no como habilidad: cuando algo se cae, que el hallazgo traiga lo último que dijo antes de morir. |
+| `respuesta` · `recuperado` | Eran del agente viejo. Lo que hacían lo hace la estructura: un arreglo deja el hallazgo `en_curso` y **el detector confirma** en su próxima pasada; lo que vuelve, vuelve por `reincidencias`. |
+| Vigilar el presupuesto de créditos de 1816 | Descartado por el user. |
+| Cualquier cosa alrededor del discovery de instrumentos | Descartado por el user: `jobs.validar_instrumentos` y el catálogo de especies contra Primary **no son terreno del agente**. |
 
-### 5.4 Huecos identificados
+### 5.3 El hueco que quedó cerrado
 
-1. **Nadie mira que un arreglo aplicado haya quedado** → lo resuelve
-   `reincidencias` (§1.3). **Cerrado.**
-
-**Descartado por el user, no volver sobre esto:**
-
-- Vigilar el presupuesto de créditos de 1816.
-- Cualquier cosa alrededor del discovery de instrumentos
-  (`jobs.validar_instrumentos`, catálogo de especies contra Primary). El agente
-  no toca ese terreno.
+**Nadie miraba que un arreglo aplicado hubiera quedado.** Lo resuelve
+`reincidencias` (§1.3): si algo que se dio por arreglado vuelve, hay una fila. No
+es una lista de trabajo — es una alarma, y su valor es que **debe estar vacía**.
 
 ---
 
@@ -1014,31 +882,33 @@ está deshabilitado por diseño para ese modo, y lo único que ofrece es
 **O sea: un aviso con forma de trabajo.** El user lo detectó desde la pantalla,
 sin ver el código, y tenía razón.
 
-#### Cuánto se achica ENCONTRÓ con esta regla
+#### Cuánto achicó ENCONTRÓ esta regla — la medición que la justificó
 
-Medido sobre el repo, cruzando los 19 detectores contra las 10 acciones por la
-causa que cada acción declara:
+⚠️ **Es una foto con fecha (2026-08-24), no una descripción de hoy.** Se
+conserva porque es la evidencia de por qué la regla vale.
+
+Medido sobre el agente viejo, cruzando sus 19 detectores contra sus 10 acciones
+por la causa que cada acción declaraba:
 
 | | |
 |---|---|
 | Detectores con arreglo REAL | **3** — `sin_flujo`, `sin_precio`, `precio_moneda` |
 | Detectores con arreglo PARCIAL | **1** — `tasa_sospechosa`, y solo 1 de sus 6 reglas |
-| Detectores declarados como accionables sin serlo | **2** — `salud`, `falta_en_base` |
+| Detectores **declarados como accionables sin serlo** | **2** — `salud`, `falta_en_base` |
 | Detectores sin ninguna puerta | **13** |
-| **Acciones que NO cuelgan de ningún detector** | **5 de 10** |
+| **Acciones que NO colgaban de ningún detector** | **5 de 10** |
 
-Las cinco huérfanas —`assets.cartera`, `assets.fci`, `contrapartes.alta`,
-`avisar.responsable`, `sistema.rehacer_dia`— cuelgan de controles de Manager,
-no de habilidades del agente. Funcionan; simplemente **el agente no las conoce
-como suyas**.
+O sea: ENCONTRÓ mostraba 19 tipos y solo 3 o 4 tenían algo que apretar. Los
+otros 15 **simulaban** que sí — y por eso la lista no se podía apretar casi
+nunca y se dejó de leer. Sacarlos no fue perder cobertura: fue mandarlos al
+noticiero, que es su lugar.
 
-**ENCONTRÓ pasa de 19 tipos a 3 o 4.** Eso no es perder cobertura: los otros 15
-nunca tuvieron nada que apretar. Lo único que cambia es que dejan de simular que
-sí, y se van al noticiero, que es su lugar.
-
-Y deja a la vista la lista de trabajo real del programa: **las 5 acciones
-huérfanas** hay que colgarlas de una habilidad, y **los 13 sin puerta** hay que
-decidir uno por uno si merecen una.
+Las cinco acciones huérfanas —`assets.cartera`, `assets.fci`,
+`contrapartes.alta`, `avisar.responsable`, `sistema.rehacer_dia`— colgaban de
+controles de Manager y no de habilidades: funcionaban, pero **el agente no las
+conocía como suyas**. Hoy eso no puede volver a pasar: un arreglo se declara en
+la fila de la habilidad (`arreglos={regla: id}`) y **un test exige que todo
+arreglo declarado exista y que todo arreglo escriba**.
 
 ### 6.5 Dónde vive cada cosa — el mapa completo
 
@@ -1222,7 +1092,8 @@ verificador de ese tipo (`agente/vigencia.VERIFICADORES`). Vacío es una
 declaración explícita —«mi sujeto no es una cosa que pueda dejar de existir»— y
 es el default seguro: sin declaración, no se caduca nada.
 
-⚠️ **Hoy hay UN tipo: `bono`** (6 habilidades). No es recorte de ambición, es la
+⚠️ **Hoy hay UN tipo: `bono`** (las que lo declaran salen de `catalogo.py`, no
+de acá). No es recorte de ambición, es la
 regla de arriba: es el único cuyo certificado de defunción existe y es
 verificable — `fecha_vencimiento` en `mercado.curvas` **y** en
 `research.mkt_1816_instrumentos` (la que resuelve el caso de un bono que

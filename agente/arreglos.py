@@ -71,11 +71,7 @@ def _preview_de_simulacion(r: dict, *, donde: str, que: str) -> dict:
         "veredicto": ver.get("texto") or "",
         # EL CUADRO. Es lo que el bono va a pagar, y es la mitad del valor de
         # simular aunque la cadena frene: verlo contesta «¿es este el bono?».
-        "flujos": [{"fecha": f.get("fecha"),
-                    "amortizacion": f.get("amortizacion_pct"),
-                    "cupon": f.get("cupon_sobre_residual"),
-                    "residual": f.get("residual_previo_pct")}
-                   for f in ((r.get("cuadro") or {}).get("flujos") or [])],
+        "flujos": _flujos_para_ver((r.get("cuadro") or {}).get("flujos") or []),
         "escala": (r.get("cuadro") or {}).get("escala"),
         "rama": r.get("rama"),
         "vencimiento": r.get("vencimiento"),
@@ -84,6 +80,43 @@ def _preview_de_simulacion(r: dict, *, donde: str, que: str) -> dict:
         "precio": r.get("precio"),
         "ejes": ejes,
     }
+
+
+def _flujos_para_ver(flujos: list[dict]) -> list[dict]:
+    """El cuadro convertido → la tabla de la pantalla. **SOLO para mostrar.**
+
+    ⚠️⚠️ **LA SHAPE DEL CUADRO NO ES UNA SOLA, y esto mostraba «—» en todo.**
+    `convertir_flujos` devuelve tres formas distintas, a propósito, porque el
+    motor consume tres cosas distintas:
+
+        cer / soberanos / dolar_linked  →  amortizacion_pct · cupon_sobre_residual
+        tasa_fija / **on**              →  amortizacion · interes  (montos absolutos)
+
+    El mapeo de acá conocía solo la primera, así que para una ON —y para una
+    LECAP— las tres columnas salían vacías: la fila existía, la fecha estaba, y
+    los números no. **No fallaba nada**: `f.get("amortizacion_pct")` sobre un
+    dict que no la tiene devuelve None, y None se dibuja como un guión.
+
+    El RESIDUAL se deriva acá cuando la shape no lo trae (§0.dw), con la MISMA cuenta que
+    hace el motor en su rama `on` (línea 746 de `engines/curvas.py`): el residual
+    vivo es la suma de las amortizaciones que faltan, no el campo
+    `valor_residual` —que puede venir en otra escala—. Se deriva en el BACKEND y
+    para la vista; el cuadro que se escribe no se toca.
+    """
+    out, residual = [], sum(float(f.get("amortizacion") or 0.0) for f in flujos)
+    for f in flujos:
+        amort = f.get("amortizacion_pct")
+        if amort is None:
+            amort = f.get("amortizacion")
+        res = f.get("residual_previo_pct")
+        if res is None and f.get("amortizacion") is not None:
+            res, residual = residual, residual - float(f.get("amortizacion") or 0.0)
+        out.append({"fecha": f.get("fecha"), "amortizacion": amort,
+                    "cupon": (f.get("cupon_sobre_residual")
+                              if f.get("cupon_sobre_residual") is not None
+                              else f.get("interes")),
+                    "residual": res})
+    return out
 
 
 @dataclass

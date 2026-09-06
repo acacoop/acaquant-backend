@@ -3668,6 +3668,39 @@ def test_la_ON_que_la_mesa_TIENE_y_la_de_CATALOGO_llevan_botones_distintos():
     assert "on" in alta.RAMAS_AUTOMATICAS
 
 
+def test_el_cuadro_de_una_ON_se_VE_y_no_sale_en_guiones():
+    """⚠️ **TRES SHAPES DE CUADRO, y la pantalla conocía una.**
+
+    `convertir_flujos` devuelve formas distintas a propósito, porque el motor
+    consume cosas distintas: `cer`/`soberanos`/`dolar_linked` traen
+    `amortizacion_pct` + `cupon_sobre_residual`; `tasa_fija` y **`on`** traen
+    `amortizacion` + `interes`, montos absolutos.
+
+    El mapeo de la pantalla conocía solo la primera, así que el cronograma de una
+    ON —y el de una LECAP— salía con las tres columnas en «—». Y **no fallaba
+    nada**: `.get("amortizacion_pct")` sobre un dict que no la tiene devuelve
+    None, y None se dibuja como un guión. La fila estaba, la fecha estaba, los
+    números no.
+    """
+    from agente.arreglos import _flujos_para_ver
+
+    # Shape de una ON: montos absolutos, y el residual NO viene — se deriva con
+    # la misma cuenta que el motor (suma de las amortizaciones que faltan).
+    on = _flujos_para_ver([
+        {"fecha": "2028-01-14", "amortizacion": 40.0, "interes": 4.25},
+        {"fecha": "2030-04-12", "amortizacion": 60.0, "interes": 2.55}])
+    assert [f["amortizacion"] for f in on] == [40.0, 60.0]
+    assert [f["cupon"] for f in on] == [4.25, 2.55]
+    assert [f["residual"] for f in on] == [100.0, 60.0]
+
+    # Shape de un soberano: sigue leyéndose igual que siempre.
+    sob = _flujos_para_ver([{"fecha": "2030-01-01", "amortizacion_pct": 50.0,
+                             "cupon_sobre_residual": 1.5,
+                             "residual_previo_pct": 100.0}])
+    assert sob == [{"fecha": "2030-01-01", "amortizacion": 50.0,
+                    "cupon": 1.5, "residual": 100.0}]
+
+
 def test_la_fila_de_catalogo_despliega_la_lista_para_TILDAR(monkeypatch):
     """⚠️ **UNA fila, pero con botón: el sistema sabe cuáles PUEDE, no cuáles
     QUIERE la mesa.**

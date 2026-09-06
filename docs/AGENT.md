@@ -5053,3 +5053,31 @@ decidió que faltaba.
 Quedan entonces las dos filas, cada una con lo suyo: la ON **en cartera** (hoy no
 valúa, problema real) con su botón individual, y la de **catálogo** con la lista
 para tildar. Y el ✕ sigue estando para el que no quiera seguir ONs.
+
+
+### 0.dw EL CUADRO DE UNA ON SALÍA EN GUIONES (2026-09-06)
+
+Primera ON con botón, y su cronograma se dibujó con las tres columnas vacías:
+fecha sí, amortiza/cupón/residual «—».
+
+**La causa.** `convertir_flujos` devuelve **tres shapes distintas a propósito**,
+porque el motor consume cosas distintas:
+
+```
+cer · soberanos · dolar_linked   →  amortizacion_pct · cupon_sobre_residual
+tasa_fija · ON                   →  amortizacion · interes   (montos absolutos)
+```
+
+El mapeo de la preview (`arreglos._preview_de_simulacion`) conocía solo la
+primera. **Y no fallaba nada**: `.get("amortizacion_pct")` sobre un dict que no
+la tiene devuelve `None`, y `None` se dibuja como un guión. La fila existía, la
+fecha estaba, los números no — el modo de falla de siempre.
+
+⚠️ Es un bug **preexistente**, no de las ONs: una LECAP (rama `tasa_fija`) salía
+igual de vacía y nadie lo había mirado.
+
+El RESIDUAL, que la shape de montos absolutos no trae, se deriva en el backend y
+**solo para la vista**, con la MISMA cuenta que hace el motor en su rama `on`: el
+residual vivo es la suma de las amortizaciones que faltan, y no el campo
+`valor_residual` —que puede venir en otra escala—. El cuadro que se escribe no se
+toca.

@@ -398,6 +398,32 @@ def main() -> int:
           "  arreglo `alta_cedear` los da de alta CON su subyacente. Con eso,\n"
           "  Finnhub contesta y el modelo deja de tener que adivinar.")
 
+    # ── 9 ──────────────────────────────────────────────────────────────────
+    _titulo("9. ¿ESE CAMINO EXISTE DE VERDAD? — contra `alta_cedear.candidatos`")
+    print("  El bloque 8 termina diciendo «los da de alta `alta_cedear`». Eso hay\n"
+          "  que VERIFICARLO, no afirmarlo (REGLA #2): el arreglo sólo ofrece lo\n"
+          "  que Primary marca con la FICHA de un CEDEAR (`cficode` calibrado con\n"
+          "  los que ya tenemos), y estar en la foto NO alcanza.\n")
+    from agente import alta_cedear
+    li = alta_cedear.listado()
+    if not li.get("ok"):
+        print(f"  ⚠️ no se pudo mirar: {li.get('error')}")
+    else:
+        ofrecidos = {f["unidad"].upper() for f in li["filas"]}
+        print(f"  `alta_cedear` ofrece {len(li['filas'])} altas · ficha "
+              f"cficode {li['cficodes']} plazo {li['plazos']} moneda {li['monedas']}\n"
+              f"  (calibrada con {li['reconocidos']} de nuestros {li['propios']})\n")
+        _tabla([(f["ticker"], "SÍ" if f["ticker"].upper() in ofrecidos else "no")
+                for f in sin],
+               ("TICKER", "¿LO OFRECE `alta_cedear`?"), (12, 26))
+        faltan = [f["ticker"] for f in sin if f["ticker"].upper() not in ofrecidos]
+        if faltan:
+            print(f"\n  ⚠️ {len(faltan)} NO los ofrece: {', '.join(faltan)}\n"
+                  "  Para ésos el alta de CEDEAR no es el camino — o no son CEDEARs,\n"
+                  "  o Primary les pone otra ficha. Se cargan a mano en Manager →\n"
+                  "  TÍTULOS · ASSETS, y ahí el emisor se tipea una vez y listo.")
+
+
     _titulo("QUÉ HACER CON ESTO")
     print("  · Lo del bloque 2 es PLOMERÍA: el dato existe y no llegó.")
     print("  · FINANCIAMIENTO es una REGLA de dos líneas en `assets_autofill`.")

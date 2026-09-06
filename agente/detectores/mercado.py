@@ -799,9 +799,10 @@ def on_faltante(u: dict) -> list[Hallazgo]:
       nada: `SinDatos`. Un alta que después no cotiza es peor que un alta que
       llega un día tarde.
     · **UNA fila para lo que no tenemos.** Si la ON está en cartera, hoy NO
-      VALÚA: eso es un problema de un bono y lleva su fila, con botón. Si no la
-      tenemos, no hay nada roto —es una oferta de catálogo— y va junta en una
-      sola fila que se calla con ✕ (§0.ds).
+      VALÚA: eso es un problema de un bono y lleva su fila, con su botón. Si no
+      la tenemos, no hay nada roto —es una oferta de catálogo— y va junta en una
+      sola fila, cuyo botón despliega la lista para TILDAR cuáles sumar
+      (§0.ds, §0.dv). Mismo par que `cedear_faltante` / `alta_cedear`.
 
     Lo que comparte con su hermano se comparte de verdad: el mismo censo
     (`fuentes.universo_1816`), la misma foto (`fuentes.tickers_en_primary`), la
@@ -892,11 +893,11 @@ def on_faltante(u: dict) -> list[Hallazgo]:
                       f"están en el master · {reloj.hhmm()}"),
             detalle=(f"foto de Primary del {foto_txt} · " + " · ".join(muestra)
                      + (" · …" if len(sueltas) > len(muestra) else "")),
-            que_hacer=("Ninguna está en cartera, así que no hay nada roto: es lo "
-                       "que 1816 publica y nosotros no seguimos. Cargar en Manager "
-                       "→ TÍTULOS → BONOS → CARGAR → «Corporativo (ON)» las que la "
-                       "mesa quiera mirar, o silenciar este aviso con ✕ si el "
-                       "catálogo de ONs no es algo que se siga."),
+            que_hacer=("Elegir cuáles sumar desde ENCONTRÓ («ver qué haría» → "
+                       "tildar → dar de alta): cada una baja su cronograma de "
+                       "1816 y se coteja contra el de ellos antes de escribir. "
+                       "Las que no interesan se dejan — 1816 publica muchas más "
+                       "de las que la mesa sigue."),
             evidencia={"cantidad": len(sueltas), "foto_primary": foto_txt,
                        "fuente_universo": univ["fuente"], "_items": sueltas}))
     if sin_primary:

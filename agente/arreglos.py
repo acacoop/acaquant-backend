@@ -791,10 +791,89 @@ class AltaCedear(Arreglo):
                          inmediato=False)
 
 
+# ── DAR DE ALTA LAS ONs QUE UNA PERSONA ELIJA ──────────────────────────────
+class AltaON(Arreglo):
+    """Las ONs hard dólar que 1816 publica y no tenemos → alta de las que se
+    tilden. Doc: §0.dv.
+
+    **Mismo problema que `alta_cedear` y misma forma.** 1816 publica muchas más
+    ONs de las que la mesa quiere seguir (193 el 2026-09-06), así que el sistema
+    sabe escribirlas todas y **no puede decidir cuáles**. Por eso el hallazgo es
+    UNA fila de familia y el arreglo despliega la lista para tildar.
+
+    ⚠️ **No se escribe lo que manda el navegador.** Cada ticker tildado vuelve a
+    pasar por `alta.aplicar`, o sea por el pre-flight entero: baja el cuadro de
+    1816, lo convierte, calcula la TEA y **coteja el cronograma contra el de
+    ellos**. Una que no cierra no se escribe y no frena a las demás.
+    """
+
+    id = "alta_on"
+    titulo = "Dar de alta ONs que 1816 publica"
+    donde = "mercado.curvas"
+    campo = "bono"
+    pide_datos = True
+    # El hallazgo es de la FAMILIA: sumar 3 de 193 no lo cierra.
+    inmediato = False
+
+    def _filas(self, ev: dict) -> list[dict]:
+        return [x for x in (ev.get("_items") or []) if isinstance(x, dict)]
+
+    def preview(self, sujeto: str, ev: dict) -> dict:
+        filas = self._filas(ev)
+        return {
+            "ok": True,
+            "que_escribe": (f"las ONs que tildes, de {len(filas)} que 1816 "
+                            "publica y no tenemos"),
+            "donde": self.donde,
+            "porque": ("cada una se da de alta con su cronograma de 1816 y se "
+                       "coteja contra el de ellos antes de escribir: la que no "
+                       "cierra no se escribe"),
+            "puede_aplicar": bool(filas),
+            "listado": "ons",
+            "ons": filas,
+        }
+
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
+        from agente import alta
+        if not datos:
+            return Resultado(False, "no se eligió ninguna ON")
+        # La curva de 1816 sale de lo que el DETECTOR guardó, no de lo que mandó
+        # el navegador: es la clasificación con la que se decidió que faltaba.
+        curvas = {x.get("ticker"): x.get("curva_1816") for x in self._filas(ev)}
+        escritos, errores = [], []
+        for d in datos:
+            tk = str((d or {}).get("unidad") or "").strip().upper()
+            curva = curvas.get(tk) or str((d or {}).get("valor") or "").strip()
+            if not tk or not curva:
+                errores.append(f"{tk or '?'}: no sé en qué curva de 1816 está")
+                continue
+            try:
+                r = alta.aplicar(tk, curva_1816=curva, actor=por)
+            except Exception as e:                                # pragma: no cover
+                errores.append(f"{tk}: {type(e).__name__}: {e}"[:160])
+                continue
+            if r.get("ok") and r.get("aplicado"):
+                escritos.append(tk)
+            else:
+                errores.append(f"{tk}: {r.get('error') or 'la cadena no cerró'}"[:160])
+        if not escritos:
+            return Resultado(False, "no se dio de alta ninguna — "
+                             + "; ".join(errores[:4]))
+        return Resultado(
+            True,
+            f"{len(escritos)} dada(s) de alta: " + ", ".join(escritos)
+            + (f" · {len(errores)} no cerraron: {'; '.join(errores[:3])}"
+               if errores else "")
+            + " · la TEA aparece al reiniciar motor_rofex + motor_curvas",
+            campo=self.campo, donde=self.donde,
+            antes="no estaban", despues=f"{len(escritos)} ON(s)", inmediato=False)
+
+
 ARREGLOS: dict[str, Arreglo] = {
     a.id: a for a in (PedirPata(), PataDolar(), ApuntarPata(), AltaFlujos(),
                       AltaBono(), RehacerJob(), CompletarFicha(), ArbitrarCopia(),
-                      AltaCedear())
+                      AltaCedear(), AltaON())
 }
 
 

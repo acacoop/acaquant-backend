@@ -92,7 +92,11 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # regla `no_esta_en_curvas` —las que la mesa TIENE y hoy no valúan—; la
         # fila de familia (`no_estan_en_curvas`) sigue sin arreglo, porque no hay
         # nada roto ahí y es una oferta de catálogo, no un problema.
-        arreglos={"no_esta_en_curvas": "alta_bono"}),
+        arreglos={"no_esta_en_curvas": "alta_bono",
+                  # La fila de familia despliega la lista para TILDAR: 1816
+                  # publica muchas más de las que la mesa quiere seguir, y el
+                  # sistema sabe escribirlas todas pero no cuáles (§0.dv).
+                  "no_estan_en_curvas": "alta_on"}),
 
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",

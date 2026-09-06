@@ -5025,3 +5025,31 @@ provisorio no rompe la valuación: el motor despacha por `curva.startswith("on_"
 §0.ds son solo **las que la mesa TIENE y hoy no valúan**. La fila de familia
 —las que 1816 publica y nosotros no seguimos— sigue sin botón a propósito: ahí no
 hay nada roto, y a ENCONTRÓ solo entra lo que tiene arreglo (invariante 9).
+
+
+### 0.dv LA FILA DE CATÁLOGO TAMBIÉN LLEVA BOTÓN — tildar, no tipear (2026-09-06)
+
+**Lo que faltaba, y era el pedido original.** §0.ds juntó las ONs que la mesa no
+tiene en una sola fila, lo cual arregló el ruido de AHORA — pero la dejó **sin
+botón**, con el argumento de que «no hay nada roto ahí». Y el user estaba
+mirando justamente esas: *«estábamos con las ONs que estaban en AHORA que yo no
+las tenía y me las sugería por 1816, siguen en AHORA, no entiendo cómo se da de
+alta»*. Tenía razón: una fila sin botón no le daba ninguna forma de sumar las que
+sí le interesan.
+
+**El arreglo es `alta_on`, y es el gemelo de `alta_cedear`.** Mismo problema —el
+sistema SABE darlas de alta a todas y **no puede decidir cuáles**— así que misma
+forma: la fila despliega la lista, una persona tilda, y se dan de alta las
+tildadas. Con eso la fila pasa a ENCONTRÓ, que es donde el user la quería
+(invariante 9: a ENCONTRÓ entra lo que tiene arreglo).
+
+**Lo que la lista NO es.** No es una autorización: cada ticker tildado vuelve a
+pasar por `alta.aplicar` entero —baja el cuadro de 1816, lo convierte, calcula la
+TEA y **coteja el cronograma contra el de ellos**—. La que no cierra no se
+escribe y **no frena a las demás**. Y la curva de 1816 sale de lo que guardó el
+DETECTOR, no de lo que manda el navegador: es la clasificación con la que se
+decidió que faltaba.
+
+Quedan entonces las dos filas, cada una con lo suyo: la ON **en cartera** (hoy no
+valúa, problema real) con su botón individual, y la de **catálogo** con la lista
+para tildar. Y el ✕ sigue estando para el que no quiera seguir ONs.

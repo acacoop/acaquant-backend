@@ -1014,7 +1014,8 @@ def test_un_arreglo_que_pide_datos_lo_declara():
     piden = {a.id for a in arreglos.ARREGLOS.values() if a.pide_datos}
     # `alta_cedear` (§0.dl) pide datos por la razón contraria a `completar_ficha`:
     # el sistema SABE escribirlo todo, lo que no puede decidir es CUÁLES sumar.
-    assert piden == {"completar_ficha", "alta_cedear"}, (
+    # `alta_on` (§0.dv) es el gemelo de `alta_cedear`, y por la misma razón.
+    assert piden == {"completar_ficha", "alta_cedear", "alta_on"}, (
         f"cambió qué arreglos piden datos: {piden}")
     assert all("pide_datos" in c for c in arreglos.catalogo())
 
@@ -3605,8 +3606,8 @@ def test_las_ONs_que_no_tenemos_son_UNA_fila_y_no_doscientas(monkeypatch):
     # La lista viaja en `_items` (guión bajo = dato de máquina): la pantalla NO
     # la dibuja como evidencia suelta. El mismo criterio que `ficha_incompleta`.
     assert "items" not in fam[0].evidencia
-    # Y el que_hacer dice que se puede callar, porque nada está roto.
-    assert "✕" in fam[0].que_hacer and "cartera" in fam[0].que_hacer
+    # Y el que_hacer manda a tildar, no a tipear en Manager.
+    assert "tildar" in fam[0].que_hacer and "ENCONTRÓ" in fam[0].que_hacer
 
 
 def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():
@@ -3641,7 +3642,7 @@ def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():
             f"«{rama}» está declarada con fórmula y no tiene rama en calcular_campos")
 
 
-def test_la_ON_que_la_mesa_TIENE_lleva_boton_y_la_de_catalogo_no():
+def test_la_ON_que_la_mesa_TIENE_y_la_de_CATALOGO_llevan_botones_distintos():
     """⚠️ **El botón existe, y solo donde hay algo roto.**
 
     Hasta el 2026-09-06 `on_faltante` no declaraba arreglo porque la rama `on`
@@ -3658,10 +3659,55 @@ def test_la_ON_que_la_mesa_TIENE_lleva_boton_y_la_de_catalogo_no():
     from agente import alta
     h = catalogo.HABILIDADES["on_faltante"]
     assert h.sujeto_es == "bono" and h.ventana == "rueda"
-    assert h.arreglos == {"no_esta_en_curvas": "alta_bono"}
-    assert "no_estan_en_curvas" not in h.arreglos, (
-        "la fila de catálogo NO lleva botón: no hay nada roto que arreglar")
+    # DOS reglas, DOS botones, y no son el mismo: la que la mesa tiene se da de
+    # alta sola (el sujeto ES el bono); la de catálogo despliega la lista para
+    # tildar, porque el sistema sabe darlas de alta a todas y no cuáles quiere
+    # la mesa (§0.dv).
+    assert h.arreglos == {"no_esta_en_curvas": "alta_bono",
+                          "no_estan_en_curvas": "alta_on"}
     assert "on" in alta.RAMAS_AUTOMATICAS
+
+
+def test_la_fila_de_catalogo_despliega_la_lista_para_TILDAR(monkeypatch):
+    """⚠️ **UNA fila, pero con botón: el sistema sabe cuáles PUEDE, no cuáles
+    QUIERE la mesa.**
+
+    Es el mismo problema que `alta_cedear` (§0.dl) y por eso la misma forma. Y es
+    lo que faltaba después de §0.ds: juntar las 193 en una fila sin botón dejaba
+    al user sin ninguna manera de dar de alta las que sí le interesan — que era
+    justo lo que venía pidiendo.
+
+    El arreglo NO escribe lo que manda el navegador: cada ticker tildado vuelve a
+    pasar por `alta.aplicar`, o sea por el pre-flight entero, y la curva de 1816
+    sale de lo que guardó el DETECTOR, no del cliente.
+    """
+    from agente import arreglos
+
+    a = arreglos.ARREGLOS["alta_on"]
+    assert a.pide_datos and not a.inmediato
+    ev = {"cantidad": 2, "_items": [
+        {"ticker": "AAA1O", "emisor": "YPF", "curva_1816": "Corporativos USD"},
+        {"ticker": "BBB2O", "emisor": "Capex", "curva_1816": "Corporativos USD"}]}
+    pv = a.preview("ONs HARD DÓLAR", ev)
+    assert pv["ok"] and pv["listado"] == "ons" and len(pv["ons"]) == 2
+
+    vistos = []
+
+    def _falso(tk, *, curva_1816, actor=""):
+        vistos.append((tk, curva_1816, actor))
+        return {"ok": tk == "AAA1O", "aplicado": tk == "AAA1O",
+                "error": "" if tk == "AAA1O" else "el cotejo no cierra"}
+
+    monkeypatch.setattr("agente.alta.aplicar", _falso)
+    # El navegador manda una curva MENTIROSA: se ignora, manda la del detector.
+    r = a.aplicar("ONs HARD DÓLAR", ev, por="yo",
+                  datos=[{"unidad": "AAA1O", "valor": "Soberanos USD"},
+                         {"unidad": "BBB2O", "valor": ""}])
+    assert vistos == [("AAA1O", "Corporativos USD", "yo"),
+                      ("BBB2O", "Corporativos USD", "yo")]
+    # Una que no cierra NO frena a las demás, y las dos cosas se dicen.
+    assert r.ok and "AAA1O" in r.detalle and "BBB2O" in r.detalle
+    assert "1 dada(s) de alta" in r.detalle
 
 
 def test_una_ON_se_escribe_por_la_puerta_de_las_ONs_y_no_por_la_de_bonos():

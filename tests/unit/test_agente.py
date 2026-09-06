@@ -4125,11 +4125,21 @@ def test_el_arreglo_que_puede_probarse_solo_refresca_su_tarjeta():
     j = src.index("if a.confirma_ya:")
     assert "try:" in src[j:j + 200] and "except Exception" in src[j:j + 500]
 
-    # ⚠️ Es una DECLARACIÓN por arreglo, no un default: volver a correr no es
-    # gratis para todos. `soberanos_faltantes` cuesta créditos de 1816 y el job
-    # de `rehacer_job` tarda ocho minutos — ahí la respuesta todavía no existe.
+    # ⚠️ Es una DECLARACIÓN por arreglo, no un default. Lo que lo impide de
+    # verdad es que **la respuesta todavía no exista**: el job de `rehacer_job`
+    # tarda ocho minutos, así que preguntar apenas se lanza sería medir antes de
+    # tiempo y el «no» sería falso.
+    #
+    # El COSTO casi nunca alcanza para decir que no (2026-09-06). Las tres altas
+    # se sumaron ese día: el censo de 1816 cuesta créditos, sí, pero **el alta ya
+    # gastó uno POR CUPÓN** (7 a 39) bajando el cuadro. La alternativa era lo que
+    # el user vio: «APLICADO · ESPERANDO QUE EL DETECTOR CONFIRME» durante dos
+    # horas, con el bono ya escrito.
     assert arreglos.Arreglo.confirma_ya is False, "el default tiene que ser NO"
     ya = {a.id for a in arreglos.ARREGLOS.values() if a.confirma_ya}
-    assert ya == {"completar_ficha", "arbitrar_copia"}, (
+    assert ya == {"completar_ficha", "arbitrar_copia",
+                  "alta_bono", "alta_on", "alta_cedear"}, (
         f"cambió quién se auto-confirma: {sorted(ya)}. Sumá uno sólo si su "
-        "detector es SQL y contesta en el acto — y decí por qué en el código.")
+        "detector puede contestar YA — y decí por qué en el código.")
+    # `rehacer_job` es el que NO puede: su respuesta tarda ocho minutos.
+    assert not arreglos.ARREGLOS["rehacer_job"].confirma_ya

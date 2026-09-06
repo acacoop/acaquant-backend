@@ -177,9 +177,17 @@ class Arreglo:
     # regenera, y si no quedaba nada el hallazgo se cierra POR ACCIÓN.
     #
     # **Es `False` por default y cada arreglo lo declara**, porque volver a
-    # correr NO es gratis para todos: `soberanos_faltantes` cuesta créditos de
-    # 1816, y el job de `rehacer_job` tarda ocho minutos — ahí la respuesta
-    # todavía no existe y preguntarla sería medir antes de tiempo.
+    # correr NO es gratis para todos: el job de `rehacer_job` tarda ocho minutos
+    # y ahí la respuesta todavía NO EXISTE — preguntarla sería medir antes de
+    # tiempo, y el «no» que devolvería sería falso.
+    #
+    # ⚠️ El costo, en cambio, casi nunca alcanza para decir que no (2026-09-06).
+    # Acá decía que las altas no confirmaban porque el censo de 1816 cuesta
+    # créditos — y es cierto, pero **el alta ya gastó un crédito POR CUPÓN** para
+    # bajar el cuadro: son 7 a 39. Un censo más para que la tarjeta quede con el
+    # número de verdad es marginal contra eso, y la alternativa es lo que el user
+    # vio: «APLICADO · ESPERANDO QUE EL DETECTOR CONFIRME» durante dos horas,
+    # con el bono ya escrito.
     confirma_ya = False
 
     def preview(self, sujeto: str, ev: dict) -> dict:
@@ -367,6 +375,12 @@ class AltaBono(Arreglo):
     titulo = "Dar de alta el bono desde 1816"
     donde = "mercado.curvas"
     campo = "bono"
+    # El sujeto ES el bono, así que el detector puede probarlo en el acto: si ya
+    # está en el master, deja de encontrarlo y el hallazgo cierra POR ACCIÓN.
+    # Sin esto quedaba en «esperando que el detector confirme» hasta dos horas
+    # (§0.dy),
+    # con el bono ya escrito — el mismo número viejo al lado del hecho nuevo.
+    confirma_ya = True
 
     def _curva(self, ev: dict) -> str:
         return str(ev.get("curva_1816") or "").strip()
@@ -779,6 +793,9 @@ class AltaCedear(Arreglo):
     donde = "mercado.cedears"
     campo = "cedear"
     pide_datos = True
+    # Mismo caso que `alta_on`, y acá ni siquiera cuesta créditos: el detector
+    # lee la foto de Primary y el master, nada más.
+    confirma_ya = True
     # El efecto lo confirma el detector: el hallazgo es de la FAMILIA, y sumar
     # 3 de 300 no lo cierra.
     inmediato = False
@@ -852,6 +869,10 @@ class AltaON(Arreglo):
     donde = "mercado.curvas"
     campo = "bono"
     pide_datos = True
+    # Una sola corrida al final, no una por ON: el detector recuenta y la fila
+    # queda con las que SIGUEN faltando. No cierra (quedan las demás), pero deja
+    # de mentir el número.
+    confirma_ya = True
     # El hallazgo es de la FAMILIA: sumar 3 de 193 no lo cierra.
     inmediato = False
 

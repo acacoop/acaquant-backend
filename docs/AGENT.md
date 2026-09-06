@@ -5110,3 +5110,33 @@ llamada termina (mientras tanto la fila dice «trabajando…»). Un rastro en vi
 emita eventos y que el proxy los deje pasar. Queda como pendiente, y la primera
 mitad —que el rastro EXISTA y salga del backend— es la que había que resolver
 primero.
+
+
+### 0.dy «APLICADO · ESPERANDO QUE EL DETECTOR CONFIRME» — dos horas de más (2026-09-06)
+
+El user dio de alta PFC4O, el rastro mostró los seis pasos en verde, el bono
+quedó escrito… y la fila siguió ahí, con el cartel de espera. *«¿Qué sería lo
+que falta para que desaparezca?»*
+
+**Nada del alta: faltaba que el detector volviera a mirar.** El hallazgo pasa a
+`en_curso` y lo cierra `registro._cerrar_ausentes` cuando `on_faltante` deja de
+encontrarlo — y esa habilidad corre **cada 2 horas**. Es el mismo bug que §0.cy
+para `ficha_incompleta`, que se arregló con `Arreglo.confirma_ya` (correr el
+detector en el acto, DESPUÉS del `en_curso`, para que el cierre sea POR ACCIÓN).
+
+**Por qué las altas no lo tenían, y por qué el argumento era flojo.** El comentario
+decía que volver a correr no es gratis: `soberanos_faltantes` / `on_faltante`
+piden el censo a 1816 y eso cuesta créditos. Es cierto y no alcanza: **el alta ya
+gastó un crédito POR CUPÓN** para bajar el cuadro —de 7 a 39 según el bono—, así
+que un censo más es marginal contra lo que la misma acción acaba de pagar. Del
+otro lado de la balanza estaba la tarjeta mintiendo dos horas con el bono ya
+escrito, que es exactamente lo que este subsistema existe para no hacer.
+
+Ahora `alta_bono`, `alta_on` y `alta_cedear` confirman en el acto. `alta_bono`
+cierra el hallazgo (el sujeto ES el bono); las otras dos recuentan y la fila
+queda con las que SIGUEN faltando — no cierra, pero deja de mentir el número.
+
+**Lo que sigue sin confirmarse, y con razón**: `rehacer_job`. Su job tarda ocho
+minutos, así que preguntar apenas se lanza no es caro: es **medir antes de
+tiempo**, y el «no» que devolvería sería falso. Ese es el criterio de verdad —
+*¿la respuesta ya existe?*—, no el costo.

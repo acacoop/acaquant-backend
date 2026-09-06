@@ -189,12 +189,19 @@ def correr(body: Correr):
 
     Existe para no tener que entrar al Droplet a pedir lo que la pantalla ya
     está mostrando desactualizado.
+
+    ⚠️ **`forzar=True`, y esa es la diferencia con el daemon** (§0.dz). Lo aprieta
+    una persona: anula el RITMO —«con cada 2 h alcanza» es una decisión de
+    frecuencia y el botón la está anulando a propósito— pero **nunca la
+    ventana**, que es una condición del mundo. Sin esto el botón corría
+    exactamente lo mismo que el daemon iba a correr solo, o sea casi siempre
+    nada, y parecía roto.
     """
     from agente import fuentes, motor
     fuentes.refrescar()
     if body.habilidad:
         return motor.correr_una(body.habilidad)
-    r = motor.tick()
+    r = motor.tick(forzar=True)
     motor.latir(r)
     return r
 

@@ -59,36 +59,65 @@ PRESUPUESTO_S = 240
 CICLO_RUEDA_S, CICLO_QUIETO_S = 30, 300
 
 
-def _le_toca(fila: dict, ahora) -> bool:
-    """¿Venció su ritmo y estamos en su ventana?"""
-    if not fila.get("activa"):
-        return False
+def _fuera_de_ventana(fila: dict, ahora) -> str:
+    """Por qué esta habilidad NO puede correr AHORA. `""` = puede.
+
+    ⚠️ **La ventana y el ritmo son dos frenos distintos, y confundirlos hizo que
+    el botón «MIRAR AHORA» no hiciera nada** (§0.dz). El RITMO es una decisión de
+    frecuencia —«con cada 2 h alcanza»— y una persona que aprieta un botón la
+    está anulando a propósito. La VENTANA es una condición del MUNDO: fuera de
+    rueda `bono_sin_precio` vería todos los precios viejos y cantaría cien
+    problemas que no existen. El ritmo se puede forzar; la ventana no.
+    """
     ventana = fila.get("ventana") or "siempre"
     if ventana == "rueda" and not reloj.en_rueda(ahora):
-        return False
+        return "la rueda está cerrada"
     # ⚠️ `cierre` corre UNA vez por día hábil, con la rueda ya cerrada. Es la
     # ventana de lo que no se le puede seguir pidiendo al mercado.
     if ventana == "cierre" and not reloj.en_cierre(ahora):
-        return False
+        return "corre una vez por día, con la rueda ya cerrada"
     if ventana == "habil" and not reloj.dia_habil(ahora):
+        return "hoy no es día hábil"
+    return ""
+
+
+def _le_toca(fila: dict, ahora, *, forzar: bool = False) -> bool:
+    """¿Venció su ritmo y estamos en su ventana?
+
+    `forzar` anula el RITMO —lo pidió una persona— y nunca la ventana.
+    """
+    if not fila.get("activa"):
         return False
+    if _fuera_de_ventana(fila, ahora):
+        return False
+    if forzar:
+        return True
     ult = fila.get("ultima_corrida_at")
     if ult is None:
         return True
     return (ahora - ult).total_seconds() >= float(fila["cada_segundos"])
 
 
-def _agenda(ahora) -> list[dict]:
+def _agenda(ahora, *, forzar: bool = False) -> tuple[list[dict], list[dict]]:
+    """A quién le toca, y **quién quedó afuera por la ventana y por qué**.
+
+    Lo segundo no estaba y por eso una pasada podía no correr nada sin decir
+    nada: el botón parecía roto cuando en realidad no había nadie a quien le
+    tocara (§0.dz).
+    """
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT nombre, cada_segundos, ventana, activa, "
                     "       ultima_corrida_at FROM agente.habilidades")
         filas = [{"nombre": r[0], "cada_segundos": r[1], "ventana": r[2],
                   "activa": r[3], "ultima_corrida_at": r[4]}
                  for r in cur.fetchall()]
+    fuera = [{"nombre": f["nombre"], "motivo": m} for f in filas
+             if f.get("activa") and (m := _fuera_de_ventana(f, ahora))]
     # De la más rápida a la más lenta: lo que corre cada 2 minutos existe para
     # enterarse ahora, y hacerlo esperar detrás de un censo lo vuelve inútil.
-    return sorted((f for f in filas if _le_toca(f, ahora)),
-                  key=lambda f: f["cada_segundos"])
+    return (sorted((f for f in filas if _le_toca(f, ahora, forzar=forzar)),
+                   key=lambda f: f["cada_segundos"]),
+            sorted(fuera, key=lambda f: f["nombre"]))
 
 
 def correr_una(nombre: str) -> dict:
@@ -128,8 +157,11 @@ def correr_una(nombre: str) -> dict:
     return {"habilidad": nombre, "ms": ms, **r}
 
 
-def tick() -> dict:
+def tick(*, forzar: bool = False) -> dict:
     """UNA pasada. Es lo único que llama el daemon.
+
+    `forzar=True` es **una persona apretando el botón**: corre todas las que la
+    ventana permite, sin esperar a que venza su ritmo. El daemon nunca lo usa.
 
     `fuentes.refrescar()` al empezar: todos los detectores de esta pasada ven
     **la misma foto**. En el agente viejo cada reloj leía lo suyo por su cuenta,
@@ -138,7 +170,7 @@ def tick() -> dict:
     """
     ahora = reloj.ahora_utc()
     fuentes.refrescar()
-    pendientes = _agenda(ahora)
+    pendientes, fuera = _agenda(ahora, forzar=forzar)
     corridas, t0 = [], time.monotonic()
     for f in pendientes:
         corridas.append(correr_una(f["nombre"]))
@@ -151,6 +183,10 @@ def tick() -> dict:
         "at": ahora.isoformat(), "en_rueda": reloj.en_rueda(ahora),
         "habil": reloj.dia_habil(ahora),
         "corridas": corridas, "pendientes": len(pendientes),
+        "forzada": forzar,
+        # QUIÉN NO CORRIÓ Y POR QUÉ. Sin esto, «no pasó nada» y «no había nada
+        # que hacer» se ven exactamente igual.
+        "fuera_de_ventana": fuera,
         "ms": int((time.monotonic() - t0) * 1000),
         "nuevos": sum(int(c.get("nuevos") or 0) for c in corridas),
         "reincidencias": sum(int(c.get("reincidencias") or 0) for c in corridas),

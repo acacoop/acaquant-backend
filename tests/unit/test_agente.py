@@ -438,6 +438,52 @@ def test_el_horario_de_mercado_vive_en_un_solo_lugar():
         assert "RUEDA_UTC = " not in t, f"{f.name} redefine el horario"
 
 
+def test_mirar_ahora_fuerza_el_RITMO_y_nunca_la_VENTANA():
+    """⚠️ **EL BOTÓN QUE NO HACÍA NADA** (§0.dz).
+
+    User (2026-09-06): *«¿«correr ahora» le decís a eso? porque ese botón NO HACE
+    NADA»*. Y era literal: llamaba a `motor.tick()`, que corre **solo las que les
+    toca** — o sea exactamente lo que el daemon iba a correr un segundo después.
+    A las 22:50 no le tocaba a ninguna, así que no pasaba nada y sin explicación.
+
+    Los dos frenos no son lo mismo:
+
+      RITMO   («cada 2 h alcanza»)  es una decisión de FRECUENCIA. Una persona
+                                    que aprieta un botón la anula a propósito.
+      VENTANA («solo en rueda»)     es una condición del MUNDO. Fuera de rueda
+                                    `bono_sin_precio` vería todos los precios
+                                    viejos y cantaría cien problemas falsos.
+
+    Se puede forzar el primero; el segundo no. Y lo que la ventana frena se
+    INFORMA, porque «no pasó nada» y «no había nada que hacer» se veían igual.
+    """
+    from datetime import UTC, datetime
+
+    from agente import motor
+
+    # Una habilidad de rueda, recién corrida, con la rueda ABIERTA: el ritmo la
+    # frena y el botón la desfrena.
+    ahora = datetime(2026, 9, 2, 15, 0, tzinfo=UTC)          # miércoles, en rueda
+    recien = {"nombre": "x", "cada_segundos": 7200, "ventana": "rueda",
+              "activa": True, "ultima_corrida_at": ahora}
+    assert not motor._le_toca(recien, ahora)
+    assert motor._le_toca(recien, ahora, forzar=True), "el botón anula el RITMO"
+
+    # La misma, con la rueda CERRADA: ni el botón la corre, y se dice por qué.
+    noche = datetime(2026, 9, 3, 1, 50, tzinfo=UTC)
+    assert not motor._le_toca(recien, noche, forzar=True), (
+        "forzar NUNCA puede saltear la ventana: es una condición del mundo")
+    assert motor._fuera_de_ventana(recien, noche) == "la rueda está cerrada"
+
+    # Y el endpoint que aprieta la persona fuerza; el daemon no.
+    import inspect as _i
+
+    from api.routers import agente as router_agente
+    assert "motor.tick(forzar=True)" in _i.getsource(router_agente.correr)
+    assert "tick(forzar=True)" not in _i.getsource(motor.correr_para_siempre) \
+        if hasattr(motor, "correr_para_siempre") else True
+
+
 def test_el_cierre_es_una_ventana_y_no_un_quinto_reloj():
     """Lo que se le pide al mercado deja de pedirse a las 17, y lo que quedó sin
     resolver se completa UNA vez a las 17:30.
@@ -454,7 +500,11 @@ def test_el_cierre_es_una_ventana_y_no_un_quinto_reloj():
     assert cierre, "nadie barre lo que quedó sin resolver al cerrar"
 
     from agente import motor
-    assert "reloj.en_cierre" in inspect.getsource(motor._le_toca)
+    # La ventana la evalúa `_fuera_de_ventana`, que `_le_toca` consulta: es el
+    # ÚNICO lugar donde vive la condición del mundo, y por eso el botón «mirar
+    # ahora» puede forzar el ritmo sin poder forzarla a ella (§0.dz).
+    assert "reloj.en_cierre" in inspect.getsource(motor._fuera_de_ventana)
+    assert "_fuera_de_ventana" in inspect.getsource(motor._le_toca)
 
 
 def test_no_se_le_pide_al_mercado_despues_de_las_17():

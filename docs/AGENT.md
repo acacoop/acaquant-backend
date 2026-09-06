@@ -5140,3 +5140,38 @@ queda con las que SIGUEN faltando — no cierra, pero deja de mentir el número.
 minutos, así que preguntar apenas se lanza no es caro: es **medir antes de
 tiempo**, y el «no» que devolvería sería falso. Ese es el criterio de verdad —
 *¿la respuesta ya existe?*—, no el costo.
+
+
+### 0.dz «MIRAR AHORA» NO MIRABA NADA (2026-09-06)
+
+User: *«¿«correr ahora» le decís a eso? porque ese botón NO HACE NADA»*. Era
+literal.
+
+**La causa.** El botón llamaba a `motor.tick()`, la MISMA función del daemon, que
+corre solo las habilidades a las que **les toca** (venció su ritmo y están en su
+ventana). O sea que apretarlo hacía exactamente lo que el agente iba a hacer un
+segundo después. A las 22:50 no le tocaba a ninguna: no corría nada, y **no
+decía nada**.
+
+**Los dos frenos no son lo mismo, y ahí estaba el error de diseño.**
+
+```
+RITMO   «cada 2 h alcanza»   decisión de FRECUENCIA nuestra. Una persona que
+                             aprieta un botón la está anulando A PROPÓSITO.
+VENTANA «solo en rueda»      condición del MUNDO. Fuera de rueda
+                             `bono_sin_precio` vería todos los precios viejos y
+                             cantaría cien problemas que no existen.
+```
+
+El ritmo se puede forzar; la ventana no. `tick(forzar=True)` —que usa el
+endpoint, nunca el daemon— anula el primero y jamás la segunda.
+
+**Y lo que la ventana frena, se dice.** `_agenda` devuelve ahora también quién
+quedó afuera y por qué, y la cabecera lo muestra: «miró 12 · 6 esperan a que abra
+la rueda». Sin eso, **«no pasó nada» y «no había nada que hacer» se veían
+idénticos** — que es la misma familia de bug que el agente viejo tenía en todas
+partes: una corrida ciega y una corrida limpia dibujadas igual.
+
+La condición de ventana quedó en UN solo lugar (`_fuera_de_ventana`), que
+`_le_toca` consulta. Antes estaba inline en `_le_toca`, y por eso no se podía
+distinguir un freno del otro sin reescribir la función.

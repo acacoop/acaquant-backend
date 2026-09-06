@@ -4938,3 +4938,52 @@ que no depende del precio, ni del tipo de cambio, ni del devengado: si coincide,
 el cronograma ES el de ellos. Sin ese número, «5% de diferencia de paridad» no
 distingue «otro cuadro» de «otra definición». El diag ahora la imprime como
 columna y no trunca nada.
+
+
+### 0.dt EL ALTA DE UNA ON: TRES PUERTAS CERRADAS, Y UNA MENTÍA (2026-09-06)
+
+**La medición.** `scripts/diag_on_alta`, muestra de 8 el 2026-09-06, con la
+duration a la vista (§0.ds):
+
+```
+        Δduration      cotejo        lectura
+AEC3O     0,12%        no_se         el cronograma ES el de 1816
+CP37O     0,08%        no_se         idem
+DNC3O     0,00%        no_se         idem
+DNC5O     0,18%        no_se         idem
+EAC3O     0,24%        no_se         idem
+ARC1O     1,17%        bloquea       bajamos otro cuadro
+DHSOO     1,68%        bloquea       idem
+LMS8O     2,06%        bloquea       idem
+```
+
+Las 8 dieron `escala = vn100` con Σ = 100,0000 exacto: **el miedo original —que
+1816 mandara las ONs en nominales— no aparece en esta muestra.** Lo que decide es
+la duration, y parte la muestra en dos: **5 de 8 con el cronograma verificado al
+tercer decimal**, 3 que difieren entre 1,2% y 2,1%. En esas 5 la paridad de 1816
+es más baja que la nuestra por definición (ellos dividen por el valor técnico,
+nosotros por el residual) y su indicador no sirve de juez.
+
+**Las tres puertas que bloquean hoy, y no son la misma.**
+
+1. `rama` — la rama `on` no está en `RAMAS_AUTOMATICAS`. **Correcto por ahora**:
+   la conversión está verificada en 5 de 8, no en 8 de 8.
+2. `curva_destino` — «on» no está en `bonos_admin.CURVAS_BONO`, y **eso no es un
+   olvido**: las ONs tienen su PROPIA puerta de escritura
+   (`api/services/ons.upsert_on`, curva `on_<sector>`) y su propio panel. O sea
+   que `alta.aplicar`, que escribe por `bonos_admin.upsert_bono`, hoy no puede
+   dar de alta una ON aunque el cuadro estuviera perfecto — le falta el riel, y
+   además el SECTOR, que 1816 no publica.
+3. `tea_motor` — **decía algo FALSO.** Afirmaba «el ajuste cae en el `else` del
+   motor: solo computa duration» y BLOQUEABA, cuando `calcular_campos` tiene un
+   `elif curva == "on"` con la matemática hard-dólar completa desde siempre. La
+   causa: el paso preguntaba «¿va a haber TEA?» mirando `RAMAS_AUTOMATICAS`, que
+   contesta «¿el cuadro se convierte sin ambigüedad?». Dos preguntas distintas
+   con una sola respuesta (REGLA #9(B)); coincidían para cuatro ramas y por eso
+   nadie lo notó. Ahora el motor declara `RAMAS_CON_FORMULA` y el pre-flight se
+   lo pregunta a él. Un test verifica que cada rama declarada tenga su `elif` de
+   verdad.
+
+**Lo que queda para que el botón exista**: rutear el alta a `ons.upsert_on`,
+resolver el sector, y decidir qué hacer con las que difieren en duration (no se
+aplican solas: el cotejo ya las bloquea una por una, que es para lo que está).

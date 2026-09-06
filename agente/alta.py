@@ -283,6 +283,27 @@ def tasa_externa_de(ajuste: str | None) -> tuple[str, str]:
         return "", ""
 
 
+def _ramas_con_formula() -> tuple[str, ...]:
+    """Qué ramas VALÚA el motor. **Se le pregunta a él, no se recuerda acá.**
+
+    ⚠️ El paso `tea_motor` miraba `RAMAS_AUTOMATICAS`, que contesta otra pregunta:
+    «¿el cuadro de 1816 se convierte sin ambigüedad?». Coincidían para cuatro
+    ramas —y por eso nadie lo notó— hasta las ONs: la rama `on` tiene su propio
+    `elif` en `calcular_campos` desde siempre (math hard-dólar completa), y el
+    pre-flight igual afirmaba «cae en el `else` del motor: solo computa duration»
+    y BLOQUEABA el alta. Un paso que dice algo falso sobre el motor es peor que
+    uno que no existe: bloquea con una razón que no se puede refutar leyendo.
+
+    Degrada al piso conocido si el motor no se puede importar — nunca a «todas».
+    Historia: `docs/AGENT.md` §0.dt.
+    """
+    try:
+        from engines.curvas import RAMAS_CON_FORMULA
+        return RAMAS_CON_FORMULA
+    except Exception:
+        return RAMAS_AUTOMATICAS
+
+
 def _alta_automatica(rama: str, ejes) -> bool:
     """¿Se puede dar de alta sin que lo cargue un humano?
 
@@ -1124,7 +1145,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         f"proyectarla). La baja **{job_tasa or 'el job'}** con su TEA "
                         "y su margen, y el ticker entra solo por su ajuste.",
                         tabla="mercado.tamar_1816"))
-    elif rama in RAMAS_AUTOMATICAS or rama == "dolar_linked":
+    elif rama in _ramas_con_formula():
         ps.append(_paso("tea_motor", "El motor de curvas va a calcular la TEA", OK,
                         f"la rama «{rama}» tiene fórmula en engines/curvas.py",
                         tabla="engines/curvas.py::calcular_campos"))

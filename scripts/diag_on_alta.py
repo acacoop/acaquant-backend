@@ -115,7 +115,14 @@ def _una(on: dict, *, detalle: bool) -> dict:
     conv = sim.get("cuadro") or {}
     ver = sim.get("veredicto") or {}
     cot = _paso(sim, "cotejo_1816")
-    ref = (sim.get("referencia_1816") or {}).get("a_nuestro_precio") or {}
+    # ⚠️ DOS NIVELES, y confundirlos vació la columna que decide. La PARIDAD
+    # comparable es la de `a_nuestro_precio` (1816 recalculada a NUESTRO precio);
+    # la DURATION vive en el nivel de arriba, porque no depende del precio — que
+    # es justamente lo que la hace el testigo bueno. `_cotejo_tea` lee cada una
+    # de su lugar; la primera versión de este diag leyó las dos del sub-dict y
+    # mostró «—» donde estaba la respuesta.
+    r16 = sim.get("referencia_1816") or {}
+    ref = r16.get("a_nuestro_precio") or {}
     r = {**on, "error": "",
          "rama": sim.get("rama"), "escala": conv.get("escala"),
          "suma_amort": conv.get("suma_amort"), "n": conv.get("n"),
@@ -131,7 +138,7 @@ def _una(on: dict, *, detalle: bool) -> dict:
          # del interés corrido: si la duration coincide, el cronograma ES el de
          # ellos y la diferencia de paridad es definición, no error.
          "duration": sim.get("duration"),
-         "duration_1816": ref.get("duration"),
+         "duration_1816": r16.get("duration"),
          "cotejo": cot.get("estado") or "—", "cotejo_txt": cot.get("detalle") or "",
          "puede_aplicar": ver.get("puede_aplicar"),
          "puede_auto": ver.get("puede_auto"),

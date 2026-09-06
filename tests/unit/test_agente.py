@@ -3609,6 +3609,33 @@ def test_las_ONs_que_no_tenemos_son_UNA_fila_y_no_doscientas(monkeypatch):
     assert "✕" in fam[0].que_hacer and "cartera" in fam[0].que_hacer
 
 
+def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():
+    """⚠️ **DOS PREGUNTAS DISTINTAS CON UNA SOLA RESPUESTA** (REGLA #9(B)).
+
+    El paso `tea_motor` («¿el motor va a calcular la TEA?») miraba
+    `RAMAS_AUTOMATICAS`, que contesta otra cosa («¿el cuadro de 1816 se convierte
+    sin ambigüedad?»). Coincidían para cuatro ramas y por eso nadie lo notó,
+    hasta las ONs: `calcular_campos` tiene un `elif curva == "on"` con la
+    matemática hard-dólar completa desde siempre, y el pre-flight igual afirmaba
+    «cae en el `else` del motor: solo computa duration» y BLOQUEABA.
+
+    Un paso que dice algo falso sobre el motor es peor que uno que no existe.
+    """
+    from agente import alta
+    from engines.curvas import RAMAS_CON_FORMULA
+
+    assert "on" in RAMAS_CON_FORMULA and "on" not in alta.RAMAS_AUTOMATICAS, (
+        "el caso que separa las dos preguntas: el motor SÍ valúa una ON, "
+        "y su cuadro NO se convierte solo")
+    assert alta._ramas_con_formula() == RAMAS_CON_FORMULA
+    # Y cada rama de la lista tiene su `elif` de verdad en el motor: si alguien
+    # suma una a mano sin escribir la fórmula, esto falla.
+    src = inspect.getsource(__import__("engines.curvas", fromlist=["x"]).calcular_campos)
+    for rama in RAMAS_CON_FORMULA:
+        assert f'curva == "{rama}"' in src, (
+            f"«{rama}» está declarada con fórmula y no tiene rama en calcular_campos")
+
+
 def test_on_faltante_no_declara_un_boton_que_siempre_bloquea():
     """La rama `on` no está en RAMAS_AUTOMATICAS: declarar `alta_bono` haría que
     cada preview dijera «no aplicable». Sin arreglo, y el que_hacer lo explica."""

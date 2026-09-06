@@ -337,6 +337,16 @@ def rama_calculo(instrumento: dict) -> str:
     return "otros"
 
 
+# ⚠️ **QUÉ RAMAS CALCULA ESTE MOTOR DE VERDAD.** Sale de los `elif` de
+# `calcular_campos` y de ningún otro lado. Existe porque `agente/alta.py` decidía
+# «¿va a haber TEA?» mirando `RAMAS_AUTOMATICAS`, que contesta OTRA pregunta
+# («¿se puede convertir el cuadro de 1816 sin ambigüedad?»). Las dos coincidían
+# para cuatro ramas y por eso nadie lo notó — hasta que las ONs mostraron que no:
+# el pre-flight de una ON decía «cae en el `else` del motor: solo computa
+# duration» y BLOQUEABA, con la rama `on` teniendo su propio `elif` desde
+# siempre. Dos preguntas distintas con una sola respuesta es la REGLA #9(B).
+RAMAS_CON_FORMULA = ("tasa_fija", "cer", "soberanos", "dolar_linked", "on")
+
 # Las TRES puertas que abre el `if` de la rama ON, y nada más. Es el vocabulario
 # del MOTOR: cualquier otra palabra cae en el `else` y se valúa como peso nativo.
 MONEDAS_FLUJO = ("USD", "DL", "ARS")

@@ -1,0 +1,237 @@
+"""`scripts/diag_on_alta.py` — **¿SE PUEDEN DAR DE ALTA SOLAS LAS ONs?**
+
+Read-only. **No escribe una sola fila.** Doc: `docs/AGENT.md` §0.dp (la habilidad
+`on_faltante`) y §0.dr (esta medición).
+
+## La pregunta
+
+`on_faltante` encuentra las ONs hard dólar que 1816 lista, Primary cotiza y no
+están en el master — y **no tiene botón**. Por eso cae en AHORA (invariante 9: a
+ENCONTRÓ solo entra lo que tiene arreglo) y su `que_hacer` es un instructivo para
+tipear en Manager.
+
+No tiene botón por UNA línea: la rama `on` no está en `alta.RAMAS_AUTOMATICAS`,
+porque 1816 manda algunos cuadros de ONs en NOMINALES y otros en base 100
+(RESEARCH.md §A.4.9) y esa conversión no estaba verificada.
+
+**Pero la ambigüedad se puede MEDIR por bono, no hay que asumirla.**
+`alta.convertir_flujos` ya calcula `escala` mirando la Σ de amortizaciones
+(`vn100` si cae entre 95 y 105, si no `nominales`), y la rama `dolar_linked` ya
+normaliza dividiendo por esa Σ — la operación es la identidad cuando el cuadro ya
+viene en base 100, así que es correcta en los dos casos.
+
+Y hay un segundo control que no depende de creerle a nadie: el pre-flight
+compara la **PARIDAD** contra la que publica 1816 **al mismo precio**. Un cuadro
+mal escalado no tira error, pero da una paridad que no cierra. Ese es el número
+que decide si la rama se puede prender.
+
+## Qué hace este diag
+
+Corre `alta.simular()` —la MISMA función que usa el botón— sobre las ONs que el
+agente tiene abiertas, y reporta por cada una:
+
+    escala del cuadro · Σ amortizaciones · cuántos cupones
+    la PARIDAD nuestra contra la de 1816 (el control cruzado)
+    el veredicto del pre-flight: ¿puede aplicar? ¿puede aplicar SOLO?
+
+Si el control cruzado cierra en todas, la rama `on` se prende y el aviso se
+convierte en un botón. Si no cierra en alguna, este diag dice en cuál y por qué.
+
+⚠️ **NO reimplementa nada**: el universo sale de `agente.hallazgos` (lo que el
+detector ya encontró, con su `curva_1816` en la evidencia) y la conversión sale
+de `agente.alta`. Dos definiciones distintas de lo mismo darían números que no
+fallan y no coinciden (REGLA #9).
+
+## Costo
+
+⚠️ **ESTA ES LA PARTE CARA Y SALE A LA RED.** `simular` le pide a 1816 el cuadro
+de flujos, y eso **cuesta un crédito por cupón**. Por eso hay tope y es chico por
+default: se mira una muestra, se lee el resultado, y recién ahí se sube.
+
+    python -m scripts.diag_on_alta                 # 6 ONs (las de cartera primero)
+    python -m scripts.diag_on_alta --tope 20       # una muestra más grande
+    python -m scripts.diag_on_alta --ticker CP37O  # una sola, con el detalle
+    python -m scripts.diag_on_alta --solo-cartera  # solo las que HOY no valúan
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+
+from core.postgres import get_pool
+
+HABILIDAD = "on_faltante"
+REGLA = "no_esta_en_curvas"
+
+
+def _titulo(s: str) -> None:
+    print(f"\n{'═' * 78}\n {s}\n{'═' * 78}")
+
+
+def universo(*, solo_cartera: bool) -> list[dict]:
+    """Las ONs que el AGENTE tiene abiertas, con la curva de 1816 que él mismo
+    guardó en la evidencia. Las de CARTERA primero: esas hoy no valúan."""
+    from agente import tipos
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT sujeto, evidencia FROM agente.hallazgos "
+            " WHERE habilidad = %s AND regla = %s AND estado = ANY(%s) "
+            " ORDER BY (evidencia->>'en_cartera')::bool DESC NULLS LAST, sujeto",
+            (HABILIDAD, REGLA, list(tipos.ABIERTOS)))
+        filas = cur.fetchall()
+    out = []
+    for sujeto, ev in filas:
+        ev = ev or {}
+        if solo_cartera and not ev.get("en_cartera"):
+            continue
+        out.append({"ticker": sujeto, "curva_1816": ev.get("curva_1816") or "",
+                    "emisor": ev.get("emisor") or "?",
+                    "en_cartera": bool(ev.get("en_cartera")),
+                    "vencimiento": ev.get("vencimiento_1816") or ""})
+    return out
+
+
+def _pct(v) -> str:
+    return f"{float(v):.2f}%" if isinstance(v, int | float) else "—"
+
+
+def _paso(sim: dict, clave: str) -> dict:
+    for c in sim.get("chequeos") or []:
+        if c.get("clave") == clave:
+            return c
+    return {}
+
+
+def _una(on: dict, *, detalle: bool) -> dict:
+    """Simula UNA ON y devuelve lo que hay que mirar. Nunca levanta."""
+    from agente import alta
+    try:
+        sim = alta.simular(on["ticker"], curva_1816=on["curva_1816"])
+    except Exception as e:                                   # pragma: no cover
+        return {**on, "error": f"{type(e).__name__}: {e}"[:160]}
+    if not sim.get("ok"):
+        return {**on, "error": (sim.get("error") or "sin motivo")[:160]}
+
+    conv = sim.get("cuadro") or {}
+    ver = sim.get("veredicto") or {}
+    cot = _paso(sim, "cotejo_1816")
+    ref = (sim.get("referencia_1816") or {}).get("a_nuestro_precio") or {}
+    r = {**on, "error": "",
+         "rama": sim.get("rama"), "escala": conv.get("escala"),
+         "suma_amort": conv.get("suma_amort"), "n": conv.get("n"),
+         "tea": sim.get("tea"), "paridad": sim.get("paridad"),
+         "paridad_1816": ref.get("paridad"),
+         "cotejo": cot.get("estado") or "—", "cotejo_txt": cot.get("detalle") or "",
+         "puede_aplicar": ver.get("puede_aplicar"),
+         "puede_auto": ver.get("puede_auto"),
+         "bloqueos": [c["titulo"] for c in sim.get("chequeos") or []
+                      if c["estado"] == alta.BLOQUEA],
+         # Por CLAVE, no por título: el título es texto para leer y cambia; la
+         # clave es la identidad del paso (REGLA #9).
+         "claves_bloqueo": [c["clave"] for c in sim.get("chequeos") or []
+                            if c["estado"] == alta.BLOQUEA],
+         "frenan_auto": [c["titulo"] for c in sim.get("chequeos") or []
+                         if c["estado"] in (alta.REVISAR, alta.NO_SE)],
+         "motivo_no_aplicable": sim.get("motivo_no_aplicable") or ""}
+    if detalle:
+        r["flujos"] = conv.get("flujos", [])[:4]
+    return r
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--tope", type=int, default=6,
+                   help="cuántas ONs simular (cuesta créditos de 1816)")
+    p.add_argument("--ticker", default="", help="simular UNA sola, con detalle")
+    p.add_argument("--solo-cartera", action="store_true",
+                   help="solo las que la mesa TIENE y hoy no valúan")
+    a = p.parse_args()
+
+    from agente import alta
+
+    todas = universo(solo_cartera=a.solo_cartera)
+    if a.ticker:
+        tk = a.ticker.strip().upper()
+        todas = [o for o in todas if o["ticker"] == tk]
+        if not todas:
+            print(f"«{tk}» no está entre las ONs abiertas de `{HABILIDAD}`.")
+            return 1
+
+    _titulo("0. EL UNIVERSO Y LA REGLA QUE APAGA EL BOTÓN")
+    print(f"  `{HABILIDAD} · {REGLA}` abiertas: {len(todas)}"
+          + (f" (filtrado a {a.ticker})" if a.ticker else "")
+          + (" · SOLO las de cartera" if a.solo_cartera else "") + "\n")
+    print(f"  `alta.RAMAS_AUTOMATICAS` = {alta.RAMAS_AUTOMATICAS}")
+    print("  La rama de un corporativo es «on», y NO está en esa tupla: por eso\n"
+          "  `_alta_automatica` devuelve False, el pre-flight deja el paso `rama`\n"
+          "  en BLOQUEA y no hay botón. Todo lo demás de la cadena ya existe.\n")
+    if not todas:
+        print("  No hay ONs abiertas: nada que medir.")
+        return 0
+
+    muestra = todas if a.ticker else todas[:max(0, a.tope)]
+    _titulo(f"1. LA CONVERSIÓN, MEDIDA — muestra de {len(muestra)} de {len(todas)}")
+    print("  ⚠️ Sale a la red: 1816 cobra un crédito POR CUPÓN.\n"
+          "  La columna que decide es COTEJO: compara nuestra PARIDAD contra la\n"
+          "  de 1816 AL MISMO PRECIO. Un cuadro mal escalado no da error — da un\n"
+          "  número plausible y equivocado, y esto es lo que lo caza.\n")
+
+    res = [_una(o, detalle=bool(a.ticker)) for o in muestra]
+
+    print(f"  {'TICKER':<8} {'CART':<5} {'ESCALA':<10} {'ΣAMORT':>11} {'CUP':>4} "
+          f"{'PARIDAD':>9} {'1816':>9} {'COTEJO':<10}")
+    print("  " + "─" * 76)
+    for r in res:
+        if r["error"]:
+            print(f"  {r['ticker']:<8} {'sí' if r['en_cartera'] else '':<5} "
+                  f"⚠ {r['error'][:60]}")
+            continue
+        sa = r["suma_amort"]
+        print(f"  {r['ticker']:<8} {'sí' if r['en_cartera'] else '':<5} "
+              f"{r['escala']!s:<10} {(f'{sa:,.4f}' if sa is not None else '—'):>11} "
+              f"{r['n']!s:>4} {_pct(r['paridad']):>9} "
+              f"{_pct(r['paridad_1816']):>9} {r['cotejo']:<10}")
+
+    _titulo("2. EL VEREDICTO DEL PRE-FLIGHT, ON POR ON")
+    print("  `puede_aplicar` = lo puede apretar una persona (solo lo frena algo\n"
+          "  PROBADO mal). `puede_auto` = se podría aplicar sin que nadie mire\n"
+          "  (además lo frenan «se midió y no cierra» y «no se pudo verificar»).\n"
+          "  Hoy los dos dan False por la MISMA razón: la rama.\n")
+    for r in res:
+        if r["error"]:
+            continue
+        print(f"  · {r['ticker']} ({r['emisor']}) — aplicar={r['puede_aplicar']} "
+              f"auto={r['puede_auto']}")
+        if r["bloqueos"]:
+            print(f"      ✖ bloquea: {'; '.join(r['bloqueos'])}")
+        if r["frenan_auto"]:
+            print(f"      ▲/? frena el automático: {'; '.join(r['frenan_auto'])}")
+        if r["cotejo_txt"]:
+            print(f"      cotejo: {r['cotejo_txt'][:150]}")
+        if r.get("flujos"):
+            print(f"      primeros flujos: {r['flujos']}")
+
+    _titulo("3. LA CONCLUSIÓN — qué habilita y qué no")
+    ok = [r for r in res if not r["error"]]
+    escalas = {r["escala"] for r in ok}
+    cotejos = {r["cotejo"] for r in ok}
+    solo_rama = [r for r in ok if r["claves_bloqueo"] == ["rama"]]
+    print(f"  escalas encontradas: {escalas or '—'}")
+    print(f"  estados del cotejo:  {cotejos or '—'}")
+    print(f"  simuladas ok: {len(ok)} de {len(res)}\n")
+    print("  Leer así:\n"
+          "  · Si el COTEJO da `ok` en todas → la conversión de la rama `on` está\n"
+          "    verificada contra 1816 y la rama se puede prender: el aviso pasa a\n"
+          "    ENCONTRÓ con botón, y el instructivo de tipear desaparece.\n"
+          "  · Si aparece `nominales` → hay que normalizar por la Σ (lo que ya\n"
+          "    hace `dolar_linked`), no cargar el cuadro crudo.\n"
+          "  · Si el COTEJO da `revisar`/`bloquea` en alguna → esa no se prende\n"
+          "    sola. El número está a la vista y se decide con él, no de memoria.")
+    if solo_rama:
+        print(f"\n  ⚠️ {len(solo_rama)} de {len(ok)} tienen como ÚNICO bloqueo la rama:\n"
+              "  o sea, el resto de la cadena ya está en verde para ellas.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

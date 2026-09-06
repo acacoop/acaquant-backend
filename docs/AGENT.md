@@ -4859,3 +4859,42 @@ lo que el listado ya lista. Quedó un campo, un número y un botón. Además dec
 cuando quedaban 10: nada re-corría el detector después de aplicar un arreglo.
 `Arreglo.confirma_ya` lo corre en el acto, **después** de marcar `en_curso`, para
 que el cierre sea POR ACCIÓN (invariante 4).
+
+### 0.dr AHORA NO TENÍA CÓMO CALLAR NADA, Y LAS ONs NO TENÍAN BOTÓN (2026-09-06)
+
+**El síntoma.** 214 avisos en AHORA, la mayoría `on_faltante`, cada uno con un
+instructivo de tipeo de cuatro renglones. El user: *«cómo hago para ignorar
+algunos y que ya no vuelvan a aparecer»* y *«ese texto no me interesa porque no
+es algo que quiero hacer manual»*. Las dos cosas son la misma: **el texto es
+largo porque no hay botón**, y el aviso vuelve porque no hay forma de callarlo.
+
+**Por qué está en AHORA y no en ENCONTRÓ.** Invariante 9: a ENCONTRÓ solo entra
+lo que tiene arreglo. `on_faltante` declara que no tiene, y no por olvido — la
+rama `on` no está en `alta.RAMAS_AUTOMATICAS`, así que el paso `rama` del
+pre-flight queda en BLOQUEA y el botón siempre bloquearía. Un botón que siempre
+bloquea enseña a no apretar.
+
+**El botón que faltaba (✕).** `POST /api/agente/ignorar` y la tabla
+`agente.silenciados` existían desde el principio, pero el botón vivía **solo en
+ENCONTRÓ** — o sea, justo donde las filas SÍ tienen arreglo. Los avisos, que son
+la mayoría de AHORA, no tenían forma de callarse: «leído» los saca de la pantalla
+y el detector los vuelve a crear en la pasada siguiente. Se agregó ✕ a AHORA, con
+el mismo endpoint: silencia el TRÍO (habilidad + sujeto + regla) para que **no
+vuelva a nacer**, y es reversible.
+
+**La medición que decide si el botón se puede prender** (`scripts/diag_on_alta`).
+La ambigüedad de la rama `on` es real —1816 manda algunos cuadros de ONs en
+NOMINALES y otros en base 100— pero **se puede medir por bono en vez de
+asumirla**: `alta.convertir_flujos` ya calcula `escala` mirando la Σ de
+amortizaciones, y la rama `dolar_linked` ya normaliza dividiendo por esa Σ (una
+operación que es la identidad cuando el cuadro ya viene en base 100, así que es
+correcta en los dos casos). Y el pre-flight ya tiene el control que no depende de
+creerle a nadie: compara **la PARIDAD contra la de 1816 al mismo precio**. Un
+cuadro mal escalado no da error — da un número plausible y equivocado, y eso es
+exactamente lo que ese cotejo caza.
+
+El diag corre `alta.simular()` (la MISMA función del botón, no una copia) sobre
+las ONs abiertas y reporta escala, Σ, paridad nuestra vs 1816 y el veredicto.
+**Sale a la red y 1816 cobra por cupón**, así que el tope por default es chico.
+Si el cotejo cierra, la rama se prende y el instructivo se reemplaza por «tildar
+y dar de alta». Si no cierra, dice en cuál y con qué número.

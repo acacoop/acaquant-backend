@@ -20,7 +20,7 @@ cierto en ese momento, no lo que era cierto cuando alguien abrió la pantalla.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from agente import libro
 from core.postgres import get_pool
@@ -130,6 +130,12 @@ class Resultado:
     # ¿El efecto se ve YA, o hay que esperar a que el mundo conteste?
     # `False` deja el hallazgo `en_curso`: el detector confirma después.
     inmediato: bool = True
+    # ⚠️ **QUÉ HIZO, PASO POR PASO** (§0.dx). Un arreglo que hace SIETE cosas y
+    # devuelve una frase al final obliga a confiar. Cada paso viaja con lo que
+    # de verdad pasó —incluido el que salió mal sin tumbar a los demás— y la
+    # pantalla lo dibuja como una lista, no como un párrafo. Vacío = el arreglo
+    # todavía no lo cuenta; la pantalla cae al detalle de siempre.
+    pasos: list = field(default_factory=list)
 
 
 class Arreglo:
@@ -380,10 +386,11 @@ class AltaBono(Arreglo):
             return Resultado(False, "el hallazgo no trae la curva de 1816")
         r = alta.aplicar(sujeto, curva_1816=c, actor=por)
         if not r.get("ok") or not r.get("aplicado"):
-            return Resultado(False, str(r.get("error") or "la cadena no cerró"))
+            return Resultado(False, str(r.get("error") or "la cadena no cerró"),
+                             pasos=r.get("pasos") or [])
         return Resultado(True, "bono dado de alta", campo=self.campo,
                          antes="no estaba", despues=f"cargado ({c})",
-                         donde=self.donde)
+                         donde=self.donde, pasos=r.get("pasos") or [])
 
 
 # ── REHACER EL DÍA DE UN JOB ───────────────────────────────────────────────
@@ -874,7 +881,7 @@ class AltaON(Arreglo):
         # La curva de 1816 sale de lo que el DETECTOR guardó, no de lo que mandó
         # el navegador: es la clasificación con la que se decidió que faltaba.
         curvas = {x.get("ticker"): x.get("curva_1816") for x in self._filas(ev)}
-        escritos, errores = [], []
+        escritos, errores, pasos = [], [], []
         for d in datos:
             tk = str((d or {}).get("unidad") or "").strip().upper()
             curva = curvas.get(tk) or str((d or {}).get("valor") or "").strip()
@@ -886,20 +893,24 @@ class AltaON(Arreglo):
             except Exception as e:                                # pragma: no cover
                 errores.append(f"{tk}: {type(e).__name__}: {e}"[:160])
                 continue
-            if r.get("ok") and r.get("aplicado"):
-                escritos.append(tk)
-            else:
-                errores.append(f"{tk}: {r.get('error') or 'la cadena no cerró'}"[:160])
+            hecho = bool(r.get("ok") and r.get("aplicado"))
+            (escritos if hecho else errores).append(
+                tk if hecho else f"{tk}: {r.get('error') or 'la cadena no cerró'}"[:160])
+            # El rastro de CADA una, para que «3 sí y 1 no» diga cuál y por qué.
+            pasos.append({"titulo": tk, "estado": "ok" if hecho else "falló",
+                          "detalle": ((r.get("error") or "")[:300] if not hecho else
+                                      "; ".join(x["titulo"] for x in (r.get("pasos") or [])
+                                                if x.get("estado") == "ok"))})
         if not escritos:
             return Resultado(False, "no se dio de alta ninguna — "
-                             + "; ".join(errores[:4]))
+                             + "; ".join(errores[:4]), pasos=pasos)
         return Resultado(
             True,
             f"{len(escritos)} dada(s) de alta: " + ", ".join(escritos)
             + (f" · {len(errores)} no cerraron: {'; '.join(errores[:3])}"
                if errores else "")
             + " · la TEA aparece al reiniciar motor_rofex + motor_curvas",
-            campo=self.campo, donde=self.donde,
+            campo=self.campo, donde=self.donde, pasos=pasos,
             antes="no estaban", despues=f"{len(escritos)} ON(s)", inmediato=False)
 
 
@@ -974,7 +985,7 @@ def aplicar(hallazgo_id: int, *, por: str = "",
                 antes=r.antes, despues=r.despues, ok=r.ok,
                 error="" if r.ok else r.detalle)
     if not r.ok:
-        return {"ok": False, "error": r.detalle}
+        return {"ok": False, "error": r.detalle, "pasos": r.pasos}
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("UPDATE agente.hallazgos SET estado = %s, "
@@ -1003,7 +1014,7 @@ def aplicar(hallazgo_id: int, *, por: str = "",
                            a.id, h["habilidad"], exc_info=True)
 
     return {"ok": True, "detalle": r.detalle, "estado": tipos.EN_CURSO,
-            "inmediato": r.inmediato,
+            "inmediato": r.inmediato, "pasos": r.pasos,
             "aviso": ("" if r.inmediato else
                       "aplicado — el efecto lo confirma el detector en su "
                       "próxima pasada")}

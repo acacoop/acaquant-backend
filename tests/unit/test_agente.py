@@ -3668,6 +3668,39 @@ def test_la_ON_que_la_mesa_TIENE_y_la_de_CATALOGO_llevan_botones_distintos():
     assert "on" in alta.RAMAS_AUTOMATICAS
 
 
+def test_un_arreglo_cuenta_lo_que_HIZO_paso_por_paso(monkeypatch):
+    """⚠️ **SIETE COSAS Y UNA FRASE AL FINAL** (§0.dx).
+
+    Un alta simula, verifica, escribe, completa la ficha, siembra la tasa, siembra
+    las especies y anota en el libro. Devolvía una sola línea, así que un paso
+    que salía mal sin tumbar a los demás —el bono escrito pero la especie no— iba
+    metido en una subordinada y se leía como éxito.
+
+    El rastro sale del BACKEND: la pantalla no inventa ninguno, y los que fallan
+    también viajan. Es la contracara del pre-flight —uno dice lo que VA a hacer,
+    el otro lo que HIZO— y los dos salen del mismo lugar.
+    """
+    from agente import arreglos
+
+    a = arreglos.ARREGLOS["alta_bono"]
+    monkeypatch.setattr("agente.alta.aplicar", lambda tk, **k: {
+        "ok": True, "aplicado": True,
+        "pasos": [{"titulo": "Escribir el bono", "estado": "ok", "detalle": "8 flujos"},
+                  {"titulo": "Sembrar las patas", "estado": "falló",
+                   "detalle": "Primary no listó ninguna"}]})
+    r = a.aplicar("YM43O", {"curva_1816": "Corporativos USD"}, por="yo")
+    assert r.ok, "un paso que falla sin tumbar la escritura NO invalida el alta"
+    assert [p["estado"] for p in r.pasos] == ["ok", "falló"], (
+        "el paso que salió mal tiene que VERSE, no quedar en una subordinada")
+
+    # Y el que NO cierra también cuenta por qué, en vez de devolver un string pelado.
+    monkeypatch.setattr("agente.alta.aplicar", lambda tk, **k: {
+        "ok": True, "aplicado": False, "error": "el pre-flight no pasa",
+        "pasos": [{"titulo": "Verificar antes de escribir", "estado": "falló"}]})
+    r2 = a.aplicar("YM43O", {"curva_1816": "Corporativos USD"}, por="yo")
+    assert not r2.ok and len(r2.pasos) == 1
+
+
 def test_el_cuadro_de_una_ON_se_VE_y_no_sale_en_guiones():
     """⚠️ **TRES SHAPES DE CUADRO, y la pantalla conocía una.**
 

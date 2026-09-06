@@ -2333,6 +2333,21 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
     from agente import libro as acc
     from api.services import bonos_admin
 
+    # ⚠️ **EL RASTRO DE LO QUE PASÓ, PASO POR PASO** (`AGENT.md` §0.dx). Un alta hace SIETE
+    # cosas —simular, verificar, escribir, ficha, tasa, especies, libro— y hasta
+    # acá devolvía UNA línea de texto al final: el botón se ponía gris y después
+    # aparecía una frase. Si algo salía a medias (el bono escrito pero la especie
+    # no), esa frase lo decía en una subordinada y se leía como éxito.
+    #
+    # Cada paso se anota ACÁ, con lo que de verdad pasó y no con lo que se
+    # esperaba. Es la MISMA idea que el pre-flight —que muestra lo que VA a
+    # hacer— del otro lado de la escritura.
+    pasos: list[dict] = []
+
+    def _p(titulo: str, ok: bool | None, detalle: str = "") -> None:
+        pasos.append({"titulo": titulo, "estado": ("ok" if ok else "falló")
+                      if ok is not None else "info", "detalle": detalle[:300]})
+
     # LA PARADA, antes que nada: `simular` gasta créditos de 1816 y gastarlos
     # para después rechazar la escritura sería tirar el recurso que la parada
     # justamente puede estar protegiendo.
@@ -2344,7 +2359,12 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
     if not sim.get("ok"):
         acc.registrar(accion="alta_bono", objetivo=ticker.upper(), ok=False,
                       error=sim.get("error", "")[:300], por=actor)
-        return {**sim, "aplicado": False}
+        _p("Bajar el cuadro de 1816 y simular", False, sim.get("error", ""))
+        return {**sim, "aplicado": False, "pasos": pasos}
+    _p("Bajar el cuadro de 1816 y simular", True,
+       f"{sim.get('cupones')} cupón/es · escala {sim.get('escala')} · "
+       f"TEA simulada {sim['tea']:.4%}" if sim.get("tea") is not None else
+       f"{sim.get('cupones')} cupón/es · escala {sim.get('escala')} · sin precio")
     # Acá había un `if not sim["aplicable"]: return` — el SEGUNDO gate. Se borró:
     # una rama que no convierte sin ambigüedad ya deja el paso `rama` en BLOQUEA,
     # así que el chequeo de abajo la rechaza igual, y con el motivo puesto.
@@ -2355,9 +2375,13 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
     ver = sim.get("veredicto") or {}
     if not ver.get("puede_aplicar", True):
         bloqueos = [c for c in sim.get("chequeos", []) if c["estado"] == BLOQUEA]
-        return {**sim, "aplicado": False,
+        _p("Verificar antes de escribir (pre-flight)", False,
+           "; ".join(c["titulo"] for c in bloqueos))
+        return {**sim, "aplicado": False, "pasos": pasos,
                 "error": "el pre-flight no pasa: "
                          + "; ".join(c["titulo"] for c in bloqueos)}
+    _p("Verificar antes de escribir (pre-flight)", True,
+       f"{len(sim.get('chequeos') or [])} pasos, ninguno bloquea")
 
     payload = {
         "ticker_corto": sim["ticker"], "ticker": sim["simbolo"],
@@ -2390,7 +2414,12 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
     except Exception as e:
         acc.registrar(accion="alta_bono", objetivo=sim["ticker"], ok=False,
                       error=str(e)[:300], detalle={"rama": sim["rama"]}, por=actor)
-        return {**sim, "aplicado": False, "error": str(e)}
+        _p(f"Escribir en {sim['curva_destino'] or 'mercado.curvas'}", False, str(e))
+        return {**sim, "aplicado": False, "pasos": pasos, "error": str(e)}
+    _p(f"Escribir el bono · curva «{sim['curva_destino']}»", True,
+       ("por la puerta de las ONs (`ons.upsert_on`)" if sim["rama"] == "on"
+        else "por `bonos_admin.upsert_bono`, la misma que Manager")
+       + f" · {len(payload.get('flujos') or [])} flujo(s)")
 
     # ── TASA EXTERNA: el bono NACE con su tasa y su MARGEN ──────────────────
     # De un TAMAR **el margen es el número que mira la mesa**. Sin esto el bono
@@ -2408,6 +2437,9 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
                       error=(tasa_sembrada.get("error") or "")[:300],
                       detalle={k: tasa_sembrada.get(k)
                                for k in ("tea", "spread", "fecha_operacion", "pata")})
+        _p("Sembrar la tasa que trae 1816", bool(tasa_sembrada.get("ok")),
+           (f"TEA {tasa_sembrada['tea']:.4%}" if tasa_sembrada.get("ok")
+            else tasa_sembrada.get("error") or ""))
 
     # ── PASO FINAL DEL ALTA: sembrar las patas ──────────────────────────────
     # Va DESPUÉS del upsert y no antes: solo tiene sentido sembrar la especie de
@@ -2422,6 +2454,9 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
                   ok=bool(siembra.get("ok")), error=(siembra.get("error") or "")[:300],
                   detalle={"simbolos": siembra.get("simbolos", []),
                            "monedas": siembra.get("monedas", [])})
+    _p("Sembrar las patas del papel", bool(siembra.get("ok")),
+       ", ".join(siembra.get("simbolos") or []) if siembra.get("ok")
+       else siembra.get("error") or "")
 
     acc.registrar(accion="alta_bono", objetivo=sim["ticker"], por=actor,
                   detalle={"rama": sim["rama"], "cupones": sim["cupones"],
@@ -2450,7 +2485,12 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
         curvas_sql.invalidar()
     except Exception:
         pass
-    return {**sim, "aplicado": True, "upsert": r, "siembra": siembra,
+    _p("Anotar en el libro (agente.acciones)", True,
+       f"rama «{sim['rama']}» · {sim['cupones']} cupones · vence {sim['vencimiento']}")
+    _p("Para que aparezca la TEA", None,
+       "los motores leen mercado.curvas AL ARRANCAR: hace falta reiniciar "
+       "motor_rofex + motor_curvas")
+    return {**sim, "aplicado": True, "upsert": r, "siembra": siembra, "pasos": pasos,
             "tasa_sembrada": tasa_sembrada, "pendientes": pendientes,
             "aviso": "los motores cargan mercado.curvas AL ARRANCAR: la TEA de este "
                      "bono aparece recién tras reiniciar motor_rofex + motor_curvas"

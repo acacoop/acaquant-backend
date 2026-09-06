@@ -5081,3 +5081,32 @@ El RESIDUAL, que la shape de montos absolutos no trae, se deriva en el backend y
 residual vivo es la suma de las amortizaciones que faltan, y no el campo
 `valor_residual` —que puede venir en otra escala—. El cuadro que se escribe no se
 toca.
+
+
+### 0.dx EL BOTÓN SE PONÍA GRIS — ver lo que el agente VA HACIENDO (2026-09-06)
+
+**El pedido** (user, 2026-09-06, mirando el alta de una ON): *«estaría buenísimo
+que cuando tocás dar de alta no quede así como grisado, y se vea lo que va
+haciendo el paso a paso… así de esa manera es más confiable»*.
+
+Y es exacto: un alta hace **siete cosas** —simular, verificar, escribir, ficha,
+tasa, especies, libro— y devolvía **una frase al final**. Peor que aburrido: si
+algo salía a medias (el bono escrito pero la especie no), esa frase lo decía en
+una subordinada y se leía como éxito.
+
+**Lo que se hizo.** `alta.aplicar` arma un RASTRO: una línea por paso, con
+`ok`/`falló`/`info` y lo que de verdad pasó —no lo que se esperaba—. Viaja por
+`Resultado.pasos` hasta la pantalla, que lo dibuja como lista con ✔/✖ debajo de
+la fila. En `alta_on`, que da de alta varias, cada ON es un paso y adentro lleva
+los suyos: «3 sí y 1 no» dice cuál y por qué.
+
+⚠️ **La pantalla no inventa ningún paso.** Todos vienen del backend, y los que
+fallan también. Es la contracara del pre-flight: uno muestra lo que VA a hacer,
+el otro lo que HIZO, y los dos salen del mismo lugar.
+
+**Lo que esto NO es.** No es streaming: los pasos llegan juntos cuando la
+llamada termina (mientras tanto la fila dice «trabajando…»). Un rastro en vivo
+—cada paso apareciendo mientras corre— es otra cosa: necesita que la escritura
+emita eventos y que el proxy los deje pasar. Queda como pendiente, y la primera
+mitad —que el rastro EXISTA y salga del backend— es la que había que resolver
+primero.

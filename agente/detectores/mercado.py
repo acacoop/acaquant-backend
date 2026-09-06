@@ -798,11 +798,10 @@ def on_faltante(u: dict) -> list[Hallazgo]:
       validar que se encuentra en Primary»*— así que sin foto no se ofrece
       nada: `SinDatos`. Un alta que después no cotiza es peor que un alta que
       llega un día tarde.
-    · **Sin arreglo, y declarado.** La rama `on` no está en
-      `alta.RAMAS_AUTOMATICAS`: 1816 manda algunos cuadros de ONs en NOMINALES
-      y no en base 100 (medido, RESEARCH.md §A.4.9) y esa conversión no está
-      verificada. Un botón que siempre bloquea enseña a no apretar. El
-      `que_hacer` trae lo que hay que tipear en Manager.
+    · **UNA fila para lo que no tenemos.** Si la ON está en cartera, hoy NO
+      VALÚA: eso es un problema de un bono y lleva su fila, con botón. Si no la
+      tenemos, no hay nada roto —es una oferta de catálogo— y va junta en una
+      sola fila que se calla con ✕ (§0.ds).
 
     Lo que comparte con su hermano se comparte de verdad: el mismo censo
     (`fuentes.universo_1816`), la misma foto (`fuentes.tickers_en_primary`), la
@@ -878,9 +877,11 @@ def on_faltante(u: dict) -> list[Hallazgo]:
             detalle=(f"foto de Primary del {foto_txt} · vence "
                      f"{inst.get('fechaVencimiento') or '?'} · "
                      f"{inst.get('denominacion') or ''}".strip(" ·")),
-            que_hacer=("Darla de alta en Manager → TÍTULOS → BONOS → CARGAR → "
-                       f"«Corporativo (ON)»: emisor {emisor}, moneda del flujo USD, "
-                       "cronograma desde el cuadro de 1816."),
+            que_hacer=("Dar de alta desde ENCONTRÓ («ver qué haría» → aplicar): "
+                       "baja el cuadro de 1816, muestra la TEA que tendría y "
+                       "escribe por la misma puerta que el panel de ONs. Si el "
+                       "cotejo contra 1816 no cierra, el botón lo dice y no "
+                       "escribe."),
             evidencia=ficha))
     # ── LA OFERTA DE CATÁLOGO: UNA fila, no doscientas ──────────────────────
     if sueltas:

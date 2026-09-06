@@ -47,7 +47,18 @@ logger = logging.getLogger(__name__)
 # soberanos — y el pre-flight se contradecía solo: el paso 3 decía «no se puede
 # convertir sin ambigüedad» y el 10, tres renglones abajo, «la rama dolar_linked
 # tiene fórmula en engines/curvas.py».
-RAMAS_AUTOMATICAS = ("tasa_fija", "soberanos", "cer", "dolar_linked")
+# ⚠️ `"on"` SE SUMÓ el 2026-09-06, y con la medición delante (§0.du). El miedo era
+# que 1816 mandara los cuadros de ONs en NOMINALES: medido sobre 8, las 8 dieron
+# `escala = vn100` con Σ = 100,0000 exacto. Y la conversión de esta rama es la más
+# simple que existe —montos absolutos, tal cual los manda 1816, que es justo lo
+# que consume el `elif curva == "on"` del motor—, así que «inequívoca» es literal.
+#
+# ⚠️⚠️ Esto NO significa «se aplica sin mirar». Significa que el paso `rama` deja
+# de bloquear a TODAS por adelantado y **cada bono lo juzga su propio cotejo**:
+# de las 8, 5 tienen el cronograma idéntico al de 1816 y 3 no — esas 3 siguen
+# bloqueadas, una por una y con el número puesto. Es exactamente para lo que el
+# pre-flight existe.
+RAMAS_AUTOMATICAS = ("tasa_fija", "soberanos", "cer", "dolar_linked", "on")
 
 # Tolerancia para decidir la ESCALA del cuadro. 1816 manda por VN 100 en los bonos
 # por paridad y en NOMINALES en algunas ONs (medido, §A.4.9 de RESEARCH.md): no
@@ -1700,6 +1711,19 @@ def curva_destino(rama: str, ejes) -> str:
     pre-flight lo BLOQUEE con el motivo, en vez de escribirlos bajo una curva
     parecida y que la vista los agrupe mal para siempre.
     """
+    # ⚠️ **LAS ONs TIENEN OTRA PUERTA, Y ESO NO ES UN OLVIDO.** No viven bajo la
+    # curva «on» pelada sino bajo `on_<sector>`, y se escriben por
+    # `api/services/ons.upsert_on` —con su propio panel en Manager— y no por
+    # `bonos_admin.upsert_bono`. Por eso «on» no está en `CURVAS_BONO` y
+    # preguntarle a esa lista devolvía "" y BLOQUEABA el alta de cualquier ON.
+    #
+    # El sector 1816 no lo publica: nace en `on_otros`, que es el default del
+    # propio `slug_sector`, y se reclasifica desde el panel de ONs —que ya tiene
+    # ese botón— sin reiniciar nada. Un sector provisorio no rompe la valuación:
+    # el motor despacha por `curva.startswith("on_")`.
+    if rama == "on":
+        from api.services.ons import slug_sector
+        return f"on_{slug_sector(getattr(ejes, 'sector', ''))}"
     from api.services.bonos_admin import curvas_validas
     validas = curvas_validas()
     if rama in validas:
@@ -2269,6 +2293,35 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
 
 
 @_interactivo
+def _upsert_on_desde_simulacion(sim: dict, payload: dict, *, actor: str = "") -> dict:
+    """La simulación → el payload que espera `ons.upsert_on`. Traduce, no escribe.
+
+    Los flujos ya vienen en la shape que esa puerta pide —`{fecha, amortizacion,
+    interes}`, montos absolutos por 100 VN— porque es la MISMA que el motor
+    consume en su rama `on`: el `else` de `convertir_flujos` no los toca.
+
+    La pata: se manda la USD, que es la que 1816 publica y la que el motor valúa
+    con la matemática hard-dólar. `bondmaster_to_curva_doc` elige por
+    `moneda_flujo`, así que mandar las dos claves con una sola cargada es
+    correcto y no inventa una pata que no medimos.
+    """
+    from api.services import ons
+
+    ficha = sim.get("ficha_curvas") or {}
+    return ons.upsert_on({
+        "asset": sim["ticker"],
+        "tickers": {"USD": sim["simbolo"], "ARS": None},
+        "moneda_flujo": payload.get("moneda_flujo") or "USD",
+        "emisor": ficha.get("emisor") or "",
+        # 1816 no publica el sector → `slug_sector` lo lleva a `otros` y la ON
+        # nace en `on_otros`. Se reclasifica desde el panel, en vivo.
+        "sector": ficha.get("sector") or "otros",
+        "tasa_cupon": ficha.get("tasa_cupon"),
+        "vencimiento": sim["vencimiento"],
+        "flujos": (sim.get("cuadro") or {}).get("flujos") or [],
+    }, actor=actor)
+
+
 def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
             cer_emision: float | None = None) -> dict:
     """Simula y, si la rama lo permite y hay cuadro, **da de alta el bono**.
@@ -2326,7 +2379,14 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
         payload["flujos"] = conv["flujos"]
 
     try:
-        r = bonos_admin.upsert_bono(payload, actor=actor)
+        # ⚠️ CADA TIPO POR SU PUERTA. Una ON no se escribe por `upsert_bono`: vive
+        # como `on_<sector>` y la mesa la edita desde el panel de ONs. Usar la
+        # puerta de la mesa —y no una escritura propia— es lo que garantiza que
+        # un alta del agente no pueda tener otra shape que un alta humana.
+        if sim["rama"] == "on":
+            r = _upsert_on_desde_simulacion(sim, payload, actor=actor)
+        else:
+            r = bonos_admin.upsert_bono(payload, actor=actor)
     except Exception as e:
         acc.registrar(accion="alta_bono", objetivo=sim["ticker"], ok=False,
                       error=str(e)[:300], detalle={"rama": sim["rama"]}, por=actor)

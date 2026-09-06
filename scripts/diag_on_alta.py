@@ -3,27 +3,20 @@
 Read-only. **No escribe una sola fila.** Doc: `docs/AGENT.md` §0.dp (la habilidad
 `on_faltante`), §0.dr (esta medición) y §0.ds (qué dijo).
 
-## La pregunta
+## Qué contesta
 
-`on_faltante` encuentra las ONs hard dólar que 1816 lista, Primary cotiza y no
-están en el master — y **no tiene botón**. Por eso cae en AHORA (invariante 9: a
-ENCONTRÓ solo entra lo que tiene arreglo) y su `que_hacer` es un instructivo para
-tipear en Manager.
+**Cuáles de las ONs que faltan se pueden dar de alta, y cuáles no.**
 
-No tiene botón por UNA línea: la rama `on` no está en `alta.RAMAS_AUTOMATICAS`,
-porque 1816 manda algunos cuadros de ONs en NOMINALES y otros en base 100
-(RESEARCH.md §A.4.9) y esa conversión no estaba verificada.
+El botón ya existe (§0.du): la rama `on` está en `alta.RAMAS_AUTOMATICAS`, así
+que el paso `rama` no bloquea a todas por adelantado y **cada bono lo juzga su
+propio cotejo contra 1816**. Este diag corre ese mismo cotejo en lote, para ver
+de antemano cuántas van a pasar sin ir apretando una por una.
 
-**Pero la ambigüedad se puede MEDIR por bono, no hay que asumirla.**
-`alta.convertir_flujos` ya calcula `escala` mirando la Σ de amortizaciones
-(`vn100` si cae entre 95 y 105, si no `nominales`), y la rama `dolar_linked` ya
-normaliza dividiendo por esa Σ — la operación es la identidad cuando el cuadro ya
-viene en base 100, así que es correcta en los dos casos.
-
-Y hay un segundo control que no depende de creerle a nadie: el pre-flight
-compara la **PARIDAD** contra la que publica 1816 **al mismo precio**. Un cuadro
-mal escalado no tira error, pero da una paridad que no cierra. Ese es el número
-que decide si la rama se puede prender.
+Lo que decide es **la duration**, no la TEA ni la paridad, y hay una razón
+medida: 1816 anualiza 180-360 y nosotros con días reales, así que la TEA nunca
+cierra —ni en los bonos que están perfectos—; y la paridad de ellos incluye el
+interés corrido y la nuestra no. La duration sale SOLO del cronograma y las
+fechas: si coincide, el cuadro que escribiríamos es el de ellos.
 
 ## Qué hace este diag
 
@@ -175,14 +168,14 @@ def main() -> int:
             print(f"«{tk}» no está entre las ONs abiertas de `{HABILIDAD}`.")
             return 1
 
-    _titulo("0. EL UNIVERSO Y LA REGLA QUE APAGA EL BOTÓN")
+    _titulo("0. EL UNIVERSO Y LA RAMA")
     print(f"  `{HABILIDAD} · {REGLA}` abiertas: {len(todas)}"
           + (f" (filtrado a {a.ticker})" if a.ticker else "")
           + (" · SOLO las de cartera" if a.solo_cartera else "") + "\n")
     print(f"  `alta.RAMAS_AUTOMATICAS` = {alta.RAMAS_AUTOMATICAS}")
-    print("  La rama de un corporativo es «on», y NO está en esa tupla: por eso\n"
-          "  `_alta_automatica` devuelve False, el pre-flight deja el paso `rama`\n"
-          "  en BLOQUEA y no hay botón. Todo lo demás de la cadena ya existe.\n")
+    print("  La rama de un corporativo es «on» y YA ESTÁ en esa tupla (§0.du): el\n"
+          "  paso `rama` no bloquea más en bloque, así que **cada bono lo juzga su\n"
+          "  propio cotejo contra 1816**. Este diag muestra cuál pasa y cuál no.\n")
     if not todas:
         print("  No hay ONs abiertas: nada que medir.")
         return 0

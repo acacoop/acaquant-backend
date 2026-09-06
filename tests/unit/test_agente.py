@@ -3551,7 +3551,7 @@ def test_on_faltante_solo_ofrece_lo_que_primary_cotiza(monkeypatch):
     assert [x["ticker"] for x in fam.evidencia["_items"]] == ["COTIZA"]
     assert por["ENCART"].severidad == "alta" and "CARTERA" in por["ENCART"].problema
     assert "Primary NO la lista" in por["ENCART"].problema
-    assert "Corporativo (ON)" in por["ENCART"].que_hacer
+    assert "ENCONTRÓ" in por["ENCART"].que_hacer
 
 
 def test_on_faltante_sin_foto_de_primary_no_ofrece_nada(monkeypatch):
@@ -3624,10 +3624,15 @@ def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():
     from agente import alta
     from engines.curvas import RAMAS_CON_FORMULA
 
-    assert "on" in RAMAS_CON_FORMULA and "on" not in alta.RAMAS_AUTOMATICAS, (
-        "el caso que separa las dos preguntas: el motor SÍ valúa una ON, "
-        "y su cuadro NO se convierte solo")
+    # Las dos listas se PARECEN y contestan cosas distintas. `tamar`/`dual` son
+    # el caso que las separa hoy: la mesa los tiene cargados y el motor NO les
+    # calcula la tasa a propósito (cae en el `else`), así que ninguna de las dos
+    # los incluye — pero la razón es otra en cada una, y por eso siguen separadas.
+    assert "on" in RAMAS_CON_FORMULA
     assert alta._ramas_con_formula() == RAMAS_CON_FORMULA
+    assert alta._ramas_con_formula() is not alta.RAMAS_AUTOMATICAS, (
+        "son dos preguntas distintas: si una pasa a ser un alias de la otra, "
+        "vuelve el bug de las ONs")
     # Y cada rama de la lista tiene su `elif` de verdad en el motor: si alguien
     # suma una a mano sin escribir la fórmula, esto falla.
     src = inspect.getsource(__import__("engines.curvas", fromlist=["x"]).calcular_campos)
@@ -3636,14 +3641,56 @@ def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():
             f"«{rama}» está declarada con fórmula y no tiene rama en calcular_campos")
 
 
-def test_on_faltante_no_declara_un_boton_que_siempre_bloquea():
-    """La rama `on` no está en RAMAS_AUTOMATICAS: declarar `alta_bono` haría que
-    cada preview dijera «no aplicable». Sin arreglo, y el que_hacer lo explica."""
+def test_la_ON_que_la_mesa_TIENE_lleva_boton_y_la_de_catalogo_no():
+    """⚠️ **El botón existe, y solo donde hay algo roto.**
+
+    Hasta el 2026-09-06 `on_faltante` no declaraba arreglo porque la rama `on`
+    bloqueaba a TODAS por adelantado (§0.dt) — y un botón que siempre bloquea
+    enseña a no apretar. Con la conversión medida (§0.du) el paso `rama` deja de
+    bloquear en bloque y **cada bono lo juzga su propio cotejo contra 1816**: de
+    8 medidas, 5 con el cronograma idéntico y 3 que siguen bloqueadas.
+
+    El arreglo va sobre la regla de las que la mesa TIENE. La fila de familia
+    —las que 1816 publica y nosotros no seguimos— **no lleva botón a propósito**:
+    ahí no hay nada roto, y a ENCONTRÓ solo entra lo que tiene arreglo
+    (invariante 9).
+    """
     from agente import alta
     h = catalogo.HABILIDADES["on_faltante"]
-    assert not h.arreglos and h.sujeto_es == "bono" and h.ventana == "rueda"
-    assert "on" not in alta.RAMAS_AUTOMATICAS, (
-        "si la rama `on` ya convierte sola, on_faltante puede declarar alta_bono")
+    assert h.sujeto_es == "bono" and h.ventana == "rueda"
+    assert h.arreglos == {"no_esta_en_curvas": "alta_bono"}
+    assert "no_estan_en_curvas" not in h.arreglos, (
+        "la fila de catálogo NO lleva botón: no hay nada roto que arreglar")
+    assert "on" in alta.RAMAS_AUTOMATICAS
+
+
+def test_una_ON_se_escribe_por_la_puerta_de_las_ONs_y_no_por_la_de_bonos():
+    """⚠️ **CADA TIPO POR SU PUERTA, y confundirlas bloqueaba todo.**
+
+    Las ONs no viven bajo la curva «on» pelada: viven en `on_<sector>` y se
+    escriben por `api/services/ons.upsert_on`, con su propio panel en Manager.
+    Por eso «on» no está en `bonos_admin.CURVAS_BONO` — y `curva_destino`, que le
+    preguntaba a esa lista, devolvía "" y dejaba el paso «la escritura va a ser
+    aceptada» en BLOQUEA para CUALQUIER ON, con el cuadro perfecto.
+
+    Usar la puerta de la mesa y no una escritura propia es lo que garantiza que
+    un alta del agente no pueda tener otra shape que un alta humana.
+    """
+    from types import SimpleNamespace
+
+    from agente import alta
+    from api.services.bonos_admin import CURVAS_BONO
+
+    assert "on" not in CURVAS_BONO, "si «on» entró acá, revisar por qué"
+    ejes = SimpleNamespace(ajuste="fija", moneda="USD", emisor_tipo="corporativo")
+    assert alta.curva_destino("on", ejes) == "on_otros", (
+        "1816 no publica el sector: la ON nace en on_otros y se reclasifica "
+        "desde el panel, en vivo")
+    # Y `aplicar` rutea de verdad: el traductor existe y el `if` lo usa.
+    src = inspect.getsource(alta.aplicar)
+    assert 'sim["rama"] == "on"' in src and "_upsert_on_desde_simulacion" in src
+    tr = inspect.getsource(alta._upsert_on_desde_simulacion)
+    assert "ons.upsert_on" in tr and "upsert_bono" not in tr
 
 
 # ═══════════════════════════════════════════════════════════════════════════

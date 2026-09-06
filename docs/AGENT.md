@@ -4987,3 +4987,41 @@ nosotros por el residual) y su indicador no sirve de juez.
 **Lo que queda para que el botón exista**: rutear el alta a `ons.upsert_on`,
 resolver el sector, y decidir qué hacer con las que difieren en duration (no se
 aplican solas: el cotejo ya las bloquea una por una, que es para lo que está).
+
+
+### 0.du LA ON YA TIENE BOTÓN — la rama se prendió CON la medición delante (2026-09-06)
+
+**Lo medido** (`scripts/diag_on_alta`, 8 ONs): las 8 con `escala = vn100` y
+Σ amortizaciones = 100,0000 exacto. **El miedo que apagó la rama —que 1816
+mandara las ONs en nominales— no existe en esta muestra.** Y la conversión de
+esta rama es la más simple que hay: montos absolutos, tal cual los manda 1816,
+que es exactamente lo que consume el `elif curva == "on"` del motor. El `else`
+de `convertir_flujos` no los toca.
+
+Duration nuestra contra la de 1816: **5 de 8 idénticas al tercer decimal**
+(0,00% – 0,24%), 3 que difieren 1,17% – 2,06%.
+
+**Qué significa prender la rama, y qué NO.** `on` entró en `RAMAS_AUTOMATICAS`:
+el paso `rama` deja de bloquear a TODAS por adelantado. **No es «se aplica sin
+mirar»** — es que cada bono pasa a juzgarlo su propio cotejo contra 1816, que es
+para lo que el pre-flight existe. Las 3 que difieren siguen bloqueadas, una por
+una y con el número puesto. Los umbrales no se tocaron: bajar una guarda para
+que dé el resultado que uno quiere es exactamente lo que este diseño previene.
+
+**La segunda puerta cerrada, que no era la rama.** `curva_destino` le preguntaba
+a `bonos_admin.curvas_validas()` y «on» no está ahí — **y no es un olvido**: las
+ONs viven en `on_<sector>` y se escriben por `api/services/ons.upsert_on`, con su
+propio panel en Manager. O sea que el paso «la escritura va a ser aceptada»
+bloqueaba CUALQUIER ON aunque el cuadro fuera perfecto. Ahora `aplicar` rutea:
+rama `on` → la puerta de las ONs, el resto → `upsert_bono`. **Se usa la puerta de
+la mesa y no una escritura propia**, que es lo que garantiza que un alta del
+agente no pueda tener otra shape que un alta humana.
+
+El **sector** 1816 no lo publica: la ON nace en `on_otros` —el default del propio
+`slug_sector`— y se reclasifica desde el panel de ONs, en vivo. Un sector
+provisorio no rompe la valuación: el motor despacha por `curva.startswith("on_")`.
+
+**Dónde queda el botón.** Sobre la regla `no_esta_en_curvas`, que después de
+§0.ds son solo **las que la mesa TIENE y hoy no valúan**. La fila de familia
+—las que 1816 publica y nosotros no seguimos— sigue sin botón a propósito: ahí no
+hay nada roto, y a ENCONTRÓ solo entra lo que tiene arreglo (invariante 9).

@@ -85,7 +85,14 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="on_faltante", tipo="detector", dominio="MERCADO",
         que_mira="ONs hard dólar que 1816 lista, Primary cotiza y no están en el master",
         cada_segundos=2 * _H, ventana="rueda",
-        correr=mercado.on_faltante, sujeto_es="bono"),
+        correr=mercado.on_faltante, sujeto_es="bono",
+        # ⚠️ El botón existe desde que la rama `on` entró en `RAMAS_AUTOMATICAS`
+        # (§0.du): el paso `rama` dejó de bloquearlas a todas por adelantado y
+        # cada bono lo juzga su propio cotejo contra 1816. Lo aplica sobre la
+        # regla `no_esta_en_curvas` —las que la mesa TIENE y hoy no valúan—; la
+        # fila de familia (`no_estan_en_curvas`) sigue sin arreglo, porque no hay
+        # nada roto ahí y es una oferta de catálogo, no un problema.
+        arreglos={"no_esta_en_curvas": "alta_bono"}),
 
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",

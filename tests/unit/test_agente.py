@@ -3695,6 +3695,39 @@ def test_finnhub_vacio_no_se_lee_como_es_un_etf(monkeypatch):
     assert r[0]["propuesto"] == "" and r[0]["fuente"] == ""
 
 
+def test_una_accion_sin_ficha_no_va_al_modelo_y_un_etf_con_ficha_si(monkeypatch):
+    """⚠️ **Dónde el modelo NO opina, y por qué es ahí y no en otro lado.**
+
+    Medido el 2026-09-05: en RENTA VARIABLE **sin** subyacente cargado el modelo
+    acertó 2 de 6, y las cuatro que erró son el mismo caso —una acción argentina
+    cuyo emisor no está en la lista cerrada, así que eligió el más parecido:
+    `TXAR → YPF`, `TRAN → Transportadora de Gas del Norte`, `OEST → BBVA`,
+    `AGRO → Banco de Valores`—. Plausibles todas, y falsas todas; un emisor
+    equivocado se suma a los totales **sin que nada falle** (REGLA #9).
+
+    El corte NO es «renta variable»: es **«sin ficha»**. Un ETF tiene subyacente
+    cargado y Finnhub simplemente no lo cubre — ese sí va al modelo, que contestó
+    `OTROS` 8 de 8. Si el corte fuera por cartera a secas, los ETFs se apagarían
+    con él.
+    """
+    from agente import emisor
+
+    monkeypatch.setattr(emisor, "por_finnhub", lambda u: "")
+    visto: list = []
+    monkeypatch.setattr(emisor, "por_modelo",
+                        lambda f, e: visto.extend(x["ticker"] for x in f) or {})
+    filas = [
+        {"unidad": "[19] TXAR", "ticker": "TXAR", "cartera": "RENTA VARIABLE"},
+        {"unidad": "[8671] XLK", "ticker": "XLK", "cartera": "RENTA VARIABLE"},
+        {"unidad": "[903] Ciclo Nova", "ticker": "CN", "cartera": "FCI"},
+    ]
+    r = emisor.proponer(filas, ["OTROS", "IEB"], subyacentes={"XLK": "XLK"})
+    assert visto == ["XLK", "CN"], (
+        "una acción sin ficha no va al modelo; el ETF con ficha y el FCI sí")
+    # Y la que no fue al modelo vuelve VACÍA, no «lo más parecido».
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("", "")
+
+
 def test_el_emisor_propuesto_no_escribe_nada_por_su_cuenta():
     """**Propone, no aplica.** La escritura sigue donde estaba.
 

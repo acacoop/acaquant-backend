@@ -4804,3 +4804,58 @@ No es olvido: 1816 manda algunos cuadros de ONs en NOMINALES y no en base 100
 siempre bloquea enseña a no apretar. Hasta que la conversión se mida, el
 `que_hacer` trae lo que hay que tipear.
 
+
+### 0.dq EL EMISOR PROPUESTO — dónde el modelo opina y dónde no (2026-09-05)
+
+**Qué había.** `ficha_incompleta · sin_emisor` listaba los títulos con el emisor
+vacío y ofrecía un campo de texto. Nada proponía nada: había que ir título por
+título a tipearlo. El user (2026-09-05): *«esto tiene que empezar a hacerse solo,
+yo lo voy a confirmar»* — no autonomía, **trabajo hecho y una persona que
+destilda lo que esté mal**.
+
+**Qué se hizo.** `agente/emisor.py`: una cadena de cuatro eslabones, y cada
+propuesta viaja con su FUENTE hasta la pantalla.
+
+1. `regla` — las mismas reglas determinísticas del cron. Se **importan** de
+   `jobs/assets_autofill` (un test prohíbe la palabra `FINANCIAMIENTO` dentro de
+   `emisor.py`): la pantalla no puede saber menos que el job de la noche, y una
+   regla copiada son dos copias sin árbitro (REGLA #9).
+2. `nombre` — el emisor está adentro del nombre del FCI («Allaria Ahorro Plus»).
+   Puro, `\b`, el más largo primero: con menos de 5 caracteres un match es
+   casualidad.
+3. `finnhub` — si el ticker tiene subyacente en `mercado.cedears`, el perfil de
+   la empresa. **7 de 7 correctos, medido.**
+4. `modelo` — sólo lo que sobró, **eligiendo de la lista cerrada de emisores que
+   ya existen**. Lo que conteste fuera de la lista se descarta, y devolver vacío
+   es una respuesta válida.
+
+**Las tres guardas.** El modelo no puede inventar un emisor ni una variante de
+grafía (así nacieron `CREDICUOTAS` y `Credicuotas Consumo`, el mismo emisor
+partido en dos que hace que todo lo que agrupe por emisor cuente mal) · «no sé»
+no completa nada · un tope de filas por pantalla, declarado. Y si el gateway no
+contesta, las filas vuelven como estaban: **meter IA acá no puede agregar un
+modo de falla nuevo, sólo puede ahorrar tipeo.**
+
+**Lo que salió mal, y el corte que dejó.** La primera versión pedía a la vez
+«elegí de la lista» y «si no sabés, vacío». El modelo resolvió la contradicción
+eligiendo *el más parecido*, y escribió cuatro emisores plausibles y falsos:
+`TXAR → YPF`, `TRAN → Transportadora de Gas del Norte`, `OEST → BBVA`,
+`AGRO → Banco de Valores`. Se arregló el prompt, y además se midió: en RENTA
+VARIABLE **sin ficha** el modelo acierta 2 de 6. Ahí ya no opina
+(`SIN_FICHA_NO_OPINA`). El corte NO es la cartera: es **la ficha** — un ETF tiene
+subyacente cargado y Finnhub simplemente no lo cubre, y ese sí va al modelo, que
+contesta `OTROS` 8 de 8. Lo que queda vacío tiene su camino propio y ya existe:
+`cedear_faltante` → `alta_cedear`, que los da de alta CON subyacente, y desde ahí
+contesta Finnhub.
+
+**Nada de esto escribe.** La escritura sigue siendo la de siempre —
+`arreglos.CompletarFicha` → `assets_sql.set_campos(crear=False)`, contra la lista
+viva de faltantes y con una línea de libro por título — y **sólo completa
+vacíos**: un emisor ya cargado no se toca nunca (congelado por test).
+
+**Y la tarjeta.** En el camino se descubrió que la de `ficha_incompleta` decía
+«EMISOR» cuatro veces, repetía tres timestamps y mostraba una muestra truncada de
+lo que el listado ya lista. Quedó un campo, un número y un botón. Además decía 44
+cuando quedaban 10: nada re-corría el detector después de aplicar un arreglo.
+`Arreglo.confirma_ya` lo corre en el acto, **después** de marcar `en_curso`, para
+que el cierre sea POR ACCIÓN (invariante 4).

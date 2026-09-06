@@ -1,6 +1,7 @@
 """`agente/emisor.py` — **QUIÉN ES EL EMISOR, PROPUESTO Y CON SU FUENTE.**
 
 Doc: `docs/AGENT.md` §5 → habilidad `ficha_incompleta`, regla `sin_emisor`.
+Historia (por qué la cadena es ésta y dónde el modelo no opina): `AGENT.md` §0.dq.
 
 EL PROBLEMA
 ===========
@@ -79,6 +80,32 @@ REGLA, NOMBRE, FINNHUB, MODELO = "regla", "nombre", "finnhub", "modelo"
 # Cuántas filas van al modelo por pantalla. Un tope que no está escrito no es un
 # tope — mismo criterio que `redactar.TOPE_POR_PASADA` y `triage.TOPE_DIARIO`.
 TOPE_MODELO = 80
+# ⚠️⚠️ **DÓNDE EL MODELO NO OPINA, Y ESTÁ MEDIDO** (2026-09-05).
+#
+# En RENTA VARIABLE sin ficha del subyacente el modelo acertó **2 de 6**:
+#
+#     ✔ TECO2 → TELECOM          ✘ TRAN → TRANSPORTADORA DE GAS DEL NORTE
+#     ✔ CGPA2 → Camuzzi          ✘ TXAR → YPF
+#                                ✘ OEST → BBVA Argentina
+#                                ✘ AGRO → BANCO DE VALORES
+#
+# Los cuatro errores son el MISMO caso: una acción argentina cuyo emisor no
+# está en la lista cerrada, así que el modelo eligió el más parecido —del rubro
+# correcto, plausible, y falso—. Y un emisor equivocado en este campo se suma a
+# los totales de la casa **sin que nada falle**.
+#
+# Con ficha, en cambio, Finnhub acertó **7 de 7**. La diferencia no es el
+# modelo: es que uno LEE una fuente y el otro RECUERDA.
+#
+# Así que acá el modelo no opina. La fila queda vacía, que es una respuesta
+# honesta, y el camino correcto ya existe: estos tickers están en la foto de
+# Primary, `cedear_faltante` los detecta y `alta_cedear` los da de alta CON su
+# subyacente — y desde ahí Finnhub contesta.
+#
+# ⚠️ Un ETF NO cae acá: tiene ficha (`underlying`), lo que pasa es que Finnhub
+# no lo cubre. Sigue yendo al modelo, que contesta OTROS — 8 de 8.
+SIN_FICHA_NO_OPINA = frozenset({"RENTA VARIABLE"})
+
 # Cuántos caracteres tiene que tener un emisor para buscarlo dentro de un
 # nombre. Con menos, un match es casualidad: `MAX` adentro de «Maxinta» no dice
 # nada, y emparejar mal es peor que no emparejar (REGLA #9).
@@ -319,8 +346,15 @@ def proponer(filas: list[dict], emisores: list[str], *,
             if (v := por_finnhub(und)):
                 fila["propuesto"], fila["fuente"] = v, FINNHUB
         out.append(fila)
-        if not fila["propuesto"]:
-            pendientes.append(fila)
+        if fila["propuesto"]:
+            continue
+        # El modelo no adivina un emisor de renta variable sin ficha: ahí acertó
+        # 2 de 6, y todas las que erró fueron acciones locales. Ver el bloque de
+        # `SIN_FICHA_NO_OPINA`.
+        sin_ficha = not subs.get((f.get("ticker") or "").strip().upper())
+        if sin_ficha and (f.get("cartera") or "").strip().upper() in SIN_FICHA_NO_OPINA:
+            continue
+        pendientes.append(fila)
 
     if usar_modelo and pendientes:
         elegidos = por_modelo(pendientes, emisores)

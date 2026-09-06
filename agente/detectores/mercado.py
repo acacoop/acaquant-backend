@@ -770,6 +770,20 @@ ALCANCE_ON = frozenset({"corporativo"})
 MONEDAS_ON = frozenset({"USD"})
 AJUSTES_ON = frozenset({"fija"})
 
+# ⚠️⚠️ **UNA FILA POR FAMILIA PARA LAS QUE LA MESA NO TIENE** — el mismo criterio
+# que `cedear_faltante`, y por la misma razón medida: 1816 publica MUCHAS más ONs
+# de las que la mesa mira (212 el 2026-09-06), y 212 avisos no se leen. Peor: no
+# se pueden ni callar de a uno.
+#
+# El corte NO es «cuáles son importantes» —eso no lo sabe el sistema— sino uno
+# que sí se puede afirmar: **si la tenemos en cartera, hoy no valúa**. Eso es un
+# problema concreto de un bono concreto y merece su propia fila. Lo que NO
+# tenemos es una oferta de catálogo, y una oferta es UNA fila con una lista
+# adentro que el ✕ silencia de un click.
+FAMILIA_ON = "ONs HARD DÓLAR"
+# Cuántos tickers viajan en el detalle de esa fila (el resto va en la evidencia).
+MUESTRA_ON = 10
+
 
 def on_faltante(u: dict) -> list[Hallazgo]:
     """ONs hard dólar que 1816 lista, **Primary cotiza**, y no están en
@@ -816,7 +830,7 @@ def on_faltante(u: dict) -> list[Hallazgo]:
     foto = fuentes.primary_fecha()
     foto_txt = foto.strftime("%d/%m %H:%M UTC") if foto else "sin fecha"
 
-    out, sin_primary, por_vencer = [], [], 0
+    out, sin_primary, por_vencer, sueltas = [], [], 0, []
     for ticker, inst in sorted((univ["instrumentos"] or {}).items()):
         if _es_pata_1816(ticker):
             continue
@@ -842,30 +856,48 @@ def on_faltante(u: dict) -> list[Hallazgo]:
             continue
         emisor = inst.get("emisorNombre") or inst.get("emisor") or "?"
         cotiza = tk in tickers_primary
+        ficha = {
+            "curva_1816": curva, "ticker_1816": ticker, "emisor": emisor,
+            "denominacion": inst.get("denominacion"),
+            "moneda": inst.get("monedaDenom"), "isin": inst.get("isinCode"),
+            "vencimiento_1816": inst.get("fechaVencimiento"),
+            "en_cartera": lo_tenemos, "cotiza_en_primary": cotiza,
+            "foto_primary": foto_txt, "fuente_universo": univ["fuente"]}
+        # LO QUE NO TENEMOS EN CARTERA no es un problema de un bono: es una
+        # oferta de catálogo. Va junta, en UNA fila (ver `FAMILIA_ON`, §0.ds).
+        if not lo_tenemos:
+            sueltas.append({"ticker": tk, "emisor": emisor, "curva_1816": curva,
+                            "vencimiento": inst.get("fechaVencimiento") or "",
+                            "denominacion": inst.get("denominacion") or ""})
+            continue
         out.append(Hallazgo(
-            sujeto=tk, regla="no_esta_en_curvas",
-            severidad="alta" if lo_tenemos else "media",
-            problema=((f"⚠ LO TENÉS EN CARTERA y no está en el master: hoy no "
-                       f"valúa. ON de {emisor}, 1816 la publica en «{curva}»"
-                       + ("" if cotiza else " y Primary NO la lista"))
-                      if lo_tenemos else
-                      f"ON de {emisor} en «{curva}»: cotiza en Primary y no está "
-                      f"en el master · {reloj.hhmm()}"),
+            sujeto=tk, regla="no_esta_en_curvas", severidad="alta",
+            problema=(f"⚠ LO TENÉS EN CARTERA y no está en el master: hoy no "
+                      f"valúa. ON de {emisor}, 1816 la publica en «{curva}»"
+                      + ("" if cotiza else " y Primary NO la lista")),
             detalle=(f"foto de Primary del {foto_txt} · vence "
                      f"{inst.get('fechaVencimiento') or '?'} · "
                      f"{inst.get('denominacion') or ''}".strip(" ·")),
             que_hacer=("Darla de alta en Manager → TÍTULOS → BONOS → CARGAR → "
                        f"«Corporativo (ON)»: emisor {emisor}, moneda del flujo USD, "
-                       "cronograma desde el cuadro de 1816. No hay botón: la rama "
-                       "`on` todavía no convierte el cuadro sola (algunas ONs "
-                       "vienen en nominales y no en base 100)."),
-            evidencia={
-                "curva_1816": curva, "ticker_1816": ticker, "emisor": emisor,
-                "denominacion": inst.get("denominacion"),
-                "moneda": inst.get("monedaDenom"), "isin": inst.get("isinCode"),
-                "vencimiento_1816": inst.get("fechaVencimiento"),
-                "en_cartera": lo_tenemos, "cotiza_en_primary": cotiza,
-                "foto_primary": foto_txt, "fuente_universo": univ["fuente"]}))
+                       "cronograma desde el cuadro de 1816."),
+            evidencia=ficha))
+    # ── LA OFERTA DE CATÁLOGO: UNA fila, no doscientas ──────────────────────
+    if sueltas:
+        muestra = [f"{x['ticker']} ({x['emisor']})" for x in sueltas[:MUESTRA_ON]]
+        out.append(Hallazgo(
+            sujeto=FAMILIA_ON, regla="no_estan_en_curvas", severidad="baja",
+            problema=(f"{len(sueltas)} ON(s) hard dólar cotizan en Primary y no "
+                      f"están en el master · {reloj.hhmm()}"),
+            detalle=(f"foto de Primary del {foto_txt} · " + " · ".join(muestra)
+                     + (" · …" if len(sueltas) > len(muestra) else "")),
+            que_hacer=("Ninguna está en cartera, así que no hay nada roto: es lo "
+                       "que 1816 publica y nosotros no seguimos. Cargar en Manager "
+                       "→ TÍTULOS → BONOS → CARGAR → «Corporativo (ON)» las que la "
+                       "mesa quiera mirar, o silenciar este aviso con ✕ si el "
+                       "catálogo de ONs no es algo que se siga."),
+            evidencia={"cantidad": len(sueltas), "foto_primary": foto_txt,
+                       "fuente_universo": univ["fuente"], "_items": sueltas}))
     if sin_primary:
         logger.info("on_faltante: %d ON(s) de 1816 descartadas por no cotizar en "
                     "Primary: %s", len(sin_primary), ", ".join(sorted(sin_primary)[:20]))

@@ -1,7 +1,7 @@
 """`scripts/diag_on_alta.py` — **¿SE PUEDEN DAR DE ALTA SOLAS LAS ONs?**
 
 Read-only. **No escribe una sola fila.** Doc: `docs/AGENT.md` §0.dp (la habilidad
-`on_faltante`) y §0.dr (esta medición).
+`on_faltante`), §0.dr (esta medición) y §0.ds (qué dijo).
 
 ## La pregunta
 
@@ -120,7 +120,18 @@ def _una(on: dict, *, detalle: bool) -> dict:
          "rama": sim.get("rama"), "escala": conv.get("escala"),
          "suma_amort": conv.get("suma_amort"), "n": conv.get("n"),
          "tea": sim.get("tea"), "paridad": sim.get("paridad"),
-         "paridad_1816": ref.get("paridad"),
+         # ⚠️ ESCALA: nuestro motor devuelve la paridad en PORCENTAJE (98.11) y
+         # 1816 la publica como FRACCIÓN (0.9811). La primera versión de este
+         # diag las imprimía crudas y mostraba «0.98%» al lado de «102.77%» —
+         # dos números que parecían contradecirse y no lo hacían. Es el mismo
+         # bug que `_cotejo_tea` documenta y evita adentro.
+         "paridad_1816": (ref.get("paridad") * 100
+                          if isinstance(ref.get("paridad"), int | float) else None),
+         # EL TESTIGO QUE DECIDE. No depende del precio ni del tipo de cambio ni
+         # del interés corrido: si la duration coincide, el cronograma ES el de
+         # ellos y la diferencia de paridad es definición, no error.
+         "duration": sim.get("duration"),
+         "duration_1816": ref.get("duration"),
          "cotejo": cot.get("estado") or "—", "cotejo_txt": cot.get("detalle") or "",
          "puede_aplicar": ver.get("puede_aplicar"),
          "puede_auto": ver.get("puede_auto"),
@@ -178,19 +189,25 @@ def main() -> int:
 
     res = [_una(o, detalle=bool(a.ticker)) for o in muestra]
 
-    print(f"  {'TICKER':<8} {'CART':<5} {'ESCALA':<10} {'ΣAMORT':>11} {'CUP':>4} "
-          f"{'PARIDAD':>9} {'1816':>9} {'COTEJO':<10}")
-    print("  " + "─" * 76)
+    print(f"  {'TICKER':<8} {'ESCALA':<9} {'ΣAMORT':>10} {'CUP':>4} "
+          f"{'PARIDAD':>9} {'1816':>9} {'DURAT.':>8} {'1816':>8} {'Δdur':>7} "
+          f"{'COTEJO':<10}")
+    print("  " + "─" * 92)
     for r in res:
         if r["error"]:
             print(f"  {r['ticker']:<8} {'sí' if r['en_cartera'] else '':<5} "
                   f"⚠ {r['error'][:60]}")
             continue
-        sa = r["suma_amort"]
-        print(f"  {r['ticker']:<8} {'sí' if r['en_cartera'] else '':<5} "
-              f"{r['escala']!s:<10} {(f'{sa:,.4f}' if sa is not None else '—'):>11} "
-              f"{r['n']!s:>4} {_pct(r['paridad']):>9} "
-              f"{_pct(r['paridad_1816']):>9} {r['cotejo']:<10}")
+        sa, d, d16 = r["suma_amort"], r["duration"], r["duration_1816"]
+        ddif = (abs(d - d16) / d16 * 100
+                if isinstance(d, int | float) and isinstance(d16, int | float) and d16
+                else None)
+        print(f"  {r['ticker']:<8} {r['escala']!s:<9} "
+              f"{(f'{sa:,.4f}' if sa is not None else '—'):>10} "
+              f"{r['n']!s:>4} {_pct(r['paridad']):>9} {_pct(r['paridad_1816']):>9} "
+              f"{(f'{d:.4f}' if isinstance(d, int | float) else '—'):>8} "
+              f"{(f'{d16:.4f}' if isinstance(d16, int | float) else '—'):>8} "
+              f"{(f'{ddif:.2f}%' if ddif is not None else '—'):>7} {r['cotejo']:<10}")
 
     _titulo("2. EL VEREDICTO DEL PRE-FLIGHT, ON POR ON")
     print("  `puede_aplicar` = lo puede apretar una persona (solo lo frena algo\n"
@@ -207,7 +224,9 @@ def main() -> int:
         if r["frenan_auto"]:
             print(f"      ▲/? frena el automático: {'; '.join(r['frenan_auto'])}")
         if r["cotejo_txt"]:
-            print(f"      cotejo: {r['cotejo_txt'][:150]}")
+            # SIN truncar. La primera versión cortaba en 150 y se comía justo la
+            # duration, que es el número que decide si el cronograma es el mismo.
+            print(f"      cotejo: {r['cotejo_txt']}")
         if r.get("flujos"):
             print(f"      primeros flujos: {r['flujos']}")
 
@@ -219,14 +238,16 @@ def main() -> int:
     print(f"  escalas encontradas: {escalas or '—'}")
     print(f"  estados del cotejo:  {cotejos or '—'}")
     print(f"  simuladas ok: {len(ok)} de {len(res)}\n")
-    print("  Leer así:\n"
-          "  · Si el COTEJO da `ok` en todas → la conversión de la rama `on` está\n"
-          "    verificada contra 1816 y la rama se puede prender: el aviso pasa a\n"
-          "    ENCONTRÓ con botón, y el instructivo de tipear desaparece.\n"
-          "  · Si aparece `nominales` → hay que normalizar por la Σ (lo que ya\n"
-          "    hace `dolar_linked`), no cargar el cuadro crudo.\n"
-          "  · Si el COTEJO da `revisar`/`bloquea` en alguna → esa no se prende\n"
-          "    sola. El número está a la vista y se decide con él, no de memoria.")
+    print("  ⚠️ **LA COLUMNA QUE DECIDE ES Δdur, NO LA PARIDAD.**\n"
+          "  La duration no depende del precio, ni del tipo de cambio, ni del\n"
+          "  interés corrido: sale SOLO del cronograma y las fechas.\n\n"
+          "  · Δdur ≈ 0 → el cronograma que escribiríamos ES el de 1816. Una\n"
+          "    paridad más alta que la de ellos es entonces DEFINICIÓN (nosotros\n"
+          "    dividimos por el residual, ellos por el valor técnico), no un error.\n"
+          "  · Δdur > 5% → bajamos otro cuadro. Eso sí es un problema, y es el\n"
+          "    único caso en que el cotejo BLOQUEA.\n"
+          "  · `nominales` en ESCALA → habría que normalizar por la Σ, como ya\n"
+          "    hace `dolar_linked`. Si todas dan `vn100`, ese miedo no aplica.")
     if solo_rama:
         print(f"\n  ⚠️ {len(solo_rama)} de {len(ok)} tienen como ÚNICO bloqueo la rama:\n"
               "  o sea, el resto de la cadena ya está en verde para ellas.")

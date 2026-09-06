@@ -3544,12 +3544,14 @@ def test_on_faltante_solo_ofrece_lo_que_primary_cotiza(monkeypatch):
     _armar_on_faltante(monkeypatch, _universo_on("YMCXO", "COTIZA", "NOCOTZ", "ENCART"),
                        primary={"COTIZA", "YMCXO"}, cartera={"ENCART"})
     por = {h.sujeto: h for h in mercado.on_faltante({})}
-    assert set(por) == {"COTIZA", "ENCART"}
-    assert por["COTIZA"].regla == "no_esta_en_curvas" and por["COTIZA"].severidad == "media"
-    assert por["COTIZA"].evidencia["cotiza_en_primary"] is True
-    assert "YPF" in por["COTIZA"].que_hacer and "Corporativo (ON)" in por["COTIZA"].que_hacer
+    # La que NO tenemos entra a la fila de familia, no a una propia.
+    assert set(por) == {mercado.FAMILIA_ON, "ENCART"}
+    fam = por[mercado.FAMILIA_ON]
+    assert fam.regla == "no_estan_en_curvas" and fam.severidad == "baja"
+    assert [x["ticker"] for x in fam.evidencia["_items"]] == ["COTIZA"]
     assert por["ENCART"].severidad == "alta" and "CARTERA" in por["ENCART"].problema
     assert "Primary NO la lista" in por["ENCART"].problema
+    assert "Corporativo (ON)" in por["ENCART"].que_hacer
 
 
 def test_on_faltante_sin_foto_de_primary_no_ofrece_nada(monkeypatch):
@@ -3573,8 +3575,38 @@ def test_on_faltante_es_solo_hard_dolar_por_los_EJES_de_la_curva(monkeypatch):
         "RARO": {"_curva": "Curva que no existe", "fechaVencimiento": "2028-01-01"},
     }}
     _armar_on_faltante(monkeypatch, univ, primary={"ONHD", "ONDL", "ONARS", "GD30", "RARO"})
-    assert [h.sujeto for h in mercado.on_faltante({})] == ["ONHD"]
+    h = mercado.on_faltante({})
+    assert [x["ticker"] for x in h[0].evidencia["_items"]] == ["ONHD"]
     assert "corporativo" not in mercado.ALCANCE, "los dos censos no se solapan"
+
+
+def test_las_ONs_que_no_tenemos_son_UNA_fila_y_no_doscientas(monkeypatch):
+    """⚠️ **212 avisos no se leen, y peor: no se pueden callar de a uno.**
+
+    User (2026-09-06): *«esto ensucia el AHORA, muchas ON no son relevantes, ya
+    de por sí hay muchas ON y genera muchos avisos»*. Medido ese día: 212
+    hallazgos abiertos de `on_faltante`, uno por ON.
+
+    El corte no es «cuáles importan» —eso el sistema no lo sabe— sino uno que sí
+    se puede afirmar: **si la tenemos en cartera, hoy no valúa**, y eso es un
+    problema concreto que merece su fila. Lo que no tenemos es una OFERTA de
+    catálogo, y una oferta es UNA fila con la lista adentro, que el ✕ silencia de
+    un click. Mismo patrón que `cedear_faltante` (§0.dl) y por la misma razón.
+    """
+    _armar_on_faltante(
+        monkeypatch, _universo_on("A1", "A2", "A3", "A4", "TENGO"),
+        primary={"A1", "A2", "A3", "A4", "TENGO"}, cartera={"TENGO"})
+    h = mercado.on_faltante({})
+    fam = [x for x in h if x.sujeto == mercado.FAMILIA_ON]
+    assert len(h) == 2 and len(fam) == 1, (
+        f"cuatro ONs sueltas tienen que dar UNA fila, no cuatro: {[x.sujeto for x in h]}")
+    assert fam[0].evidencia["cantidad"] == 4
+    assert [x["ticker"] for x in fam[0].evidencia["_items"]] == ["A1", "A2", "A3", "A4"]
+    # La lista viaja en `_items` (guión bajo = dato de máquina): la pantalla NO
+    # la dibuja como evidencia suelta. El mismo criterio que `ficha_incompleta`.
+    assert "items" not in fam[0].evidencia
+    # Y el que_hacer dice que se puede callar, porque nada está roto.
+    assert "✕" in fam[0].que_hacer and "cartera" in fam[0].que_hacer
 
 
 def test_on_faltante_no_declara_un_boton_que_siempre_bloquea():

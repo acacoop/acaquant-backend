@@ -4898,3 +4898,43 @@ las ONs abiertas y reporta escala, Σ, paridad nuestra vs 1816 y el veredicto.
 **Sale a la red y 1816 cobra por cupón**, así que el tope por default es chico.
 Si el cotejo cierra, la rama se prende y el instructivo se reemplaza por «tildar
 y dar de alta». Si no cierra, dice en cuál y con qué número.
+
+
+### 0.ds 212 AVISOS DE ONs — el corte no es «cuáles importan» (2026-09-06)
+
+**El síntoma.** `on_faltante` abría **una fila por ON**: 212 en AHORA. User:
+*«esto ensucia el AHORA, muchas ON no son relevantes, ya de por sí hay muchas
+ON»*. Y no alcanzaba con el ✕ nuevo (§0.dr): silenciar 212 de a uno no es una
+salida.
+
+**El corte que se eligió, y por qué ése.** «Cuáles son relevantes» el sistema no
+lo sabe y no lo puede inventar. Pero hay un corte que **sí se puede afirmar**:
+
+    la TENEMOS en cartera   → hoy NO VALÚA. Es un problema concreto de un bono
+                              concreto, y merece su propia fila (severidad alta).
+    NO la tenemos           → no hay nada roto. Es una OFERTA de catálogo: 1816
+                              publica y nosotros no seguimos. Va en UNA fila.
+
+Mismo patrón que `cedear_faltante` (§0.dl) y por la misma razón medida: Primary
+lista muchos más de los que la mesa mira, y 300 filas de «falta X» no se leen. La
+fila de familia (`FAMILIA_ON`) lleva la lista en `evidencia._items` —dato de
+máquina, no se dibuja— y su `que_hacer` dice explícitamente que se puede callar
+con ✕, porque nada está roto.
+
+Las 212 filas viejas se cierran solas **por ausencia** en la primera corrida `ok`
+del detector (invariante 1): no hay que borrar nada a mano.
+
+**Lo que la medición del alta dijo, y lo que NO dijo** (`scripts/diag_on_alta`,
+muestra de 8 el 2026-09-06). El miedo original —que 1816 mandara los cuadros de
+ONs en nominales— **no apareció**: las 8 dieron `escala = vn100` con
+Σ amortizaciones = 100,0000 exacto. Lo que sí apareció es que nuestra paridad da
+consistentemente 4,5–7,2% **más alta** que la de 1816, siempre en el mismo
+sentido — que es el sentido del interés corrido (nosotros dividimos por el
+residual, ellos por el valor técnico), pero por encima de la cota de un cupón.
+
+⚠️ **Y la primera versión del diag no dejaba decidir**: truncaba el detalle del
+cotejo en 150 caracteres, justo antes de la duration. La duration es el testigo
+que no depende del precio, ni del tipo de cambio, ni del devengado: si coincide,
+el cronograma ES el de ellos. Sin ese número, «5% de diferencia de paridad» no
+distingue «otro cuadro» de «otra definición». El diag ahora la imprime como
+columna y no trunca nada.

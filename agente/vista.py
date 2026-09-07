@@ -237,6 +237,85 @@ def ignorar(hallazgo_id: int, *, por: str = "", motivo: str = "",
                 "habilidad": trio[0], "sujeto": trio[1], "regla": trio[2]}
 
 
+# ── DESCARTAR ONs POR TICKER ────────────────────────────────────────────────
+def _hallazgo_on(hallazgo_id: int) -> dict | None:
+    """El hallazgo de familia (id, habilidad, sujeto, regla, estado, evidencia).
+    Separada de `no_interesan_ons` para poder probarla sin base."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, habilidad, sujeto, regla, estado, evidencia "
+                    "  FROM agente.hallazgos WHERE id = %s", (hallazgo_id,))
+        f = cur.fetchone()
+    if not f:
+        return None
+    return {"id": f[0], "habilidad": f[1], "sujeto": f[2], "regla": f[3],
+            "estado": f[4], "evidencia": dict(f[5] or {})}
+
+
+def no_interesan_ons(hallazgo_id: int, tickers: list[str], *,
+                      todas: bool = False, por: str = "") -> dict:
+    """«No me interesan ESTAS», por ticker (§0.eh).
+
+    A diferencia de `ignorar` —que apaga el aviso ENTERO para siempre— esto
+    descarta ONs puntuales de la oferta de `on_faltante`: las descartadas dejan
+    de contarse, el aviso desaparece solo cuando no queda ninguna sin descartar
+    (cierre por ausencia, lo hace `registro`) y renace únicamente con las que
+    1816 publique de acá en más.
+
+    Reusa `mercado.ons_ignoradas` — la MISMA lista que el conciliador del panel
+    de ONs de Manager, donde también se restauran (REGLA #9: una sola lista de
+    «ONs que la mesa no sigue», no dos copias sin árbitro).
+    """
+    from agente import fuentes, libro, motor, tipos
+    from api.services import ons
+
+    h = _hallazgo_on(hallazgo_id)
+    if h is None:
+        return {"ok": False, "error": "ese hallazgo no existe"}
+    if h["habilidad"] != "on_faltante" or h["regla"] != "no_estan_en_curvas":
+        return {"ok": False, "error": "esto solo aplica a la oferta de ONs"}
+    if h["estado"] not in tipos.ABIERTOS:
+        return {"ok": False, "error": f"ese hallazgo está «{h['estado']}»"}
+
+    permitidos = {str(x.get("ticker") or "").strip().upper()
+                  for x in h["evidencia"].get("_items") or []} - {""}
+    # ⚠️ NO se escribe lo que manda el navegador: solo lo que el propio
+    # detector ofreció en esta fila.
+    elegidos = permitidos if todas else ({t.strip().upper() for t in tickers}
+                                         & permitidos)
+    if not elegidos:
+        return {"ok": False, "error": "no elegiste ninguna ON de la lista"}
+
+    escritas, errores = [], []
+    for tk in sorted(elegidos):
+        try:
+            ons.ignorar_concil(tk, actor=por)
+            escritas.append(tk)
+        except Exception as e:
+            errores.append(f"{tk}: {e}"[:160])
+
+    libro.registrar(
+        accion="no_interesa_on", objetivo=h["sujeto"], habilidad=h["habilidad"],
+        regla=h["regla"], hallazgo_id=hallazgo_id, por=por,
+        destino="mercado.ons_ignoradas", campo="ONs descartadas",
+        antes=str(len(permitidos)),
+        despues=f"{len(permitidos) - len(escritas)} (descartadas {len(escritas)})",
+        ok=bool(escritas), error="; ".join(errores)[:300])
+
+    try:
+        fuentes.refrescar()
+        motor.correr_una("on_faltante")
+    except Exception:
+        logger.warning("vista: no_interesan_ons descartó, pero no pude "
+                       "refrescar on_faltante", exc_info=True)
+
+    return {"ok": True, "descartadas": sorted(escritas),
+            "quedan": len(permitidos) - len(escritas),
+            "detalle": (f"{len(escritas)} descartada(s) · quedan "
+                        f"{len(permitidos) - len(escritas)} · el aviso vuelve "
+                        "solo con las nuevas"),
+            "errores": errores}
+
+
 # ── HISTORIAL ──────────────────────────────────────────────────────────────
 LIMITE = 200
 

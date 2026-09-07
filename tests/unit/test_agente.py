@@ -3737,7 +3737,8 @@ def _universo_on(*tickers: str, curva: str = "Corporativos USD") -> dict:
             "denominacion": f"ON {t}", "emisorNombre": "YPF"} for t in tickers}}
 
 
-def _armar_on_faltante(monkeypatch, univ, primary, cartera=frozenset()):
+def _armar_on_faltante(monkeypatch, univ, primary, cartera=frozenset(),
+                       descartadas=frozenset()):
     from agente import fuentes
     from core import curvas_sql
     monkeypatch.setattr(fuentes, "universo_1816", lambda: univ)
@@ -3745,6 +3746,7 @@ def _armar_on_faltante(monkeypatch, univ, primary, cartera=frozenset()):
     monkeypatch.setattr(fuentes, "en_cartera", lambda: set(cartera))
     monkeypatch.setattr(fuentes, "tickers_en_primary", lambda: primary)
     monkeypatch.setattr(fuentes, "primary_fecha", lambda: None)
+    monkeypatch.setattr(fuentes, "ons_no_interesan", lambda: set(descartadas))
     monkeypatch.setattr(curvas_sql, "calendario_habil", lambda: set())
     monkeypatch.setattr(curvas_sql, "sale_del_master", lambda *a, **k: False)
 
@@ -3818,8 +3820,69 @@ def test_las_ONs_que_no_tenemos_son_UNA_fila_y_no_doscientas(monkeypatch):
     # La lista viaja en `_items` (guión bajo = dato de máquina): la pantalla NO
     # la dibuja como evidencia suelta. El mismo criterio que `ficha_incompleta`.
     assert "items" not in fam[0].evidencia
-    # Y el que_hacer manda a tildar, no a tipear en Manager.
-    assert "tildar" in fam[0].que_hacer and "ENCONTRÓ" in fam[0].que_hacer
+    # Y el que_hacer manda a tildar (dar de alta o descartar), no a tipear en
+    # Manager. Descartar es por TICKER (§0.eh): no silencia el aviso entero.
+    assert "tildar" in fam[0].que_hacer.lower()
+    assert "no me interesan" in fam[0].que_hacer
+
+
+def test_on_faltante_descarta_por_ticker_y_vuelve_solo_con_las_nuevas(monkeypatch):
+    """Descartar por ticker (§0.eh) NO es «no me interesa» el aviso entero: las
+    descartadas dejan de contarse y ofrecerse, y el aviso renace SOLO con las
+    que 1816 publique de acá en más. La cartera nunca se filtra: si la casa la
+    tiene y no valúa, es un problema aunque alguien la haya descartado."""
+    univ = _universo_on("COTIZA", "NUEVA", "ENCART")
+    primary = {"COTIZA", "NUEVA", "ENCART"}
+
+    _armar_on_faltante(monkeypatch, univ, primary=primary, cartera={"ENCART"},
+                       descartadas={"COTIZA"})
+    por = {h.sujeto: h for h in mercado.on_faltante({})}
+    fam = por[mercado.FAMILIA_ON]
+    assert [x["ticker"] for x in fam.evidencia["_items"]] == ["NUEVA"]
+    assert fam.evidencia["ya_descartadas"] == 1
+    assert "1 ya descartada" in fam.problema
+
+    _armar_on_faltante(monkeypatch, univ, primary=primary, cartera={"ENCART"},
+                       descartadas={"COTIZA", "NUEVA"})
+    sujetos = {h.sujeto for h in mercado.on_faltante({})}
+    assert mercado.FAMILIA_ON not in sujetos, "sin ninguna suelta, no hay fila de familia"
+
+    _armar_on_faltante(monkeypatch, univ, primary=primary, cartera={"ENCART"},
+                       descartadas={"ENCART"})
+    sujetos = {h.sujeto for h in mercado.on_faltante({})}
+    assert "ENCART" in sujetos, "la cartera NUNCA se filtra por descartadas"
+
+
+def test_no_interesan_ons_solo_descarta_lo_que_el_detector_ofrecio(monkeypatch):
+    """No se escribe lo que manda el navegador: solo lo que el propio detector
+    ofreció en `_items` de la fila de familia (§0.eh)."""
+    from agente import fuentes, libro, motor, vista
+    from api.services import ons as ons_service
+
+    hallazgo = {"id": 1, "habilidad": "on_faltante", "sujeto": mercado.FAMILIA_ON,
+                "regla": "no_estan_en_curvas", "estado": tipos.NUEVO,
+                "evidencia": {"_items": [{"ticker": "AAA1O"}, {"ticker": "BBB2O"}]}}
+    monkeypatch.setattr(vista, "_hallazgo_on", lambda hid: dict(hallazgo))
+    llamadas = []
+    monkeypatch.setattr(ons_service, "ignorar_concil",
+                        lambda tk, actor="": llamadas.append(tk))
+    monkeypatch.setattr(libro, "registrar", lambda **kw: None)
+    monkeypatch.setattr(fuentes, "refrescar", lambda: None)
+    monkeypatch.setattr(motor, "correr_una", lambda h: None)
+
+    r = vista.no_interesan_ons(1, ["aaa1o", "ZZZ9O"])
+    assert r["ok"] and r["descartadas"] == ["AAA1O"], "ZZZ9O no la ofreció el detector"
+    assert llamadas == ["AAA1O"]
+
+    llamadas.clear()
+    r2 = vista.no_interesan_ons(1, [], todas=True)
+    assert r2["ok"] and set(r2["descartadas"]) == {"AAA1O", "BBB2O"}
+    assert set(llamadas) == {"AAA1O", "BBB2O"}
+
+    otra_regla = {**hallazgo, "regla": "otra_regla"}
+    monkeypatch.setattr(vista, "_hallazgo_on", lambda hid: dict(otra_regla))
+    r3 = vista.no_interesan_ons(1, ["AAA1O"])
+    assert r3["ok"] is False
 
 
 def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():

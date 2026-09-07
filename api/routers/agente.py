@@ -179,6 +179,21 @@ def ignorar(body: Ignorar, email: str = Depends(get_user_email)):
                      deshacer=body.deshacer)
 
 
+class NoInteresanOns(BaseModel):
+    id: int = Field(..., ge=1)
+    tickers: list[str] = Field(default_factory=list, max_length=500)
+    todas: bool = False
+
+
+@router.post("/ons/no-interesan")
+def ons_no_interesan(body: NoInteresanOns, email: str = Depends(get_user_email)):
+    """«No me interesan ESTAS» (por ticker), no el aviso entero: las
+    descartadas dejan de contarse y el aviso vuelve solo cuando 1816 publique
+    una que no esté en la lista (`mercado.ons_ignoradas`, §0.eh)."""
+    from agente import vista as v
+    return v.no_interesan_ons(body.id, body.tickers, todas=body.todas, por=email)
+
+
 class Correr(BaseModel):
     habilidad: str = Field("", max_length=64)
 

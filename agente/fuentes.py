@@ -277,6 +277,18 @@ def en_cartera() -> set[str] | None:
     return _una_vez("en_cartera", _leer)
 
 
+def ons_no_interesan() -> set[str] | None:
+    """Tickers de ON que la mesa YA descartó (`mercado.ons_ignoradas`, §0.eh).
+    Es la MISMA lista que ignora el conciliador del panel de ONs, y ahí se
+    restauran. `None` = no pude leer → no se filtra nada: ofrecer de más es
+    mejor que callar una ON nueva."""
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT upper(btrim(ticker)) FROM mercado.ons_ignoradas")
+            return {r[0] for r in cur.fetchall() if r[0]}
+    return _una_vez("ons_no_interesan", _leer)
+
+
 # ── EL UNIVERSO DE 1816 ────────────────────────────────────────────────────
 def universo_1816() -> dict | None:
     """El censo. **Cuesta créditos**, así que solo lo pide la habilidad que lo

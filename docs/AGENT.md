@@ -535,6 +535,10 @@ familia `no_estan_en_curvas` (lo que 1816 publica y no tenemos) → `alta_on`, q
 despliega la lista para tildar (§0.du, §0.dv). Nació sin arreglo mientras la
 rama `on` no estaba en `alta.RAMAS_AUTOMATICAS`.
 
+**La oferta se descarta por ticker, no entera** (§0.eh): `fuentes.ons_no_interesan`
+(la lista del conciliador de ONs) se descuenta de la familia, y la fila renace
+sola cuando 1816 publica una ON que no está en la lista.
+
 **Y es la primera regla que el agente aplica SOLO** (§0.ef): `no_esta_en_curvas`
 está declarada en `automatico`. El ejecutor (`agente/autonomo.py`) la aplica en
 cada pasada por la misma puerta que el botón, y el pre-flight sigue siendo el
@@ -5492,4 +5496,44 @@ nuestro (`auth`, `storage`, `realtime`, `vault` de Supabase) cae en OTROS.
 seis líneas se pliega mostrando la primera —en una tabla, la cabecera— y un
 botón «ver las N líneas». Es presentación, no dato: el backend manda el texto
 entero.
+
+
+### 0.eh «NO ME INTERESAN ESTAS» — descartar por ticker, y que el aviso vuelva con las nuevas (2026-09-07)
+
+El user, con las 147 ONs de la oferta de catálogo: *«si no está la ON en el
+aviso es porque ya la agregué… ahora el aviso tiene que volver a aparecer
+nuevamente, ¿se entiende? Si mañana aparecen nuevas ONs yo quiero saberlo. Ahí
+es donde estoy confundido»*.
+
+Y la confusión era del diseño, no de él. El botón «no me interesa» silencia el
+TRÍO (habilidad + sujeto + regla) y la fila de familia tiene un solo sujeto,
+`ONs HARD DÓLAR`: apretarlo callaba la oferta ENTERA para siempre, incluida la
+ON que 1816 publique mañana. Lo que hacía falta es lo opuesto: descartar POR
+TICKER, que el aviso desaparezca cuando no queda nada, y que **renazca solo con
+lo nuevo**.
+
+**La lista ya existía.** `mercado.ons_ignoradas` es la que ignora el
+conciliador del panel de ONs de Manager, con su alta (`ons.ignorar_concil`),
+su baja y su listado para restaurar. Se REUSA en vez de crear otra: dos listas
+de «ONs que la mesa no sigue» sin árbitro no fallan, muestran cosas distintas
+(REGLA #9). `fuentes.ons_no_interesan()` la lee una vez por pasada; `None` = no
+pude leer → no se filtra nada, porque ofrecer de más es mejor que callar una ON
+nueva.
+
+**Cómo cierra el ciclo sin código nuevo.** El detector descuenta las
+descartadas de la oferta (las de CARTERA nunca: si la casa la tiene y no valúa,
+es un problema aunque alguien la haya descartado). Cuando no queda ninguna, no
+emite la fila, y `registro` la cierra por AUSENCIA en la misma pasada. El día
+que 1816 publica una ON que no está en la lista, la fila NACE de nuevo —`nuevo`,
+no `reincidió`, porque el cierre fue por ausencia— con esa sola adentro. El
+`problema` dice cuántas se descartaron para que «3 ONs» no se lea como «solo
+hay 3».
+
+**La puerta.** `POST /api/agente/ons/no-interesan` con `tickers` o `todas`.
+`vista.no_interesan_ons` recorta lo que manda el navegador a los `_items` que el
+detector ofreció (nunca se escribe lo que llega), escribe por `ons.ignorar_concil`
+ticker por ticker, deja UNA línea en el libro (`no_interesa_on`, con cuántas
+quedaban y cuántas se descartaron) y vuelve a correr `on_faltante` para que la
+tarjeta muestre lo que sigue. En el listado: «no me interesan las N tildadas» y
+«ninguna me interesa · avisar solo las nuevas» (dos clics, sin `confirm`).
 

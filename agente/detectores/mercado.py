@@ -830,7 +830,8 @@ def on_faltante(u: dict) -> list[Hallazgo]:
     foto = fuentes.primary_fecha()
     foto_txt = foto.strftime("%d/%m %H:%M UTC") if foto else "sin fecha"
 
-    out, sin_primary, por_vencer, sueltas = [], [], 0, []
+    descartadas = fuentes.ons_no_interesan() or set()
+    out, sin_primary, por_vencer, sueltas, ya_descartadas = [], [], 0, [], 0
     for ticker, inst in sorted((univ["instrumentos"] or {}).items()):
         if _es_pata_1816(ticker):
             continue
@@ -866,6 +867,12 @@ def on_faltante(u: dict) -> list[Hallazgo]:
         # LO QUE NO TENEMOS EN CARTERA no es un problema de un bono: es una
         # oferta de catálogo. Va junta, en UNA fila (ver `FAMILIA_ON`, §0.ds).
         if not lo_tenemos:
+            # La mesa ya la descartó por ticker (Manager → ONs → ignoradas,
+            # §0.eh): no vuelve a ofrecerse, pero SÍ se cuenta — el aviso
+            # renace solo cuando 1816 publique una que no esté en esta lista.
+            if tk in descartadas:
+                ya_descartadas += 1
+                continue
             sueltas.append({"ticker": tk, "emisor": emisor, "curva_1816": curva,
                             "vencimiento": inst.get("fechaVencimiento") or "",
                             "denominacion": inst.get("denominacion") or ""})
@@ -890,16 +897,20 @@ def on_faltante(u: dict) -> list[Hallazgo]:
         out.append(Hallazgo(
             sujeto=FAMILIA_ON, regla="no_estan_en_curvas", severidad="baja",
             problema=(f"{len(sueltas)} ON(s) hard dólar cotizan en Primary y no "
-                      f"están en el master · {reloj.hhmm()}"),
+                      f"están en el master"
+                      + (f" · {ya_descartadas} ya descartada(s)"
+                         if ya_descartadas > 0 else "")
+                      + f" · {reloj.hhmm()}"),
             detalle=(f"foto de Primary del {foto_txt} · " + " · ".join(muestra)
                      + (" · …" if len(sueltas) > len(muestra) else "")),
-            que_hacer=("Elegir cuáles sumar desde ENCONTRÓ («ver qué haría» → "
-                       "tildar → dar de alta): cada una baja su cronograma de "
-                       "1816 y se coteja contra el de ellos antes de escribir. "
-                       "Las que no interesan se dejan — 1816 publica muchas más "
-                       "de las que la mesa sigue."),
+            que_hacer=("Tildar las que van y «dar de alta»; tildar las que NO "
+                       "interesan y «no me interesan»: se descartan por ticker, "
+                       "y este aviso vuelve solo cuando 1816 publique una "
+                       "nueva. Las descartadas se restauran desde Manager → "
+                       "ONs → ignoradas."),
             evidencia={"cantidad": len(sueltas), "foto_primary": foto_txt,
-                       "fuente_universo": univ["fuente"], "_items": sueltas}))
+                       "fuente_universo": univ["fuente"], "_items": sueltas,
+                       "ya_descartadas": ya_descartadas}))
     if sin_primary:
         logger.info("on_faltante: %d ON(s) de 1816 descartadas por no cotizar en "
                     "Primary: %s", len(sin_primary), ", ".join(sorted(sin_primary)[:20]))

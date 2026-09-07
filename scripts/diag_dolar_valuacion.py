@@ -1,34 +1,43 @@
 """`scripts/diag_dolar_valuacion.py` — **CON QUÉ DÓLAR VALUAMOS, Y CUÁNTO CAMBIA.**
 
-Read-only. **No escribe una sola fila.** Doc: `docs/AGENT.md` §0.ec.
+Read-only. **No escribe una sola fila.** Doc: `docs/AGENT.md` §0.ec y §0.ed.
 
-## El hallazgo que este diag mide
+## La pregunta, bien planteada
 
 Un bono hard dólar que cotiza EN PESOS hay que pasarlo a dólares antes de
 calcular la tasa. **Con qué dólar se divide no es un detalle: ES la tasa.**
 
     NOSOTROS  dividimos por MEP   (`engines/curvas.py::precio_soberano_a_usd`)
-    1816      divide  por CCL     (su spec, textual: «para instrumentos pagaderos
-                                   en moneda distinta a ARS, para calcular
-                                   indicadores las cotizaciones se dividen por
-                                   CCL»)
+    1816      divide  por CCL     (su spec, textual)
 
-Está escrito en `core/mercado_1816.py` desde el 2026-08-17 —lo dejó el episodio
-de GD46, 202 bps— y nunca se actuó sobre eso. Medido de nuevo el 2026-09-07
-sobre cuatro ONs, el tipo de cambio implícito de cada uno:
+⚠️⚠️ **Y EL MEP ES EL CORRECTO** (user, 2026-09-07: *«los bonos pagan en USD, o
+sea vos recibís MEP no CCL»*). Tiene razón, y el argumento es de flujos:
 
-    nuestro   1.525,4   (idéntico en los cuatro → es un dólar de la casa)
-    de 1816   1.589,5   (+4,20%)
+    pagás PESOS por la pata O  →  el bono te paga DÓLARES en tu cuenta local
+    tu alternativa con esos pesos era comprar dólar MEP
+    ⇒ el rendimiento en dólares se calcula contra el MEP
 
-Y todo lo demás sale de ahí: 136 / 158 / 215 bps de diferencia en la TEA. El caso
-que lo grita es **LMS8O**: nosotros −13,44% y 1816 −0,01%. Un bono que rinde cero
-mostrado como si perdiera 13% al año, y no falla nada.
+El CCL son dólares AFUERA: de este bono no salen, salvo que además hagas el
+canje. Que 1816 use CCL es una CONVENCIÓN —homogeneiza todo el mercado bajo un
+solo tipo de cambio— y no una afirmación sobre los flujos de este bono. Así que
+la diferencia de 136-215 bps contra ellos **no es un error nuestro que haya que
+corregir: es una diferencia de convención que hay que ESCRIBIR.**
 
-⚠️ **NINGUNO DE LOS DOS ESTÁ «MAL»: son dos preguntas distintas.** La TEA en MEP
-es lo que rinde para alguien que liquida contra MEP; la TEA en CCL es la que
-cotiza el mercado y la que publican los brokers. Lo que sí está mal es que la
-pantalla diga «TEA» a secas: **una tasa sin decir en qué dólar está no es un
-número.**
+## Lo que sí puede estar mal, y es más fino
+
+**Si la pata D del bono cotiza, no hace falta ningún tipo de cambio.** El precio
+de la D ya está en dólares y los flujos también: la tasa sale sin convención
+ninguna, y es la que un trader puede ejecutar de verdad.
+
+Hoy el motor divide la pata O por un MEP GENÉRICO (el del AL30) aunque la D del
+propio bono esté operando. Eso mete el canje de OTRO papel adentro de la tasa de
+éste. `precio_soberano_a_usd` ya sabe no convertir cuando el símbolo termina en
+D o C — el problema es que en `mercado.curvas` el `ticker` guardado es la pata en
+pesos, así que nunca toma ese camino.
+
+**Este diag mide las dos cosas**: cuánto se movería la tasa con CCL (para saber
+de dónde salen los bps contra 1816) y cuánto se movería usando la pata D del
+propio bono (que es el camino sin convención).
 
 ## Qué hace
 
@@ -67,7 +76,7 @@ def main() -> int:
     a = p.parse_args()
 
     from api.services.macro import get_ultimo_mep
-    from core import curvas_sql, market_snapshot
+    from core import curvas_sql, especies, instrumentos_validos, market_snapshot
     from engines.curvas import calcular_campos, cargar_dias_habiles, rama_calculo
 
     # ── 1 ──────────────────────────────────────────────────────────────────
@@ -79,13 +88,26 @@ def main() -> int:
     print(f"  canje   : {d.get('canje')}   (CCL/MEP − 1)")
     print(f"  oficial : {d.get('oficial')}")
     print(f"  fuente  : {d.get('source')} · {d.get('timestamp')}")
-    if not mep or not ccl:
-        print("\n  ⚠️ falta uno de los dos: sin los dos no se puede comparar.")
+    if not mep:
+        print("\n  ⚠️ sin MEP no se puede valuar NADA en dólares. Ese es el problema.")
         return 1
-    print(f"\n  El motor usa **MEP**. 1816 usa **CCL**. Spread: "
-          f"{ccl / mep - 1:+.2%}\n"
-          "  Esa diferencia entra ENTERA en el precio en dólares, y de ahí a la\n"
-          "  tasa dividida por los años que le quedan al bono.")
+    if not ccl:
+        # ⚠️ HALLAZGO, no un fin de programa. El CCL sale de UNA sola cuenta
+        # (`engines/dolares.py`: AL30 offer ÷ AL30C bid). Si esa punta se vacía
+        # —el AL30C es mucho menos líquido que el AL30D— el CCL desaparece, y con
+        # él el canje y cualquier comparación contra el mercado. **Y nada avisa.**
+        print("\n  ⚠️⚠️ **NO HAY CCL**, y eso es un hallazgo en sí mismo.\n"
+              "  Sale de UNA cuenta: AL30 (offer) ÷ AL30C (bid), en\n"
+              "  `engines/dolares.py`. Si la punta compradora del AL30C se vacía,\n"
+              "  el CCL queda en None — y con él el canje. El MEP sobrevive porque\n"
+              "  el AL30D es mucho más líquido.\n"
+              "  Nada avisa de esto hoy: la casa se queda sin CCL y sin canje en\n"
+              "  silencio. El bloque 2 igual corre, sin la columna de CCL.")
+    else:
+        print(f"\n  El motor usa **MEP**. 1816 usa **CCL**. Spread: "
+              f"{ccl / mep - 1:+.2%}\n"
+              "  Esa diferencia entra ENTERA en el precio en dólares, y de ahí a la\n"
+              "  tasa dividida por los años que le quedan al bono.")
 
     # ── 2 ──────────────────────────────────────────────────────────────────
     _titulo("2. EL MISMO BONO, CON LOS DOS DÓLARES — corriendo el motor de verdad")
@@ -108,6 +130,14 @@ def main() -> int:
         return 1
     habiles = cargar_dias_habiles()
     ahora = datetime.now(UTC)
+    fichas_primary = instrumentos_validos.fichas() or []
+    # Todas las patas USD de la foto, de una sola consulta al snapshot.
+    usd = [f.get("simbolo") for f in fichas_primary
+           if (f.get("moneda") or "").upper() == "USD" and f.get("simbolo")]
+    try:
+        snap_usd = market_snapshot.cols_map(usd, ["last_price"]) if usd else {}
+    except Exception:
+        snap_usd = {}
 
     filas = []
     sin_precio = 0
@@ -119,56 +149,101 @@ def main() -> int:
             continue
         tick = {"price": float(px), "timestamp": ahora}
         con_mep = calcular_campos(tick, doc, {}, habiles, mep=mep) or {}
-        con_ccl = calcular_campos(tick, doc, {}, habiles, mep=ccl) or {}
-        t_mep, t_ccl = con_mep.get("TEA"), con_ccl.get("TEA")
-        if t_mep is None or t_ccl is None:
+        t_mep = con_mep.get("TEA")
+        if t_mep is None:
             continue
+        t_ccl = None
+        if ccl:
+            t_ccl = (calcular_campos(tick, doc, {}, habiles, mep=ccl) or {}).get("TEA")
+
+        # ── LA PATA D: el camino SIN tipo de cambio ─────────────────────────
+        # Se busca por FICHA (`especies.hermanas_por_ficha` → `core/pareo`), no
+        # por string: los tickers están topeados en 5 caracteres y `AL30→AL30D`
+        # anda por casualidad (REGLA #9). Si la D cotiza, su precio YA está en
+        # dólares y la tasa sale sin convención ninguna.
+        t_d = px_d = fx_bono = None
+        corto = (doc.get("ticker_corto") or "").strip().upper()
+        for h in (especies.hermanas_por_ficha(corto, fichas_primary, moneda="USD")
+                  if fichas_primary else []):
+            cand = (snap_usd.get(h["simbolo"]) or {}).get("last_price")
+            if cand and cand > 0:
+                px_d = float(cand)
+                fx_bono = float(px) / px_d
+                t_d = (calcular_campos({"price": px_d, "timestamp": ahora},
+                                       {**doc, "ticker": h["simbolo"]},
+                                       {}, habiles, mep=mep) or {}).get("TEA")
+                break
+
         filas.append({
-            "ticker": doc.get("ticker_corto") or sim,
+            "ticker": corto or sim,
             "curva": doc.get("curva"),
             "precio": float(px),
-            "tea_mep": t_mep, "tea_ccl": t_ccl,
-            "bps": (t_ccl - t_mep) * 10_000,
-            "par_mep": con_mep.get("paridad"), "par_ccl": con_ccl.get("paridad"),
+            "tea_mep": t_mep, "tea_ccl": t_ccl, "tea_d": t_d,
+            "px_d": px_d, "fx_bono": fx_bono,
+            "bps": ((t_ccl - t_mep) * 10_000) if t_ccl is not None else None,
+            "bps_d": ((t_d - t_mep) * 10_000) if t_d is not None else None,
+            "par_mep": con_mep.get("paridad"),
             # El que cambia de SIGNO es el que hace que alguien tome una decisión
             # al revés: «pierde» contra «rinde».
-            "cambia_signo": (t_mep < 0) != (t_ccl < 0),
+            "cambia_signo": (t_d is not None and (t_mep < 0) != (t_d < 0)),
         })
 
-    filas.sort(key=lambda f: abs(f["bps"]), reverse=True)
-    print(f"  {len(filas)} bono(s) con precio · {sin_precio} sin precio en el snapshot\n")
-    print(f"  {'TICKER':<9} {'CURVA':<14} {'TEA con MEP':>12} {'TEA con CCL':>12} "
-          f"{'Δ bps':>9}  {'PARIDAD MEP':>11} {'CCL':>8}")
+    # Se ordena por el gap contra la PATA D, que es el que importa: el de CCL es
+    # convención, el de la D es la tasa que se puede ejecutar de verdad.
+    filas.sort(key=lambda f: abs(f["bps_d"] or f["bps"] or 0), reverse=True)
+    con_d = [f for f in filas if f["tea_d"] is not None]
+    print(f"  {len(filas)} bono(s) con precio · {sin_precio} sin precio · "
+          f"{len(con_d)} con pata D cotizando\n")
+    print(f"  {'TICKER':<9} {'TEA con MEP':>12} {'TEA con CCL':>12} "
+          f"{'TEA pata D':>12} {'Δ vs D':>8}  {'FX del bono':>11} {'vs MEP':>8}")
     print("  " + "─" * 84)
     for f in (filas if a.todos else filas[:30]):
         marca = "  ⚠ CAMBIA DE SIGNO" if f["cambia_signo"] else ""
-        print(f"  {f['ticker']:<9} {str(f['curva'])[:14]:<14} "
-              f"{_pct(f['tea_mep'], 4):>12} {_pct(f['tea_ccl'], 4):>12} "
-              f"{f['bps']:>+9.0f}  {f['par_mep']:>11.2f} {f['par_ccl']:>8.2f}{marca}")
+        fx = f["fx_bono"]
+        d_bps = f"{f['bps_d']:+.0f}" if f["bps_d"] is not None else "—"
+        fx_txt = f"{fx:,.1f}" if fx else "—"
+        fx_gap = f"{fx / mep - 1:+.2%}" if fx else "—"
+        print(f"  {f['ticker']:<9} {_pct(f['tea_mep'], 4):>12} "
+              f"{_pct(f['tea_ccl'], 4):>12} {_pct(f['tea_d'], 4):>12} "
+              f"{d_bps:>8}  {fx_txt:>11} {fx_gap:>8}{marca}")
     if not a.todos and len(filas) > 30:
         print(f"     … y {len(filas) - 30} más (--todos)")
 
     # ── 3 ──────────────────────────────────────────────────────────────────
     _titulo("3. EL TAMAÑO DEL PROBLEMA")
-    if filas:
-        bps = [f["bps"] for f in filas]
-        signo = [f for f in filas if f["cambia_signo"]]
-        print(f"  bonos afectados         : {len(filas)}")
-        print(f"  diferencia media        : {sum(bps) / len(bps):+.0f} bps")
-        print(f"  diferencia máxima       : {max(bps, key=abs):+.0f} bps")
-        print(f"  cambian de SIGNO        : {len(signo)}"
+    if con_d:
+        bps = [f["bps_d"] for f in con_d]
+        signo = [f for f in con_d if f["cambia_signo"]]
+        fxs = [f["fx_bono"] for f in con_d if f["fx_bono"]]
+        print(f"  bonos con pata D cotizando : {len(con_d)} de {len(filas)}")
+        print(f"  diferencia media vs pata D : {sum(bps) / len(bps):+.0f} bps")
+        print(f"  diferencia máxima          : {max(bps, key=abs):+.0f} bps")
+        if fxs:
+            print(f"  FX implícito de los bonos  : {min(fxs):,.1f} a {max(fxs):,.1f} "
+                  f"(MEP genérico: {mep:,.1f})")
+        print(f"  cambian de SIGNO           : {len(signo)}"
               + (f" → {', '.join(f['ticker'] for f in signo[:10])}" if signo else ""))
-        print("\n  ⚠️ Los que cambian de signo son los graves: con un dólar «pierde»\n"
-              "     y con el otro «rinde». Nadie mira dos veces un número plausible.")
+        print("\n  ⚠️ El FX implícito de cada bono ES su propio canje. Si el rango es\n"
+              "     ancho, dividir a todos por el MEP del AL30 le mete a cada bono el\n"
+              "     canje de OTRO papel. Si es angosto y pegado al MEP, el atajo es\n"
+              "     inofensivo — y eso hay que MEDIRLO, no suponerlo.")
+    else:
+        print("  Ningún bono tiene su pata D con precio en el snapshot ahora.\n"
+              "  Sin eso no se puede comparar contra el camino sin convención:\n"
+              "  correlo en rueda.")
 
-    _titulo("LA DECISIÓN, QUE NO ES TÉCNICA")
-    print("  Ninguno de los dos dólares está mal — son DOS PREGUNTAS:\n"
-          "   · TEA en MEP → lo que rinde para quien liquida contra MEP.\n"
-          "   · TEA en CCL → la que cotiza el mercado, la que publica 1816 y la\n"
-          "     que usa cualquier broker. Es la comparable hacia afuera.\n\n"
-          "  Lo que SÍ está mal hoy es que la pantalla diga «TEA» a secas: una\n"
-          "  tasa sin decir en qué dólar está no es un número. Sea cual sea la\n"
-          "  que elija la mesa, tiene que estar ESCRITA al lado.\n")
+    _titulo("QUÉ SE DECIDE Y QUÉ NO")
+    print("  · **El MEP se queda.** Un hard dólar te paga dólares LOCALES, y tu\n"
+          "    alternativa con esos pesos era comprar MEP. Que 1816 use CCL es una\n"
+          "    convención suya para homogeneizar el mercado, no una afirmación\n"
+          "    sobre los flujos de este bono. Los 136-215 bps contra ellos son\n"
+          "    ESO, y hay que escribirlo, no perseguirlo.\n")
+    print("  · **Lo que sí hay que decidir es la pata.** Si la D del propio bono\n"
+          "    cotiza, su precio YA está en dólares: la tasa sale sin ningún tipo\n"
+          "    de cambio y es la que se puede ejecutar. Hoy dividimos la pata en\n"
+          "    pesos por un MEP genérico aunque la D esté operando.\n")
+    print("  · **Y sin CCL no hay canje.** Sale de una sola cuenta y hoy vino en\n"
+          "    None. Eso es un agujero propio, independiente de todo lo demás.\n")
     return 0
 
 

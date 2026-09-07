@@ -5289,3 +5289,45 @@ bps, marcando los que **cambian de signo**.
 «TEA 8,59%» a secas. Ahora dice también la **TNA** —el número que la mesa mira,
 sacado de `quant/tasas` y no de una cuenta nueva— y **con qué dólar se calculó,
 con su valor**. Una tasa en dólares sin decir cuál no es un número.
+
+
+### 0.ed EL MEP ES EL CORRECTO — y el atajo que sí puede doler (2026-09-07)
+
+§0.ec cerró diciendo que la diferencia contra 1816 es el dólar, y dejó abierto
+cuál usar. El user lo cerró en una línea: *«los bonos pagan en USD, o sea vos
+recibís MEP no CCL»*. **Tiene razón, y el argumento es de flujos:**
+
+```
+pagás PESOS por la pata O  →  el bono te paga DÓLARES en tu cuenta local
+tu alternativa con esos pesos era comprar dólar MEP
+⇒ el rendimiento en dólares se mide contra el MEP
+```
+
+El CCL son dólares AFUERA: de este bono no salen, salvo que además hagas el
+canje. Que 1816 divida por CCL es una **convención** —homogeneiza todo el
+mercado bajo un solo tipo de cambio— y no una afirmación sobre los flujos de este
+papel. Así que los 136-215 bps **no son un error nuestro que haya que corregir:
+son una diferencia de convención que hay que ESCRIBIR** (por eso la tarjeta ahora
+dice «dólar usado: MEP 1.524,05», §0.ec).
+
+**Lo que sí puede estar mal es más fino, y es un ATAJO.** Si la pata D del bono
+cotiza, su precio YA está en dólares y los flujos también: la tasa sale **sin
+ningún tipo de cambio** y es la que un trader puede ejecutar. Hoy el motor divide
+la pata en pesos por un **MEP genérico** —el del AL30— aunque la D del propio
+bono esté operando, y eso le mete a cada bono **el canje de otro papel**.
+`precio_soberano_a_usd` ya sabe no convertir cuando el símbolo termina en D o C;
+el problema es que en `mercado.curvas` el `ticker` guardado es la pata en pesos,
+así que nunca toma ese camino.
+
+`scripts/diag_dolar_valuacion` mide exactamente eso: para cada hard dólar busca su
+pata D **por FICHA** (`especies.hermanas_por_ficha` → `core/pareo`, REGLA #9: los
+tickers están topeados en 5 caracteres y emparejar por string anda por
+casualidad), corre el motor sobre las dos, y tabula el FX implícito de cada bono
+contra el MEP genérico. Si el rango es angosto, el atajo es inofensivo; si es
+ancho, hay que cambiar de pata. **Eso se mide, no se supone.**
+
+⚠️ **Y apareció un agujero propio: el CCL vino en `None`.** Sale de UNA sola
+cuenta (`engines/dolares.py`: AL30 offer ÷ AL30C bid). El AL30C es mucho menos
+líquido que el AL30D, así que cuando su punta compradora se vacía **la casa se
+queda sin CCL y sin canje, en silencio y sin que nada avise**. El diag lo reporta
+en vez de abortar, que es lo que hacía la primera versión.

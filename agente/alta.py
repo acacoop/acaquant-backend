@@ -2280,7 +2280,27 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # «revisar la escala del flujo» ahí manda a buscar un problema que no existe.
     sin_tc = ((curva_depende_de(rama_doc, "a3500") and not a3500)
               or (curva_depende_de(rama_doc, "mep") and not mep))
+    # ⚠️ **LA TNA Y EL DÓLAR VIAJAN CON LA TASA, Y NO ES COSMÉTICA** (`AGENT.md` §0.ec).
+    #
+    # La TNA porque **es el número que mira la mesa** en casi todas las pantallas
+    # (`quant/tasas.py`): mostrar sólo la TEA obliga a convertir de cabeza. Sale
+    # de la MISMA función que el resto de la app —TNA = TEM × 12— para que el
+    # mismo bono no muestre dos TNAs distintas según dónde se lo mire.
+    #
+    # Y el DÓLAR porque una tasa en dólares sin decir CUÁL no es un número. El
+    # motor divide por MEP y 1816 por CCL (su spec, textual, y está anotado en
+    # `core/mercado_1816.py` desde el episodio de GD46): son 4,2% de diferencia
+    # en el precio y de ahí salen los 136-215 bps que se ven en el cotejo. No se
+    # cambia el dólar acá —eso mueve la tasa de TODO el hard dólar de la casa y
+    # es una decisión de la mesa (`scripts/diag_dolar_valuacion` lo mide)—: se
+    # ESCRIBE cuál se usó, que es lo que hoy falta.
+    from quant.tasas import tna_desde_tea
+
     return {"precio": float(precio), "tea": r.get("TEA"), "precio_fuente": fuente,
+            "tna": tna_desde_tea(r.get("TEA")),
+            "dolar": ("MEP" if curva_depende_de(rama_doc, "mep")
+                      else "A3500" if curva_depende_de(rama_doc, "a3500") else ""),
+            "dolar_valor": mep if curva_depende_de(rama_doc, "mep") else a3500,
             "duration": r.get("duration"), "paridad": r.get("paridad"),
             "referencia_1816": ref or None, "_mep": mep, "_a3500": a3500,
             "nota_tasa": "" if r.get("TEA") is not None or externa else

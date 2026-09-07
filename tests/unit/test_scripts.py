@@ -78,6 +78,12 @@ HERRAMIENTAS: dict[str, str] = {
                              "cuando la habilidad esté hecha.",
     # ⚠️ TEMPORAL — igual que el de arriba: se BORRA en el commit que prenda (o
     # descarte) la rama `on` en `alta.RAMAS_AUTOMATICAS`.
+    "diag_dolar_valuacion":  "mide con qué dólar valuamos los bonos hard dólar y cuánto cambia "
+                             "la tasa con el otro. El motor divide por MEP y 1816 por CCL (su "
+                             "spec, textual), y ahí salen los 136-215 bps y el LMS8O que muestra "
+                             "-13% donde 1816 da 0%. Corre `calcular_campos` dos veces por bono: "
+                             "cero créditos, cero escrituras. RECURRENTE: es el control de que "
+                             "la convención de dólar no se mueva sin que nadie se entere.",
     # ⚠️ TEMPORAL — se BORRA cuando el tema de las ONs cierre.
     "diag_agente_corriendo": "separa las cuatro causas de «deployé y sigue igual»: repo viejo, "
                              "daemon viejo, todavía no le tocó, o el código no hace lo que "

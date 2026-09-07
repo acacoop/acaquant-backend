@@ -5239,3 +5239,53 @@ completa se ven idénticas, que es el mismo bug que §0.dz vino a arreglar.
 ⚠️ El `30` vive en el frontend y el `20` acá: **dos copias de un mismo límite**
 (REGLA #9). Se declaran una en función de la otra, con el path de la otra
 escrito al lado, y un test verifica que el de acá sea menor.
+
+
+### 0.ec CON QUÉ DÓLAR VALUAMOS — 4,2% que se come la tasa entera (2026-09-07)
+
+El user, mirando las cuatro ONs que el agente ofrece dar de alta: *«todas mal la
+TEA… no puede dar siempre todo distinto a 1816, que justamente es una empresa de
+excelencia en valuar. Hay que detectar en qué estamos valuando mal estos bonos»*.
+
+**No es la fórmula ni el cronograma.** La duration coincide con la de 1816 al
+tercer decimal en los cuatro (0,16% a 0,30%), y la duration depende SOLO del
+cronograma y las fechas. El cuadro que bajamos es el de ellos.
+
+**Es el DÓLAR.** Un hard dólar que cotiza en pesos hay que pasarlo a dólares
+antes de calcular la tasa, y con qué se divide **ES** la tasa:
+
+```
+                 tipo de cambio implícito
+nosotros              1.525,4      ← idéntico en los cuatro (un dólar de la casa)
+1816                  1.589,5      ← +4,20%
+```
+
+`1.589,5` sale de un ancla dura: la TEA que 1816 publica para LMS8O es −0,0085%,
+o sea cero, y a tasa cero el precio ES la suma de los flujos que faltan
+(77,3828). `123.000 / 77,3828 = 1.589,5`. Con ESE tipo de cambio, el interés
+corrido implícito de los otros tres cierra solo: YFCPO +0,25 contra 0,28 teórico
+(20 días de un cupón de 2,5), EAC3O +1,84 contra 1,82 (77 días de 4,26), YM43O
++2,18 contra 2,20 (146 días desde su emisión). Cuatro bonos, un solo número.
+
+**Y estaba escrito en nuestro código desde el 2026-08-17.** `core/mercado_1816.py`,
+textual: *«el spec dice "para instrumentos pagaderos en moneda distinta a ARS,
+para calcular indicadores las cotizaciones se dividen por CCL"… NUESTRO motor
+divide por MEP»*. Lo dejó anotado el episodio de GD46 (202 bps) y **nunca se
+actuó**. De ahí salen los 136 / 158 / 215 bps del cotejo.
+
+⚠️ **El caso que lo grita: LMS8O.** Nosotros −13,44%, ellos −0,01%. Un bono que
+rinde cero mostrado como si perdiera 13% al año. No falla nada: el número es
+plausible y está bien calculado — sobre el dólar equivocado.
+
+**Ninguno de los dos está «mal»: son dos preguntas.** La TEA en MEP es lo que
+rinde para quien liquida contra MEP; la TEA en CCL es la que cotiza el mercado y
+publican los brokers, y la única comparable hacia afuera. Cuál usa la mesa es una
+decisión de la mesa, no del código — y mueve la tasa de TODO el hard dólar de la
+casa, así que se mide antes: `scripts/diag_dolar_valuacion` corre el motor de
+verdad dos veces por bono (una con MEP, otra con CCL) y tabula la diferencia en
+bps, marcando los que **cambian de signo**.
+
+**Lo que sí se arregló ya, porque no depende de esa decisión**: la tarjeta decía
+«TEA 8,59%» a secas. Ahora dice también la **TNA** —el número que la mesa mira,
+sacado de `quant/tasas` y no de una cuenta nueva— y **con qué dólar se calculó,
+con su valor**. Una tasa en dólares sin decir cuál no es un número.

@@ -3780,6 +3780,43 @@ def test_un_arreglo_cuenta_lo_que_HIZO_paso_por_paso(monkeypatch):
     assert not r2.ok and len(r2.pasos) == 1
 
 
+def test_la_tasa_viaja_con_su_TNA_y_con_su_DOLAR():
+    """⚠️ **UNA TASA EN DÓLARES SIN DECIR CUÁL NO ES UN NÚMERO** (§0.ec).
+
+    Medido el 2026-09-07 sobre cuatro ONs: el tipo de cambio implícito nuestro es
+    1.525,4 en las cuatro y el de 1816 es 1.589,5 — **4,20% de diferencia**, que
+    entra entera en el precio en dólares y de ahí en la tasa. No es un misterio:
+    el motor divide por MEP (`precio_soberano_a_usd`) y 1816 por CCL, y eso está
+    escrito en `core/mercado_1816.py` desde el episodio de GD46.
+
+    De ahí salen los 136 / 158 / 215 bps del cotejo. Y el caso que lo grita es
+    LMS8O: nosotros −13,44% contra −0,01% de ellos — un bono que rinde cero
+    mostrado como si perdiera 13% al año, **sin que nada falle**.
+
+    Este test NO congela qué dólar se usa (esa es una decisión de la mesa y mueve
+    todo el hard dólar de la casa). Congela que la pantalla lo DIGA, y que la TNA
+    —el número que la mesa mira— salga de la misma función que el resto de la app
+    en vez de que alguien la derive a ojo.
+    """
+    import inspect as _i
+
+    from agente import alta, arreglos
+    from quant.tasas import tna_desde_tea
+
+    src = _i.getsource(alta._simular_tasa)
+    assert '"tna": tna_desde_tea(' in src, (
+        "la TNA sale de `quant/tasas`, no de una cuenta local: dos TNAs para el "
+        "mismo bono según la pantalla es el bug que ese módulo vino a cerrar")
+    assert '"dolar":' in src and '"dolar_valor":' in src
+    # Y llega hasta la pantalla: si el preview no lo mapea, el backend lo calcula
+    # para nadie.
+    prev = _i.getsource(arreglos._preview_de_simulacion)
+    for k in ('"tna"', '"dolar"', '"dolar_valor"'):
+        assert k in prev, f"{k} no viaja a la pantalla"
+    # La conversión es la de la casa, no una nueva.
+    assert abs(tna_desde_tea(0.085876) - 0.0826713) < 1e-6
+
+
 def test_el_cuadro_de_una_ON_se_VE_y_no_sale_en_guiones():
     """⚠️ **TRES SHAPES DE CUADRO, y la pantalla conocía una.**
 

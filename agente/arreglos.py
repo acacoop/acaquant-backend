@@ -77,6 +77,10 @@ def _preview_de_simulacion(r: dict, *, donde: str, que: str) -> dict:
         "vencimiento": r.get("vencimiento"),
         "simbolo": r.get("simbolo"),
         "tea": r.get("tea"),
+        # La TNA es la que mira la mesa, y el DÓLAR es la mitad que faltaba: una
+        # tasa en dólares sin decir cuál no es un número (§0.ec).
+        "tna": r.get("tna"),
+        "dolar": r.get("dolar"), "dolar_valor": r.get("dolar_valor"),
         "precio": r.get("precio"),
         "ejes": ejes,
     }

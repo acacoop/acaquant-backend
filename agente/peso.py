@@ -223,3 +223,70 @@ def schemas_nuestros() -> frozenset[str]:
     """
     txt = _schema_sql()
     return frozenset(m.lower() for m in _RE_SCHEMA.findall(txt)) if txt else frozenset()
+
+
+# ═══ CONSOLIDADO POR VISTA DE LA PÁGINA ════════════════════════════════════
+#
+# Pedido del user (2026-09-07): el aviso de las 11/16 traía 5 tablas sueltas
+# sin decir a qué pantalla pertenecen. Acá se agrupa por la VISTA de la app
+# que alimenta cada schema, para leer «qué pantalla creció esta semana» en vez
+# de una lista de nombres de tabla sin contexto.
+#
+# Verificado contra los `CREATE SCHEMA` de `sql/schema.sql` (los mismos que
+# lee `schemas_nuestros()`): son 16 y están los 16 acá abajo.
+VISTAS_POR_SCHEMA: dict[str, str] = {
+    "mercado": "MERCADO · RENTA FIJA · TRADING · DERIVADOS · AGRO",
+    "macro": "RESEARCH (macro)",
+    "valuaciones": "AUM · PORTFOLIOS (valuaciones · dólar)",
+    "portafolio": "AUM · PORTFOLIOS (tenencias)",
+    "operaciones": "OPERACIONES · OPERAR",
+    "clientes": "CLIENTES · OPERADORES · CONTRAPARTES",
+    "manager": "MANAGER",
+    "home": "HOME",
+    "agente": "AV AGENT",
+    "research": "RESEARCH",
+    "bancos": "INTERBANKING",
+    "ap5": "POSTRADE (A3/ACyRSA)",
+    "aca": "ACA",
+    "ext": "API EXTERNA",
+    "ia": "IA (gateway · briefing)",
+    "partner": "PARTNER",
+}
+
+# Lo que no es nuestro: `auth`, `storage`, `realtime`, `vault`… las crea
+# Supabase para sus propios servicios (ver `schemas_nuestros()`).
+OTROS = "OTROS (schemas de Supabase / sin vista)"
+
+
+def vista_de(tabla: str) -> str:
+    """`schema.tabla` → la vista de la app que la alimenta, o `OTROS`."""
+    schema = tabla.split(".", 1)[0]
+    return VISTAS_POR_SCHEMA.get(schema, OTROS)
+
+
+def por_vista(hoy: dict[str, int], vieja: dict[str, int], top: int = 3) -> list[dict]:
+    """Agrupa el peso de HOY por vista de la página. **PURA** — no toca la base.
+
+    Por grupo: cuánto pesa, cuánto creció en 7 días (`delta`), y las `top`
+    tablas que más crecieron adentro (o las más pesadas, si ninguna creció).
+    Con `vieja` vacío (todavía no hay referencia a 7 días) todos los delta dan
+    0 — no se afirma un crecimiento que no se pudo medir.
+    """
+    grupos: dict[str, dict] = {}
+    for tabla, b in hoy.items():
+        v = vista_de(tabla)
+        g = grupos.setdefault(v, {"vista": v, "bytes": 0, "delta": 0, "_tablas": []})
+        delta = b - vieja.get(tabla, 0) if vieja else 0
+        g["bytes"] += b
+        g["delta"] += delta
+        g["_tablas"].append({"tabla": tabla, "bytes": b, "delta": delta})
+
+    salida = []
+    for g in grupos.values():
+        tablas = g.pop("_tablas")
+        crecieron = sorted((t for t in tablas if t["delta"] > 0),
+                            key=lambda t: -t["delta"])
+        g["tablas"] = (crecieron or sorted(tablas, key=lambda t: -t["bytes"]))[:top]
+        salida.append(g)
+    salida.sort(key=lambda g: (-g["delta"], -g["bytes"]))
+    return salida

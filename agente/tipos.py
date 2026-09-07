@@ -227,6 +227,14 @@ class Habilidad:
     # `arreglos.aplicar` rechaza igual lo que `puede_aplicar` no deja.
     automatico: dict = field(default_factory=dict)
 
+    # ⚠️ **QUÉ REGLAS SON INFORMES, no problemas** (`AGENT.md` §0.eg). Nacen por
+    # calendario —el peso de la base dos veces por día, la tabla contra 1816
+    # cada dos horas— y por eso aparecen todos los días. Contarlos como
+    # episodios los volvía «crónicos» a los tres días: «pasa siempre» es su
+    # definición, no un patrón a corregir. No cuentan episodios ni entran en
+    # PATRONES.
+    informes: tuple = ()
+
     def __post_init__(self):
         for campo, validos in (("tipo", TIPOS), ("dominio", DOMINIOS),
                                ("ventana", VENTANAS)):

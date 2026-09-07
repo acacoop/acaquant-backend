@@ -70,12 +70,21 @@ def _con_historial(filas: list[dict]) -> list[dict]:
     Si la consulta falla, cada fila queda con `episodios = None` — **«no sé»,
     que no es lo mismo que «es la primera vez»**. Una pantalla que dice «1ª vez»
     porque no pudo contar es el invariante 1 disfrazado de dato.
+
+    ⚠️ **Un INFORME no es un problema** (`AGENT.md` §0.eg): nace por
+    calendario —el peso de la base, la tabla contra 1816— y por eso aparece
+    todos los días. Un informe periódico no tiene episodios, tiene ediciones:
+    no entra en el conteo ni puede volverse «crónico».
     """
-    from agente import tipos
+    from agente import catalogo, tipos
 
     if not filas:
         return filas
-    trios = {(f["habilidad"], f["sujeto"], f["regla"]) for f in filas}
+    inf = set(catalogo.informes())
+    for f in filas:
+        f["informe"] = (f["habilidad"], f["regla"]) in inf
+    trios = {(f["habilidad"], f["sujeto"], f["regla"]) for f in filas
+             if not f["informe"]}
     cuenta: dict[tuple, tuple] = {}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -318,26 +327,37 @@ def cronicos(limite: int = 60) -> dict:
     fueron un solo fallo» — que es justo lo que se quiere saber —, pero no se
     lee como «estuvo caído 20 minutos».
     """
-    from agente import tipos
+    from agente import catalogo, tipos
+
+    # ⚠️ Un INFORME no es un problema (`AGENT.md` §0.eg): «pasa siempre» es su
+    # definición, no un patrón a corregir. Se excluye por el mismo patrón de
+    # tres listas paralelas que usa `_con_historial` — habilidad+regla nunca se
+    # pega en un string (hay un test que lo prohíbe).
+    inf = catalogo.informes()
+    habs_inf = [h for h, _ in inf]
+    regs_inf = [r for _, r in inf]
 
     sql = (
-        "SELECT habilidad, sujeto, regla, count(*)::int AS episodios, "
+        "SELECT h.habilidad, h.sujeto, h.regla, count(*)::int AS episodios, "
         "       (percentile_cont(0.5) WITHIN GROUP ("
         "          ORDER BY extract(epoch FROM "
-        "                   coalesce(cerrado_at, now()) - detectado_at)))::int AS mediana_s, "
+        "                   coalesce(h.cerrado_at, now()) - h.detectado_at)))::int "
+        "          AS mediana_s, "
         "       max(extract(epoch FROM "
-        "           coalesce(cerrado_at, now()) - detectado_at))::int AS peor_s, "
-        "       min(detectado_at) AS desde, max(detectado_at) AS ultima, "
-        "       count(*) FILTER (WHERE estado = ANY(%s))::int AS abiertos, "
-        "       max(detectado_at) > now() - make_interval(days => %s) AS activo "
-        "  FROM agente.hallazgos "
-        " WHERE detectado_at > now() - make_interval(days => %s) "
-        " GROUP BY habilidad, sujeto, regla "
+        "           coalesce(h.cerrado_at, now()) - h.detectado_at))::int AS peor_s, "
+        "       min(h.detectado_at) AS desde, max(h.detectado_at) AS ultima, "
+        "       count(*) FILTER (WHERE h.estado = ANY(%s))::int AS abiertos, "
+        "       max(h.detectado_at) > now() - make_interval(days => %s) AS activo "
+        "  FROM agente.hallazgos h "
+        " WHERE h.detectado_at > now() - make_interval(days => %s) "
+        "   AND NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) AS i(hab, reg) "
+        "                    WHERE i.hab = h.habilidad AND i.reg = h.regla) "
+        " GROUP BY h.habilidad, h.sujeto, h.regla "
         "HAVING count(*) >= %s "
         " ORDER BY 10 DESC, 4 DESC LIMIT %s")
     filas = [_serializar(f) for f in _filas(
         sql, (list(tipos.ABIERTOS), tipos.DIAS_ACTIVO, tipos.VENTANA_CRONICO_D,
-              tipos.EPISODIOS_CRONICO, int(limite)))]
+              habs_inf, regs_inf, tipos.EPISODIOS_CRONICO, int(limite)))]
     activos = [f for f in filas if f.get("activo")]
     return {
         "activos": activos,

@@ -1175,6 +1175,38 @@ def db_peso(u: dict) -> list[Hallazgo]:
     return out
 
 
+def _delta_col(delta: int, hay_referencia: bool) -> str:
+    """El delta de 7 días de UNA fila del listado, con signo — o `—` si
+    todavía no hay con qué comparar (primera medición)."""
+    from agente import peso
+
+    if not hay_referencia:
+        return "—"
+    if delta == 0:
+        return "="
+    return f"{'+' if delta > 0 else '−'}{peso.mb(abs(delta))}"
+
+
+def _listado_por_vista(grupos: list[dict], *, hay_ref: bool) -> str:
+    """El `detalle` de `peso_total_*`: el peso consolidado por VISTA de la
+    página (`AGENT.md` §0.eg), con su delta de 7 días y, debajo, hasta 3
+    tablas indentadas — en vez de 5 tablas sueltas sin decir a qué pantalla
+    pertenecen."""
+    from agente import peso
+
+    ancho = max([len("VISTA / tabla")] +
+                [len(g["vista"]) for g in grupos] +
+                [len(t["tabla"]) + 2 for g in grupos for t in g["tablas"]])
+    filas = [f"{'VISTA / tabla':<{ancho}}  {'PESA':>10}  {'7 DÍAS':>10}"]
+    for g in grupos:
+        filas.append(f"{g['vista']:<{ancho}}  {peso.mb(g['bytes']):>10}  "
+                      f"{_delta_col(g['delta'], hay_ref):>10}")
+        for t in g["tablas"]:
+            filas.append(f"  {t['tabla']:<{ancho - 2}}  {peso.mb(t['bytes']):>10}  "
+                          f"{_delta_col(t['delta'], hay_ref):>10}")
+    return "\n".join(filas)
+
+
 def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
     """El tamaño de TODA la base, dos veces por día (11 y 16, hora de la mesa).
 
@@ -1229,18 +1261,25 @@ def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
     # Con la franja en la REGLA, el trío sigue siendo distinto entre las 11 y
     # las 16 —que es lo que hace que el segundo aviso nazca en vez de pisar al
     # primero— y el sujeto dice lo que se está midiendo.
+    por_vista = peso.por_vista(hoy, vieja)
     return [Hallazgo(
         sujeto="la base", regla=f"peso_total_{franja[:2]}", severidad="baja",
         problema=f"la base pesa {peso.mb(total)} en {len(hoy)} tablas{delta}",
-        detalle=(" · ".join(f"{t} +{peso.mb(d)}" for t, d in crecio) if crecio
-                 else " · ".join(f"{t} {peso.mb(b)}" for t, b in top)),
-        que_hacer=("Nada: es el número del día. Si el salto de la semana no se "
-                   "explica con las que crecieron, mirar qué las escribe."),
+        # Consolidado por VISTA de la página (pedido del user, `AGENT.md`
+        # §0.eg): qué pantalla concentró el crecimiento y con qué tablas
+        # adentro, en vez de 5 tablas sueltas sin decir a qué pantalla
+        # pertenecen.
+        detalle=_listado_por_vista(por_vista, hay_ref=bool(vieja)),
+        que_hacer=("Leer el listado: qué vista concentra el salto de la semana "
+                   "y qué tabla adentro. Si una tabla crece sola y no es un "
+                   "histórico (timesales, *_bars_1m, *_hist), mirar quién la "
+                   "escribe."),
         evidencia={"bytes": total, "tablas": len(hoy), "franja": franja,
                    "bytes_hace_7d": antes,
                    "top": [{"tabla": t, "bytes": b} for t, b in top],
                    "crecio": [{"tabla": t, "crecio_mb": peso.mb(d)}
-                              for t, d in crecio]})]
+                              for t, d in crecio],
+                   "por_vista": por_vista})]
 
 
 # ═══ actividad ═════════════════════════════════════════════════════════════

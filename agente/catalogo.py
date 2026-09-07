@@ -75,7 +75,11 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         nombre="tasa_vs_1816", tipo="detector", dominio="MERCADO",
         que_mira="corporativos hard dólar: la tabla de nuestra TNA/TEA contra la de 1816",
         cada_segundos=2 * _H, ventana="rueda",
-        correr=mercado.tasa_vs_1816),
+        correr=mercado.tasa_vs_1816,
+        # Nace por CALENDARIO (cada 2 h) y no porque algo se rompió: es un
+        # informe, no un problema. Sin esto, la tabla misma se volvía
+        # «crónica» a las tres corridas (`AGENT.md` §0.eg).
+        informes=("tabla",)),
 
     # `soberanos_faltantes` para las ONs en dólares (§0.dp). Dos diferencias, y
     # ninguna es de gusto: Primary es CONDICIÓN (sin foto no se ofrece nada), y
@@ -275,7 +279,12 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "peso total de la base dos veces por día (11 y 16, hora de "
                   "la mesa)"),
         cada_segundos=_H, ventana="siempre",
-        correr=sistema.db_peso),
+        correr=sistema.db_peso,
+        # El peso total nace por CALENDARIO (11 y 16 ART), no porque algo se
+        # rompió: es un informe, no un problema (`AGENT.md` §0.eg). Las demás
+        # reglas de esta habilidad (`crecio`, `desaparecio`) SÍ son problemas y
+        # quedan afuera de esta lista.
+        informes=("peso_total_11", "peso_total_16")),
 
     Habilidad(
         nombre="actividad", tipo="detector", dominio="SISTEMA",
@@ -384,8 +393,16 @@ def estado() -> list[dict]:
         # La CLASE de una habilidad es el resumen de sus reglas, y se DERIVA.
         f["arreglos"] = dict(h.arreglos) if h else {}
         f["automatico"] = dict(h.automatico) if h else {}
+        f["informes"] = list(h.informes) if h else []
         f["clase"] = ("trabajo" if (h and h.arreglos) else "aviso")
     return filas
+
+
+def informes() -> list[tuple[str, str]]:
+    """Las reglas del catálogo que son INFORMES, no problemas (`AGENT.md`
+    §0.eg): nacen por calendario y por eso aparecen todos los días. `vista.py`
+    las excluye del conteo de episodios y de PATRONES."""
+    return [(h.nombre, r) for h in HABILIDADES.values() for r in h.informes]
 
 
 def umbrales_de(nombre: str) -> dict:

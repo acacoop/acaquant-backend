@@ -2108,6 +2108,79 @@ def test_el_peso_total_avisa_en_las_dos_franjas_del_dia():
     assert "ORDER BY at ASC" in ref and "LIMIT 1" in ref
 
 
+def test_un_informe_periodico_no_es_cronico():
+    """Un problema que pasa TODOS los días no es un incidente: es una
+    configuración mal puesta —el peso de la base dos veces por día, la tabla
+    contra 1816 cada dos horas— y contarlo como episodios lo volvía «crónico»
+    a los tres días. «Pasa siempre» es su definición, no un patrón a corregir
+    (`AGENT.md` §0.eg)."""
+    from agente import vista
+
+    assert catalogo.HABILIDADES["db_peso"].informes == ("peso_total_11", "peso_total_16")
+    assert catalogo.HABILIDADES["tasa_vs_1816"].informes == ("tabla",)
+    assert ("tasa_vs_1816", "tabla") in catalogo.informes()
+
+    assert "regla='tabla'" in _codigo(mercado.tasa_vs_1816)
+    assert "peso_total_" in _codigo(sistema._peso_total)
+
+    # La exclusión vive en la QUERY (tres listas paralelas, nunca un string
+    # pegado de habilidad+regla — hay un test que lo prohíbe) y no en Python.
+    src_cronicos = _codigo(vista.cronicos)
+    assert "unnest" in src_cronicos and "informes(" in src_cronicos
+    assert "informe" in _codigo(vista._con_historial)
+
+
+def test_el_peso_se_consolida_por_vista():
+    """El aviso de las 11/16 agrupa por VISTA de la página en vez de listar
+    tablas sueltas sin decir a qué pantalla pertenecen (pedido del user,
+    2026-09-07): qué vista concentró el crecimiento y con qué tabla adentro."""
+    from agente import peso
+
+    hoy = {
+        "mercado.cedears_bars_1m": 301_200_000,
+        "mercado.market_snapshot": 40_100_000,
+        "portafolio.tenencia": 190_000_000,
+        "auth.users": 1_000_000,
+    }
+    vieja = {
+        "mercado.cedears_bars_1m": 276_100_000,   # +25.1 MB
+        "mercado.market_snapshot": 40_000_000,    # +0.1 MB
+        "portafolio.tenencia": 182_000_000,       # +8 MB
+        "auth.users": 1_000_000,                  # sin cambio
+    }
+    grupos = peso.por_vista(hoy, vieja)
+
+    assert grupos[0]["vista"] == peso.VISTAS_POR_SCHEMA["mercado"]
+    assert grupos[0]["delta"] == (
+        (hoy["mercado.cedears_bars_1m"] - vieja["mercado.cedears_bars_1m"]) +
+        (hoy["mercado.market_snapshot"] - vieja["mercado.market_snapshot"]))
+    assert grupos[0]["tablas"][0]["tabla"] == "mercado.cedears_bars_1m", (
+        "la que más creció va primero adentro del grupo")
+
+    otros = next(g for g in grupos if g["vista"] == peso.OTROS)
+    assert "auth.users" in [t["tabla"] for t in otros["tablas"]], (
+        "lo que no es nuestro (Supabase) cae en OTROS")
+
+    # Con `vieja` vacía (todavía no hay referencia a 7 días) ningún delta se
+    # afirma: no se puede decir que algo creció sin con qué comparar.
+    sin_ref = peso.por_vista(hoy, {})
+    assert all(g["delta"] == 0 for g in sin_ref)
+    assert all(t["delta"] == 0 for g in sin_ref for t in g["tablas"])
+
+
+def test_todo_schema_nuestro_tiene_vista():
+    """Un schema nuestro sin vista declarada acá lo dejaría afuera del listado
+    sin que nada avise — el mismo modo de falla que `ap5` con dígitos en
+    `schemas_nuestros()` (2026-08-28): no falla nada, queda invisible."""
+    from agente import peso
+
+    schemas = peso.schemas_nuestros()
+    if not schemas:
+        pytest.skip("no se pudo leer sql/schema.sql")
+    for s in schemas:
+        assert s in peso.VISTAS_POR_SCHEMA
+
+
 def test_el_agente_solo_mira_nuestro_territorio():
     """El inventario sale del catálogo de Postgres, así que trae también los
     schemas que crea **Supabase** para sus propios servicios.

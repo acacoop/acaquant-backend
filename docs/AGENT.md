@@ -1230,6 +1230,11 @@ prohíbe que se copie al schema o al diag (REGLA #9).
    → arreglar     umbral, el cron, o si el job sigue haciendo falta
 ```
 
+**Un INFORME periódico no es crónico** (§0.eg). El peso de la base dos veces
+por día y la tabla contra 1816 cada dos horas nacen por calendario, y a los
+tres días la regla de arriba los marcaba «⚠ crónico». La habilidad declara esas
+reglas en `informes` y no cuentan episodios ni entran en PATRONES.
+
 Hoy sólo se MUESTRA (`⚠ crónico · 27× en 30d` en AHORA y ENCONTRÓ, y el ranking
 completo en `scripts/diag_agente`). **No cambia ningún comportamiento todavía** —
 y eso es a propósito: no se puede decidir si dejar que el agente arregle solo
@@ -5452,4 +5457,39 @@ caída se recupera sola; una ON en cartera sin master no). Arranca con UNA regla
 misma forma y se prenden cuando el historial de esta muestre una semana limpia.
 Los motores NO se reinician: el bono queda escrito y valúa desde el próximo
 arranque, que sigue siendo decisión de la mesa.
+
+
+### 0.eg UN INFORME NO ES UN PROBLEMA — y el peso de la base se lee POR VISTA (2026-09-07)
+
+El user, mirando AHORA: *«esto no tiene que ser crónico… y el aviso de la BASE
+hay que profundizarlo. Debería consolidarse por VISTA de la página, agrupar todo
+lo que hay adentro y ver cuál más creció y por cuánto, en formato listado»*.
+Y sobre la tabla de `tasa_vs_1816`: *«debería poder minimizarse, tipo lista
+desplegable»*.
+
+**Lo crónico.** La regla de §6.10 cuenta cuántas veces NACIÓ un trío en 30 días,
+y tres es crónico. Está bien para un problema: aparece, se va, vuelve. Pero
+`db_peso / peso_total_11` nace todos los días a las 11 **por diseño**, y
+`tasa_vs_1816 / tabla` cada dos horas: son INFORMES, tienen ediciones, no
+episodios. A los tres días la pantalla los pintaba «⚠ CRÓNICO · 11× en 30 d» y
+mandaba a «revisar el umbral o el cron». La solución no es subir el umbral —eso
+esconde los crónicos de verdad— sino DECLARAR: `Habilidad.informes` lista las
+reglas que son informes, `vista._con_historial` no les cuenta episodios y
+`vista.cronicos` las excluye con el mismo `unnest` de tres listas paralelas
+(nunca habilidad+regla pegados en un string).
+
+**El peso de la base.** El aviso decía «1,4 GB en 249 tablas, +40,8 MB en 7
+días» y cinco tablas sueltas. Ahora el detalle es un LISTADO por vista de la
+app: `peso.VISTAS_POR_SCHEMA` traduce cada schema de Postgres a la(s)
+pantalla(s) que alimenta (los schemas se diseñaron por dominio, `docs/SQL.md`
+§2, así que la traducción es una tabla y no una adivinanza), `peso.por_vista`
+agrupa, ordena por lo que más creció y mete adentro de cada vista sus tres
+tablas que más crecieron. Un test exige que todo schema declarado en
+`sql/schema.sql` tenga vista: uno nuevo sin etiqueta no pasa. Lo que no es
+nuestro (`auth`, `storage`, `realtime`, `vault` de Supabase) cae en OTROS.
+
+**La tabla larga.** `Detalle` (front, `components/agente/evidencia.tsx`): más de
+seis líneas se pliega mostrando la primera —en una tabla, la cabecera— y un
+botón «ver las N líneas». Es presentación, no dato: el backend manda el texto
+entero.
 

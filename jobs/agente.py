@@ -70,6 +70,23 @@ def _atender_investigaciones() -> None:
         logger.debug("agente: el investigador no atendió (%s)", e)
 
 
+def _aplicar_solo() -> None:
+    """**EL EJECUTOR**: lo que el agente aplica SOLO, sin que nadie apriete.
+    `agente/autonomo.py`.
+
+    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que el triage y los
+    avisos: el import va adentro del try.
+    """
+    try:
+        from agente import autonomo
+        r = autonomo.correr()
+        if r["aplicados"] or r["fallidos"]:
+            logger.info("agente: SOLO · %d aplicado(s) · %d no cerraron",
+                        len(r["aplicados"]), len(r["fallidos"]))
+    except Exception as e:
+        logger.debug("agente: no apliqué SOLO (%s)", e)
+
+
 def _disparar_investigaciones() -> None:
     """**EL TRIAGE**: lo que sigue caído se manda a investigar SOLO. §6.9.
 
@@ -163,9 +180,12 @@ def _una_pasada() -> dict:
     from agente import motor
     r = motor.tick()
     motor.latir(r)
-    # Va DESPUÉS del tick: primero el trabajo del agente, después lo demás. Y el
-    # triage ANTES de atender la cola, para que lo que se encola en esta pasada
-    # se levante en esta pasada y no en la próxima.
+    # Va DESPUÉS del tick, porque los detectores de esta pasada ya guardaron
+    # sus hallazgos, y ANTES del triage, porque lo que se arregla solo no hace
+    # falta investigarlo.
+    _aplicar_solo()
+    # Y el triage ANTES de atender la cola, para que lo que se encola en esta
+    # pasada se levante en esta pasada y no en la próxima.
     _disparar_investigaciones()
     _atender_investigaciones()
     # Último: el texto es lo que se LEE de un hallazgo, así que se escribe

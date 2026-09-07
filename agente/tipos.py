@@ -80,6 +80,12 @@ TIPOS = ("detector", "consulta", "accion")
 # NADA — es el invariante 1 disfrazado de feature nueva.
 SUJETOS = ("bono",)
 
+# Quién FIRMA lo que el agente aplica solo, sin que nadie apriete. Es una
+# constante y no un literal suelto: HISTORIAL la compara para pintar «SOLO»,
+# `vista.solo()` cuenta lo hecho hoy filtrando por ella, y `agente/autonomo`
+# la usa para no reintentar lo que ya intentó. No es un email a propósito.
+ACTOR_AGENTE = "av-agent"
+
 
 # ── AGUDO vs CRÓNICO — la pregunta que decide QUÉ hacer con un hallazgo ────
 #
@@ -212,6 +218,14 @@ class Habilidad:
     # El TIPO de investigación no se declara acá: ya vive en
     # `lab.langgraph.investigaciones.DE_LA_HABILIDAD`. Ver `agente/triage.py`.
     investigar: dict = field(default_factory=dict)
+
+    # ⚠️ **QUÉ REGLAS PUEDE APLICAR SOLO, y por qué.** `{regla: motivo}`.
+    # Vacío es el default y es una declaración: nada de esta habilidad se
+    # aplica sin que alguien apriete. Solo tiene sentido sobre una regla con
+    # arreglo declarado en `arreglos` y cuyo arreglo no pida datos (un robot
+    # no tilda listas); el test lo exige. El juez sigue siendo el pre-flight:
+    # `arreglos.aplicar` rechaza igual lo que `puede_aplicar` no deja.
+    automatico: dict = field(default_factory=dict)
 
     def __post_init__(self):
         for campo, validos in (("tipo", TIPOS), ("dominio", DOMINIOS),

@@ -529,10 +529,16 @@ ONs hard dólar que 1816 lista, **Primary cotiza**, y no están en
 (`ALCANCE = {soberano, bcra}` las dejaba afuera a propósito). Historia en §0.dp.
 
 Dos diferencias con su hermano, ninguna de gusto: **Primary es condición, no
-filtro** (sin foto → `SinDatos`, no se ofrece nada), y **no tiene arreglo**
-porque la rama `on` no está en `alta.RAMAS_AUTOMATICAS` — un botón que siempre
-bloquea enseña a no apretar. El `que_hacer` trae emisor, moneda y curva para
-tipear en Manager → TÍTULOS → BONOS → CARGAR → Corporativo (ON).
+filtro** (sin foto → `SinDatos`, no se ofrece nada), y el arreglo es por REGLA:
+`no_esta_en_curvas` (la mesa lo TIENE y no valúa) → `alta_bono`, y la fila de
+familia `no_estan_en_curvas` (lo que 1816 publica y no tenemos) → `alta_on`, que
+despliega la lista para tildar (§0.du, §0.dv). Nació sin arreglo mientras la
+rama `on` no estaba en `alta.RAMAS_AUTOMATICAS`.
+
+**Y es la primera regla que el agente aplica SOLO** (§0.ef): `no_esta_en_curvas`
+está declarada en `automatico`. El ejecutor (`agente/autonomo.py`) la aplica en
+cada pasada por la misma puerta que el botón, y el pre-flight sigue siendo el
+juez: lo que no cierra queda como botón para una persona.
 
 #### «¿Este símbolo cotiza en Primary?» — NO es una habilidad
 
@@ -1311,6 +1317,11 @@ habilidades, editable sin deploy.
 13. **El agente no se autoevalúa** (§9.1). Nada de votos, puntajes ni
     confianza acumulada. Lo único que se registra sobre su desempeño es un
     hecho: si algo que dio por arreglado volvió.
+14. **Lo automático entra por la misma puerta y firma como agente** (§0.ef).
+    Lo que el agente aplica solo pasa por `arreglos.aplicar` —mismo pre-flight,
+    mismo libro, mismo estado— con el actor `tipos.ACTOR_AGENTE`, nunca por un
+    camino propio. Una regla se aplica sola únicamente si su habilidad lo
+    declara en `automatico`, y el ejecutor no reintenta lo que ya intentó.
 
 ---
 
@@ -5397,3 +5408,48 @@ cotejo «al mismo precio» le manda a 1816 el precio ya en dólares —el mismo 
 que consume el motor— y cierra a 0 bps; y el mensaje deja de culpar al «180-360»,
 que es la convención de la TNA. Las demás ramas (soberanos, CER) siguen con la
 paridad sobre el residual: no se midieron, no se tocan.
+
+
+### 0.ef EL EJECUTOR — lo que el agente aplica SOLO, y cómo se distingue (2026-09-07)
+
+El user, con las ONs de cartera dándose de alta a mano una por una: *«me
+gustaría que esto se ejecute solo en vez de yo hacerlo manual… pero que quede en
+historial y todo, en especial con una marca de que se hizo solo, para ir
+diferenciando»*.
+
+**Lo que ya estaba, y por eso el diseño es chico.** El veredicto del pre-flight
+contestaba dos preguntas desde el 2026-08-22 —`puede_aplicar` (¿puede apretar
+un humano?) y `puede_auto` (¿puede aplicarse SOLO?, que además frena con
+`revisar` y `no_se`)— y nadie leía la segunda. `arreglos.aplicar` ya era la
+única puerta: pre-flight, escritura, libro, `en_curso`, y el detector que
+confirma. Y el libro ya guardaba `por`. Faltaba quién apriete y cómo firmar.
+
+**Las cuatro piezas:**
+
+1. **La declaración**, hermana de `investigar`: `Habilidad.automatico =
+   {regla: motivo}`. Vacío es «nada de esto va solo». Un test exige que la
+   regla tenga arreglo y que el arreglo no pida datos (un robot no tilda listas).
+2. **El ejecutor**, `agente/autonomo.py`: no escribe, ELIGE (como `triage.py`) y
+   llama a `arreglos.aplicar(hallazgo, por=ACTOR_AGENTE)`. Corre en cada pasada
+   del daemon (`jobs/agente.py::_aplicar_solo`), después del tick y antes del
+   triage. Tres guardas: **tope por pasada** (5: cada alta gasta créditos de 1816
+   y segundos, y un bug no puede escribir 200 bonos), **no reintentar 24 h** lo
+   que ya intentó (bien o mal: queda en `agente.acciones` con su motivo y el
+   hallazgo sigue como botón), y **solo reglas declaradas**.
+3. **La marca**: el actor reservado `tipos.ACTOR_AGENTE = "av-agent"`, que viaja
+   por el `por` que ya existía —`agente.acciones`, `hallazgos.cerrado_por`, y el
+   bono mismo en `mercado.curvas.actualizado_por`—. El backend lo resuelve en
+   cada fila del historial (`automatico`, invariante 11) y el front pinta SOLO.
+   El badge de HISTORIAL cuenta lo hecho solo hoy (`vista.solo`).
+4. **El switch es la declaración**: prender una regla es una línea en el
+   catálogo. Se eligió no agregar un switch en base para no tener dos lugares
+   que contesten «¿esto va solo?» (REGLA #9).
+
+**Decisiones que se tomaron y por qué.** Actúa al primer avistaje: acá el juez
+es el pre-flight, no el tiempo (en `investigar` los segundos existen porque una
+caída se recupera sola; una ON en cartera sin master no). Arranca con UNA regla,
+`on_faltante / no_esta_en_curvas`; `soberanos_faltantes` y el CEDEAR tienen la
+misma forma y se prenden cuando el historial de esta muestre una semana limpia.
+Los motores NO se reinician: el bono queda escrito y valúa desde el próximo
+arranque, que sigue siendo decisión de la mesa.
+

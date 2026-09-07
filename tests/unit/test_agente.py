@@ -85,6 +85,66 @@ def test_todo_arreglo_declarado_existe():
                 f"«{h.nombre}/{regla}» apunta al arreglo «{aid}», que no existe")
 
 
+def test_lo_automatico_tiene_arreglo_y_no_pide_datos():
+    """Lo que una habilidad declara `automatico` tiene que poder aplicarse
+    SOLA: sobre una regla con arreglo declarado, y cuyo arreglo no pida datos
+    (un robot no tilda listas)."""
+    for h in catalogo.HABILIDADES.values():
+        for regla, motivo in h.automatico.items():
+            assert regla in h.arreglos, (
+                f"«{h.nombre}/{regla}» es automático pero no tiene arreglo declarado")
+            aid = h.arreglos[regla]
+            assert arreglos.ARREGLOS[aid].pide_datos is False, (
+                f"«{h.nombre}/{regla}» es automático pero su arreglo «{aid}» "
+                "pide datos: un robot no tilda listas")
+            assert str(motivo).strip(), (
+                f"«{h.nombre}/{regla}» es automático sin decir por qué")
+
+
+def test_el_ejecutor_solo_elige_lo_declarado():
+    """`autonomo._elegir` es PURA: prueba con filas armadas a mano, sin base."""
+    from agente import autonomo
+
+    base = dict(sujeto="x", regla="no_esta_en_curvas", arreglo="alta_bono")
+    reglas = {("on_faltante", "no_esta_en_curvas")}
+
+    declarada_nuevo = {**base, "id": 1, "habilidad": "on_faltante",
+                       "estado": tipos.NUEVO, "detectado_at": date(2026, 1, 1)}
+    declarada_en_curso = {**base, "id": 2, "habilidad": "on_faltante",
+                          "sujeto": "y", "estado": tipos.EN_CURSO,
+                          "detectado_at": date(2026, 1, 1)}
+    no_declarada = {**base, "id": 3, "habilidad": "otra_habilidad",
+                    "sujeto": "z", "estado": tipos.NUEVO,
+                    "detectado_at": date(2026, 1, 1)}
+    reciente = {**base, "id": 4, "habilidad": "on_faltante", "sujeto": "w",
+                "estado": tipos.NUEVO, "detectado_at": date(2026, 1, 1)}
+    sin_arreglo = {**base, "id": 5, "habilidad": "on_faltante", "sujeto": "v",
+                   "arreglo": "", "estado": tipos.NUEVO,
+                   "detectado_at": date(2026, 1, 1)}
+
+    abiertos = [declarada_nuevo, declarada_en_curso, no_declarada, reciente,
+                sin_arreglo]
+    recientes = {("on_faltante", "w", "no_esta_en_curvas")}
+
+    elegidos = autonomo._elegir(abiertos, recientes, reglas)
+    assert elegidos == [declarada_nuevo]
+
+    # Siete declaradas válidas y tope=5: se quedan las 5 más viejas.
+    siete = [
+        {**base, "id": 10 + i, "habilidad": "on_faltante", "sujeto": f"s{i}",
+         "estado": tipos.NUEVO, "detectado_at": date(2026, 1, 1) + timedelta(days=i)}
+        for i in range(7)
+    ]
+    elegidos = autonomo._elegir(siete, set(), reglas, tope=5)
+    assert len(elegidos) == 5
+    assert [f["id"] for f in elegidos] == [10, 11, 12, 13, 14]
+
+
+def test_el_actor_del_agente_es_una_constante_y_no_un_email():
+    assert tipos.ACTOR_AGENTE
+    assert "@" not in tipos.ACTOR_AGENTE
+
+
 def test_un_arreglo_escribe():
     """**Un arreglo ESCRIBE en algún lado** (invariante 10). Si después de
     apretarlo el sistema quedó igual, no era un arreglo: era un botón de mirar."""

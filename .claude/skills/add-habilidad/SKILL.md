@@ -96,8 +96,14 @@ Reglas fijas del contrato, todas congeladas por test:
         cada_segundos=N * _M, ventana="rueda|cierre|habil|siempre",
         correr=<modulo>.mi_habilidad,
         umbrales={"umbral": default},          # solo si el detector lee `u`
-        arreglos={"mi_regla": "id_del_arreglo"}),   # o {} con el comentario
+        arreglos={"mi_regla": "id_del_arreglo"},    # o {} con el comentario
+        automatico={"mi_regla": "por qué puede ir sola"}),  # SOLO si un robot puede apretarla
 ```
+
+`automatico` es la octava pieza y es opcional: declara qué reglas el agente
+aplica SOLO (`agente/autonomo.py`, invariante #14). Solo sobre una regla con
+arreglo que no pida datos; el pre-flight sigue siendo el juez. Nace vacío: se
+prende cuando el botón manual ya mostró una semana limpia en HISTORIAL.
 
 Las cinco declaraciones de la REGLA #10 están en esa fila: qué mira, cuándo,
 qué arreglo, dónde escribe (por `registro`, siempre) y qué hacer (en cada

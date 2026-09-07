@@ -280,6 +280,10 @@ def historial(*, limite: int = LIMITE, desde_id: int | None = None,
         " ORDER BY a.id DESC LIMIT %s", (*params, limite + 1))
     hay_mas = len(filas) > limite
     filas = [_serializar(f) for f in filas[:limite]]
+    from agente import tipos
+    # La pantalla no deriva (invariante 11): «lo hizo solo» viaja resuelto.
+    for f in filas:
+        f["automatico"] = (f.get("por") == tipos.ACTOR_AGENTE)
     return {"filas": filas, "hay_mas": hay_mas,
             "ultimo_id": filas[-1]["id"] if filas else None,
             "limite": limite}
@@ -390,6 +394,30 @@ def reincidencias(limite: int = 100) -> dict:
             "historicas": int(apagadas[0]["n"]) if apagadas else 0}
 
 
+# ── LO QUE EL AGENTE APLICÓ SOLO ───────────────────────────────────────────
+def solo() -> dict:
+    """Cuánto aplicó SOLO el agente hoy (`agente/autonomo.py`).
+
+    Si la consulta falla: `{"hoy": None, ...}` — «no pude contar» no es cero
+    (mismo criterio que `_con_historial`).
+    """
+    from agente import tipos
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FILTER (WHERE ok), "
+                "       count(*) FILTER (WHERE NOT ok), max(at) "
+                "  FROM agente.acciones "
+                " WHERE por = %s AND at >= date_trunc('day', now())",
+                (tipos.ACTOR_AGENTE,))
+            hoy, fallidas_hoy, ultima_at = cur.fetchone()
+        return {"hoy": int(hoy or 0), "fallidas_hoy": int(fallidas_hoy or 0),
+                "ultima_at": ultima_at.isoformat() if ultima_at else None}
+    except Exception as e:
+        logger.warning("vista: no pude contar lo que el agente aplicó solo (%s)", e)
+        return {"hoy": None, "fallidas_hoy": None, "ultima_at": None}
+
+
 # ── TODO EN UN REQUEST ─────────────────────────────────────────────────────
 def vista() -> dict:
     """Todo lo que el modal necesita. **UN request.**
@@ -405,6 +433,8 @@ def vista() -> dict:
         "ahora": ahora(),
         "encontro": encontro(),
         "reincidencias": reincidencias(20),
+        # Lo que el agente aplicó SOLO hoy, contado del lado del backend.
+        "solo": solo(),
         # Va en el MISMO request que el resto: el modal se dibuja con UNA sola
         # noción de «ahora». Dos endpoints con frescuras distintas fue cómo el
         # agente viejo llegó a sumar números que hablaban de instantes distintos.

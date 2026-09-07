@@ -96,7 +96,14 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   # La fila de familia despliega la lista para TILDAR: 1816
                   # publica muchas más de las que la mesa quiere seguir, y el
                   # sistema sabe escribirlas todas pero no cuáles (§0.dv).
-                  "no_estan_en_curvas": "alta_on"}),
+                  "no_estan_en_curvas": "alta_on"},
+        # Solo esta regla, no la de familia (`no_estan_en_curvas` es una
+        # OFERTA de catálogo para tildar, no un problema — nadie decide
+        # solo qué ONs seguir).
+        automatico={"no_esta_en_curvas":
+                    "la mesa lo tiene en cartera y hoy no valúa; el "
+                    "pre-flight baja el cuadro de 1816, lo coteja contra el "
+                    "de ellos y solo escribe si cierra"}),
 
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",
@@ -376,6 +383,7 @@ def estado() -> list[dict]:
         h = HABILIDADES.get(f["nombre"])
         # La CLASE de una habilidad es el resumen de sus reglas, y se DERIVA.
         f["arreglos"] = dict(h.arreglos) if h else {}
+        f["automatico"] = dict(h.automatico) if h else {}
         f["clase"] = ("trabajo" if (h and h.arreglos) else "aviso")
     return filas
 

@@ -470,16 +470,14 @@ _FRENAN_TODO = (BLOQUEA,)
 # el cotejo quiere auditar ("¿está bien convertido el cuadro?"). La TEA, en
 # cambio, agrega dos capas de ruido que no tienen nada que ver con esa pregunta:
 #
-#   1. **La convención de días.** Medido: 1816 usa `180-360` para GD46 y TZXM8;
-#      nuestro motor usa `xirr` con fechas reales (act/365). Son dos formas
-#      legítimas de anualizar el MISMO flujo y dan números distintos.
-#   2. **El tipo de cambio**, en los bonos en dólares. Medido en GD46: la misma
-#      tasa da 9,71% pidiendo `ars` (ellos dividen por CCL), 9,79% con `ccl` y
-#      9,08% con `mep`. Contra nuestro 7,69%: 202 / 210 / **139 bps**.
-#
-# O sea que pedir `mep` bajó de 202 a 139 bps — **mejoró, no cerró**, y lo que
-# queda es convención. Perseguir esos bps sería perseguir un empate imposible
-# entre dos métodos de anualización distintos.
+#   1. **El tipo de cambio**, en los bonos en dólares. 1816 divide por su CCL
+#      cuando se le pide `ars`; nosotros por el MEP. Medido en 7 ONs
+#      (2026-09-07, `scripts/diag_1816_dolar_on`): al MISMO precio y en la MISMA
+#      moneda (`mep`), su TEA y la nuestra dan **0,0 bps** — la fórmula, el
+#      cronograma y la liquidación son idénticos. Lo que se veía como «136-215
+#      bps» era el dólar y nada más.
+#   2. **La convención de días NO es una causa**: `convencionTna` es la
+#      convención de la TNA, no de la TEA. Antes se la culpaba acá.
 #
 # Comparando PARIDAD las dos capas desaparecen y queda la pregunta sola. Si la
 # paridad coincide, el cuadro está bien y la diferencia de TEA es método.
@@ -592,8 +590,12 @@ def cota_devengado(cupones: list[dict], desde: str = "") -> float | None:
 
     Las dos paridades no miden lo mismo, y es por definición, no por error:
 
-        nuestra  = precio / residual                 (`engines/curvas.py`)
+        nuestra  = precio / residual                 (`engines/curvas.py`, hasta 2026-09-07)
         1816     = precio / (residual + devengado)   (valor técnico)
+
+    Desde el 2026-09-07 la rama `on` del motor también devenga (`interes_corrido`),
+    así que para las ONs las dos coinciden y esta cota queda como red para las
+    ramas que todavía dividen por el residual pelado.
 
     Entonces la nuestra da SIEMPRE un poco más alta, y «un poco» tiene un techo
     exacto: el devengado nunca supera **un cupón entero** sobre el residual vivo.
@@ -672,12 +674,11 @@ def _cotejo_tea(tea, ref: dict, *, job_tasa: str = "", paridad=None,
     apoyo = ""
     if isinstance(tea, int | float) and isinstance(suya_tea, int | float):
         bps = abs(float(tea) - float(suya_tea)) * 10_000
-        conv = (mismo.get("convencion_tna") or ref.get("convencion_tna") or "")
+        # Sin culpar a la convención de días: `convencionTna` es la convención de
+        # la TNA, no de la TEA. Medido (AGENT.md §0.ee): al mismo precio y en la
+        # misma moneda, la TEA de 1816 y la nuestra son la MISMA al bp.
         apoyo = (f" · TEA: nuestra {float(tea):.4%} vs 1816 {float(suya_tea):.4%} "
-                 f"({bps:,.0f} bps)"
-                 + (f", ellos anualizan {conv} y nosotros con días reales — "
-                    "una diferencia acá NO significa que el cuadro esté mal"
-                    if conv and bps > _BPS_COINCIDE else ""))
+                 f"({bps:,.0f} bps, {base})")
 
     if nuestra_par is None or suya_par is None:
         return _paso("cotejo_1816", "El cuadro coincide con el de 1816", NO_SE,
@@ -1761,7 +1762,7 @@ def moneda_pedido_1816(simbolo: str, moneda_eje: str) -> str:
     return "mep" if (tk[-1:].upper() in ("D", "C")) else "ars"
 
 
-def moneda_cotejo_1816(rama: str) -> str:
+def moneda_cotejo_1816(rama: str, moneda_flujo: str = "") -> str:
     """En qué moneda COMPARAR el resultado = **la moneda en la que el motor lo
     calcula**, que no tiene por qué ser la del precio que le damos de comer.
 
@@ -1782,8 +1783,20 @@ def moneda_cotejo_1816(rama: str) -> str:
     trabaja en pesos, y en `dolar_linked` la paridad es un cociente entre dos
     números pesificados al MISMO TC —o sea que no depende de la moneda— y encima
     1816 no publica `mep` para ellos (D30O6 devolvió todo `None`).
+
+    ⚠️ **Y las ONs en USD son el MISMO caso que los soberanos** (2026-09-07). La
+    rama `on` con `moneda_flujo = USD` pasa el precio por `precio_soberano_a_usd`
+    igual que un soberano, pero acá se contestaba `ars`: el cotejo le mandaba
+    pesos y 1816 dividía por SU dólar (su CCL), así que comparaba nuestro MEP
+    contra su CCL y no podía cerrar nunca — y el mensaje culpaba a la convención
+    de días. Medido en 7 ONs con `scripts/diag_1816_dolar_on`: al mismo precio
+    en `mep`, **0,0 bps** entre su TEA y la nuestra (AGENT.md §0.ee).
     """
-    return "mep" if rama == "soberanos" else "ars"
+    if rama == "soberanos":
+        return "mep"
+    if rama == "on" and (moneda_flujo or "").strip().upper() == "USD":
+        return "mep"
+    return "ars"
 
 
 def _sin_rueda(intentos: list[str]) -> str:
@@ -2257,7 +2270,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
         # que consumió el motor, expresado como el motor lo expresa: para un
         # soberano eso es el precio ya pasado a dólares por `precio_soberano_a_usd`
         # —la función del motor, no una copia— y la pregunta va en `mep`.
-        moneda_cot = moneda_cotejo_1816(rama_doc)
+        moneda_cot = moneda_cotejo_1816(rama_doc, doc.get("moneda_flujo") or "")
         px_cot = float(precio)
         if moneda_cot == "mep":
             from engines.curvas import precio_soberano_a_usd

@@ -142,6 +142,37 @@ def fecha_flujo(f):
     return None
 
 
+def interes_corrido(flujos_raw, proximo, fecha_settlement, fecha_emision=None) -> float:
+    """Interés devengado del cupón en curso a la fecha de liquidación, lineal por
+    días reales (act/act sobre el período del cupón). Por 100 VN, en la misma
+    unidad que `interes` del cronograma.
+
+        devengado = interés del próximo cupón × (settle − inicio) / (próximo − inicio)
+
+    `inicio` es el último pago a o antes de la liquidación; si no hay ninguno (el
+    bono todavía no pagó), la fecha de emisión. Sin ninguna de las dos → 0.
+    Un cupón que paga JUSTO en la liquidación cuenta como inicio, así que el
+    devengado ahí es 0 — coherente con que ese flujo ya no es del comprador.
+    """
+    prox_fecha, _, prox_f = proximo
+    inicio = None
+    for f in flujos_raw:
+        fd = fecha_flujo(f)
+        if fd and fd <= fecha_settlement and (inicio is None or fd > inicio):
+            inicio = fd
+    if inicio is None and fecha_emision:
+        inicio = fecha_flujo({"fecha": fecha_emision})
+    if not inicio or prox_fecha <= inicio:
+        return 0.0
+    interes = float(prox_f.get("interes") or 0)
+    if interes <= 0:
+        return 0.0
+    dias = (fecha_settlement - inicio).days
+    if dias <= 0:
+        return 0.0
+    return interes * dias / (prox_fecha - inicio).days
+
+
 def get_cer_en_fecha(cer_dict, fecha_date):
     for i in range(7):
         key = (fecha_date - timedelta(days=i)).isoformat()
@@ -741,12 +772,25 @@ def calcular_campos(
             resultado["duration"] = round(dias_a_vto_s / 365, 4)
             return resultado
 
-        # Paridad = precio / residual vivo. El residual vivo (nominal que aún
-        # falta amortizar) = Σ de las amortizaciones futuras — robusto, no depende
-        # del campo `valor_residual` (que puede venir en otra escala que el flujo).
+        # Paridad = precio / VALOR TÉCNICO = residual vivo + interés corrido.
+        #
+        # El residual vivo (nominal que aún falta amortizar) = Σ de las
+        # amortizaciones futuras — robusto, no depende del campo `valor_residual`
+        # (que puede venir en otra escala que el flujo).
+        #
+        # El devengado es el del cupón en curso, lineal por días reales: desde el
+        # último pago (o la emisión, si todavía no pagó ninguno) hasta la
+        # liquidación. Hasta el 2026-09-07 se dividía por el residual pelado y la
+        # paridad salía hasta un cupón entero más alta que la del mercado (2,9
+        # puntos en DNC3O). Medido contra 1816 en 7 ONs al mismo precio y mismo
+        # dólar: su valor técnico es exactamente esto (AGENT.md §0.ee). Sin fecha
+        # previa —primer cupón y sin `fecha_emision`— el devengado queda en 0, que
+        # es lo que hacía antes.
         residual_vivo = sum(float(f.get("amortizacion") or 0) for _, _, f in flujos_futuros)
         if residual_vivo > 0:
-            resultado["paridad"] = round(precio_calc / residual_vivo * 100, 4)
+            devengado = interes_corrido(flujos_raw, flujos_futuros[0], fecha_settlement,
+                                        instrumento.get("fecha_emision"))
+            resultado["paridad"] = round(precio_calc / (residual_vivo + devengado) * 100, 4)
 
         try:
             fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \

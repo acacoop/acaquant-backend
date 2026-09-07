@@ -5385,3 +5385,15 @@ cronograma y liquidación son los de ellos; contra el MEP de la casa (1.528) son
 moneda pedida; mandarle pesos con `moneda=mep` los tomó como dólares (TEA −95%).
 Ahora `mep` recibe `precio / MEP casa` (prueba directa de fórmula) y el dólar
 de ellos se mide con el endpoint de PRECIOS en `mep` y `ccl` (pregunta 2).
+
+**Lo que se arregló con eso (mismo día).** (1) `engines/curvas.py`, rama `on`:
+la paridad pasa a ser sobre **valor técnico** (`interes_corrido`: residual +
+devengado lineal por días reales del cupón en curso, desde el último pago o la
+emisión). Verificado contra 1816 al mismo dólar: EAC3O 99,83 contra 99,79, DNC3O
+100,82 contra 100,82, YM43O 98,28 contra 98,28. Sin `fecha_emision` y sin pago
+previo el devengado es 0, que es lo que hacía antes. (2) `agente/alta.py`:
+`moneda_cotejo_1816` contesta `mep` también para una ON en USD, así que el
+cotejo «al mismo precio» le manda a 1816 el precio ya en dólares —el mismo número
+que consume el motor— y cierra a 0 bps; y el mensaje deja de culpar al «180-360»,
+que es la convención de la TNA. Las demás ramas (soberanos, CER) siguen con la
+paridad sobre el residual: no se midieron, no se tocan.

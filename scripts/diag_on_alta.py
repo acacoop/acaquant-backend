@@ -12,11 +12,11 @@ que el paso `rama` no bloquea a todas por adelantado y **cada bono lo juzga su
 propio cotejo contra 1816**. Este diag corre ese mismo cotejo en lote, para ver
 de antemano cuántas van a pasar sin ir apretando una por una.
 
-Lo que decide es **la duration**, no la TEA ni la paridad, y hay una razón
-medida: 1816 anualiza 180-360 y nosotros con días reales, así que la TEA nunca
-cierra —ni en los bonos que están perfectos—; y la paridad de ellos incluye el
-interés corrido y la nuestra no. La duration sale SOLO del cronograma y las
-fechas: si coincide, el cuadro que escribiríamos es el de ellos.
+Lo que decide es **la duration**, no la TEA ni la paridad: la TEA de una ON en
+dólares depende del tipo de cambio (1816 divide por su CCL, nosotros por el
+MEP), y la paridad del devengado. La duration sale SOLO del cronograma y las
+fechas: si coincide, el cuadro que escribiríamos es el de ellos. (Al mismo
+precio y misma moneda la TEA sí coincide al bp — AGENT.md §0.ee.)
 
 ## Qué hace este diag
 

@@ -1567,6 +1567,12 @@ y una en **dólares** (sufijo `D`, `VSCIOD`, precio ~100). `mercado.curvas` guar
   (~100) el motor la detecta por escala (<1000) y la usa tal cual. *(`TTCEO`.)*
 - **ARS (peso nativo)** → pata peso, precio directo.
 
+**Paridad de las ONs = precio / valor técnico** (residual vivo + interés corrido
+del cupón en curso, lineal por días reales; `engines/curvas.py::interes_corrido`).
+Hasta el 2026-09-07 se dividía por el residual pelado y salía hasta un cupón
+entero más alta que la del mercado. Soberanos y CER siguen sobre el residual:
+no medidos, no tocados. Medición y contexto: `docs/AGENT.md` §0.ee.
+
 **Esto ya no es un frente abierto sin dueño**: lo mira la habilidad
 `precio_moneda` del agente (`agente/catalogo.py`), que separa las dos causas y
 **tiene botón para las dos** — `pata_equivocada → apuntar_pata` y

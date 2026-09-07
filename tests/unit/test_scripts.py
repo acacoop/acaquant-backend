@@ -78,6 +78,11 @@ HERRAMIENTAS: dict[str, str] = {
                              "cuando la habilidad esté hecha.",
     # ⚠️ TEMPORAL — igual que el de arriba: se BORRA en el commit que prenda (o
     # descarte) la rama `on` en `alta.RAMAS_AUTOMATICAS`.
+    # ⚠️ TEMPORAL — se BORRA cuando el tema de las ONs cierre.
+    "diag_agente_corriendo": "separa las cuatro causas de «deployé y sigue igual»: repo viejo, "
+                             "daemon viejo, todavía no le tocó, o el código no hace lo que "
+                             "creíamos. Compara la huella de las reglas (`no_esta_en_curvas` = "
+                             "una fila por ON = código viejo) contra lo que produce el checkout.",
     "diag_on_alta":          "mide si la conversión del cuadro de 1816 para una ON cierra contra "
                              "la PARIDAD que publica 1816 al mismo precio. Es lo que decide si la "
                              "rama `on` se puede prender y `on_faltante` pasa de aviso a botón. "

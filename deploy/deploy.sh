@@ -13,7 +13,7 @@
 #   2. apply_schema — crea las tablas/columnas/índices que falten. Es idempotente
 #      y NO destructivo (solo CREATE ... IF NOT EXISTS y semillas guardadas: no
 #      hay un solo DROP/DELETE/TRUNCATE). Se puede saltear con --sin-schema.
-#   3. restart api.service — **Y NADA MÁS**. Los motores NO se tocan.
+#   3. restart api.service + agente.service. Los MOTORES no se tocan.
 #   4. Smoke — pega a /api/health local y muestra el estado del service.
 #
 # ⚠️ **LOS MOTORES NO SE REINICIAN** (regla del user, 2026-08-18: «no puedo estar
@@ -82,14 +82,41 @@ else
     echo "▶ 2/4  apply_schema SALTEADO (--sin-schema)"
 fi
 
+# ⚠️⚠️ **EL DAEMON DEL AGENTE NO LO REINICIABA NADIE** (docs/AGENT.md §0.ea).
+#
+# `agente.service` corre `jobs.agente`, o sea TODOS los detectores. Y no entraba
+# por ningún lado: acá se reiniciaba sólo `api.service`, y `restart_all.sh`
+# itera `deploy/systemd/motor_*.service` — un glob que `agente.service` no
+# matchea. Resultado: después de CUALQUIER deploy la API servía el código nuevo
+# y **el agente seguía detectando con el viejo, para siempre**.
+#
+# El síntoma es cruel porque cada mitad es coherente: los botones nuevos
+# aparecen (los sirve la API), y las filas siguen saliendo con el texto viejo
+# (las escribe el daemon). Nadie lo ve como «falta un restart» — se ve como
+# «el cambio no funcionó». Es la REGLA #9 en el deploy.
+#
+# **No es un motor y por eso no aplica la regla de no reiniciarlos.** Un motor
+# reiniciado en rueda corta el feed de precios de la mesa; el agente no le sirve
+# precio a nadie, sólo mira y escribe hallazgos. Y su unit está escrita para que
+# el restart sea seguro: atiende SIGTERM, termina la pasada en curso y sale
+# limpio. Lo peor que pasa es que se pierda una pasada de detección.
+reiniciar_agente() {
+    if systemctl list-unit-files agente.service >/dev/null 2>&1; then
+        systemctl restart agente.service \
+            || echo "   ⚠ agente.service no reinició — 'journalctl -u agente.service -n 50'"
+    fi
+}
+
 # ── 3. Servicios ────────────────────────────────────────────────────────────
 echo
 if [ "$CON_MOTORES" = "1" ]; then
     echo "▶ 3/4  restart api.service + MOTORES ACTIVOS (--con-motores)"
     bash deploy/restart_all.sh || morir "restart_all.sh — mirá 'journalctl -u api.service -n 50'"
+    reiniciar_agente
 else
-    echo "▶ 3/4  restart api.service (los motores NO se tocan)"
+    echo "▶ 3/4  restart api.service + agente.service (los motores NO se tocan)"
     systemctl restart api.service || morir "systemctl restart api.service — mirá 'journalctl -u api.service -n 50'"
+    reiniciar_agente
 
     # ¿El código nuevo toca a los motores? Se AVISA, no se actúa. Un motor
     # reiniciado en rueda corta el feed de la mesa, y esa es una decisión de

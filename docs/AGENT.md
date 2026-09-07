@@ -5175,3 +5175,40 @@ partes: una corrida ciega y una corrida limpia dibujadas igual.
 La condición de ventana quedó en UN solo lugar (`_fuera_de_ventana`), que
 `_le_toca` consulta. Antes estaba inline en `_le_toca`, y por eso no se podía
 distinguir un freno del otro sin reescribir la función.
+
+
+### 0.ea EL DAEMON DEL AGENTE CORRÍA CÓDIGO VIEJO — desde siempre (2026-09-07)
+
+Tres días después de §0.ds–§0.dz, la pantalla seguía mostrando **una fila por
+ON en AHORA**, con el `que_hacer` viejo («No hay botón: la rama `on` todavía no
+convierte el cuadro sola») — un texto que ya no existe en el repo. Y las filas
+estaban **confirmadas ese mismo día a las 14:03**, o sea reescritas por una
+corrida reciente.
+
+**La causa: `agente.service` no lo reiniciaba NADIE.** `deploy.sh` reiniciaba
+sólo `api.service`, y `restart_all.sh` itera `deploy/systemd/motor_*.service` —
+un glob que `agente.service` no matchea. Así que después de CUALQUIER deploy la
+API servía el código nuevo y **el daemon seguía detectando con el viejo,
+indefinidamente**.
+
+⚠️ **El síntoma es cruel porque cada mitad es coherente consigo misma.** Los
+botones nuevos aparecían (los sirve la API, que sí se reinicia) y las filas
+seguían saliendo con el texto viejo (las escribe el daemon). Eso no se lee como
+«falta un restart»: se lee como **«el cambio no funcionó»**. Es exactamente la
+REGLA #9 —dos copias del código y ningún árbitro— aplicada al deploy.
+
+**Por qué no aplica la regla de no reiniciar.** Un motor reiniciado en rueda
+corta el feed de precios de la mesa, y por eso el deploy no los toca. El agente
+no le sirve precio a nadie: mira y escribe hallazgos. Y su unit está escrita
+para el restart —atiende SIGTERM, termina la pasada en curso y sale limpio—, así
+que lo peor que pasa es perder una pasada de detección.
+
+**Lo que se congeló** (`tests/unit/test_deploy_units.py`): cada unit de
+`deploy/systemd/` que no sea un motor tiene que estar clasificada — o la
+reinicia el deploy, o está declarada como que no **con su motivo escrito**.
+Sumar una unit nueva sin decidir de qué lado va rompe el test. Sin eso, una unit
+suelta corre código viejo para siempre y **nada falla**: el proceso está vivo,
+el deploy dice OK y el commit está en `main`.
+
+`control_saldos` y `tenencia_live` quedaron declaradas del lado de «no se
+reinician»: son feeds vivos como un motor, aunque no se llamen `motor_*`.

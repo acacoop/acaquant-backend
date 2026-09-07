@@ -50,6 +50,21 @@ logger = logging.getLogger(__name__)
 # pasada VUELVA, no que termine todo.
 PRESUPUESTO_S = 240
 
+# ⚠️⚠️ **LA PASADA A PEDIDO TIENE OTRO PRESUPUESTO, Y NO ES UNA PREFERENCIA**
+# (§0.eb). Del otro lado hay un transporte con su propio corte: el proxy de
+# Vercel (`src/app/api/agente/[...path]/route.ts`) tiene `maxDuration = 30`.
+#
+# Mientras el botón corría lo mismo que el daemon esto no se notaba: casi nunca
+# le tocaba a nadie y la pasada volvía en un segundo. Al forzar el ritmo (§0.dz)
+# pasó a correr las ~27 habilidades de una, se fue muy arriba de 30 s, y el
+# proxy cortó: **«no pude correr la pasada»**. Arreglar un botón mudo y dejarlo
+# roto es peor que no tocarlo.
+#
+# 20 s deja margen para el viaje de ida y vuelta. Lo que no entra no se pierde:
+# la pasada devuelve cuántas quedaron y la pantalla invita a apretar de nuevo —
+# el mismo criterio que el presupuesto del daemon, que corta y sigue mañana.
+PRESUPUESTO_PEDIDO_S = 20
+
 # El ritmo del daemon. Vive ACÁ y no en `jobs/agente.py` porque lo necesita el
 # LATIDO para decir cuándo vuelve — y `agente/` no puede importar a `jobs/`.
 #
@@ -157,7 +172,7 @@ def correr_una(nombre: str) -> dict:
     return {"habilidad": nombre, "ms": ms, **r}
 
 
-def tick(*, forzar: bool = False) -> dict:
+def tick(*, forzar: bool = False, presupuesto_s: float | None = None) -> dict:
     """UNA pasada. Es lo único que llama el daemon.
 
     `forzar=True` es **una persona apretando el botón**: corre todas las que la
@@ -171,10 +186,11 @@ def tick(*, forzar: bool = False) -> dict:
     ahora = reloj.ahora_utc()
     fuentes.refrescar()
     pendientes, fuera = _agenda(ahora, forzar=forzar)
+    tope = PRESUPUESTO_S if presupuesto_s is None else float(presupuesto_s)
     corridas, t0 = [], time.monotonic()
     for f in pendientes:
         corridas.append(correr_una(f["nombre"]))
-        if time.monotonic() - t0 > PRESUPUESTO_S:
+        if time.monotonic() - t0 > tope:
             logger.info("agente: corté la pasada por presupuesto (%d de %d) — "
                         "las que faltan van en la próxima", len(corridas),
                         len(pendientes))
@@ -183,7 +199,12 @@ def tick(*, forzar: bool = False) -> dict:
         "at": ahora.isoformat(), "en_rueda": reloj.en_rueda(ahora),
         "habil": reloj.dia_habil(ahora),
         "corridas": corridas, "pendientes": len(pendientes),
-        "forzada": forzar,
+        "forzada": forzar, "presupuesto_s": tope,
+        # LO QUE NO ENTRÓ EN EL PRESUPUESTO. No es lo mismo que
+        # `fuera_de_ventana`: esto SÍ le tocaba y se corta por tiempo, así que
+        # apretar de nuevo lo corre. Sin el número, una pasada cortada y una
+        # completa se ven idénticas.
+        "faltaron": max(0, len(pendientes) - len(corridas)),
         # QUIÉN NO CORRIÓ Y POR QUÉ. Sin esto, «no pasó nada» y «no había nada
         # que hacer» se ven exactamente igual.
         "fuera_de_ventana": fuera,

@@ -5212,3 +5212,30 @@ el deploy dice OK y el commit está en `main`.
 
 `control_saldos` y `tenencia_live` quedaron declaradas del lado de «no se
 reinician»: son feeds vivos como un motor, aunque no se llamen `motor_*`.
+
+
+### 0.eb EL BOTÓN ARREGLADO, Y ROTO DE OTRA FORMA (2026-09-07)
+
+§0.dz hizo que «mirar ahora» **forzara el ritmo**, porque antes corría lo mismo
+que el daemon y por eso casi nunca hacía nada. Efecto no previsto: pasó de correr
+cero o una habilidad a correr **las ~27 de una**, se fue muy arriba de los 30 s
+que aguanta el proxy de Vercel (`maxDuration = 30`), y el botón empezó a
+contestar **«no pude correr la pasada»**.
+
+El cambio era correcto y el resultado quedó peor que antes. **Arreglar un botón
+mudo y dejarlo roto no es un arreglo.**
+
+**Los dos presupuestos son dos números porque los limita otra cosa.** Al daemon
+lo limita que la pasada VUELVA (`PRESUPUESTO_S = 240`: corta y sigue en la
+siguiente). A la pantalla la limita un TRANSPORTE que corta a los 30 s
+(`PRESUPUESTO_PEDIDO_S = 20`, con margen para el viaje). Confundirlos es lo que
+rompió el botón.
+
+**Y lo que no entra no se pierde**: la pasada devuelve `faltaron` —las que SÍ les
+tocaba y quedaron por tiempo, distinto de `fuera_de_ventana`— y la pantalla dice
+«miró 9 · faltan 14, apretá de nuevo». Sin ese número, una pasada cortada y una
+completa se ven idénticas, que es el mismo bug que §0.dz vino a arreglar.
+
+⚠️ El `30` vive en el frontend y el `20` acá: **dos copias de un mismo límite**
+(REGLA #9). Se declaran una en función de la otra, con el path de la otra
+escrito al lado, y un test verifica que el de acá sea menor.

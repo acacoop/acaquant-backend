@@ -201,7 +201,10 @@ def correr(body: Correr):
     fuentes.refrescar()
     if body.habilidad:
         return motor.correr_una(body.habilidad)
-    r = motor.tick(forzar=True)
+    # ⚠️ Presupuesto CORTO: del otro lado hay un proxy que corta a los 30 s
+    # (§0.eb). Lo que no entra vuelve en `faltaron` y se resuelve apretando de
+    # nuevo — mejor que un botón que falla entero.
+    r = motor.tick(forzar=True, presupuesto_s=motor.PRESUPUESTO_PEDIDO_S)
     motor.latir(r)
     return r
 

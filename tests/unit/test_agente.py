@@ -479,9 +479,38 @@ def test_mirar_ahora_fuerza_el_RITMO_y_nunca_la_VENTANA():
     import inspect as _i
 
     from api.routers import agente as router_agente
-    assert "motor.tick(forzar=True)" in _i.getsource(router_agente.correr)
+    assert "motor.tick(forzar=True," in _i.getsource(router_agente.correr)
     assert "tick(forzar=True)" not in _i.getsource(motor.correr_para_siempre) \
         if hasattr(motor, "correr_para_siempre") else True
+
+
+def test_la_pasada_A_PEDIDO_entra_en_el_presupuesto_del_transporte():
+    """⚠️ **ARREGLAR UN BOTÓN MUDO Y DEJARLO ROTO ES PEOR** (§0.eb).
+
+    §0.dz hizo que «mirar ahora» forzara el ritmo. Efecto no previsto: pasó de
+    correr casi nada a correr las ~27 habilidades de una, se fue muy arriba de
+    los 30 s del proxy de Vercel, y el botón empezó a contestar «no pude correr
+    la pasada». El cambio era correcto y el resultado, peor.
+
+    El presupuesto del daemon y el de la pantalla son DOS números distintos
+    porque los limita otra cosa: al daemon, que la pasada vuelva; a la pantalla,
+    un transporte que corta. Y lo que no entra **no se pierde**: vuelve en
+    `faltaron`, que es lo que hace que «se cortó» y «no había nada» dejen de
+    verse igual.
+    """
+    from agente import motor
+
+    assert motor.PRESUPUESTO_PEDIDO_S < 30, (
+        "el proxy de `src/app/api/agente/[...path]/route.ts` tiene "
+        "maxDuration = 30: una pasada a pedido más larga que eso NO llega")
+    assert motor.PRESUPUESTO_PEDIDO_S < motor.PRESUPUESTO_S
+    # El endpoint que aprieta la persona usa el corto; el daemon, el largo.
+    from api.routers import agente as router_agente
+    src = inspect.getsource(router_agente.correr)
+    assert "presupuesto_s=motor.PRESUPUESTO_PEDIDO_S" in src
+    assert "presupuesto_s" not in inspect.getsource(motor.tick).split("def tick")[0]
+    # Y `faltaron` viaja: sin él, una pasada cortada se ve igual que una entera.
+    assert '"faltaron"' in inspect.getsource(motor.tick)
 
 
 def test_el_cierre_es_una_ventana_y_no_un_quinto_reloj():

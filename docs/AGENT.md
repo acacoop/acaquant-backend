@@ -5375,3 +5375,13 @@ que el cotejo «al mismo precio» de una ON en USD compara nuestro MEP contra su
 dólar por construcción y no puede cerrar nunca; y el mensaje del cotejo culpa al
 «180-360» de `convencionTna`, que es la convención de la **TNA**, no de la TEA —
 la TEA de ellos es act/365 igual que la nuestra, medido arriba.
+
+**Primera corrida (2026-09-07, 7 ONs).** La fila `ars` cerró la pregunta 1: un
+solo dólar de **1.590** reproduce los 5 bonos largos (duration 1,8 a 3,2) con
+0,04% de rango, y con la bisección corregida también los 3 cortos. Fórmula,
+cronograma y liquidación son los de ellos; contra el MEP de la casa (1.528) son
++4,0%. Su valor técnico de EAC3O dio 101,86 = residual 100 + 1,86 devengado.
+**Error de la primera versión**: la calculadora espera el precio YA en la
+moneda pedida; mandarle pesos con `moneda=mep` los tomó como dólares (TEA −95%).
+Ahora `mep` recibe `precio / MEP casa` (prueba directa de fórmula) y el dólar
+de ellos se mide con el endpoint de PRECIOS en `mep` y `ccl` (pregunta 2).

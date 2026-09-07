@@ -258,6 +258,11 @@ def cargar_a3500_actual() -> float | None:
 def precio_soberano_a_usd(precio: float, ticker_completo: str, mep: float | None) -> float | None:
     """Convierte precio de bono soberano a USD según el sufijo del ticker ROFEX.
 
+    **Divide por el MEP, no por el CCL** — decisión de la mesa (AGENT.md §0.ed):
+    un hard dólar te paga dólares locales, y tu alternativa con esos pesos era
+    comprar MEP. 1816 divide por su CCL; al mismo dólar las dos cuentas son la
+    misma (§0.ee). Un TC distinto acá mueve la tasa de TODO el hard dólar.
+
     El detector mira el tercer segmento del ticker completo
     ('MERV - XMEV - <SIMBOLO> - 24hs'), porque el `ticker_corto` es un
     label humano y puede no reflejar la moneda (ej. usuario deja

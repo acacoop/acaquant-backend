@@ -76,28 +76,11 @@ HERRAMIENTAS: dict[str, str] = {
                              "sale de una regla, y cuánto necesita de verdad un modelo. Sin estos "
                              "números, meter un LLM sería pagarle para tapar un join roto. Se borra "
                              "cuando la habilidad esté hecha.",
-    # ⚠️ TEMPORAL — igual que el de arriba: se BORRA en el commit que prenda (o
-    # descarte) la rama `on` en `alta.RAMAS_AUTOMATICAS`.
-    "diag_1816_dolar_on":    "qué dólar usa 1816 en ars/mep/ccl y si con el mismo dólar su cuenta "
-                             "es la nuestra: N ONs al MISMO precio, FX implícito por bisección "
-                             "(AGENT.md §0.ee). Se borra cuando la mesa decida el dólar.",
-    "diag_dolar_valuacion":  "con qué dólar valuamos los hard dólar. El MEP es el correcto (el "
-                             "bono te paga dólares LOCALES) y los 136-215 bps contra 1816 son su "
-                             "convención de CCL, no un error nuestro. Lo que sí mide es el atajo "
-                             "que puede doler: dividir la pata en pesos por un MEP genérico "
-                             "cuando la pata D del propio bono cotiza y no haría falta ningún "
-                             "tipo de cambio. Corre `calcular_campos` sobre las dos patas: cero "
-                             "créditos, cero escrituras. RECURRENTE: es el control de que la "
-                             "convención de dólar no se mueva sin que nadie se entere.",
     # ⚠️ TEMPORAL — se BORRA cuando el tema de las ONs cierre.
     "diag_agente_corriendo": "separa las cuatro causas de «deployé y sigue igual»: repo viejo, "
                              "daemon viejo, todavía no le tocó, o el código no hace lo que "
                              "creíamos. Compara la huella de las reglas (`no_esta_en_curvas` = "
                              "una fila por ON = código viejo) contra lo que produce el checkout.",
-    "diag_on_alta":          "mide si la conversión del cuadro de 1816 para una ON cierra contra "
-                             "la PARIDAD que publica 1816 al mismo precio. Es lo que decide si la "
-                             "rama `on` se puede prender y `on_faltante` pasa de aviso a botón. "
-                             "Corre `alta.simular()` —la misma del botón— y no escribe nada.",
     "diag_redaccion":        "la ÚNICA forma de juzgar si el texto que el modelo le escribe a los "
                              "avisos (AGENT.md §0.di) sirve o es berreta: pone el piso determinista "
                              "y el texto del modelo uno debajo del otro, y agrupa lo que la "

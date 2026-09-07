@@ -472,7 +472,7 @@ _FRENAN_TODO = (BLOQUEA,)
 #
 #   1. **El tipo de cambio**, en los bonos en dólares. 1816 divide por su CCL
 #      cuando se le pide `ars`; nosotros por el MEP. Medido en 7 ONs
-#      (2026-09-07, `scripts/diag_1816_dolar_on`): al MISMO precio y en la MISMA
+#      (2026-09-07, AGENT.md §0.ee): al MISMO precio y en la MISMA
 #      moneda (`mep`), su TEA y la nuestra dan **0,0 bps** — la fórmula, el
 #      cronograma y la liquidación son idénticos. Lo que se veía como «136-215
 #      bps» era el dólar y nada más.
@@ -1789,7 +1789,7 @@ def moneda_cotejo_1816(rama: str, moneda_flujo: str = "") -> str:
     igual que un soberano, pero acá se contestaba `ars`: el cotejo le mandaba
     pesos y 1816 dividía por SU dólar (su CCL), así que comparaba nuestro MEP
     contra su CCL y no podía cerrar nunca — y el mensaje culpaba a la convención
-    de días. Medido en 7 ONs con `scripts/diag_1816_dolar_on`: al mismo precio
+    de días. Medido en 7 ONs (AGENT.md §0.ee): al mismo precio
     en `mep`, **0,0 bps** entre su TEA y la nuestra (AGENT.md §0.ee).
     """
     if rama == "soberanos":
@@ -2305,7 +2305,7 @@ def _simular_tasa(doc: dict, simbolo: str, precio: float | None,
     # `core/mercado_1816.py` desde el episodio de GD46): son 4,2% de diferencia
     # en el precio y de ahí salen los 136-215 bps que se ven en el cotejo. No se
     # cambia el dólar acá —eso mueve la tasa de TODO el hard dólar de la casa y
-    # es una decisión de la mesa (`scripts/diag_dolar_valuacion` lo mide)—: se
+    # es una decisión de la mesa (medido en AGENT.md §0.ec-§0.ee)—: se
     # ESCRIBE cuál se usó, que es lo que hoy falta.
     from quant.tasas import tna_desde_tea
 

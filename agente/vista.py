@@ -188,6 +188,9 @@ def ignorar(hallazgo_id: int, *, por: str = "", motivo: str = "",
       1. la fila se marca `ignorado`, para que salga de la pantalla AHORA;
       2. el TRÍO entra en `agente.silenciados`, para que no vuelva a nacer.
 
+    El botón vive en AHORA y en ENCONTRÓ (AGENT.md §0.dr: los avisos sin arreglo
+    son la mayoría de AHORA y no tenían forma de callarse).
+
     Sin (2) el botón miente; sin (1) el aviso sigue en la lista hasta la próxima
     corrida. **Permanente por defecto** (`hasta` NULL): el vencimiento se carga a
     mano en la base cuando alguien lo elige, no lo pone el código.

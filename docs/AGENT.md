@@ -5331,3 +5331,47 @@ cuenta (`engines/dolares.py`: AL30 offer ÷ AL30C bid). El AL30C es mucho menos
 líquido que el AL30D, así que cuando su punta compradora se vacía **la casa se
 queda sin CCL y sin canje, en silencio y sin que nada avise**. El diag lo reporta
 en vez de abortar, que es lo que hacía la primera versión.
+
+
+### 0.ee 1816 CON EL MISMO PRECIO Y TRES DÓLARES — la prueba que separa dólar de fórmula (2026-09-07)
+
+§0.ec dijo «es el dólar» y §0.ed «el MEP es el correcto». Faltaba una cosa que
+ninguno de los dos midió: **qué dólar usa 1816, en número**, y si con el mismo
+dólar nuestra cuenta y la de ellos son la misma.
+
+**Lo que se verificó antes de escribir el diag**, con los 7 ejemplos de la
+pantalla (EAC3O YM43O LMS8O YFCPO AEC3O CP37O DNC3O) y el XIRR del repo:
+
+```
+                       FX que reproduce la TEA
+nuestra (MEP casa)          1.523     ← las 7
+1816 (moneda=ars)           1.588     ← las 7, +4,25%
+```
+
+Mismo cronograma, misma liquidación (T+1) y misma convención (act/365): la TEA
+de 1816 se reproduce EXACTA con nuestro motor cambiando solo el dólar. Correr la
+fecha no la reproduce con ningún corrimiento razonable. Y su paridad cierra al
+centésimo con ese mismo 1.588 más el interés corrido por días reales del cupón
+en curso — o sea que **su paridad es sobre valor técnico y la nuestra sobre el
+residual pelado**, sin devengado (hasta un cupón entero de más, 2,9 puntos en
+DNC3O).
+
+**Pero 1.588 no es el CCL de la casa** (~1.576 ese día, dato del user): queda un
+0,76% de dólar sin nombre, que en un bono corto son 200-460 bps. Tres
+hipótesis, sin medir: es SU CCL (otra medida que la nuestra), es timing de
+feriado, o es un dólar propio de la curva.
+
+**`scripts/diag_1816_dolar_on` es la prueba que las separa**: le pide a la
+calculadora de 1816 (`/indicadores/{ticker}`, input manual) N ONs AL MISMO
+PRECIO en `ars`, `mep` y `ccl`, y para cada TEA despeja el FX implícito con
+nuestro propio motor. Si el FX de `mep` cae a ≤0,5% del MEP de la casa, con el
+mismo dólar las dos cuentas coinciden y **lo que difiere es SOLO el dólar**. Si
+`ars` y `ccl` dan el mismo FX, su `ars` es su CCL, y ese FX ES su CCL en número.
+Es una calculadora, no un precio: se puede correr en feriado.
+
+**Dos cosas más que salieron de leer el código**, pendientes de arreglo:
+`agente/alta.py::moneda_cotejo_1816` devuelve `mep` solo para `soberanos`, así
+que el cotejo «al mismo precio» de una ON en USD compara nuestro MEP contra su
+dólar por construcción y no puede cerrar nunca; y el mensaje del cotejo culpa al
+«180-360» de `convencionTna`, que es la convención de la **TNA**, no de la TEA —
+la TEA de ellos es act/365 igual que la nuestra, medido arriba.

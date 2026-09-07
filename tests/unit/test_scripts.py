@@ -78,6 +78,9 @@ HERRAMIENTAS: dict[str, str] = {
                              "cuando la habilidad esté hecha.",
     # ⚠️ TEMPORAL — igual que el de arriba: se BORRA en el commit que prenda (o
     # descarte) la rama `on` en `alta.RAMAS_AUTOMATICAS`.
+    "diag_1816_dolar_on":    "qué dólar usa 1816 en ars/mep/ccl y si con el mismo dólar su cuenta "
+                             "es la nuestra: N ONs al MISMO precio, FX implícito por bisección "
+                             "(AGENT.md §0.ee). Se borra cuando la mesa decida el dólar.",
     "diag_dolar_valuacion":  "con qué dólar valuamos los hard dólar. El MEP es el correcto (el "
                              "bono te paga dólares LOCALES) y los 136-215 bps contra 1816 son su "
                              "convención de CCL, no un error nuestro. Lo que sí mide es el atajo "

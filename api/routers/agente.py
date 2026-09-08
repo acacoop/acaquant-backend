@@ -100,7 +100,14 @@ def cronicos(limite: int = 60):
 @router.get("/habilidades")
 def habilidades():
     """El catálogo con sus contadores: cuántos hallazgos, el último, y —lo que
-    no se puede derivar— CUÁNDO CORRIÓ por última vez."""
+    no se puede derivar— CUÁNDO CORRIÓ por última vez.
+
+    ⚠️ **Alimenta DOS pantallas, no una** (§0.ev): el listado de HABILIDADES y
+    el MAPA —la misma tabla leída como estructura, para contestar qué NO se
+    está mirando—. El mapa no agregó ni un campo: se dibuja con lo que esta
+    respuesta ya traía, `ultima_corrida_at` y `ultimo_resultado` incluidos, que
+    es lo que lo convierte en un tablero de salud y no en un diagrama muerto.
+    Un endpoint aparte que contara lo mismo habría sido una copia sin árbitro."""
     from agente import catalogo
     return {"habilidades": catalogo.estado()}
 

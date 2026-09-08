@@ -5799,6 +5799,35 @@ por tabla, con qué columna se la juzga, si es un sello o una fecha de negocio, 
 para las 17 el **desfase en días hábiles** contra hoy. Con esos números se declara
 el T-N; sin ellos, declararlo sería tirar un 21 otra vez.
 
+**LO QUE MIDIÓ EL DIAG EN PROD (2026-09-08), y lo que cambió por eso.** 249
+tablas, 224 con columna temporal: **207 pasan a juzgarse por un sello**, 57
+cambiaron de columna y quedan **17 sin ningún sello** — el grupo B. Y ahí el T-N
+casi no hace falta declararlo, porque los datos lo dicen solos: **10 de las 17
+dan T-1 hábil y las 10 son tablas de cierre** (`bonos_ohlc_daily`,
+`snapshots_cierre`, `portafolio.tenencia`, …). El resto se separa en tres, y las
+tres enseñan algo distinto:
+
+| tabla | último dato | qué significa |
+|---|---|---|
+| `macro.uva` | 28/05 · **T-69 hábiles** | el UVA es diario y **ningún módulo del repo la escribe** (`core.escribe` da escritor vacío) |
+| `mercado.precios_acciones` | 04/09 · T-2 | **una rueda atrás que sus nueve pares de cierre**, que están en T-1 |
+| `mercado.dias_habiles` · `macro.series_macro` | 31/12 y 15/09 | **adelante del reloj** |
+
+Las dos últimas son un descubrimiento y no un atraso: con el último valor en el
+FUTURO, el atraso sale negativo y la tabla pasa todas las tolerancias **para
+siempre**. No estaban al día — la pregunta no se podía hacer contra esa columna,
+y nadie lo sabía. Es el mismo veneno que `expira_at`, y donde la columna es la
+única que hay se contesta lo único cierto: `no_se_puede_saber`. **Un «no sé»
+declarado se ve en el tablero; un verde falso no se ve nunca.**
+
+**Y EL DIAG AGARRÓ EL BUG DEL DÍA COMETIDO DENTRO DEL ARREGLO DEL DÍA.**
+`_FUTURO` estaba escrita sólo en castellano (`expira|vence|caduca`), así que
+`auth.oauth_authorizations` eligió **`expires_at`** — el mismo veneno, en
+inglés. Idéntico a `COLS_FECHA` sin `actualizado_at`, treinta líneas más abajo y
+media hora después. Este repo nombra en los dos idiomas: **toda regla de nombre
+tiene que cubrir los dos**, y esa frase vale más que las dos regexes que la
+provocaron.
+
 **El patrón, que es lo que importa más que el caso.** Las tres fallas son la misma
 familia: **el sistema tenía el dato correcto al lado y usó el parecido.** La hora
 real del cron estaba en el crontab (en tres líneas en vez de una); el sello de

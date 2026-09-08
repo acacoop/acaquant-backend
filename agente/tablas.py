@@ -126,7 +126,15 @@ _NO_MUEVE = re.compile(r"(^|_)(primer\w*|first|alta|nacim\w*)(_|$)")
 # este cambio vino a arreglar: un aviso falso se ve y se vota; una tabla que
 # nunca avisa no se ve nunca. Por eso, si es lo ÚNICO que hay, se prefiere
 # devolver `None` —«no tengo con qué medir esto»— antes que un verde mentiroso.
-_FUTURO = re.compile(r"(^|_)(expira\w*|vence\w*|vencim\w*|caduca\w*|valido_hasta)(_|$)")
+# ⚠️ **Y SE ESCRIBE EN LOS DOS IDIOMAS, QUE ES LA LECCIÓN DEL DÍA.** La primera
+# versión decía sólo `expira|vence|caduca` y el diag en prod la agarró en el
+# acto: `auth.oauth_authorizations` y `auth.webauthn_challenges` eligieron
+# `expires_at` —el mismo veneno, en inglés—. Es LITERALMENTE el bug que este
+# archivo vino a arreglar, cometido de nuevo en el arreglo. Este repo nombra en
+# castellano y en inglés: toda regla de nombre tiene que cubrir los dos.
+_FUTURO = re.compile(
+    r"(^|_)(expira\w*|expire\w*|expires|vence\w*|vencim\w*|caduca\w*"
+    r"|valido_hasta|valid_until|hasta_at)(_|$)")
 
 # ⚠️ **UN SELLO QUE SÓLO TIENEN ALGUNAS FILAS NO MIDE LA TABLA.** `anulado_en`,
 # `revocada_at`, `cerrado_at` marcan un estado excepcional: en la mayoría de las
@@ -134,7 +142,9 @@ _FUTURO = re.compile(r"(^|_)(expira\w*|vence\w*|vencim\w*|caduca\w*|valido_hasta
 # escritura. Pierden incluso contra un sello de alta — `ingestado_en` en una
 # tabla que sólo appendea ES el instante de escritura, y se mueve con cada fila.
 _SOLO_ALGUNAS = re.compile(
-    r"(^|_)(anulad\w*|revocad\w*|cancelad\w*|borrad\w*|eliminad\w*)(_|$)")
+    r"(^|_)(anulad\w*|revocad\w*|cancelad\w*|borrad\w*|eliminad\w*"
+    r"|verificad\w*|verified|confirmad\w*|resuelt\w*|cerrad\w*|closed"
+    r"|deleted|cancelled|canceled|revoked)(_|$)")
 
 COLS_FECHA = _SELLO_ESCRITURA + _SELLO_ALTA + _FECHA_NEGOCIO
 
@@ -456,6 +466,29 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
         ult_efectivo = ult + timedelta(days=1)   # el día cierra a las 24:00
     else:
         ult_efectivo = ult
+
+    # ⚠️⚠️ **UNA COLUMNA QUE MIRA AL FUTURO NO MIDE FRESCURA: DA VERDE ETERNO.**
+    #
+    # Si el último valor está ADELANTE del reloj, el atraso sale negativo y la
+    # tabla pasa todas las tolerancias para siempre. No es que esté al día: es
+    # que la pregunta no se puede hacer contra esa columna.
+    #
+    # Medido en prod el 2026-09-08 con `scripts/diag_frescura_columna`:
+    # `mercado.dias_habiles` (un CALENDARIO: su `fecha` máxima es el 31/12) y
+    # `macro.series_macro` (15/09, adelante de hoy). Las dos figuraban sanas sin
+    # que nadie hubiera comprobado nada — y son justo las dos donde una caída
+    # sería invisible.
+    #
+    # Es el mismo veneno que `expira_at` (ver `_FUTURO`), que allá se resuelve
+    # NO eligiendo la columna. Acá la columna es la única que hay, así que se
+    # contesta lo único cierto: **no se puede saber**. Un «no sé» declarado se
+    # ve en el tablero; un verde falso no se ve nunca.
+    if ult_efectivo > ahora:
+        return {"estado": "no_se_puede_saber", "atraso_s": None,
+                "ultimo_dato": ult.isoformat(), "fecha_de_negocio": fecha_de_negocio,
+                "motivo": f"su última {perfil.get('col_fecha') or 'fecha'} está en "
+                          f"el FUTURO ({ult:%d/%m/%Y}): esa columna mira adelante, "
+                          f"así que no dice hace cuánto se escribió"}
 
     atraso = (ahora - ult_efectivo).total_seconds()
     tope = TOLERANCIA_S.get(cad, 3 * 86400)

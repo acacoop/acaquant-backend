@@ -58,6 +58,13 @@ HERRAMIENTAS: dict[str, str] = {
                              "el agente no se autoevalúa). Sin este número no se puede decidir si "
                              "darle más autonomía.",
     "audit_superficie_http": "inventario de la superficie HTTP por categoría — la contracara de audit_rbac.",
+    "diag_tea_rechazada":    "¿la celda `tea` vacía es «no supe», «no convergió» o «calculé y "
+                             "DESCARTÉ el número»? Recalcula con las mismas funciones del motor. "
+                             "Es lo único que dice si un `bono_sin_tasa` puede cerrarse alguna vez.",
+    "diag_tabla_quieta":     "¿el job no corrió, o corrió y no escribió? Cruza el veredicto de "
+                             "`tabla_quieta` con las corridas reales de `manager.job_runs`. Es la "
+                             "pregunta que la tarjeta del agente NO contesta, y las tres causas se "
+                             "atienden al revés (AGENT.md §0.ew).",
     "check_proxies_next":    "cruza los routers del backend contra los proxies de Next: un handler que falta "
                              "deja el panel vacío EN SILENCIO. Tiene --strict; debería estar en CI.",
     "diag_entorno":          "instalado vs. pineado en requirements.txt. Un drift acá no falla: cambia el "

@@ -6514,3 +6514,159 @@ existe para evitar.
 **Lo que quedó pendiente.** La tab mostraba **29** y el catálogo tiene **27**.
 No se tocó: hay que ver si el front cuenta algo que el catálogo no tiene o si es
 otra cosa. Es, otra vez, dos conteos de lo mismo que no coinciden.
+
+---
+
+### 0.ew EL DETECTOR NO VEÍA A LOS ESCRITORES — «es tiempo real (cada 8 s)» sobre un job sano (2026-09-08)
+
+El user, mirando once tarjetas de AHORA:
+
+> *«No tengo claro estos que pasan todo el tiempo cuál es el problema… ahí es
+> donde no entiendo de dónde sale lo de "su cron dice cada X". ¿Siempre tiene
+> que escribir? ¿Falló realmente?»*
+
+#### De dónde sale «su cron dice cada X»
+
+La cadena entera, y ninguna parte es nueva:
+
+```
+escribe.que_relanzar(tabla)   → qué job la escribe (grep de INSERT / pg_mirror)
+crontab.ritmo_declarado(job)  → hueco_maximo_union de SUS líneas de cron
+tope = hueco × 1.5            (tablas.MARGEN_DECLARADO)
+```
+
+`hueco` **no es «cada cuánto corre»**: es el agujero MÁS LARGO de su grilla
+semanal, casi siempre el de la noche. `bcra_research` (`0 12,16,20,23 * * 1-6`)
+tiene su hueco entre las 23 y las 12 → 13 h → tope 19,5 h. La tarjeta apareció a
+las 20,1 h. Los cuatro casos del día cayeron **apenas** pasado el tope: un
+detector calibrado al filo dispara todas las mañanas.
+
+#### Pero la pregunta de fondo era otra: ¿siempre tiene que escribir?
+
+**No.** Y ahí estaban los bugs. Medido corriendo `core/escribe.py` sobre el repo:
+
+```
+agente.acciones                  dispara=no_se  relanzar=''  escriben=[]
+operaciones.negocio_movimientos  dispara=no_se  relanzar=''  escriben=[]
+valuaciones.portfolio_snapshot   dispara=no_se  relanzar=''  escriben=[]
+```
+
+**Tres agujeros distintos, un mismo final.** Sin escritor no hay ritmo
+declarado; sin ritmo declarado `tablas.frescura` cae al MEDIDO; y un job que
+appendea un lote tiene sus filas separadas por milisegundos, así que se mide
+«tiempo real, cada 8 s» y se le exige el ritmo de un feed live: tolerancia de 30
+minutos de rueda, tarjeta todos los días, con el job perfecto. Es exactamente el
+bug que §0.u dio por resuelto — pero sólo para las tablas **con** escritor
+detectado. Estas se colaban por el agujero del detector, que es el peor lugar
+para tener uno.
+
+Los tres agujeros:
+
+| Tabla | Por qué no se veía |
+|---|---|
+| `operaciones.negocio_movimientos` | `jobs/negocio_movimientos.py:198` hace `INSERT INTO negocio_movimientos` **sin schema** (lo resuelve el `search_path`) y el regex exigía el punto |
+| `valuaciones.portfolio_snapshot` | `engines/portfolio_snapshot.py:167` escribe con `write_snapshot(...)`, que **no estaba** en el patrón de puertas de `pg_mirror` |
+| `agente.acciones` | la escribe `agente/`, que no está entre las carpetas que se escanean — y encima es una tabla **de ocasión** |
+
+#### La ironía que hay que mirar de frente
+
+`agente.acciones` es el LIBRO del agente: escribe cuando alguien aprieta un
+arreglo. O sea que la tarjeta *«agente.acciones no escribe hace 6,1 h de rueda ·
+es tiempo real»* era **el agente avisando de que el agente no arregló nada** —
+un día sin arreglos aplicados, que es un día normal. Se declararon las cuatro
+tablas del agente que escriben por OCASIÓN en `escribe.POR_OCASION`, y una de
+ellas es `agente.reincidencias`: **la que DEBE estar vacía**. Exigirle frescura
+es exigir que algo se rompa.
+
+#### Lo que el arreglo destapó solo — cuatro cosas más
+
+1. **La PROSA escribía.** Este repo cita el código entre backticks en sus
+   comentarios, y el regex no distingue una cita de una ejecución: al ampliar el
+   patrón, **la docstring que explica el arreglo quedó anotada como escritora de
+   la tabla que nombra**. No es cosmético — `quien_escribe()` viaja en la
+   evidencia del hallazgo y manda a mirar el archivo equivocado. Se borran los
+   spans entre backticks antes de buscar: el SQL de verdad nunca va entre
+   backticks.
+2. **`write_hist` indexaba la COLECCIÓN.** Su primer argumento es `'FuturosDLR'`,
+   no una tabla; siempre escribe en `mercado_hist`. Estaba en el patrón general,
+   así que dejaba claves fantasma (`breakevenshistorico`, `forwardshistorico`) y
+   a `mercado.mercado_hist` **sin escritor**.
+3. **Un nombre corto AMBIGUO se le adjudicaba a la tabla equivocada.** Medido
+   sobre `sql/schema.sql`: de 208 tablas, TRES nombres viven en dos schemas
+   (`cuentas`, `movimientos`, `presencia`). `quien_escribe` busca por el nombre
+   completo Y por el corto, así que guardar `cuentas` le habría dado a
+   `clientes.cuentas` el escritor de `bancos.cuentas`: mandar a relanzar, con
+   seguridad, el job equivocado. Se descartan → quedan en `no_se`, que **sigue
+   exigiendo** frescura (el default seguro).
+4. **`que_relanzar` decidía por el ORDEN DE ESCANEO de las carpetas.**
+   `mercado.market_snapshot` —la tabla de precios— la escriben `engines.valores`
+   (cada tick del WS) y tres jobs que le parchean unas filas. Contestaba
+   `jobs.tamar_1816`. Ahora **un motor le gana a un job**: si la tabla está
+   quieta, el que dejó de escribir es el motor. Es el mismo defecto que
+   `agente/tablas.py` describe para elegir la columna de fecha — dejar que
+   decida el orden en que alguien escribió el archivo.
+
+#### El resultado, medido
+
+`core/escribe.py` pasó de **139 a 153** claves. **30 tablas ganaron escritor**
+(entre ellas `mercado.market_snapshot`, `mercado.options_*`, `valuaciones.dolar`,
+`clientes.comitentes`, `home.news_headlines`) y **16 claves salieron**: nombres
+cortos que ahora se resuelven a su nombre completo, más las claves fantasma de
+`write_hist` y de la prosa. **Ninguna tabla cambió de `que_relanzar`** salvo
+`market_snapshot` — o sea que la cobertura subió sin re-atribuir nada.
+
+Un solo job cambió de prueba: `negocio_chain` pasó de `PRUEBA_CORRIDA` a
+`PRUEBA_TABLA` porque la cadena corre `jobs.fci_bilateral`, que escribe
+`operaciones.operaciones` — una tabla que **ya tenía contrato en SALUD**. No
+inventa un juicio nuevo (`_al_dia_por_contrato` llama a `salud._chequeo_dato`
+con ese mismo contrato y su tolerancia de hábiles): lo que gana es el BOTÓN sobre
+un veredicto que hasta hoy no tenía dónde apretarse. Es la lección de
+`motor_caido` otra vez: **mirar el proceso no es mirar el resultado**.
+
+#### El parser de `sql/schema.sql` se mudó a `core/`
+
+Resolver un nombre corto necesita saber en qué schema vive cada tabla, y eso lo
+dice `sql/schema.sql`. El parseo estaba en `agente/peso.py` y `core/` no puede
+importar de `agente/`. Se mudó a **`core/schema_sql.py`** y `peso` delega: dos
+parsers del mismo archivo son dos verdades sobre qué tablas tenemos, y la que se
+desincronice no falla — contesta distinto (REGLA #9 B).
+
+#### LO QUE ESTO **NO** ARREGLA, y es la mitad más grande
+
+Quedan en pie los dos casos que el user marcó y que **no son un problema de
+cobertura sino del modelo de la habilidad**:
+
+1. **El sello de ALTA leído como sello de escritura.** `research.bcra_series` y
+   `research.fred_observations` tienen como única columna temporal
+   `ingestado_en`; `ia.research`, `created_at`. Las tres están en
+   `tablas._SELLO_ALTA`, y los tres jobs son **incrementales por watermark**: si
+   el BCRA/FRED no publicó un día nuevo, mandan CERO filas y el sello no se
+   mueve. La tarjeta mide **cuándo apareció dato nuevo por última vez**, no
+   cuándo corrió el job. El user lo dijo exacto: *«hay días como los martes que
+   no va a tener datos desde el viernes»*.
+
+2. **«El job no corrió» y «el job corrió y no escribió» son la misma tarjeta**, y
+   son problemas opuestos: uno es del scheduler, el otro es del código. Es el
+   caso de `bancos.sync_log`.
+
+**El dato que contesta las dos ya existe y el detector no lo mira:
+`manager.job_runs`.** Verificado: `bcra_research`, `fred_research`,
+`interbanking_sync` y `research_mail` usan los cuatro `JobRunLogger`. Es la misma
+fuente de la que ya leen `salud` y `trajo_poco`.
+
+El orden correcto de preguntas, que hoy `tabla_quieta` no hace:
+
+```
+1. ¿corrió el job?           → manager.job_runs
+       no corrió             → el problema es ese, y lo canta `salud`
+2. corrió: ¿trajo algo?      → `trajo_poco` ya lo mide contra su normal
+       trajo 0 y su normal admite 0  → SILENCIO (§0.eu: no es un error)
+3. corrió y trajo: ¿escribió? → recién ahí, tabla quieta = escritura rota
+```
+
+`scripts/diag_tabla_quieta.py` hace ese cruce a mano —para cada tabla con
+hallazgo abierto: la clase de su sello, el ritmo declarado, el veredicto, y las
+últimas corridas reales del job con su `status` y sus `stats`— y es lo que hay
+que correr **antes** de meter el paso 1 adentro del detector. Es la REGLA #2: el
+cambio de modelo se decide con el número de prod delante, no con la lectura del
+código.

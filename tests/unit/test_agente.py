@@ -3179,7 +3179,21 @@ def test_los_relanzables_salen_del_crontab_y_de_los_contratos():
     assert r["portafolio_diario"]["schedule"] == "0 11 * * 1-5", "el horario sale del cron"
     assert r["cierre_chain"]["prueba"] == rehacer.PRUEBA_TABLA
     assert r["cierre_chain"]["tabla"] == "mercado.snapshots_cierre"
-    assert r["negocio_chain"]["prueba"] == rehacer.PRUEBA_CORRIDA
+    # ⚠️ `negocio_chain` pasó de PRUEBA_CORRIDA a PRUEBA_TABLA el 2026-09-08, y
+    # el cambio no fue acá: fue que `core/escribe` **empezó a ver** quién escribe
+    # `operaciones.operaciones` (§0.ew). La cadena corre `jobs.fci_bilateral`,
+    # que la escribe, y esa tabla YA tenía contrato en SALUD — así que ahora se
+    # juzga por el DATO y no por la corrida. Es la lección de `motor_caido`:
+    # **mirar el proceso no es mirar el resultado**; un job que revienta después
+    # de escribir figuraba en rojo con el día completo, y uno que corre y no
+    # escribe figuraba en verde.
+    #
+    # No inventa un juicio nuevo: `_al_dia_por_contrato` llama a
+    # `salud._chequeo_dato` con el MISMO contrato que salud ya evalúa, con su
+    # tolerancia de hábiles adentro. Lo que se gana es el BOTÓN sobre un
+    # veredicto que hasta hoy no tenía dónde apretarse.
+    assert r["negocio_chain"]["prueba"] == rehacer.PRUEBA_TABLA
+    assert r["negocio_chain"]["tabla"] == "operaciones.operaciones"
     assert "run_job" not in r["negocio_chain"]["comando"]
     assert "jobs.aranceles" in r["negocio_chain"]["comando"]
     # Un job con tres líneas de cron tiene los tres horarios, no el primero.

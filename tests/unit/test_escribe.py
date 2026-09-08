@@ -90,3 +90,117 @@ def test_el_detector_SALTEA_las_de_evento():
     assert "escribe.EVENTO" in src and "continue" in src
     # Y deja lo que la puerta va a necesitar.
     assert "que_relanzar" in src
+
+
+# ── LO QUE EL DETECTOR NO VEÍA (2026-09-08, AGENT.md §0.ew) ─────────────────
+#
+# Tres agujeros distintos, todos con el mismo final: sin escritor no hay ritmo
+# declarado, `agente/tablas.py::frescura` cae al MEDIDO, y un job que appendea un
+# lote se lee como «tiempo real cada 8 s». `tabla_quieta` le exige entonces el
+# ritmo de un feed live y canta TODOS LOS DÍAS sobre un job sano.
+
+def test_ve_el_INSERT_sin_schema():
+    """`jobs/negocio_movimientos.py` hace `INSERT INTO negocio_movimientos` —sin
+    schema, lo resuelve el `search_path`— y el regex exigía el punto. La tabla
+    salía en AHORA todos los días con «es tiempo real (cada 8 s)»."""
+    assert escribe.que_relanzar("operaciones.negocio_movimientos") == \
+        "jobs.negocio_movimientos"
+
+
+def test_ve_las_puertas_de_pg_mirror_que_faltaban():
+    """`engines/portfolio_snapshot.py` escribe con `write_snapshot(...)`, que no
+    estaba en el patrón. Misma tarjeta diaria, mismo motivo."""
+    assert escribe.que_relanzar("valuaciones.portfolio_snapshot") == \
+        "engines.portfolio_snapshot"
+
+
+def test_estan_TODAS_las_puertas_de_pg_mirror():
+    """⚠️ **UNA LISTA PARCIAL DE PUERTAS ES UN REGEX PARCIAL.** Si `pg_mirror`
+    suma una forma de escribir y nadie la agrega al patrón, las tablas que la
+    usen quedan sin escritor **en silencio** — que es exactamente cómo
+    `write_snapshot` estuvo afuera. Este test obliga a decidir: o entra al
+    patrón, o se declara que no escribe."""
+    import inspect
+
+    from core import pg_mirror
+
+    # Las públicas que NO son escrituras de datos nuevos, cada una con su motivo.
+    NO_ESCRIBEN = {
+        "doc_iso": "serializa un dict, no toca la base",
+        "read_native_doc": "lee",
+        "prune_native": "BORRA filas viejas: no hace que la tabla esté fresca",
+        "write_hist": "escribe siempre en `mercado_hist` y su primer argumento "
+                      "es una COLECCIÓN, no una tabla — va por `_RE_HIST`",
+    }
+    for nombre, fn in vars(pg_mirror).items():
+        if nombre.startswith("_") or not inspect.isfunction(fn):
+            continue
+        if fn.__module__ != pg_mirror.__name__ or nombre in NO_ESCRIBEN:
+            continue
+        assert nombre in escribe._RE_MIRROR.pattern, (
+            f"`pg_mirror.{nombre}` no está en `_RE_MIRROR` ni declarada en "
+            f"NO_ESCRIBEN: las tablas que la usen quedan sin escritor, callado")
+
+
+def test_write_hist_apunta_a_SU_tabla_y_no_a_la_coleccion():
+    """Su primer argumento es `'FuturosDLR'`, `'Breakevens'`… y siempre escribe
+    en `mercado_hist`. Estaba en el patrón general, así que indexaba la
+    colección como si fuera una tabla y dejaba a la tabla real sin escritor."""
+    assert escribe.la_dispara("mercado.mercado_hist") == escribe.RELOJ
+    assert "engines.futuros_dlr" in escribe.quien_escribe("mercado.mercado_hist")
+    # Y las claves fantasma no están.
+    assert "breakevenshistorico" not in escribe._mapa()
+    assert "forwardshistorico" not in escribe._mapa()
+
+
+def test_LA_PROSA_NO_ESCRIBE_NADA():
+    """Este repo cita el código entre backticks en sus comentarios, y el regex no
+    distingue una cita de una ejecución: al ampliar el patrón, la docstring que
+    EXPLICA el arreglo quedó anotada como escritora de la tabla que nombra.
+
+    No es cosmético — `quien_escribe()` viaja en la evidencia del hallazgo y
+    manda a mirar el archivo equivocado."""
+    assert "core.escribe" not in escribe.quien_escribe(
+        "operaciones.negocio_movimientos")
+    assert "schema.tabla" not in escribe._mapa(), \
+        "el `INSERT INTO schema.tabla` del propio comentario entró al mapa"
+
+
+def test_un_nombre_AMBIGUO_no_se_le_adjudica_a_nadie():
+    """`cuentas` vive en `clientes` y en `bancos`. `quien_escribe` busca por el
+    nombre completo Y por el corto, así que guardar la clave corta le daría a
+    `clientes.cuentas` el escritor de `bancos.cuentas`. Eso no falla: manda a
+    relanzar, con seguridad, el job equivocado. Ante la duda, `no_se` — que
+    SIGUE exigiendo frescura."""
+    from core import schema_sql
+
+    assert schema_sql.ambiguo("cuentas") and not schema_sql.donde_vive("cuentas")
+    assert not [k for k in escribe._mapa() if "." not in k], \
+        "quedaron claves sin schema en el mapa: pueden cruzarse entre schemas"
+    # `bancos.cuentas` sí tiene un INSERT propio, con schema; `clientes.cuentas`
+    # no, y por eso queda sin escritor en vez de heredar el ajeno.
+    assert escribe.que_relanzar("bancos.cuentas") == "jobs.interbanking_sync"
+    assert escribe.que_relanzar("clientes.cuentas") == ""
+
+
+def test_un_MOTOR_le_gana_a_un_JOB():
+    """⚠️ `mercado.market_snapshot` —la tabla de precios— la escriben el motor
+    (cada tick) y tres jobs que le parchean unas filas. Si está quieta, el que
+    dejó de escribir es el motor. Antes decidía el ORDEN en que se recorren las
+    carpetas y contestaba `jobs.tamar_1816`: «relanzar tamar_1816» sobre un feed
+    de precios caído."""
+    quienes = escribe.quien_escribe("mercado.market_snapshot")
+    assert "engines.valores" in quienes and "jobs.tamar_1816" in quienes
+    assert escribe.que_relanzar("mercado.market_snapshot") == "engines.valores"
+
+
+def test_las_tablas_del_AGENTE_son_POR_OCASION():
+    """El agente avisaba de que el agente no arregló nada. `agente.acciones`
+    escribe cuando alguien aprieta un botón: un día sin arreglos aplicados es un
+    día tranquilo. Y `agente.reincidencias` **debe** estar vacía — exigirle
+    frescura es exigir que algo se rompa."""
+    for tabla in ("agente.acciones", "agente.reincidencias",
+                  "agente.silenciados", "agente.explicaciones"):
+        assert escribe.la_dispara(tabla) == escribe.EVENTO, tabla
+        assert escribe.que_relanzar(tabla) == "", tabla
+        assert escribe.por_ocasion(tabla), f"{tabla} sin motivo declarado"

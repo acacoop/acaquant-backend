@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import pathlib
-import re
 from functools import lru_cache
 
 from core.postgres import get_pool
@@ -111,23 +109,11 @@ def mb(b) -> str:
 #
 # No falló nada: la función devolvía 234 tablas con cara de estar completa.
 # Lo cazó una medición contra prod (2026-08-28), no el código.
-_RE_CREA = re.compile(
-    r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
-_RE_DROP = re.compile(
-    r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
-_RE_SCHEMA = re.compile(
-    r"CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)", re.I)
-
-
-@lru_cache(maxsize=1)
-def _schema_sql() -> str:
-    """El texto de `sql/schema.sql`, leído UNA vez. `""` si no se puede."""
-    try:
-        return (pathlib.Path(__file__).resolve().parents[1]
-                / "sql" / "schema.sql").read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning("agente/peso: no pude leer sql/schema.sql (%s)", e)
-        return ""
+# ⚠️ **EL PARSEO DE `sql/schema.sql` VIVE EN `core/schema_sql.py`, NO ACÁ.**
+# Estaba escrito en este archivo y `core/escribe.py` necesitó lo mismo para
+# resolver un `INSERT INTO tabla` sin schema — y `core/` no puede importar de
+# `agente/`. Dos parsers del mismo archivo son dos verdades sobre qué tablas
+# tenemos, y la que se desincronice no falla: contesta distinto (REGLA #9 B).
 
 
 @lru_cache(maxsize=1)
@@ -141,12 +127,8 @@ def declaradas() -> frozenset[str]:
     `frozenset()` si no se puede leer el archivo — y ahí **no se afirma nada**:
     quedarse sin schema no puede convertirse en «faltan 234 tablas».
     """
-    txt = _schema_sql()
-    if not txt:
-        return frozenset()
-    crea = {f"{a}.{b}".lower() for a, b in _RE_CREA.findall(txt)}
-    drop = {f"{a}.{b}".lower() for a, b in _RE_DROP.findall(txt)}
-    return frozenset(crea - drop)
+    from core import schema_sql
+    return schema_sql.tablas()
 
 
 # ═══ EL PESO TOTAL, DOS VECES POR DÍA ══════════════════════════════════════
@@ -221,8 +203,8 @@ def schemas_nuestros() -> frozenset[str]:
     `frozenset()` si no se puede leer el archivo, y ahí **no se filtra nada**:
     quedarse sin schema no puede convertirse en dejar de mirar la base entera.
     """
-    txt = _schema_sql()
-    return frozenset(m.lower() for m in _RE_SCHEMA.findall(txt)) if txt else frozenset()
+    from core import schema_sql
+    return schema_sql.schemas()
 
 
 # ═══ CONSOLIDADO POR VISTA DE LA PÁGINA ════════════════════════════════════

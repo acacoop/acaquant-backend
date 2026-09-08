@@ -5691,3 +5691,91 @@ con `alta_cedear.candidatos`, igual que hace `preview`. Nunca se escribe lo
 que manda el navegador. El `problema` dice cuántos están descartados para que
 «3 CEDEARs» no se lea como «solo hay 3».
 
+
+### 0.em «NO ESCRIBE HACE 3,5 DÍAS» SOBRE UNA TABLA QUE ESCRIBE CADA 15 MINUTOS (2026-09-08)
+
+El aviso, textual: `bancos.mayor_movimientos · tabla_quieta` — *«no escribe hace
+3,5 días y su cron dice cada 21,0 h como mucho»*, crónico, 6× en 30 días.
+`mayor_sync` corre **20 veces por día**. Nada estaba roto.
+
+El user, sin ver el código: *«esto corre siempre en T-1; un martes a esta hora,
+si todavía no arrancó el job, no va a detectar datos desde el viernes, y saltaría
+el aviso — pero eso es porque está mal configurado, se tiraron números»*. La
+intuición apuntaba al lugar correcto. Los números no se tiraron: los dedujo el
+código, y los dedujo mal. **Dos bugs independientes, y ninguno de los dos solo
+alcanzaba para el aviso.**
+
+**(1) UN JOB EN VARIAS LÍNEAS DEL CRONTAB ES UN SOLO RELOJ.** `mayor_sync` está
+declarado en tres líneas —`*/15 13-15`, `0,30 16-17`, `0 18-21`, todas L-V— que
+juntas son una corrida continua de 13:00 a 21:00 UTC. `core/crontab.py` resolvía
+cada línea por separado, como si fueran horarios alternativos, y se quedaba con
+el hueco más chico: el de `0 18-21`, que **aislada** admite 21 h. No son
+alternativas: se COMPONEN, y el hueco real es 21:00 → 13:00 = **16 h**. Medido:
+**7 de los 58 jobs del crontab tienen más de una línea** y en los 7 el número era
+falso (`sync_comitentes` decía 24 h contra 17 reales). Ahora `hueco_maximo_union`
+une TODAS las líneas de un job sobre una grilla **semanal** —no diaria: el hueco
+viernes→lunes no existe en una grilla de un día— y `hueco_maximo` quedó como su
+caso de una línea, con los mismos valores de siempre.
+
+**(2) EL QUE DE VERDAD DISPARÓ EL AVISO — una fecha de negocio no contesta «hace
+cuánto que no escribe».** El detector medía contra `fecha_conciliacion`, que dice
+**de qué día son los datos**. `mayor_sync` pide SIEMPRE el día hábil anterior
+(está en el comentario del crontab y es el punto: contabilidad sigue cargando
+asientos toda la mañana siguiente), así que esa columna **nunca puede estar más
+fresca que T-1 hábil**. Un martes 08:54 UTC su valor correcto ES el viernes. El
+agente comparó eso contra el reloj y le dio 3,5 días.
+
+Es §0.u de nuevo, un nivel más abajo. Allá se aprendió que **un valor a medianoche
+exacta es un día, no un instante**, y se le suma 24 h. La guarda funciona y no
+alcanzaba: tapa el cierre del día, no el desfase de diseño de la fuente.
+
+**LA CAUSA ERA LA ELECCIÓN DE COLUMNA, Y ESTABA A LA VISTA.** La tabla tiene
+`actualizado_at timestamptz NOT NULL DEFAULT now()`, que cada corrida pisa
+(DELETE + INSERT del día entero). `max(actualizado_at)` ES la hora de la última
+corrida: contesta la pregunta que el detector hace, literalmente. Pero
+`COLS_FECHA` —la lista de convenciones de nombre del repo— **estaba escrita sólo
+en inglés**. Medido sobre `sql/schema.sql`: `actualizado_at` aparece **38 veces,
+más que `updated_at` (31)**, y no estaba en la lista. Sin ningún match, la tabla
+caía al fallback «la primera columna temporal», que es el orden del `CREATE
+TABLE` — no una elección, el orden en que alguien tipeó. Y en este repo ese orden
+no es neutro: las fechas de negocio se declaran arriba y el sello de auditoría al
+final. **El fallback apuntaba sistemáticamente a la respuesta equivocada.**
+
+**LA REGLA NUEVA ES DE TIPO, NO UNA LISTA.** `_elegir_col()`: una columna `date`
+no tiene hora, así que **por construcción no puede ser un instante de escritura**.
+Entre los sellos (`timestamptz`) gana la convención de nombre; a una `date` sólo
+se cae si la tabla no tiene NINGÚN sello, y ahí se marca `es_fecha_negocio` —
+porque eso hay que poder decirlo, no esconderlo. Es la misma doctrina que el resto
+del módulo: se deriva de la base, no se declara tabla por tabla.
+
+De yapa cayó un tercero, del mismo tipo: **un sello de ALTA no sirve para medir
+frescura porque no se mueve.** `creado_at` se escribe una vez; en una tabla que se
+upsertea, `max(creado_at)` queda congelado aunque el job la reescriba entera cada
+quince minutos. Por eso los sellos de alta pierden incluso contra un sello que no
+está en ninguna lista. Lo cazó `agente.habilidades`, que elegía `creada_at` en
+vez de `ultima_corrida_at`.
+
+**Medido sobre `sql/schema.sql` (207 tablas): 46 cambian de columna** — 26 salían
+de una `date` (`portafolio.tenencia_live`, `bancos.saldos`,
+`operaciones.tesoreria_saldos`, …) y 20 pasan de un sello de alta a uno de
+escritura.
+
+**LO QUE QUEDA ABIERTO, Y POR QUÉ NO SE CODEÓ.** Quedan **17 tablas que no tienen
+ningún sello**: su única columna temporal es un `date` (`portafolio.tenencia`,
+`mercado.snapshots_cierre`, `macro.uva`, …). Ahí «hace cuánto que no escribe» **no
+se puede contestar**, y la pregunta correcta es la que hizo el user en §0.r: *«qué
+día es hoy, cuándo es T-1, ¿hay datos? sí o no»*. Para escribir eso hay que saber
+el T-N de cada tabla, y **eso no se puede derivar del código ni adivinar**
+(REGLA #2). Por eso se entrega `scripts/diag_frescura_columna.py`, que lo mide:
+por tabla, con qué columna se la juzga, si es un sello o una fecha de negocio, y
+para las 17 el **desfase en días hábiles** contra hoy. Con esos números se declara
+el T-N; sin ellos, declararlo sería tirar un 21 otra vez.
+
+**El patrón, que es lo que importa más que el caso.** Las tres fallas son la misma
+familia: **el sistema tenía el dato correcto al lado y usó el parecido.** La hora
+real del cron estaba en el crontab (en tres líneas en vez de una); el sello de
+escritura estaba en la misma tabla (con el nombre en el otro idioma); la última
+corrida estaba en la misma fila (al lado de la fecha de nacimiento). Ninguna
+falló ruidosa: las tres contestaron seguras y con la cara de siempre. Es REGLA #9
+en su versión más barata de cometer — no dos copias del dato, **dos datos
+distintos con nombres parecidos**, y el código eligiendo por nombre.

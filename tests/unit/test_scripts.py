@@ -67,6 +67,17 @@ HERRAMIENTAS: dict[str, str] = {
                              "y hasta que existió esto la única forma era SQL a mano — así que "
                              "«editable en caliente» era una frase. Rechaza una clave que el código "
                              "no declara: escribirla no haría nada y nadie se enteraría.",
+    # ⚠️ TEMPORAL — se BORRA en el commit que declare el T-N de las 17 tablas
+    # sin sello (o que decida que no hace falta declararlo). El motivo se puede
+    # escribir y CUÁNDO muere también, que es la mitad del motivo (REGLA #5).
+    "diag_frescura_columna": "con qué columna el agente juzga la frescura de cada tabla, y cuáles "
+                             "no tienen ninguna que sirva. `tabla_quieta` pregunta «¿hace cuánto "
+                             "que no escribe?» y en 26 tablas lo medía contra una fecha de NEGOCIO "
+                             "(de qué día son los datos), que es otra pregunta: por eso cantó a "
+                             "`mayor_movimientos` como caída escribiéndose cada 15 min. Esto separa "
+                             "las que tienen sello de escritura de las que no, y para esas últimas "
+                             "mide el DESFASE EN DÍAS HÁBILES — el número que hace falta para "
+                             "declarar el T-N de cada una sin adivinarlo (REGLA #2).",
     # ⚠️ TEMPORAL — vive mientras dure el trabajo de `sin_emisor`, y se BORRA en
     # el commit que lo cierre (REGLA #5). Se declara acá y no se deja colgando
     # porque el motivo se puede escribir; que se pueda escribir CUÁNDO muere es

@@ -30,7 +30,7 @@ por dos razones distintas:**
 Así que **todo se DERIVA de la base misma**:
 
     QUÉ TABLAS HAY          →  pg_catalog. Completo siempre, sin mantenimiento.
-    CUÁL ES SU FECHA        →  information_schema, primera columna temporal.
+    CUÁL ES SU FECHA        →  pg_catalog: su SELLO DE ESCRITURA (`_elegir_col`).
     CADA CUÁNTO SE ESCRIBE  →  **se MIDE** mirando la distribución de esa columna.
 
 Lo tercero es la parte no obvia y es la que hace que esto escale: **la cadencia de
@@ -65,8 +65,42 @@ logger = logging.getLogger(__name__)
 # Las columnas que pueden marcar "cuándo se escribió esta fila", en orden de
 # preferencia. La primera que exista gana. No es una lista de tablas: es una
 # lista de CONVENCIONES de nombre del propio repo, y por eso no envejece igual.
-COLS_FECHA = ("updated_at", "ingestado_en", "generado_at", "creado_at",
-              "created_at", "ts", "fecha", "concertacion", "hora")
+#
+# ⚠️ **ESTABA ESCRITA SÓLO EN INGLÉS, Y LA MITAD DEL SCHEMA NOMBRA EN
+# CASTELLANO.** Medido sobre `sql/schema.sql`: `actualizado_at` aparece **38
+# veces** — más que `updated_at` (31) — y no estaba acá. Las tablas que nombran
+# en castellano no tenían NINGÚN sello en esta lista, así que `inventario()`
+# caía al fallback `candidatas[0]`: la primera columna temporal **por orden de
+# columna en el DDL**, que no es una elección, es el orden en que alguien
+# escribió el `CREATE TABLE`. Y en este repo ese orden no es neutro: las
+# fechas de negocio se declaran arriba y el sello de auditoría al final, así
+# que el fallback agarraba casi siempre una fecha de negocio disfrazada de
+# sello de escritura.
+#
+# El nombre NO alcanza para separar un sello de una fecha de negocio (`ts` y
+# `fecha` son ambiguos por nombre): eso lo resuelve `_elegir_col()` por TIPO de
+# columna. Estas tres tuplas sólo DESEMPATAN dentro de cada grupo.
+#
+# ⚠️ **UN SELLO DE ALTA NO SIRVE PARA MEDIR FRESCURA: NO SE MUEVE.**
+# `creado_at` se escribe una vez y no vuelve a cambiar nunca. En una tabla que
+# se upsertea, `max(creado_at)` queda CONGELADO en el día que entró la última
+# fila nueva, aunque el job la esté reescribiendo entera cada quince minutos.
+# Por eso los tres grupos no son decorativos: los de ESCRITURA ganan, los de
+# ALTA pierden **incluso contra un sello que no está en ninguna lista**, y en el
+# medio queda cualquier otro `timestamptz` — que al menos se mueve.
+# (Lo cazó `agente.habilidades`: con la lista plana elegía `creada_at` en vez de
+# `ultima_corrida_at`, o sea el día que nació la habilidad en lugar de la última
+# vez que corrió.)
+_SELLO_ESCRITURA = ("updated_at", "actualizado_at", "actualizado_en",
+                    "sincronizado_at", "sellado_at", "tomado_at", "corrida_at",
+                    "computed_at", "agregado_at")
+_SELLO_ALTA = ("ingestado_en", "ingestado_at", "importado_en", "generado_at",
+               "creado_at", "created_at", "creada_at")
+# Fecha de NEGOCIO: de qué día son los datos, no cuándo se escribieron. Sólo se
+# usan cuando la tabla no tiene NINGÚN sello (ver `_elegir_col`).
+_FECHA_NEGOCIO = ("ts", "fecha", "concertacion", "hora")
+
+COLS_FECHA = _SELLO_ESCRITURA + _SELLO_ALTA + _FECHA_NEGOCIO
 
 # Los tramos que separan una cadencia de otra, medidos sobre el intervalo típico
 # entre escrituras. Los bordes son generosos a propósito: lo que se busca es
@@ -95,6 +129,58 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
         return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
 
 
+def _elegir_col(cols: list[str], tipos: list[str]) -> tuple[str | None, bool]:
+    """Entre las columnas temporales candidatas, cuál usar como frescura.
+
+    **La regla es de TIPO, no de lista** (este módulo entero está construido
+    sobre no tener listas de tablas): una columna `date` NUNCA puede ser un
+    instante de escritura. Un `date` no tiene hora — por construcción es una
+    fecha de negocio ("de qué día son los datos"); un sello de escritura es
+    siempre `timestamptz`/`timestamp`.
+
+    Caso real, `bancos.mayor_movimientos`: tenía `fecha_conciliacion` (date) y
+    `actualizado_at` (timestamptz), y por orden de columna en el DDL el viejo
+    fallback elegía `fecha_conciliacion`. El job `mayor_sync` corre cada 15
+    minutos pero trae SIEMPRE el día hábil anterior, así que esa columna
+    **nunca puede estar más fresca que T-1 hábil** — el agente lo cantaba como
+    caído estando perfecto. Con esta regla elige `actualizado_at`.
+
+    Entonces:
+
+    1. Entre las columnas que NO son `date` (los sellos), gana la convención
+       de nombre (`COLS_FECHA`, en orden); si ninguna matchea, la primera.
+    2. Sólo si la tabla no tiene NINGÚN sello, se cae a una `date`: gana la
+       convención, si no la primera. Y se marca `es_fecha_negocio=True`: la
+       frescura se está juzgando contra una fecha de negocio, y eso hay que
+       poder decirlo, no esconderlo.
+
+    `tipos` puede venir más corto, más largo o vacío que `cols` (si el
+    agregado paralelo del SQL quedara desalineado por lo que sea): lo que no
+    se puede clasificar se trata como SELLO, nunca como fecha de negocio —
+    ante la duda se sigue midiendo, que es la doctrina del módulo.
+
+    `(None, False)` si no hay ninguna columna temporal.
+    """
+    if not cols:
+        return None, False
+    tipos = list(tipos)
+    if len(tipos) < len(cols):
+        tipos = tipos + [None] * (len(cols) - len(tipos))
+    sellos = [c for c, t in zip(cols, tipos, strict=False) if t != "date"]
+    if sellos:
+        elegida = (next((c for c in _SELLO_ESCRITURA if c in sellos), None)
+                   # Un sello que no está en ninguna lista le gana a uno de
+                   # ALTA: no sabemos qué es, pero al menos puede moverse, y
+                   # `creado_at` seguro que no.
+                   or next((c for c in sellos if c not in _SELLO_ALTA), None)
+                   or next((c for c in _SELLO_ALTA if c in sellos), None)
+                   or sellos[0])
+        return elegida, False
+    # Ninguna columna sobrevivió al filtro: todas son `date`. Se juzga por
+    # fecha de negocio, y se dice.
+    return next((c for c in COLS_FECHA if c in cols), cols[0]), True
+
+
 def inventario() -> list[dict]:
     """**TODAS las tablas que existen AHORA**, con su columna de fecha si la tiene.
 
@@ -106,7 +192,10 @@ def inventario() -> list[dict]:
                COALESCE(s.n_live_tup, 0)::bigint AS filas,
                array_agg(a.attname ORDER BY a.attnum)
                  FILTER (WHERE t.typname IN ('timestamptz','timestamp','date'))
-                 AS cols_fecha
+                 AS cols_fecha,
+               array_agg(t.typname ORDER BY a.attnum)
+                 FILTER (WHERE t.typname IN ('timestamptz','timestamp','date'))
+                 AS tipos_fecha
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
@@ -121,15 +210,13 @@ def inventario() -> list[dict]:
     out = []
     for f in filas:
         candidatas = list(f.get("cols_fecha") or [])
-        # La convención del repo gana; si la tabla no usa ninguna, se toma la
-        # primera columna temporal que tenga. Mejor una imperfecta que ninguna:
-        # sin columna de fecha la tabla queda como punto ciego, que es lo que
-        # esto viene a eliminar.
-        col = next((c for c in COLS_FECHA if c in candidatas),
-                   candidatas[0] if candidatas else None)
+        tipos = list(f.get("tipos_fecha") or [])
+        # Mejor una imperfecta que ninguna: sin columna de fecha la tabla
+        # queda como punto ciego, que es lo que esto viene a eliminar.
+        col, es_fecha_negocio = _elegir_col(candidatas, tipos)
         out.append({"schema": f["schema"], "tabla": f["tabla"],
                     "filas": int(f["filas"] or 0), "col_fecha": col,
-                    "cols_fecha": candidatas})
+                    "cols_fecha": candidatas, "es_fecha_negocio": es_fecha_negocio})
     return out
 
 
@@ -304,7 +391,17 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
     # escribe a las 00:00:00.000000— es un día. Y entonces la pregunta correcta
     # no es «¿hace cuánto de ese instante?» sino «¿hace cuánto que TERMINÓ ese
     # día?».
-    if (ult.hour, ult.minute, ult.second, ult.microsecond) == (0, 0, 0, 0):
+    #
+    # ⚠️ Y esto tapa el CIERRE del día, no el DESFASE de la fuente. Un job que
+    # pide siempre el día hábil anterior (`mayor_sync`) tiene una tabla cuya
+    # fecha de negocio **nunca puede estar más fresca que T-1 hábil**, y contra
+    # el reloj eso son hasta 3 días un martes a la mañana. Cuando la tabla tiene
+    # un sello de escritura la pregunta ni se hace —`_elegir_col` lo elige—;
+    # cuando no lo tiene, esto es lo mejor que se puede hacer, y por eso el
+    # veredicto sale MARCADO (`fecha_de_negocio`): quien lee la tarjeta tiene
+    # que saber que el número es una cota, no una medición. AGENT.md §0.em.
+    fecha_de_negocio = (ult.hour, ult.minute, ult.second, ult.microsecond) == (0, 0, 0, 0)
+    if fecha_de_negocio:
         ult_efectivo = ult + timedelta(days=1)   # el día cierra a las 24:00
     else:
         ult_efectivo = ult
@@ -347,6 +444,7 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
         return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
                 "tope_s": int(tope), "ultimo_dato": ult.isoformat(),
                 "unidad": unidad, "declarado": True,
+                "fecha_de_negocio": fecha_de_negocio,
                 "motivo": ("al día" if ok else
                            f"no escribe hace {_humano(atraso)} y su cron dice "
                            f"cada {_humano(declarado['hueco_s'])} como mucho"
@@ -378,7 +476,7 @@ def frescura(perfil: dict, *, ahora: datetime | None = None,
     ok = atraso <= tope
     return {"estado": "ok" if ok else "atrasada", "atraso_s": int(atraso),
             "tope_s": int(tope), "ultimo_dato": ult.isoformat(),
-            "unidad": unidad,
+            "unidad": unidad, "fecha_de_negocio": fecha_de_negocio,
             # El motivo lleva la PRUEBA, porque el voto ¿ACERTÓ? está en la
             # fila y la fila muestra solo esto (§0.ai): cuánto hace, cada cuánto
             # se esperaba, y la hora. Sin los tres, no se puede votar.
@@ -475,8 +573,10 @@ def barrer(*, guardar: bool = True) -> dict:
     """
     perfiles = []
     for t in inventario():
+        # `es_fecha_negocio` viaja en memoria nomás: `manager.tabla_perfil` no
+        # tiene esa columna y el INSERT de abajo no la toca.
         p = {"schema": t["schema"], "tabla": t["tabla"], "filas": t["filas"],
-             "col_fecha": t["col_fecha"]}
+             "col_fecha": t["col_fecha"], "es_fecha_negocio": t["es_fecha_negocio"]}
         p.update(medir(t["schema"], t["tabla"], t["col_fecha"])
                  if t["col_fecha"] else
                  {"cadencia": None, "intervalo_p50_s": None, "ultimo_dato": None})

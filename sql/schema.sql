@@ -4412,7 +4412,10 @@ CREATE TABLE IF NOT EXISTS mercado.curvas_catalogo (
 -- tenerla, porque afirma cosas falsas. Todo se DERIVA:
 --
 --   · QUÉ TABLAS HAY        → pg_catalog. Una tabla nueva aparece sola.
---   · CUÁL ES SU FECHA      → information_schema (la primera columna temporal).
+--   · CUÁL ES SU FECHA      → pg_catalog: el SELLO DE ESCRITURA de la tabla. Una
+--     columna `date` no tiene hora, así que por construcción no puede ser un
+--     instante de escritura: sólo se cae a una si la tabla no tiene ningún sello
+--     (`agente/tablas.py::_elegir_col`, AGENT.md §0.em).
 --   · CADA CUÁNTO SE ESCRIBE→ **se MIDE mirando la distribución de esa columna**.
 --     Si tiene un dato cada 5 segundos es tiempo real; si tiene uno por día
 --     hábil, es diaria. Nadie lo declara: la tabla lo dice.

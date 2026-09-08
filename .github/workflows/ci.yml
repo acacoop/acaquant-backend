@@ -56,5 +56,14 @@ jobs:
       # (2026-08-22: `superficie` cubre los dos mundos de FastAPI — con
       # envoltorios y plano — así que este check da lo mismo acá, en el
       # Droplet y en el sandbox. Ver `AGENT.md` §0.ci.)
+      #
+      # ⚠️ «DA LO MISMO EN TODOS LADOS» ES CIERTO **A IGUAL VERSIÓN DE FASTAPI**,
+      # y esa parte faltaba. El conteo de «rutas con gate extra» sale de caminar
+      # `route.dependant.dependencies`, y 0.141 mete ahí las `dependencies=` del
+      # `include_router` que 0.136 —la que pinea `requirements.txt`— deja afuera.
+      # Regenerar el doc desde un entorno con FastAPI sin pinear INFLA los
+      # números (contaba el gate del módulo como si fuera un extra por ruta) y
+      # deja este paso en rojo para siempre. **Regenerá con lo que pinea
+      # `requirements.txt`**, que es lo que corre en el Droplet. AGENT.md §0.en.
       - name: Mapa de la app sincronizado
         run: python -m scripts.gen_mapa_app --check

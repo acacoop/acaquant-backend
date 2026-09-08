@@ -145,6 +145,12 @@ def _bloques() -> dict[str, str]:
         if otros:
             efectivo += (" + " if modulos else "") + ", ".join(f"`{o}`" for o in sorted(set(otros)))
         if n_extra and not efectivo_varia:
+            # ⚠️ ESTE NÚMERO DEPENDE DE LA VERSIÓN DE FASTAPI. `n_extra` sale de
+            # las dependencies que BAJAN a la ruta, y 0.141 baja también las del
+            # `include_router` mientras que 0.136 (la pineada) no. Regenerar con
+            # una FastAPI distinta a la de `requirements.txt` cuenta el gate del
+            # módulo como un extra por ruta —`/api/back-office/interbanking`
+            # pasaba de 0 a 23— y deja el `--check` de CI en rojo. AGENT.md §0.en.
             efectivo += f" · {n_extra} ruta{'s' if n_extra > 1 else ''} con gate extra"
         marca = ""
         if declarado and not efectivo_varia and declarado not in modulos:

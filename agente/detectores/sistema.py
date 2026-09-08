@@ -679,6 +679,15 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
                         f"{_humano(d['hueco_s'])} sin escribir" if d else
                         f"venía cada {_humano(p.get('intervalo_p50_s') or 0)} "
                         f"(medido, no declarado)")
+                     # ⚠️ **CUÁNDO EL NÚMERO ES UNA COTA Y NO UNA MEDICIÓN.** Si
+                     # la tabla no tiene sello de escritura, el atraso se midió
+                     # contra una fecha de NEGOCIO (de qué día son los datos), y
+                     # una fuente que entrega T-1 hábil arrastra hasta 3 días de
+                     # desfase que no son un atraso. Decirlo es lo que hace el
+                     # hallazgo votable (§0.ai); esconderlo es cómo salió el
+                     # aviso falso de `mayor_movimientos` (§0.em).
+                     + (" · ⚠️ es una fecha de negocio, no un sello de escritura: "
+                        "el atraso es una COTA" if f.get("fecha_de_negocio") else "")
                      + f" · {p['filas']:,} filas"),
             que_hacer=f"Relanzar {escribe.que_relanzar(nombre) or 'el job que la escribe'}.",
             evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],

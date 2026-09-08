@@ -4699,3 +4699,195 @@ def test_deterministas_solo_lleva_regla_primary_y_curva():
         {"unidad": "u2", "valor": "MM ARS"},
         {"unidad": "u3", "valor": "CER"},
     ]
+
+
+# ═══ EL AVISO FALSO DE `bancos.mayor_movimientos` (AGENT.md §0.em) ═════════
+#
+# El 08/09 el agente cantó `bancos.mayor_movimientos · tabla_quieta` — *«no
+# escribe hace 3,5 días y su cron dice cada 21,0 h como mucho»* — sobre una
+# tabla que se estaba reescribiendo ENTERA cada quince minutos. Dos bugs
+# independientes, y cada uno solo no alcanzaba para el aviso: los tres tests de
+# abajo los separan y congelan el arreglo de cada uno.
+
+def test_un_job_en_varias_lineas_del_crontab_es_un_solo_reloj():
+    """El «21 h» del aviso no lo tipeó nadie: lo dedujo mal el parser.
+
+    `jobs.mayor_sync` está declarado en TRES líneas del crontab —13:00-15:45
+    cada 15', 16:00-17:30 cada 30', 18:00-21:00 cada hora— que juntas son una
+    corrida continua de 13:00 a 21:00 UTC. El parser resolvía cada línea por
+    separado, como si fueran horarios alternativos, y se quedaba con el hueco
+    más chico de las tres: el de `0 18-21 * * 1-5`, que aislada admite 21 h.
+
+    **No son alternativas: se COMPONEN.** El hueco real es 21:00 → 13:00 del
+    día siguiente = 16 h. Medido: 7 de los 58 jobs del crontab tienen más de una
+    línea y en los 7 el número viejo era falso.
+    """
+    from core import crontab
+
+    # La aritmética, sin depender del archivo.
+    assert crontab.hueco_maximo_union(
+        ["*/15 13-15 * * 1-5", "0,30 16-17 * * 1-5", "0 18-21 * * 1-5"]
+    ) == (16 * 3600, True)
+    # Una sola línea no cambia de respuesta: `hueco_maximo` sigue contestando lo
+    # de siempre (esto es lo que hace que el cambio no mueva las otras ~50).
+    assert crontab.hueco_maximo("0 22 * * 1-5") == 86400
+    assert crontab.hueco_maximo("*/30 12-23 * * *") == int(12.5 * 3600)
+    assert crontab.hueco_maximo("0 12,14,16,18,20,22 * * 1-5") == 14 * 3600
+    assert crontab.hueco_maximo("raro") is None
+
+    # ⚠️ **EL FINDE NO PUEDE ESTAR ADENTRO DE ESTE NÚMERO.** Se descuenta acá y
+    # lo vuelve a sumar `agente/tablas.py::_segundos_de_finde` según cuánto
+    # finde hubo DE VERDAD entre la última escritura y ahora. Si el hueco
+    # viernes→lunes se colara acá, todo job de días hábiles toleraría el triple
+    # TODOS los días de la semana (REGLA #9: dos mitades, una definición).
+    assert crontab.hueco_maximo_union(["0 22 * * 1-5"]) == (86400, True)
+
+    # Y sobre el crontab de verdad: el ritmo que el agente le va a exigir.
+    r = crontab.ritmo_declarado()
+    assert r["jobs.mayor_sync"] == {"hueco_s": 16 * 3600, "solo_habiles": True}
+
+
+def test_una_columna_date_nunca_es_un_sello_de_escritura():
+    """El otro bug, y el que de verdad disparó el aviso.
+
+    `tabla_quieta` pregunta *«¿hace cuánto que no escribe?»* y lo medía contra
+    `fecha_conciliacion`, que dice **de qué día son los datos**. `mayor_sync`
+    trae SIEMPRE el día hábil anterior, así que esa columna **nunca puede estar
+    más fresca que T-1 hábil**: un martes a la mañana su valor correcto es el
+    viernes, y contra el reloj eso son 3,5 días.
+
+    La causa era la elección de columna: `COLS_FECHA` estaba escrita sólo en
+    inglés (`actualizado_at` aparece 38 veces en `sql/schema.sql`, más que
+    `updated_at`, y no estaba), así que la tabla caía al fallback «primera
+    columna temporal del DDL» — que no es una elección, es el orden en que
+    alguien tipeó el `CREATE TABLE`.
+
+    **La regla nueva es de TIPO, no una lista de tablas**: un `date` no tiene
+    hora, así que por construcción no puede ser un instante de escritura.
+    """
+    from agente.tablas import _elegir_col
+
+    # El caso: el sello está al lado y ahora gana.
+    assert _elegir_col(["fecha_conciliacion", "fecha_alta", "actualizado_at"],
+                       ["date", "date", "timestamptz"]) == ("actualizado_at", False)
+    # Sin ningún sello no se puede inventar uno: se usa la fecha de negocio y se
+    # DICE (`es_fecha_negocio`), que es lo que permite tratarlas distinto.
+    assert _elegir_col(["fecha"], ["date"]) == ("fecha", True)
+    assert _elegir_col([], []) == (None, False)
+    # ⚠️ Un sello de ALTA no sirve para medir frescura: no se mueve. Le gana
+    # hasta un sello que no está en ninguna lista.
+    assert _elegir_col(["creada_at", "ultima_corrida_at"],
+                       ["timestamptz", "timestamptz"])[0] == "ultima_corrida_at"
+    assert _elegir_col(["creado_at", "actualizado_at"],
+                       ["timestamptz", "timestamptz"])[0] == "actualizado_at"
+    assert _elegir_col(["creado_at"], ["timestamptz"])[0] == "creado_at"
+    # Si el agregado paralelo del SQL viniera desalineado, lo que no se puede
+    # clasificar se trata como SELLO: ante la duda se sigue midiendo.
+    assert _elegir_col(["actualizado_at"], [])[0] == "actualizado_at"
+
+
+def test_el_aviso_falso_del_mayor_no_vuelve_a_salir():
+    """Los dos bugs juntos, con los números REALES del aviso del 08/09.
+
+    Y la parte que importa entender: **arreglar el cron solo no alcanzaba.**
+    Con el hueco corregido a 16 h pero midiendo todavía contra
+    `fecha_conciliacion`, el aviso salía IGUAL. El que lo apaga es el cambio de
+    columna; el del cron es lo que además le devuelve sensibilidad.
+    """
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+
+    from agente import tablas
+
+    ahora = _dt(2026, 9, 8, 8, 54, tzinfo=_U)          # martes, antes de las 13
+    viejo = {"hueco_s": 21 * 3600, "solo_habiles": True, "job": "jobs.mayor_sync"}
+    nuevo = {"hueco_s": 16 * 3600, "solo_habiles": True, "job": "jobs.mayor_sync"}
+
+    # ANTES: la fecha de NEGOCIO del último día cargado (viernes 04/09).
+    negocio = {"cadencia": "intradiaria", "intervalo_p50_s": 900,
+               "ultimo_dato": _dt(2026, 9, 4, tzinfo=_U)}
+    assert tablas.frescura(negocio, ahora=ahora, declarado=viejo)["estado"] == "atrasada"
+    # El cron arreglado NO lo salva: la columna sigue contestando otra pregunta.
+    assert tablas.frescura(negocio, ahora=ahora, declarado=nuevo)["estado"] == "atrasada"
+
+    # ⚠️ Y el veredicto DICE que midió contra una fecha de negocio: para las
+    # tablas que no tienen ningún sello eso es lo mejor que se puede hacer, pero
+    # el número es una COTA y quien lee la tarjeta tiene que saberlo (§0.em).
+    assert tablas.frescura(negocio, ahora=ahora,
+                           declarado=nuevo)["fecha_de_negocio"] is True
+
+    # DESPUÉS: el sello de escritura — la última corrida fue el lunes 21:00 UTC,
+    # que es exactamente lo que el cron manda. Está al día.
+    sello = {"cadencia": "intradiaria", "intervalo_p50_s": 900,
+             "ultimo_dato": _dt(2026, 9, 7, 21, 0, 12, tzinfo=_U)}
+    f = tablas.frescura(sello, ahora=ahora, declarado=nuevo)
+    assert f["estado"] == "ok" and f["fecha_de_negocio"] is False
+
+    # ⚠️ Y NO se volvió ciego: si el job de verdad no corre desde el viernes,
+    # con el sello bueno sigue gritando. Un detector que deja de avisar no está
+    # arreglado, está apagado.
+    muerto = {"cadencia": "intradiaria", "intervalo_p50_s": 900,
+              "ultimo_dato": _dt(2026, 9, 4, 21, 0, 12, tzinfo=_U)}
+    assert tablas.frescura(muerto, ahora=ahora, declarado=nuevo)["estado"] == "atrasada"
+    # El lunes a la mañana, en cambio, el finde NO cuenta como atraso.
+    assert tablas.frescura(
+        muerto, ahora=_dt(2026, 9, 7, 12, 0, tzinfo=_U),
+        declarado=nuevo)["estado"] == "ok"
+
+
+def test_el_agente_no_se_queda_ciego_eligiendo_mal_el_sello():
+    """Los tres modos de elegir un `timestamptz` que NO mide la escritura.
+
+    Arreglar `date` vs `timestamptz` dejaba el MISMO defecto un nivel más abajo:
+    entre dos sellos que no están en ninguna lista, volvía a decidir el orden del
+    `CREATE TABLE`. Medido sobre `sql/schema.sql`, y los tres fallan distinto:
+
+    · **Uno que no se mueve** — `operaciones.latidos` elegía `arrancado_at` (una
+      vez, al arrancar el proceso) en vez de `latido_at`, que se escribe cada
+      15 s. Falla ruidoso: canta la tabla como caída.
+    · **Uno que sólo tienen algunas filas** — `anulado_en` describe la última
+      anulación, no la última escritura.
+    · **Uno FUTURO** — `manager.tokens_externos` elegía `expira_at`. Ese falla
+      CALLADO y es el peor: `max()` da un instante que todavía no llegó, el
+      atraso sale negativo y la tabla queda en verde **para siempre**. Un aviso
+      falso se ve y se vota; una tabla que nunca avisa no se ve nunca.
+    """
+    from agente.tablas import _elegir_col
+
+    ts = ["timestamptz", "timestamptz"]
+    # El que se mueve gana, aunque nadie lo haya anotado en una lista.
+    assert _elegir_col(["arrancado_at", "latido_at"], ts)[0] == "latido_at"
+    assert _elegir_col(["first_seen", "last_seen"], ts)[0] == "last_seen"
+    # `ultimo_dato` DICE «último» pero es un dato copiado de otra tabla; la
+    # convención declarada (`medido_at`) le gana a la regla de morfemas.
+    assert _elegir_col(["ultimo_dato", "medido_at"], ts)[0] == "medido_at"
+    # Un sello de alta le gana a uno que sólo tienen algunas filas: en una tabla
+    # que sólo appendea, `ingestado_en` ES el instante de escritura.
+    assert _elegir_col(["ingestado_en", "anulado_en"], ts)[0] == "ingestado_en"
+    # Un vencimiento no se elige nunca…
+    assert _elegir_col(["expira_at", "obtenido_at", "dia", "llamadas_at"],
+                       ["timestamptz", "timestamptz", "date",
+                        "timestamptz"])[0] == "llamadas_at"
+    # …y si es lo ÚNICO que hay, la tabla queda SIN columna —fuera del detector—
+    # antes que en verde por un atraso negativo.
+    assert _elegir_col(["expira_at"], ["timestamptz"]) == (None, False)
+
+
+def test_un_cron_de_fin_de_semana_no_se_marca_como_de_dias_habiles():
+    """`solo_habiles` sale del campo día-de-semana != `*`, y eso lo cumple
+    también un cron que corra SÓLO sábado y domingo. Marcarlo así sería mentira
+    dos veces: `hueco_maximo_union` le descontaría el finde —que es justo cuando
+    corre— y `tablas.frescura` le sumaría `_segundos_de_finde` encima.
+
+    La grilla contesta lo que el campo no puede: ¿dispara algún lunes-a-viernes?
+    """
+    from core import crontab
+
+    assert crontab.hueco_maximo_union(["0 6 * * 6,0"])[1] is False
+    assert crontab.hueco_maximo_union(["0 22 * * 1-5"])[1] is True
+    # Y el caso real que mezcla los dos: `market_quotes` corre L-V de día y
+    # Ma-Sá de madrugada (el corrimiento ART→UTC). Tiene corridas hábiles, así
+    # que SÍ es de días hábiles, y el hueco es el de la mañana (~8 h), no el del
+    # fin de semana entero.
+    hueco, habiles = crontab.hueco_maximo_union(["* 10-23 * * 1-5", "* 0-1 * * 2-6"])
+    assert habiles is True and 8 * 3600 <= hueco < 9 * 3600

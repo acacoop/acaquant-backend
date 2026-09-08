@@ -5692,7 +5692,166 @@ que manda el navegador. El `problema` dice cuántos están descartados para que
 «3 CEDEARs» no se lea como «solo hay 3».
 
 
-### 0.em SE BORRÓ MANAGER → TÍTULOS → BONOS — y tres cosas quedaron sin pantalla (2026-09-08)
+### 0.em «NO ESCRIBE HACE 3,5 DÍAS» SOBRE UNA TABLA QUE ESCRIBE CADA 15 MINUTOS (2026-09-08)
+
+El aviso, textual: `bancos.mayor_movimientos · tabla_quieta` — *«no escribe hace
+3,5 días y su cron dice cada 21,0 h como mucho»*, crónico, 6× en 30 días.
+`mayor_sync` corre **20 veces por día**. Nada estaba roto.
+
+El user, sin ver el código: *«esto corre siempre en T-1; un martes a esta hora,
+si todavía no arrancó el job, no va a detectar datos desde el viernes, y saltaría
+el aviso — pero eso es porque está mal configurado, se tiraron números»*. La
+intuición apuntaba al lugar correcto. Los números no se tiraron: los dedujo el
+código, y los dedujo mal. **Dos bugs independientes, y ninguno de los dos solo
+alcanzaba para el aviso.**
+
+**(1) UN JOB EN VARIAS LÍNEAS DEL CRONTAB ES UN SOLO RELOJ.** `mayor_sync` está
+declarado en tres líneas —`*/15 13-15`, `0,30 16-17`, `0 18-21`, todas L-V— que
+juntas son una corrida continua de 13:00 a 21:00 UTC. `core/crontab.py` resolvía
+cada línea por separado, como si fueran horarios alternativos, y se quedaba con
+el hueco más chico: el de `0 18-21`, que **aislada** admite 21 h. No son
+alternativas: se COMPONEN, y el hueco real es 21:00 → 13:00 = **16 h**. Medido:
+**7 de los 58 jobs del crontab tienen más de una línea** y en los 7 el número era
+falso (`sync_comitentes` decía 24 h contra 17 reales). Ahora `hueco_maximo_union`
+une TODAS las líneas de un job sobre una grilla **semanal** —no diaria: el hueco
+viernes→lunes no existe en una grilla de un día— y `hueco_maximo` quedó como su
+caso de una línea, con los mismos valores de siempre.
+
+**(2) EL QUE DE VERDAD DISPARÓ EL AVISO — una fecha de negocio no contesta «hace
+cuánto que no escribe».** El detector medía contra `fecha_conciliacion`, que dice
+**de qué día son los datos**. `mayor_sync` pide SIEMPRE el día hábil anterior
+(está en el comentario del crontab y es el punto: contabilidad sigue cargando
+asientos toda la mañana siguiente), así que esa columna **nunca puede estar más
+fresca que T-1 hábil**. Un martes 08:54 UTC su valor correcto ES el viernes. El
+agente comparó eso contra el reloj y le dio 3,5 días.
+
+Es §0.u de nuevo, un nivel más abajo. Allá se aprendió que **un valor a medianoche
+exacta es un día, no un instante**, y se le suma 24 h. La guarda funciona y no
+alcanzaba: tapa el cierre del día, no el desfase de diseño de la fuente.
+
+**LA CAUSA ERA LA ELECCIÓN DE COLUMNA, Y ESTABA A LA VISTA.** La tabla tiene
+`actualizado_at timestamptz NOT NULL DEFAULT now()`, que cada corrida pisa
+(DELETE + INSERT del día entero). `max(actualizado_at)` ES la hora de la última
+corrida: contesta la pregunta que el detector hace, literalmente. Pero
+`COLS_FECHA` —la lista de convenciones de nombre del repo— **estaba escrita sólo
+en inglés**. Medido sobre `sql/schema.sql`: `actualizado_at` aparece **38 veces,
+más que `updated_at` (31)**, y no estaba en la lista. Sin ningún match, la tabla
+caía al fallback «la primera columna temporal», que es el orden del `CREATE
+TABLE` — no una elección, el orden en que alguien tipeó. Y en este repo ese orden
+no es neutro: las fechas de negocio se declaran arriba y el sello de auditoría al
+final. **El fallback apuntaba sistemáticamente a la respuesta equivocada.**
+
+**LA REGLA NUEVA ES DE TIPO, NO UNA LISTA.** `_elegir_col()`: una columna `date`
+no tiene hora, así que **por construcción no puede ser un instante de escritura**.
+Entre los sellos (`timestamptz`) gana la convención de nombre; a una `date` sólo
+se cae si la tabla no tiene NINGÚN sello, y ahí se marca `es_fecha_negocio` —
+porque eso hay que poder decirlo, no esconderlo. Es la misma doctrina que el resto
+del módulo: se deriva de la base, no se declara tabla por tabla.
+
+De yapa cayó un tercero, del mismo tipo: **un sello de ALTA no sirve para medir
+frescura porque no se mueve.** `creado_at` se escribe una vez; en una tabla que se
+upsertea, `max(creado_at)` queda congelado aunque el job la reescriba entera cada
+quince minutos. Por eso los sellos de alta pierden incluso contra un sello que no
+está en ninguna lista. Lo cazó `agente.habilidades`, que elegía `creada_at` en
+vez de `ultima_corrida_at`.
+
+**Y ARREGLAR `date` VS `timestamptz` DEJABA EL MISMO DEFECTO UN NIVEL MÁS
+ABAJO.** Lo cazó la revisión adversarial del diff, corriendo la regla nueva
+contra el schema real: entre dos `timestamptz` que no estaban en ninguna lista,
+seguía decidiendo el orden del `CREATE TABLE`. Tres modos de falla distintos:
+
+| tabla | elegía | debía | cómo falla |
+|---|---|---|---|
+| `operaciones.latidos` | `arrancado_at` (una vez) | `latido_at` (cada 15 s) | ruidoso: la canta caída |
+| `mercado.simbolos_cuarentena` | `first_seen` | `last_seen` | ruidoso |
+| `manager.tabla_perfil` | `ultimo_dato` (copiado de OTRA tabla) | `medido_at` | ruidoso |
+| `manager.tokens_externos` | **`expira_at`** | `llamadas_at` | **callado** |
+
+El último es el peor y es de otra clase: `expira_at` guarda un instante
+**futuro**, así que `max()` da una fecha que todavía no llegó, el atraso sale
+NEGATIVO y la tabla queda en verde **para siempre**. Un aviso falso se ve y se
+vota; una tabla que no avisa nunca no se ve nunca. Por eso un vencimiento no se
+elige jamás, y si es lo ÚNICO que hay la tabla queda **sin columna** —fuera del
+detector— antes que sana por error.
+
+La lista sola no podía arreglarlo: sólo cubre lo que alguien se acordó de anotar.
+Se agrega una regla sobre el IDIOMA, que sí escala a un nombre nuevo — los
+morfemas que dicen «último» (`ultim*`, `last_*`) mandan, los que dicen
+«primero/alta» (`primer*`, `first`, `creado`) pierden, los que dicen
+«vencimiento» se descartan, y los que marcan un estado excepcional (`anulado_en`,
+`revocada_at`: NULL en casi todas las filas, así que `max()` describe la última
+anulación y no la última escritura) pierden hasta contra un sello de alta —
+porque en una tabla que sólo appendea, `ingestado_en` **es** el instante de
+escritura.
+
+**Medido sobre `sql/schema.sql` (207 tablas): 46 cambian de columna** — 26 salían
+de una `date` (`portafolio.tenencia_live`, `bancos.saldos`,
+`operaciones.tesoreria_saldos`, …) y 20 de un sello que no servía.
+
+**LO QUE QUEDA ABIERTO, Y POR QUÉ NO SE CODEÓ.** Quedan **17 tablas que no tienen
+ningún sello**: su única columna temporal es un `date` (`portafolio.tenencia`,
+`mercado.snapshots_cierre`, `macro.uva`, …). Ahí «hace cuánto que no escribe» **no
+se puede contestar**, y la pregunta correcta es la que hizo el user en §0.r: *«qué
+día es hoy, cuándo es T-1, ¿hay datos? sí o no»*. Para escribir eso hay que saber
+el T-N de cada tabla, y **eso no se puede derivar del código ni adivinar**
+(REGLA #2). Por eso se entrega `scripts/diag_frescura_columna.py`, que lo mide:
+por tabla, con qué columna se la juzga, si es un sello o una fecha de negocio, y
+para las 17 el **desfase en días hábiles** contra hoy. Con esos números se declara
+el T-N; sin ellos, declararlo sería tirar un 21 otra vez.
+
+**El patrón, que es lo que importa más que el caso.** Las tres fallas son la misma
+familia: **el sistema tenía el dato correcto al lado y usó el parecido.** La hora
+real del cron estaba en el crontab (en tres líneas en vez de una); el sello de
+escritura estaba en la misma tabla (con el nombre en el otro idioma); la última
+corrida estaba en la misma fila (al lado de la fecha de nacimiento). Ninguna
+falló ruidosa: las tres contestaron seguras y con la cara de siempre. Es REGLA #9
+en su versión más barata de cometer — no dos copias del dato, **dos datos
+distintos con nombres parecidos**, y el código eligiendo por nombre.
+
+### 0.en CI ESTABA EN ROJO HACE CUATRO COMMITS Y EL MOTIVO ERA UNA VERSIÓN (2026-09-08)
+
+Al pushear §0.em apareció, de costado, que **CI venía en `failure` desde la
+corrida 1136** — cuatro commits seguidos, todos por el mismo paso: `gen_mapa_app
+--check`. Ruff, import-linter y pytest pasaban en las cuatro.
+
+Un semáforo que está siempre en rojo deja de ser un semáforo: el día que se rompa
+un test de verdad, la corrida va a decir `failure` igual que ayer y nadie va a
+mirar. Es la MISMA patología que §0.em un piso más arriba — una señal que no
+distingue.
+
+**No era un doc viejo.** `gen_mapa_app --check` pasaba en el sandbox y fallaba en
+CI con el mismo commit. La diferencia: el sandbox tenía **FastAPI 0.141.1** y
+`requirements.txt` pinea **0.136.1**, que es lo que instalan CI y el Droplet.
+
+El conteo de «rutas con gate extra» sale de caminar
+`route.dependant.dependencies`, y 0.141 baja ahí también las `dependencies=` del
+`include_router` que 0.136 deja afuera. O sea que quien regeneró el doc desde un
+entorno sin pinear **contó el gate del módulo como si fuera un extra por ruta**.
+
+    /api/back-office/interbanking   decía «23 rutas con gate extra»   → son 0
+    /api/portfolio                  decía 14                          → son 12
+    /api/ap5                        decía 3                           → es 1
+
+Verificado en el código, no deducido: `api/routers/interbanking.py` no tiene
+**ningún** `dependencies=` por ruta; su único gate es `_BACK_OFFICE` en el
+`include_router` de `api/main.py:300`, que el doc ya reporta en la columna
+«módulo». Las 23 eran esa misma dependencia contada dos veces.
+
+**La seguridad real no cambió** —los gates corren igual, esto es introspección
+para un doc—, pero el doc **afirmaba más protección de la que hay**, que en un
+índice de permisos es la dirección peligrosa (REGLA #8: default-deny también en
+lo que se afirma). Regenerado con la versión pineada.
+
+**El comentario de `ci.yml` decía que este check «da lo mismo acá, en el Droplet
+y en el sandbox».** Era cierto, y le faltaba la mitad: *a igual versión de
+FastAPI*. Esa media verdad es la que dejó el rojo cuatro días. La advertencia
+quedó escrita en los dos lugares donde se comete el error — el paso de CI y la
+línea de `gen_mapa_app` que produce el número.
+
+Misma familia que §0.em otra vez: **el sistema tenía el dato al lado y usó el
+parecido.** La versión que manda estaba en `requirements.txt`.
+
+### 0.eo SE BORRÓ MANAGER → TÍTULOS → BONOS — y tres cosas quedaron sin pantalla (2026-09-08)
 
 El user: *«el objetivo de esta sesión es borrar de todos lados la parte de BONOS
 dentro de MANAGER - TÍTULOS. Esto ya es algo que hace el agent, buscá solamente

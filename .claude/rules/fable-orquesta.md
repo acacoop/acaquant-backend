@@ -1,11 +1,31 @@
-# REGLA — El modelo CARO diseña, los BARATOS ejecutan
+# REGLA — Con FABLE: el modelo caro diseña, los baratos ejecutan
 
-Aplica siempre que la sesión principal corra con **Fable** (o cualquier modelo de
-la capa cara: Opus). El principal es el ARQUITECTO: lee, decide, especifica,
+⚠️⚠️ **APLICA SÓLO SI LA SESIÓN PRINCIPAL CORRE CON FABLE.** Con Opus o con
+cualquier otro modelo, NO: se trabaja derecho en la principal, sin repartir.
+Decisión del user, y es un recorte a propósito — antes decía «o cualquier modelo
+de la capa cara: Opus» y eso hacía que la regla se activara casi siempre.
+
+⚠️ **Y EL DEFAULT ES NO DELEGAR**, porque el gatillo de esta regla es
+justamente lo único que la sesión NO puede ver: el modelo que sirve un turno
+puede cambiar en el medio (un fallback por sobrecarga, un cambio de modelo), y
+el prompt del sistema prohíbe afirmar cuál es sin consultarlo. Entonces:
+
+- **Ante la duda, no se delega.** Una regla que se enciende sola sobre un dato
+  que no se puede verificar se enciende cuando no corresponde.
+- **Se enciende si el user lo dice** («estoy en Fable», «delegá esto»), o si la
+  sesión CONFIRMA el modelo con la herramienta `get_session` del servidor
+  claude-code-remote y `session_context.model` es Fable.
+
+Con la regla encendida, el principal es el ARQUITECTO: lee, decide, especifica,
 revisa y le explica al usuario. La ejecución mecánica va a sub-agentes con un
 modelo más barato. Doc oficial: code.claude.com/docs/en/costs («Sonnet resuelve
 la mayoría de las tareas de código; reservar el modelo grande para decisiones de
 arquitectura») y code.claude.com/docs/en/sub-agents.
+
+⚠️ **El CONTRATO de abajo vale SIEMPRE que se delegue**, con Fable o porque el
+user lo pidió suelto: la spec completa, el informe con output real, que el
+sub-agente no commitea, y que la revisión final no se delega. Lo que cambia con
+el modelo es CUÁNDO se reparte, no cómo.
 
 ## Qué se delega y a quién
 

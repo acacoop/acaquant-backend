@@ -125,9 +125,25 @@ def ahora() -> dict:
     detectó, y al día siguiente sale aunque nadie lo haya leído. Funciona porque
     un problema que persiste NO crea fila nueva (sube `veces`), así que su
     `detectado_at` sigue siendo el del día que apareció.
+
+    ⚠️⚠️ **EL TRABAJO RECURRENTE NO ES UNA NOVEDAD DEL DÍA** (§0.et). User, sobre
+    `CONTRAPARTES NUEVAS`: *«esto no es para AHORA, es para ENCONTRÓ»*. Y tiene
+    razón, con la misma lógica que ya usa el resto: AHORA contesta «¿qué pasó
+    hoy?», y una COLA DE TRABAJO no pasó hoy — está desde siempre y baja cuando
+    alguien la trabaja. Su lugar es ENCONTRÓ, que es la lista de lo abierto con
+    botón.
+
+    El criterio NO es una lista nueva: son las reglas ya declaradas
+    `RECURRENTE` (§0.ep). Y no se puede perder nada por acá, porque una regla
+    recurrente sin arreglo no existiría en ninguna de las dos pantallas — hay un
+    test que lo exige.
     """
+    from agente import catalogo
+
+    recurrentes = set(catalogo.recurrentes())
     filas = _con_historial([_serializar(f) for f in
-                            _filas("SELECT * FROM agente.v_ahora")])
+                            _filas("SELECT * FROM agente.v_ahora")
+                            if (f["habilidad"], f["regla"]) not in recurrentes])
     return {"total": len(filas), "filas": filas}
 
 

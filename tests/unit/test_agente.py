@@ -2515,6 +2515,36 @@ def test_la_contraparte_se_aprende_de_las_cargadas_y_no_se_lee_del_nombre():
                                ambiguo) == ("", "")
 
 
+def test_el_trabajo_recurrente_vive_en_ENCONTRO_y_no_en_AHORA():
+    """User, sobre `CONTRAPARTES NUEVAS`: *«esto no es para AHORA, es para
+    ENCONTRÓ»* (§0.et).
+
+    AHORA contesta «¿qué pasó hoy?». Una COLA DE TRABAJO no pasó hoy: está desde
+    siempre y baja cuando alguien la trabaja. Su lugar es ENCONTRÓ.
+
+    ⚠️ **Y la guarda que evita que esto haga desaparecer un aviso**: si una regla
+    recurrente NO tuviera arreglo, sacarla de AHORA la borraría de las dos
+    pantallas —ENCONTRÓ sólo muestra lo que tiene botón— y nadie la volvería a
+    ver. Por eso el criterio son las RECURRENTES y no los INFORMES, que son
+    avisos sin botón y viven sólo en AHORA.
+    """
+    from agente import vista
+
+    # El filtro usa la declaración que ya existe (§0.ep), no una lista nueva.
+    src = _codigo(vista.ahora)
+    assert "catalogo.recurrentes()" in src and "not in recurrentes" in src
+
+    for hab, regla in catalogo.recurrentes():
+        assert catalogo.HABILIDADES[hab].arreglo_de(regla), (
+            f"«{hab}/{regla}» es recurrente y NO tiene arreglo: sacarla de AHORA "
+            "la haría desaparecer de las dos pantallas")
+    # Los informes SÍ se quedan en AHORA: no tienen botón, y sacarlos de ahí los
+    # dejaría sin ninguna pantalla.
+    for hab, regla in catalogo.informes():
+        assert not catalogo.HABILIDADES[hab].arreglo_de(regla)
+        assert (hab, regla) not in set(catalogo.recurrentes())
+
+
 def test_el_sugeridor_no_repite_los_27_errores_que_midio_el_diag():
     """**LOS CASOS SON REALES, NO INVENTADOS** (§0.es). La v1 del sugeridor
     acertaba 42% y CONTRADECÍA 27 veces, medido con `diag_contrapartes` §5b

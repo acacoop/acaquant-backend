@@ -6319,3 +6319,25 @@ explicar. También se fue el cartel del AuM del listado.
 **Corto no es perder el dato**: el desglose y el denominador siguen viajando en
 la evidencia, que es donde se miran cuando se quieren mirar. Un test lo exige en
 las dos direcciones — que el texto no vuelva a crecer y que el dato no se pierda.
+
+
+### 0.et EL TRABAJO RECURRENTE NO ES UNA NOVEDAD DEL DÍA — sale de AHORA (2026-09-08)
+
+El user, viendo `CONTRAPARTES NUEVAS` en AHORA: *«esto no es para AHORA, es para
+ENCONTRÓ»*.
+
+Tiene razón, y es la misma distinción de §0.ep leída del otro lado. **AHORA
+contesta «¿qué pasó hoy?»**. Una COLA DE TRABAJO no pasó hoy: está desde siempre
+y baja cuando alguien la trabaja. Mezclarla con las novedades del día hace las
+dos cosas peor — el que busca qué se rompió tiene que saltearla, y el que quiere
+trabajarla la busca en la pantalla equivocada.
+
+**El criterio no es una lista nueva**: son las reglas ya declaradas `RECURRENTE`
+(§0.ep). `vista.ahora()` las saca leyendo `catalogo.recurrentes()`, y el badge
+sale de la misma lista, así que no pueden decir cosas distintas.
+
+⚠️ **La guarda que evita que esto haga desaparecer un aviso.** ENCONTRÓ sólo
+muestra lo que tiene botón: una regla recurrente SIN arreglo, sacada de AHORA,
+no quedaría en ninguna pantalla. Un test lo exige — toda regla recurrente tiene
+arreglo. Y por eso el criterio son las RECURRENTES y no los INFORMES: los
+informes son avisos sin botón y su única pantalla es AHORA.

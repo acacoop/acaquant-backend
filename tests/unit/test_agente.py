@@ -4891,3 +4891,32 @@ def test_un_cron_de_fin_de_semana_no_se_marca_como_de_dias_habiles():
     # fin de semana entero.
     hueco, habiles = crontab.hueco_maximo_union(["* 10-23 * * 1-5", "* 0-1 * * 2-6"])
     assert habiles is True and 8 * 3600 <= hueco < 9 * 3600
+
+
+def test_una_columna_que_mira_al_futuro_no_da_verde_eterno():
+    """Lo destapó el diag en prod (§0.em), y era invisible por diseño.
+
+    `mercado.dias_habiles` es un CALENDARIO: su `fecha` máxima es el 31/12. Con
+    el último valor adelante del reloj, el atraso sale NEGATIVO y la tabla pasa
+    todas las tolerancias **para siempre**. No estaba al día: la pregunta no se
+    podía hacer contra esa columna, y nadie lo sabía.
+
+    Mismo veneno que `expira_at`, que se resuelve no eligiendo la columna. Acá
+    es la única que hay, así que se contesta lo único cierto: **no se puede
+    saber**. Un «no sé» declarado se ve en el tablero; un verde falso, nunca.
+    """
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+
+    from agente import tablas
+
+    ahora = _dt(2026, 9, 8, 12, 0, tzinfo=_U)
+    calendario = {"cadencia": "diaria", "col_fecha": "fecha",
+                  "ultimo_dato": _dt(2026, 12, 31, tzinfo=_U)}
+    f = tablas.frescura(calendario, ahora=ahora)
+    assert f["estado"] == "no_se_puede_saber" and f["atraso_s"] is None
+    assert "FUTURO" in f["motivo"]
+    # Y no se rompe lo de siempre: una fecha pasada sigue midiéndose igual.
+    assert tablas.frescura({"cadencia": "diaria", "col_fecha": "fecha",
+                            "ultimo_dato": _dt(2026, 9, 7, tzinfo=_U)},
+                           ahora=ahora)["estado"] == "ok"

@@ -1234,10 +1234,30 @@ prohíbe que se copie al schema o al diag (REGLA #9).
    → arreglar     umbral, el cron, o si el job sigue haciendo falta
 ```
 
-**Un INFORME periódico no es crónico** (§0.eg). El peso de la base dos veces
-por día y la tabla contra 1816 cada dos horas nacen por calendario, y a los
-tres días la regla de arriba los marcaba «⚠ crónico». La habilidad declara esas
-reglas en `informes` y no cuentan episodios ni entran en PATRONES.
+#### La pregunta que decide: ¿el sujeto es UNA COSA o un GRUPO? (§0.ep)
+
+⚠️⚠️ **Los episodios se cuentan sobre EL MISMO SUJETO, y eso sólo significa algo
+si el sujeto es una cosa fija** — un job, un motor, una tabla, un ticker. Ahí
+«nació tres veces» es un patrón: se rompe, se arregla y se vuelve a romper.
+
+Si el sujeto es un **GRUPO** —`ONs HARD DÓLAR`, `CEDEAR`, `CARTERA`, el peso de
+la base—, la fila nace, se vacía y **vuelve a nacer cada vez que el mundo
+crece**. Sus episodios miden cuánto creció el mercado, no una falla. Y nunca
+llegan a cero, porque siempre hay un título más.
+
+Por eso cada regla declara su **naturaleza** en el catálogo, con vocabulario
+cerrado (`agente/tipos.NATURALEZAS`):
+
+| | Cuándo | Cuenta episodios |
+|---|---|---|
+| `INCIDENTE` | se rompió algo que no debería | **sí** — puede ser crónico |
+| `INFORME` | nace por CALENDARIO (el peso de la base, la tabla de 1816) | no |
+| `RECURRENTE` | nace porque el UNIVERSO CRECIÓ (títulos, cuentas, clientes) | no |
+
+`INCIDENTE` es el default de toda regla no declarada. **Toda regla CON ARREGLO
+está obligada a declararse**: lo exige `Habilidad.__post_init__`, así que la
+habilidad no se puede ni construir sin contestar la pregunta — falla al
+importar, no dentro de un mes cuando alguien mire la pantalla.
 
 Hoy sólo se MUESTRA (`⚠ crónico · 27× en 30d` en AHORA y ENCONTRÓ, y el ranking
 completo en `scripts/diag_agente`). **No cambia ningún comportamiento todavía** —
@@ -5925,3 +5945,74 @@ operador a una puerta que ya no existe es peor que uno que dice que no hay
 salida automática: se corrigieron los `que_hacer` y los comentarios de
 `detectores/mercado.py`, `vista.py`, `fuentes.py` y `alta.py` que decían «Manager
 → TÍTULOS», «Manager → ONs → ignoradas» y «se reclasifica desde el panel de ONs».
+
+
+### 0.ep «ONs HARD DÓLAR» SALÍA CRÓNICA Y NO ES UN ERROR — la definición que faltaba (2026-09-08)
+
+La tarjeta, textual: `ONs HARD DÓLAR · on_faltante · ⚠ crónico · 3× en 30d ·
+tiene arreglo → ENCONTRÓ`. El user: *«este aviso NO tiene que pasar por lo de
+crónico, no va por este lado. Está bien que aparezca constantemente esto, pero
+no es algo crónico, ya que no son errores. Acá o falta alguna definición de qué
+es crónico o no, o esto está mal hecho si ya la hay»*.
+
+**Eran las dos cosas.** La definición existía —§0.eg para los INFORMES, §0.ek
+para el TRABAJO RECURRENTE— pero estaba escrita como **dos listas opcionales de
+causas** («nace por calendario», «entran activos nuevos») en vez de como un
+criterio. Y `on_faltante` no figuraba en ninguna de las dos.
+
+#### El criterio, que ahora está escrito UNA vez
+
+Un episodio es una vez que el problema **nació sobre el mismo sujeto**. Ese
+número dice algo si el sujeto es **UNA COSA FIJA**: un job, un motor, una tabla,
+un ticker. Tres veces = se rompió, se arregló y se volvió a romper.
+
+Si el sujeto es un **GRUPO**, no dice nada. `no_estan_en_curvas` tiene por
+sujeto la constante `FAMILIA_ON = "ONs HARD DÓLAR"`, y el propio detector ya lo
+decía en un comentario: *«lo que no tenemos en cartera no es un problema de un
+bono: es una OFERTA de catálogo»*. Esa fila nace, se tilda, se vacía y vuelve a
+nacer **cada vez que 1816 publica una ON nueva**. Tres episodios en 30 días
+miden cuántas tandas de ONs salieron al mercado. Nunca va a llegar a cero.
+
+**Un comentario no es una declaración**, y ese es el punto de toda la entrada.
+
+#### Qué se cambió
+
+`Habilidad.informes` y `Habilidad.recurrentes` —dos tuplas opcionales— se
+reemplazaron por **una sola declaración por regla**, con vocabulario cerrado:
+
+```python
+naturaleza={"no_esta_en_curvas": INCIDENTE,      # UN ticker en cartera que hoy no valúa
+            "no_estan_en_curvas": RECURRENTE}    # la FAMILIA: la oferta de catálogo
+```
+
+Y `Habilidad.__post_init__` **no deja construir una habilidad cuya regla tenga
+arreglo y no diga qué es**. Una regla con botón es trabajo que hace una persona:
+ahí «¿esto es una falla o es el ritmo del negocio?» siempre tiene respuesta. Las
+reglas sin arreglo (los avisos) caen en `INCIDENTE`, que es el comportamiento de
+siempre — no cambió ni una.
+
+#### El gemelo que también estaba mal, y las que NO se tocaron
+
+`cedear_faltante/no_esta_en_master` tiene exactamente la misma forma (sujeto
+`alta_cedear.FAMILIA = "CEDEAR"`, la misma oferta de tildar) y estaba igual de
+sin declarar: iba a dar el mismo cartel en cuanto juntara tres tandas.
+
+Lo que **sigue contando episodios**, y es a propósito: `on_faltante` y
+`cedear_faltante` tienen cada una una hermana **por ítem** —`no_esta_en_curvas`
+sobre un ticker que la mesa TIENE en cartera, `no_cotiza_en_primary` sobre un
+símbolo—, y ahí el mismo papel volviendo tres veces sí es un patrón (el alta no
+pegó, o el proveedor lo publica a los saltos). Silenciar la habilidad entera
+habría apagado justo lo que hay que ver.
+
+#### Dos cosas que hacen que esto valga
+
+**Es retroactivo.** La exclusión se aplica en la consulta (`vista._con_historial`
+y `vista.cronicos` leen `catalogo.sin_episodios()`), no al guardar: el cartel
+desaparece de las filas que YA están en la base, sin backfill y sin tocar un
+dato.
+
+**Y no se puede volver a olvidar.** Dos tests lo sostienen: uno nombra las tres
+familias **por su constante de módulo** (renombrar la familia no lo evade) y
+exige que ninguna cuente episodios; el otro exige que toda regla con botón
+declare naturaleza y que las tres listas que leen las pantallas salgan de la
+misma función (REGLA #9).

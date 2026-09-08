@@ -113,6 +113,29 @@ VENTANA_CRONICO_D = 30
 # «crónico» (REGLA #9) — la calcula `agente/vista._con_historial`.
 EPISODIOS_CRONICO = 3
 
+# ── LA NATURALEZA DE UNA REGLA — qué se cuenta y qué no ────────────────────
+#
+# ⚠️⚠️ **«CRÓNICO» CUENTA CUÁNTAS VECES NACIÓ EL PROBLEMA SOBRE EL MISMO
+# SUJETO, y ese número sólo significa algo si el sujeto es UNA COSA FIJA**: un
+# job, un motor, una tabla, un ticker. Ahí «apareció tres veces» es un patrón —
+# algo se rompe, se arregla y se vuelve a romper.
+#
+# Si el sujeto es un GRUPO —«ONs HARD DÓLAR», «CEDEAR», «CARTERA», «el peso de
+# la base»— la fila nace, se vacía y vuelve a nacer **cada vez que el mundo
+# crece**. Contar esos nacimientos mide el ritmo del negocio, no una falla; y
+# encima nunca baja a cero, porque siempre hay un título más. Marcarlos «⚠
+# crónico» entrena a ignorar el cartel justo donde sí importa (§0.ep).
+#
+# Por eso la naturaleza se DECLARA por regla en el catálogo y no se adivina: no
+# hay dato en el hallazgo que diga si su sujeto es una cosa o un grupo.
+INCIDENTE = "incidente"    # se rompió algo que no debería: CUENTA episodios
+INFORME = "informe"        # nace por CALENDARIO (el peso de la base, la tabla de 1816)
+RECURRENTE = "recurrente"  # nace porque el UNIVERSO CRECIÓ (títulos, cuentas, clientes)
+NATURALEZAS = (INCIDENTE, INFORME, RECURRENTE)
+# Las dos que NO cuentan episodios ni entran en PATRONES. `INCIDENTE` es el
+# default de toda regla no declarada: el lado que no se puede olvidar es el otro.
+SIN_EPISODIOS = (INFORME, RECURRENTE)
+
 # ⚠️ **CRÓNICO ACTIVO ≠ CRÓNICO HISTÓRICO**, y confundirlos arruina el ranking.
 # Medido el 2026-09-04, la primera vez que se listaron: de 25 crónicos, ELEVEN
 # ya no pasaban — seis `soberanos_faltantes` que alguien silenció el 26/08 y
@@ -227,21 +250,21 @@ class Habilidad:
     # `arreglos.aplicar` rechaza igual lo que `puede_aplicar` no deja.
     automatico: dict = field(default_factory=dict)
 
-    # ⚠️ **QUÉ REGLAS SON INFORMES, no problemas** (`AGENT.md` §0.eg). Nacen por
-    # calendario —el peso de la base dos veces por día, la tabla contra 1816
-    # cada dos horas— y por eso aparecen todos los días. Contarlos como
-    # episodios los volvía «crónicos» a los tres días: «pasa siempre» es su
-    # definición, no un patrón a corregir. No cuentan episodios ni entran en
-    # PATRONES.
-    informes: tuple = ()
-
-    # ⚠️ **QUÉ REGLAS SON TRABAJO RECURRENTE, no un patrón** (`AGENT.md` §0.ek).
-    # La ficha de un título nuevo llega vacía SIEMPRE —cartera, clase, emisor—
-    # porque entran activos nuevos todo el tiempo: que el aviso nazca siete
-    # veces por mes es la medida de cuántos títulos entraron, no de algo mal
-    # configurado. Lo crónico es para el sistema (motores, feeds, jobs). Igual
-    # que `informes`, no cuentan episodios ni entran en PATRONES.
-    recurrentes: tuple = ()
+    # ⚠️ **QUÉ ES CADA REGLA: `{regla: INCIDENTE | INFORME | RECURRENTE}`**
+    # (`NATURALEZAS`, `AGENT.md` §0.eg, §0.ek y §0.ep). Sólo el INCIDENTE cuenta
+    # episodios y puede volverse «crónico»; los otros dos son el ritmo del
+    # negocio, no un patrón a corregir.
+    #
+    # La pregunta que se contesta acá es UNA: **¿el sujeto de esta regla es una
+    # COSA FIJA (un job, un motor, un ticker) o un GRUPO que se llena y se
+    # vacía?** Un grupo nunca es crónico.
+    #
+    # ⚠️ **Toda regla CON ARREGLO tiene que estar declarada** — lo exige
+    # `__post_init__`, no un test que haya que acordarse de correr. Una regla
+    # con botón es trabajo que hace una persona, y ahí la pregunta de arriba
+    # SIEMPRE tiene respuesta. Las reglas sin arreglo (los avisos) caen en
+    # INCIDENTE por default, que es el comportamiento de siempre.
+    naturaleza: dict = field(default_factory=dict)
 
     def __post_init__(self):
         for campo, validos in (("tipo", TIPOS), ("dominio", DOMINIOS),
@@ -268,6 +291,22 @@ class Habilidad:
                     f"«{self.nombre}/{regla}»: la espera es {seg!r} y tiene que "
                     "ser un entero de al menos 300 segundos. Investigar lo que "
                     "se acaba de caer paga por problemas que se arreglan solos")
+        for regla, nat in (self.naturaleza or {}).items():
+            if nat not in NATURALEZAS:
+                raise ValueError(f"«{self.nombre}/{regla}»: naturaleza="
+                                 f"{nat!r} no es una de {NATURALEZAS}")
+        # ⚠️ **EL OLVIDO QUE ESTO HACE IMPOSIBLE** (§0.ep): `on_faltante`
+        # describía su fila de familia como «una OFERTA de catálogo, no un
+        # problema» —en un comentario— y la pantalla igual la marcaba «⚠ crónico
+        # · 3× en 30d», porque nadie la había DECLARADO. Un comentario no es una
+        # declaración, y una lista opcional se olvida: se olvidó dos veces.
+        sin_declarar = sorted(r for r in self.arreglos if r not in self.naturaleza)
+        if sin_declarar:
+            raise ValueError(
+                f"«{self.nombre}»: {sin_declarar} tiene(n) arreglo y no "
+                f"declara(n) `naturaleza`. ¿El sujeto de esa regla es UNA COSA "
+                f"(un ticker, un job) o un GRUPO que se llena y se vacía? Lo "
+                f"primero es {INCIDENTE!r}; lo segundo, {RECURRENTE!r}")
         if self.sujeto_es and self.sujeto_es not in SUJETOS:
             raise ValueError(f"«{self.nombre}»: sujeto_es={self.sujeto_es!r} no "
                              f"es uno de {SUJETOS} — y un tipo que `vigencia` no "

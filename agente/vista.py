@@ -71,10 +71,12 @@ def _con_historial(filas: list[dict]) -> list[dict]:
     que no es lo mismo que «es la primera vez»**. Una pantalla que dice «1ª vez»
     porque no pudo contar es el invariante 1 disfrazado de dato.
 
-    ⚠️ **Un INFORME no es un problema** (`AGENT.md` §0.eg): nace por
-    calendario —el peso de la base, la tabla contra 1816— y por eso aparece
-    todos los días. Un informe periódico no tiene episodios, tiene ediciones:
-    no entra en el conteo ni puede volverse «crónico».
+    ⚠️ **NO TODA REGLA CUENTA EPISODIOS** (`AGENT.md` §6.10 y §0.ep). El
+    número dice algo si el sujeto es UNA COSA FIJA (un job, un ticker); si es
+    un GRUPO —«ONs HARD DÓLAR», «CARTERA», el peso de la base— la fila se llena
+    y se vacía cada vez que el mundo crece, y contar eso mide el ritmo del
+    negocio, no una falla. Cuáles son sale de `catalogo.sin_episodios()`, que
+    lee la `naturaleza` declarada en el catálogo — acá no se decide nada.
     """
     from agente import catalogo, tipos
 
@@ -82,9 +84,9 @@ def _con_historial(filas: list[dict]) -> list[dict]:
         return filas
     inf = set(catalogo.sin_episodios())
     for f in filas:
-        f["informe"] = (f["habilidad"], f["regla"]) in inf
+        f["sin_episodios"] = (f["habilidad"], f["regla"]) in inf
     trios = {(f["habilidad"], f["sujeto"], f["regla"]) for f in filas
-             if not f["informe"]}
+             if not f["sin_episodios"]}
     cuenta: dict[tuple, tuple] = {}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -493,10 +495,11 @@ def cronicos(limite: int = 60) -> dict:
     """
     from agente import catalogo, tipos
 
-    # ⚠️ Un INFORME no es un problema (`AGENT.md` §0.eg): «pasa siempre» es su
-    # definición, no un patrón a corregir. Se excluye por el mismo patrón de
-    # tres listas paralelas que usa `_con_historial` — habilidad+regla nunca se
-    # pega en un string (hay un test que lo prohíbe).
+    # ⚠️ Lo que NO cuenta episodios queda afuera del ranking entero (§0.ep):
+    # un informe («pasa siempre» es su definición) y una regla cuyo sujeto es
+    # una FAMILIA que se llena y se vacía. Se excluye por el mismo patrón de
+    # listas paralelas que usa `_con_historial` — habilidad+regla nunca se pega
+    # en un string (hay un test que lo prohíbe).
     inf = catalogo.sin_episodios()
     habs_inf = [h for h, _ in inf]
     regs_inf = [r for _, r in inf]

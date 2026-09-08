@@ -2211,8 +2211,9 @@ def test_un_informe_periodico_no_es_cronico():
     (`AGENT.md` §0.eg)."""
     from agente import vista
 
-    assert catalogo.HABILIDADES["db_peso"].informes == ("peso_total_11", "peso_total_16")
-    assert catalogo.HABILIDADES["tasa_vs_1816"].informes == ("tabla",)
+    assert catalogo.HABILIDADES["db_peso"].naturaleza == {
+        "peso_total_11": tipos.INFORME, "peso_total_16": tipos.INFORME}
+    assert catalogo.HABILIDADES["tasa_vs_1816"].naturaleza == {"tabla": tipos.INFORME}
     assert ("tasa_vs_1816", "tabla") in catalogo.informes()
 
     assert "regla='tabla'" in _codigo(mercado.tasa_vs_1816)
@@ -2222,7 +2223,10 @@ def test_un_informe_periodico_no_es_cronico():
     # pegado de habilidad+regla — hay un test que lo prohíbe) y no en Python.
     src_cronicos = _codigo(vista.cronicos)
     assert "unnest" in src_cronicos and "sin_episodios(" in src_cronicos
-    assert "informe" in _codigo(vista._con_historial)
+    # ⚠️ El flag de la fila se llama `sin_episodios` y no `informe`: desde
+    # §0.ep también lo llevan los RECURRENTES, y un campo que dice «informe»
+    # sobre una fila que no lo es es la mentira barata que este repo persigue.
+    assert "sin_episodios" in _codigo(vista._con_historial)
 
 
 def test_la_ficha_de_un_titulo_nuevo_es_trabajo_recurrente_no_cronico():
@@ -2232,12 +2236,87 @@ def test_la_ficha_de_un_titulo_nuevo_es_trabajo_recurrente_no_cronico():
     sistema, monitor, salud»*. Las cuatro reglas de `ficha_incompleta` se
     declaran recurrentes y salen del conteo junto con los informes."""
     h = catalogo.HABILIDADES["ficha_incompleta"]
-    assert set(h.recurrentes) == set(h.arreglos), (
-        "toda regla de la ficha es recurrente: si aparece una nueva, declararla")
-    for r in h.recurrentes:
+    assert set(h.naturaleza) == set(h.arreglos), (
+        "toda regla de la ficha se declara: si aparece una nueva, clasificarla")
+    assert set(h.naturaleza.values()) == {tipos.RECURRENTE}
+    for r in h.naturaleza:
         assert ("ficha_incompleta", r) in catalogo.sin_episodios()
-    # Lo del SISTEMA sí cuenta: un motor que se cae tres veces es un patrón.
-    assert not catalogo.HABILIDADES["motores"].recurrentes if "motores" in catalogo.HABILIDADES else True
+    # Lo del SISTEMA sí cuenta: un job que se cae tres veces es un patrón.
+    assert catalogo.HABILIDADES["motor_caido"].naturaleza == {
+        "job_sin_dato": tipos.INCIDENTE}
+
+
+def test_un_sujeto_que_es_una_FAMILIA_no_puede_ser_cronico():
+    """**LA DEFINICIÓN QUE FALTABA** (§0.ep). El user, mirando la tarjeta
+    `ONs HARD DÓLAR · on_faltante · ⚠ crónico · 3× en 30d`: *«este aviso NO
+    tiene que pasar por lo de crónico. Está bien que aparezca constantemente
+    esto, pero no es algo crónico, ya que no son errores»*.
+
+    «Crónico» cuenta cuántas veces NACIÓ el problema sobre EL MISMO sujeto, y
+    ese número sólo significa algo si el sujeto es una COSA FIJA. Los tres
+    sujetos de abajo son constantes de módulo —son FAMILIAS— y su fila se
+    llena, se vacía y vuelve a nacer cada vez que 1816 o Primary publican algo
+    nuevo: sus episodios miden cuánto creció el mercado.
+
+    El test los nombra por la constante y no por el string, así que renombrar
+    la familia no lo evade.
+    """
+    from agente import alta_cedear
+
+    familias = (
+        ("tasa_vs_1816", "tabla", mercado.FAMILIA_CORP_HD),
+        ("on_faltante", "no_estan_en_curvas", mercado.FAMILIA_ON),
+        ("cedear_faltante", "no_esta_en_master", alta_cedear.FAMILIA),
+    )
+    sin_ep = set(catalogo.sin_episodios())
+    for hab, regla, familia in familias:
+        assert familia, f"«{hab}» perdió su constante de familia"
+        assert catalogo.HABILIDADES[hab].naturaleza.get(regla) in tipos.SIN_EPISODIOS, (
+            f"«{hab}/{regla}» tiene por sujeto la familia «{familia}»: no puede "
+            f"contar episodios. Declarar {tipos.RECURRENTE!r} o {tipos.INFORME!r}")
+        assert (hab, regla) in sin_ep
+        # Y la fila de familia sale del detector con esa constante: si alguien
+        # la cambia por un ticker, esta línea lo dice.
+        assert f"regla='{regla}'" in _codigo(catalogo.HABILIDADES[hab].correr)
+
+    # ⚠️ La hermana de CADA una es por ÍTEM y SÍ cuenta episodios. Silenciar la
+    # habilidad entera sería «arreglarlo» apagando justo lo que hay que ver:
+    # el MISMO ticker apareciendo tres veces es un patrón.
+    assert catalogo.HABILIDADES["on_faltante"].naturaleza["no_esta_en_curvas"] == (
+        tipos.INCIDENTE)
+    assert catalogo.HABILIDADES["cedear_faltante"].naturaleza["no_cotiza_en_primary"] == (
+        tipos.INCIDENTE)
+
+
+def test_toda_regla_con_boton_declara_su_naturaleza():
+    """**LO QUE HACE QUE NO SE VUELVA A OLVIDAR** (§0.ep).
+
+    `informes` y `recurrentes` eran dos listas OPCIONALES, y por eso el olvido
+    pasó dos veces: `on_faltante` y `cedear_faltante` describían su fila de
+    familia como «una oferta de catálogo, no un problema» **en un comentario**,
+    y la pantalla igual las marcaba crónicas. Un comentario no es una
+    declaración.
+
+    Ahora es UNA sola declaración por regla, con vocabulario cerrado, y
+    `Habilidad.__post_init__` no deja construir una habilidad cuya regla tenga
+    arreglo y no diga qué es — así falla al IMPORTAR, no cuando alguien mire la
+    pantalla dentro de un mes. Este test cubre el otro lado: que el catálogo de
+    verdad esté completo, y que nadie declare una regla que no existe.
+    """
+    for h in catalogo.HABILIDADES.values():
+        faltan = set(h.arreglos) - set(h.naturaleza)
+        assert not faltan, (
+            f"«{h.nombre}»: {sorted(faltan)} tiene(n) botón y no declara(n) "
+            f"naturaleza")
+        for regla, nat in h.naturaleza.items():
+            assert nat in tipos.NATURALEZAS, f"«{h.nombre}/{regla}»: {nat!r}"
+
+    # Y hay UNA sola lectura de `naturaleza` (REGLA #9): las tres listas que
+    # usan las pantallas salen de la misma función.
+    for fn in (catalogo.informes, catalogo.recurrentes, catalogo.sin_episodios):
+        assert "_de_naturaleza(" in _codigo(fn), (
+            f"«{fn.__name__}» tiene que leer por `_de_naturaleza`: dos lecturas "
+            "de la naturaleza son dos definiciones de crónico")
 
 
 def test_el_peso_se_consolida_por_vista():

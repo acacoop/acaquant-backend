@@ -22,7 +22,7 @@ import logging
 
 from agente.detectores import catalogo as cat
 from agente.detectores import datos, mercado, sistema
-from agente.tipos import Habilidad
+from agente.tipos import INCIDENTE, INFORME, RECURRENTE, SIN_EPISODIOS, Habilidad
 from agente.umbrales import PARIDAD_MAX, PARIDAD_MIN
 from core.postgres import get_pool
 
@@ -38,14 +38,21 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         que_mira="bonos que 1816 lista y no están en nuestro master",
         cada_segundos=2 * _H, ventana="rueda",
         correr=mercado.soberanos_faltantes, sujeto_es="bono",
-        arreglos={"no_esta_en_curvas": "alta_bono"}),
+        arreglos={"no_esta_en_curvas": "alta_bono"},
+        # El sujeto es UN ticker: que el MISMO bono aparezca y desaparezca tres
+        # veces en un mes sí es un patrón (el alta no pegó, o 1816 lo publica a
+        # los saltos). Cuenta episodios.
+        naturaleza={"no_esta_en_curvas": INCIDENTE}),
 
     Habilidad(
         nombre="bono_sin_flujo", tipo="detector", dominio="MERCADO",
         que_mira="bonos cargados sin cronograma de pagos: no valúan",
         cada_segundos=2 * _H, ventana="siempre",
         correr=mercado.bono_sin_flujo, sujeto_es="bono",
-        arreglos={"sin_flujo": "alta_flujos"}),
+        arreglos={"sin_flujo": "alta_flujos"},
+        # Sujeto = un ticker. Un bono que se queda sin cronograma tres veces es
+        # la cadena de alta fallando, no el ritmo del catálogo.
+        naturaleza={"sin_flujo": INCIDENTE}),
 
     # ⚠️ Reemplaza a `tasa_sospechosa`, que metía SEIS reglas bajo un nombre.
     # Es un AVISO a propósito: el agujero lo tapa el sistema solo (la lista de
@@ -79,7 +86,7 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # Nace por CALENDARIO (cada 2 h) y no porque algo se rompió: es un
         # informe, no un problema. Sin esto, la tabla misma se volvía
         # «crónica» a las tres corridas (`AGENT.md` §0.eg).
-        informes=("tabla",)),
+        naturaleza={"tabla": INFORME}),
 
     # `soberanos_faltantes` para las ONs en dólares (§0.dp). Dos diferencias, y
     # ninguna es de gusto: Primary es CONDICIÓN (sin foto no se ofrece nada), y
@@ -107,7 +114,16 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         automatico={"no_esta_en_curvas":
                     "la mesa lo tiene en cartera y hoy no valúa; el "
                     "pre-flight baja el cuadro de 1816, lo coteja contra el "
-                    "de ellos y solo escribe si cierra"}),
+                    "de ellos y solo escribe si cierra"},
+        # ⚠️ **LAS DOS REGLAS SE VEN IGUAL Y SON DE NATURALEZA OPUESTA** (§0.ep).
+        # `no_esta_en_curvas` habla de UN ticker que la mesa tiene en cartera y
+        # hoy no valúa: si el mismo vuelve tres veces, algo pasa. La fila de
+        # familia (`no_estan_en_curvas`, sujeto «ONs HARD DÓLAR») es la OFERTA
+        # de catálogo: nace, se tilda, se vacía y vuelve a nacer cada vez que
+        # 1816 publica una ON nueva. Sus episodios cuentan cuántas veces creció
+        # el mercado — y la pantalla los mostraba como «⚠ crónico · 3× en 30d».
+        naturaleza={"no_esta_en_curvas": INCIDENTE,
+                    "no_estan_en_curvas": RECURRENTE}),
 
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",
@@ -117,7 +133,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         umbrales={"precio_viejo_min": 20},
         # `sin_punta` y `precio_viejo` NO tienen arreglo, y eso se DECLARA: son
         # datos sobre el papel, no sobre el sistema.
-        arreglos={"no_suscripto": "pedir_pata"}),
+        arreglos={"no_suscripto": "pedir_pata"},
+        # Sujeto = un ticker, y las cuatro reglas son sobre el feed de ESE
+        # papel: repetirse es exactamente lo que hay que ver.
+        naturaleza={"no_suscripto": INCIDENTE}),
 
     Habilidad(
         nombre="precio_moneda", tipo="detector", dominio="MERCADO",
@@ -130,7 +149,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # de las dos mitades fallaría (REGLA #9).
         umbrales={"paridad_min": PARIDAD_MIN, "paridad_max": PARIDAD_MAX},
         arreglos={"pata_equivocada": "apuntar_pata",
-                  "cotiza_en_pesos": "pata_dolar"}),
+                  "cotiza_en_pesos": "pata_dolar"},
+        # Sujeto = un ticker. Un bono que cotiza en la moneda equivocada tres
+        # veces en un mes es la pata mal apuntada volviendo, no un alta nueva.
+        naturaleza={"pata_equivocada": INCIDENTE, "cotiza_en_pesos": INCIDENTE}),
 
     # ⚠️ **SIN `sujeto_es`, Y NO ES UN OLVIDO.** Su sujeto es un AJUSTE
     # (`badlar`, `tpm`), no un título: no hay nada que pueda «vencer», así que
@@ -163,7 +185,13 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=6 * _H, ventana="siempre",
         correr=mercado.cedear_faltante,
         umbrales={"min_propios": 3},
-        arreglos={"no_esta_en_master": "alta_cedear"}),
+        arreglos={"no_esta_en_master": "alta_cedear"},
+        # Mismo par que `on_faltante` y por el mismo motivo (§0.ep): la primera
+        # regla tiene por sujeto la FAMILIA («CEDEAR») y es una oferta que se
+        # llena y se vacía; la segunda es UN símbolo que Primary dejó de listar
+        # y sí es un problema de ese papel.
+        naturaleza={"no_esta_en_master": RECURRENTE,
+                    "no_cotiza_en_primary": INCIDENTE}),
 
     # ── SISTEMA ────────────────────────────────────────────────────────────
     Habilidad(
@@ -187,7 +215,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # Solo el JOB declarado como relanzable tiene botón. Un motor no: la
         # regla que emite el detector ya distingue los dos casos, así que no
         # puede quedar una fila con un botón que siempre falla.
-        arreglos={"job_sin_dato": "rehacer_job"}),
+        arreglos={"job_sin_dato": "rehacer_job"},
+        # El sujeto es UN job: repetirse es la definición misma de lo crónico —
+        # es el caso para el que se inventó PATRONES.
+        naturaleza={"job_sin_dato": INCIDENTE}),
 
     # Los PROCESOS, por su latido (core/latido.py, §0.da). El universo sale de
     # deploy/systemd + crontab: un motor nuevo se espera solo. Sin arreglo a
@@ -283,8 +314,8 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # El peso total nace por CALENDARIO (11 y 16 ART), no porque algo se
         # rompió: es un informe, no un problema (`AGENT.md` §0.eg). Las demás
         # reglas de esta habilidad (`crecio`, `desaparecio`) SÍ son problemas y
-        # quedan afuera de esta lista.
-        informes=("peso_total_11", "peso_total_16")),
+        # quedan afuera: sin declarar, caen en INCIDENTE, que es lo que son.
+        naturaleza={"peso_total_11": INFORME, "peso_total_16": INFORME}),
 
     Habilidad(
         nombre="actividad", tipo="detector", dominio="SISTEMA",
@@ -319,10 +350,11 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "sin_clase_activo": "completar_ficha",
                   "sin_emisor": "completar_ficha",
                   "fci_sin_ticker": "completar_ficha"},
-        # Las cuatro son TRABAJO RECURRENTE (§0.ek): un título nuevo llega con
-        # la ficha vacía siempre. No son crónicas, son el ritmo de la cartera.
-        recurrentes=("sin_cartera", "sin_clase_activo", "sin_emisor",
-                     "fci_sin_ticker"),
+        # Las cuatro son TRABAJO RECURRENTE (§0.ek): el sujeto es el CAMPO
+        # —un grupo que sube y baja de número—, y un título nuevo llega con la
+        # ficha vacía siempre. No son crónicas: son el ritmo de la cartera.
+        naturaleza={"sin_cartera": RECURRENTE, "sin_clase_activo": RECURRENTE,
+                    "sin_emisor": RECURRENTE, "fci_sin_ticker": RECURRENTE},
         # Solo `sin_clase_activo`: son las CINCO reglas determinísticas de
         # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES,
         # futuros y OTC de agro/dólar por el prefijo del contrato, copia
@@ -371,7 +403,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # Solo el duplicado que declara `arreglo_sql` tiene botón (§0.dc); el
         # que declara `arreglo_manual` sale como `copias_a_mano`, un aviso con
         # la instrucción, y `no_pude_chequear` es un aviso sobre el chequeo.
-        arreglos={"copias_que_no_coinciden": "arbitrar_copia"}),
+        arreglos={"copias_que_no_coinciden": "arbitrar_copia"},
+        # El sujeto es UN duplicado declarado en `core/duplicados`: que las dos
+        # copias se separen tres veces en un mes es justo lo que hay que ver.
+        naturaleza={"copias_que_no_coinciden": INCIDENTE}),
 
     Habilidad(
         nombre="permiso_flojo", tipo="detector", dominio="SEGURIDAD",
@@ -419,31 +454,38 @@ def estado() -> list[dict]:
         # La CLASE de una habilidad es el resumen de sus reglas, y se DERIVA.
         f["arreglos"] = dict(h.arreglos) if h else {}
         f["automatico"] = dict(h.automatico) if h else {}
-        f["informes"] = list(h.informes) if h else []
-        f["recurrentes"] = list(h.recurrentes) if h else []
+        f["naturaleza"] = dict(h.naturaleza) if h else {}
         f["clase"] = ("trabajo" if (h and h.arreglos) else "aviso")
     return filas
 
 
+def _de_naturaleza(*cuales: str) -> list[tuple[str, str]]:
+    """Los pares (habilidad, regla) de una o varias naturalezas. **La única
+    lectura de `naturaleza`**: si cada pantalla armara la suya, el día que se
+    agregue un valor una se enteraría y la otra no (REGLA #9)."""
+    return [(h.nombre, r) for h in HABILIDADES.values()
+            for r, nat in h.naturaleza.items() if nat in cuales]
+
+
 def informes() -> list[tuple[str, str]]:
-    """Las reglas del catálogo que son INFORMES, no problemas (`AGENT.md`
-    §0.eg): nacen por calendario y por eso aparecen todos los días. `vista.py`
-    las excluye del conteo de episodios y de PATRONES."""
-    return [(h.nombre, r) for h in HABILIDADES.values() for r in h.informes]
+    """Las reglas que son INFORMES, no problemas (`AGENT.md` §0.eg): nacen por
+    calendario y por eso aparecen todos los días."""
+    return _de_naturaleza(INFORME)
 
 
 def recurrentes() -> list[tuple[str, str]]:
-    """Las reglas que son TRABAJO RECURRENTE por diseño (`AGENT.md` §0.ek):
-    entran activos nuevos todo el tiempo y la ficha llega vacía. Tampoco
-    cuentan episodios."""
-    return [(h.nombre, r) for h in HABILIDADES.values() for r in h.recurrentes]
+    """Las reglas que son TRABAJO RECURRENTE por diseño (`AGENT.md` §0.ek y
+    §0.ep): su sujeto es un GRUPO que se llena y se vacía —el campo de una
+    ficha, la familia «ONs HARD DÓLAR»— y nace de nuevo cada vez que el
+    universo crece."""
+    return _de_naturaleza(RECURRENTE)
 
 
 def sin_episodios() -> list[tuple[str, str]]:
-    """Todo lo que NO cuenta episodios ni entra en PATRONES: informes (nacen
-    por calendario) y recurrentes (nacen porque entran activos nuevos). Lo
-    crónico queda para lo que sí es un patrón: sistema, motores, feeds, jobs."""
-    return informes() + recurrentes()
+    """Todo lo que NO cuenta episodios ni entra en PATRONES. Lo crónico queda
+    para lo que sí es un patrón: un job, un motor, un feed, un ticker — un
+    sujeto que es UNA COSA y no un grupo (`AGENT.md` §0.ep)."""
+    return _de_naturaleza(*SIN_EPISODIOS)
 
 
 def umbrales_de(nombre: str) -> dict:

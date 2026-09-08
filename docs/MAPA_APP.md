@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **531 endpoints** montados en `api.main.app`, en **33 routers**.
-- **199 escriben** (POST/PUT/PATCH/DELETE); 332 son de solo lectura.
+- **516 endpoints** montados en `api.main.app`, en **33 routers**.
+- **190 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -61,7 +61,7 @@
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/ia` | 1 | 0 | `ia` | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 139 | 68 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 124 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
@@ -162,7 +162,7 @@ páginas.
 | 16 | **REFERIDOS** | `/referidos` | `operaciones` | admin, trader, asistente_comercial | Vista para la empresa referidora: solo sus cuentas — operan, AuM, rendimientos, volumen, aranceles y comisión FCI a la coop. |
 | 17 | **BACK OFFICE** | `/back-office` | `back-office` | admin, trader, sales, asistente_comercial, back_office | Operación diaria del back office: SENEBIS, tenencia valorizada, títulos en alquiler, Tesorería (caja del día), títulos a enviar/recibir al mercado y acreencias de clientes, extractos bancarios de Interbanking y saldos de cuentas comitentes. |
 | 18 | **ACA** | `/aca` | `aca` | **solo `empleado_aca`** (+ admin + escritores de la mesa) | **Link de primer nivel del header** (no está adentro de NEGOCIO: es la cartera de la casa y la mira gerencia). Resumen ejecutivo de la cartera PROPIA de ACA para gerencia: foto MENSUAL con valuación ARS/A3500/USD, composición por cartera, detalle título por título, métricas de concentración y rendimiento acumulado vs benchmarks. Carga manual tipo Excel (`docs/ACA.md`). |
-| 19 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/bonos/ONs/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
+| 19 | **MANAGER** | `/manager` | `manager` + 6 sub-módulos | admin (todo); asistente_comercial entra por sub-módulos | Panel de administración: observabilidad, validaciones/debug, maestros (assets/emisores/CEDEARs), segmentación de clientes y contrapartes, backfills/imports, usuarios/roles/grupos y allowlists de escritura. |
 
 **Superficies transversales (no son rutas propias):**
 
@@ -200,7 +200,7 @@ páginas.
 | `manager-aca` ⚠️ | Manager → ACA. **NO es módulo del RBAC** (como `mesa-dinero`): capacidad publicada por `/api/me` = escritura en ACA. El gate real suma el acceso a Manager | `/api/manager/aca/*` (7) |
 | `manager_clientes` | Manager → CLIENTES / ACA VALORES / CONTROL AUTO | `clientes.router`, `aca_valores`, `control_automatico` (10) |
 | `manager_clientes_bulk` | Manager → cargas masivas | `clientes.bulk_router` (3) |
-| `manager_titulos` | Manager → TÍTULOS (assets, ONs, bonos, breakevens, RV) | 28 rutas |
+| `manager_titulos` | Manager → TÍTULOS (assets, emisores, breakevens, RV) | 19 rutas |
 | `manager_instrumentos` | Manager → TÍTULOS → Instrumentos (solo lectura) | `instrumentos.router` (2) |
 | `manager_contrapartes` | Manager → CONTRAPARTES | 6 rutas |
 | `manager_aunesa` | Manager → AUNESA / IMPORTAR AUM | `import_tenencia.router` (3) |
@@ -430,7 +430,7 @@ vacío donde se montaba — se limpió el 2026-08-31.
 - **OBSERVABILIDAD** (`manager.obs.sub.v2`): **DIAGNÓSTICO** · BASE. **Son DOS**, verificado contra `manager-view.tsx` (2026-08-30). El doc listaba cinco: SALUD, LATENCIA e IA ya no se dibujan.
   - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · LOGS. RECURSOS (CPU/RAM/disk del Droplet) se ELIMINÓ 2026-08-10 junto con su router y el sampler de fondo: eran métricas crudas que no respondían si el sistema estaba sano.
 - **VALIDACIONES** (`manager.valid.sub`): **VALIDACIONES** · OPCIONES VTO · DEBUG XIRR · DEBUG TEA.
-- **TÍTULOS**: INSTRUMENTOS (con `manager_instrumentos`) · ASSETS · BONOS · BREAKEVENS · RENTA VARIABLE (estas 4 requieren el maestro). Dentro del ALTA de bonos, toggle `Soberano/Provincial` / `Corporativo (ON)` — el LISTADO ya no se parte: BONOS muestra y edita **todos**, corporativos incluidos.
+- **TÍTULOS**: INSTRUMENTOS (con `manager_instrumentos`) · ASSETS · EMISORES · BREAKEVENS · RENTA VARIABLE (estas 4 requieren el maestro). **El sub-tab BONOS se ELIMINÓ**: alta, edición, baja y control de bonos y ONs los hace hoy EL AV AGENT (`bono_sin_flujo` / `bono_sin_tasa` / `on_faltante` con `alta_bono` / `alta_flujos` / `alta_on`), que escribe por las mismas puertas (`bonos_admin.upsert_bono`, `ons.upsert_on`). Ver §4.2.
 - **CLIENTES** (`manager.cli.subtab`, def `segmentacion`): **SEGMENTACIÓN** · CONTROL AUTO · SIN OPERADOR · FONDEOS (solo con `canBulk`).
 - **CONTRAPARTES**: **LISTADO** · CONCILIADOR (badge `!n`).
 - **AUNESA** (`manager.aunesa.sub`): FLUJO · AUM · POSICIÓN · BOLETOS (las 4 solo con umbrella `manager`) · **IMPORTAR AUM** (siempre; es lo ÚNICO que ve `manager_aunesa`).
@@ -583,22 +583,17 @@ sin eso el edge cache pisaba el poll de 5s, bug 2026-04-23), `/api/me` (propaga 
 > al lado de los soberanos**, que es contra quién se compara su rendimiento.
 > Se fueron con ella (ya no existen): `ons-live.tsx`, `/api/analitica/ons-calendario`,
 > `listar-curva?curva=on` y la vista `ons` del copiloto. Los ~140 corporativos
-> **siguen en `mercado.curvas`** alimentando `/renta-fija` y ACREENCIAS; se editan
-> desde Manager → TÍTULOS · BONOS.
+> **siguen en `mercado.curvas`** alimentando `/renta-fija` y ACREENCIAS; hoy los
+> escribe EL AV AGENT (`ons.upsert_on`), no una pantalla.
 
 ### Vista: MANAGER → TÍTULOS (parte de RF/ONs)
 - **Gate**: `_TITULOS` = `manager` ∨ `manager_titulos`; el sub-tab INSTRUMENTOS usa `_INSTRUMENTOS` (+ `manager_instrumentos`).
-- `asistente_comercial` tiene `manager_instrumentos` pero **NO** `manager_titulos` → ve INSTRUMENTOS, no ve BONOS/BREAKEVENS (el front replica el gate con `canMaestro`).
+- `asistente_comercial` tiene `manager_instrumentos` pero **NO** `manager_titulos` → ve INSTRUMENTOS, no ve ASSETS/EMISORES/BREAKEVENS/RENTA VARIABLE (el front replica el gate con `canMaestro`).
 
 | Sub-tab / cuadrante | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **BONOS → Ver/editar** | Maestro: Ticker · ROFEX · Curva · Tipo · Vto · Mon · VN · Cupón · Flujo (expandible). Rojo si falta flujo o vto | `GET /api/manager/bonos` | Buscador de texto + select de curva | **DELETE `/bonos?ticker_corto=`** (con confirm). "Editar" prefilla el alta |
-| **BONOS → CARGAR** | Editor unificado con **selector de forma** *Soberano/Provincial* / *Corporativo (ON)*; avisa si el código ya está cargado. Siguen siendo dos forms porque un corporativo se carga con otros campos y su write path todavía escribe `curva='on_<sector>'` (el motor de TEA ramifica por ahí, `engines/curvas.py:595`) | `GET /bonos`, `GET /ons` | Pill Soberano/Provincial · Corporativo | ver abajo |
-| ↳ **alta BONO** | Form por **tipo**: lecap, boncap, tasa fija c/cupón, CER, dual/TAMAR, soberano USD, dólar linked. Cada tipo habilita sus campos y la shape de flujo (bullet = solo `flujo_vencimiento`; resto = array). Preview del cronograma pegado | `POST /bonos/parse-flujos`, `GET /bonos` | tipo de bono | **POST `/bonos`** (upsert por `ticker_corto`), **DELETE**. `parse-flujos` solo transforma texto |
-| ↳ **alta ON** | Form: Asset, Emisor, Moneda flujo (USD/DL/ARS), **Sector**, Tasa cupón, Vencimiento, ticker ARS y USD (el `MERV - XMEV - … - 24hs` va fijo). Flujos por **archivo (.csv/.txt)** o pegados; preview con Σ amortización y check ≈100 | `GET /ons`, `POST /ons/parse-flujos` | select "editar existente", select de sector | **POST `/ons`** (upsert por `asset`, escribe directo a `mercado.curvas` con curva `on_<sector>` → se refleja en `/ons` sin reiniciar motores) |
-| **BONOS → BONOS (listado)** | **TODOS** los bonos del master (corporativos incluidos, 2026-08-16). Columnas: Ticker · ROFEX · **Clasificación** (los EJES: emisor · moneda · ajuste `+ ajuste_alt` del dual · ley) · Emisor · Vto · VN · Cupón · Flujo (expandible). La columna CURVA se sacó: dejó de decidir nada. Banner ámbar con cuántos están **sin clasificar** (no entran a ninguna tabla de RF) y cuántos tienen ajuste **sin curva** (badlar/tpm/caución) | `GET /bonos` | buscar ticker/emisor · **3 selects por EJE** (emisor / moneda / ajuste — el de ajuste matchea las DOS patas, así un dual sale al filtrar por TAMAR) · pill «solo problemas» | **DELETE `/bonos`** (ya borra corporativos: el guard `curva NOT LIKE 'on%'` hacía que la baja dijera OK sin borrar nada) |
-| **BONOS → Conciliar (títulos sin flujo)** | Gap: títulos ARS/DL/HD que los clientes tienen y no están (o están incompletos) en el maestro, con la acción sugerida | `GET /bonos/sin-flujo`, `GET /ons/ignoradas` | — | **POST `/ons/ignorar`**, **DELETE `/ons/ignorar?ticker=`** |
-| **BONOS → Errores de tasa** | Bonos con precio pero sin TEA (los que muestran "--") | `GET /bonos/sin-tasa` (read-only, no recalcula) | — | **POST `/jobs/run`** `{tipo:"backfill_tasas"}` + polling. Ese endpoint es del sub-router `jobs` (umbrella `manager`) → un `asistente_comercial` **no podría dispararlo** |
+| ~~**BONOS**~~ (Ver/editar · CARGAR · listado · Conciliar · Errores de tasa) | **ELIMINADO.** Era el único lugar donde se cargaba, editaba, borraba y controlaba un bono o una ON a mano. Lo reemplaza EL AV AGENT: `bono_sin_flujo` (+`alta_flujos`), `bono_sin_tasa`, `soberanos_faltantes` y `on_faltante` (+`alta_bono`/`alta_on`) detectan y arreglan lo mismo, y escriben por las **mismas** puertas que llamaba esta pantalla (`bonos_admin.upsert_bono`, `ons.upsert_on`) — se fue la UI, no la función | Se fueron `GET/POST/DELETE /bonos`, `/bonos/sin-tasa`, `/bonos/parse-flujos` y **todo** `/api/manager/ons`. Sobrevive `GET /bonos/sin-flujo`, que consume VALIDACIONES | — | ninguna |
+| ↳ **lo que quedó SIN pantalla** | Tres cosas que el agente NO cubre y ya no tienen dónde hacerse desde la app: **(1)** cargar a mano un bono que 1816 no publica (el agente solo copia cuadros de 1816); **(2)** **restaurar** una ON descartada (`mercado.ons_ignoradas` — el agente descarta, no des-descarta); **(3)** **reclasificar el sector** de una ON (nace en `on_otros`). Las tres son hoy un script / SQL a mano. Decisión explícita del user (2026-09-08), no un olvido | — | — | — |
 | **BREAKEVENS** (50/50) | **Izq — PARES**: los del motor + los MANUALES (marcados `✎`), con flag `excluido` (fila al 40 %). BE fuera de [0, 15 %] en rojo. **Der — COBERTURA**: por qué CADA bono `tasa_fija` del master entra o no a la matriz (motivo textual: sin CER a ±20d, dedup, plazo mínimo, IPC ya publicado) + inventario del master + frescura del doc publicado | `GET /breakevens/pares`, `GET /breakevens/diagnostico`, `GET /breakevens/candidatos` | ↻ refresh; checkbox "solo los que NO entran" (der) | **POST `/breakevens/exclusion`** — excluir oculta el par de `/renta-fija` **al instante** (se filtra en la lectura pública; el motor no se toca). Update optimista con rollback. **POST `/breakevens/manual`** — el botón **`+ par manual`** (dos selects: tasa fija ↔ CER) crea un par que el motor NO arma; el BE se calcula en la lectura, así que aparece en `/renta-fija` sin reiniciar nada. Los manuales se **borran** (no se excluyen) |
 
 #### Endpoints — `analitica.py` (`/api/analitica`, `_PUBLIC`)
@@ -639,16 +634,7 @@ gate inline `require_module("manager")`; el proxy Next es GET-only → no se lla
 #### Endpoints — Manager `ons.py` / `bonos.py` / `breakevens.py` (gate `_TITULOS`)
 | Método | Path | Qué hace | Escribe |
 |---|---|---|---|
-| GET | `/api/manager/ons` (`sector`, `emisor`) · `/ons/values` · `/ons/conciliar` · `/ons/ignoradas` | Lista, valores de selects, gap de cobertura HD/DL, ignorados | No |
-| POST | `/api/manager/ons` | Upsert por `asset` en `mercado.curvas` (curva `on_<sector>`); registra `actor` | **Sí** |
-| PATCH | `/api/manager/ons/sector` | Cambia la curva `on_<sector>` en vivo. **El front NO lo llama** (el sector va dentro del POST) | **Sí** |
-| DELETE | `/api/manager/ons?asset=` | Baja de la ON | **Sí** |
-| POST | `/api/manager/ons/parse-flujos` | Parsea flujos (formato BYMA/IAMC o simple), `texto` ≤100k | No |
-| POST/DELETE | `/api/manager/ons/ignorar` | Marca/desmarca ticker ignorado (`mercado.ons_ignoradas`) | **Sí** |
-| GET | `/api/manager/bonos` (`curva`) · `/bonos/sin-flujo` · `/bonos/sin-tasa` | Maestro no-ON, conciliador unificado, bonos con precio sin TEA | No |
-| POST | `/api/manager/bonos/parse-flujos` | Parsea flujos **ya en la shape del tipo** (soberano/CER → `*_pct`; tasa fija → absolutos) | No |
-| POST | `/api/manager/bonos` | Upsert por `ticker_corto` (`ticker`, `curva`, `tipo`, `moneda_flujo`, `tasa_referencia`, `fecha_emision`, `fecha_vencimiento`, `valor_nominal`, `cer_emision`, `cupon_anual`, `flujo_vencimiento` o `flujos[]`) | **Sí** |
-| DELETE | `/api/manager/bonos?ticker_corto=` | Baja | **Sí** |
+| GET | `/api/manager/bonos/sin-flujo` | Conciliador unificado (títulos ARS/DL/HD sin cronograma). **Es lo único que sobrevivió** al borrado del tab BONOS; lo consume el check homónimo de VALIDACIONES | No |
 | GET | `/api/manager/breakevens/pares` | Pares del motor **+ los manuales** (`manual: true`) + `excluido` + `n_excluidos` + `n_manuales` | No |
 | POST | `/api/manager/breakevens/exclusion` | Excluye/reincluye un par (`lecap`, `cer`, `excluir`) | **Sí** |
 | GET | `/api/manager/breakevens/candidatos` | Bonos `tasa_fija` y `cer` del master para los dos selects del `+` (con `apto`: si tiene el campo que el BE necesita) | No |
@@ -673,7 +659,7 @@ Fase 3, 2026-06-22) · `mercado.market_snapshot` (live de `motor_curvas`/`motor_
 - **Breakevens filtra a 2026 hardcodeado en el frontend**. El backend devuelve todos.
 - **`/ons` solo muestra ONs con volumen operado HOY** (tabla y scatter). Una ON del maestro sin trades del día no aparece, aunque sí puede estar en el CALENDARIO.
 - **El scatter de ONs esconde outliers a propósito** (mediana ± 5·MAD, banda mínima ±3 pts).
-- **El sub-tab "ONs" de Manager → TÍTULOS se eliminó el 2026-07-09**; el `PATCH /ons/sector` sigue vivo en el backend pero el front no lo llama.
+- **Todo `/api/manager/ons` se eliminó** junto con el sub-tab BONOS: el router `ons.py` ya no existe. `api/services/ons.py` sobrevive porque es la puerta de escritura del agente (`upsert_on`, `slug_sector`, `ignorar_concil`). ⚠ **Reclasificar el sector de una ON ya no tiene pantalla**: una ON que da de alta el agente nace en `on_otros` y sacarla de ahí es un UPDATE a mano sobre `mercado.curvas`.
 - **`snapshot-live` pierde los timestamps individuales** de cada bloque: la UI muestra un solo "actualizado a las HH:MM:SS" aunque forwards y breakevens vengan del cache de 30s.
 - `RentaFijaLiveView` y `FairValueView` envuelven `initial` en `useMemo` **obligatoriamente**: sin eso `usePoll` dispara un `setState` por render → loop infinito (React #185). Comentado como ⚠ MUST.
 - **SIN VERIFICAR**: qué escribe exactamente `mercado.fair_value_residuos` y la cadencia de su job (no se leyó `jobs/fair_value*.py`).
@@ -2160,7 +2146,7 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 | `_MGR` | `manager` | status, latencia, controles, diagnostico, checks, jobs, options, logs, users, roles, grupos, aunesa, valuaciones, operaciones, documentos, mesa, salud |
 | `_CLIENTES` | `manager` ∨ `manager_clientes` | clientes.router, aca_valores, control_automatico |
 | `_CLIENTES_BULK` | `manager` ∨ `manager_clientes_bulk` | clientes.bulk_router |
-| `_TITULOS` | `manager` ∨ `manager_titulos` | assets, ons, bonos, breakevens, renta_variable |
+| `_TITULOS` | `manager` ∨ `manager_titulos` | assets, bonos (solo `/sin-flujo`), emisores, breakevens, renta_variable |
 | `_INSTRUMENTOS` | `manager` ∨ `manager_titulos` ∨ `manager_instrumentos` | instrumentos |
 | `_CONTRAPARTES` | `manager` ∨ `manager_contrapartes` | contrapartes |
 | `_AUNESA` | `manager` ∨ `manager_aunesa` | import_tenencia |
@@ -2182,7 +2168,7 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 | **VALIDACIONES → DEBUG TEA** | Debug paso a paso de TEA/TNA/Duration de un ticker | `GET /checks/debug-curva-tea` | input ticker | ninguna |
 | **TÍTULOS → INSTRUMENTOS** | Instruments de pyRofex agrupados por CFI code + detalle (read-only) | `GET /checks/discovery-pyrofex`, `/checks/instruments-by-cfi` | select CFI, select underlying, buscador | ninguna |
 | **TÍTULOS → ASSETS** | Catálogo `portafolio.assets` editable: CARTERA, EMISOR, INSTRUMENTO, CLASE_ACTIVO, CALIFICACIÓN, TICKER, VENCIMIENTO, CODIGO_CNV, FEE_ADMIN | `GET /assets`, `/assets/values`, `PATCH /assets` | buscador de unidad (client), select CARTERA, select EMISOR, select **CAMPO VACÍO** | **PATCH** fila a fila. Setea `actualizado_por`/`actualizado_at`. **Cambiar CARTERA invalida el cache `tenencia_dias`** |
-| **TÍTULOS → BONOS** | 4 cuadrantes (ver §4.2) | ver §4.2 | ver §4.2 | Alta/edición/baja de bonos y ONs con cronograma, ignorar/designorar del conciliador |
+| **TÍTULOS → BONOS** | **ELIMINADO** (ver §4.2). Lo hace EL AV AGENT | — | — | ninguna: se fueron `POST/DELETE /bonos` y todo `/ons` |
 | **TÍTULOS → BREAKEVENS** | 50/50: izq matriz de pares (motor + manuales `✎`) con flag `excluido`; der cobertura (por qué cada bono entra o no) | `/breakevens/pares`, `/breakevens/diagnostico`, `/breakevens/candidatos` | checkbox "solo los que NO entran" | Excluir/reincluir · **`+ par manual`** (`POST /breakevens/manual`) · borrar manual |
 | **TÍTULOS → RENTA VARIABLE** | Grid de CEDEARs: ticker, nombre, rubro, `es_ia`, RIC Refinitiv, `ratio` | `GET /renta-variable`, `/rubros`, `POST /rubro`, `PATCH`, `DELETE` | buscador; select de rubro por fila (**catálogo cerrado**) | **PATCH** por fila, **crear rubro**, **DELETE** saca el CEDEAR del universo (borra master + snapshot) |
 | **CLIENTES → SEGMENTACIÓN** | Grid editable de `clientes.comitentes`: operador + nivel_1..5 + primer_contacto_comercial, riesgo_la_ft, division, adc, dma, observaciones, sucursal, referido | `GET /clientes`, `/clientes/values`, `PATCH /clientes`, `POST /clientes/bulk` | select OPERADOR (incl. `__vacio__`), **selects NIVEL 1..5 en cascada** (cambiar uno resetea los inferiores), select CAMPO VACÍO, buscador `q` | **PATCH** fila a fila; **📁 Importar archivo** (.csv/.xlsx) → `POST /clientes/bulk` (requiere `manager_clientes_bulk`) |
@@ -2780,8 +2766,7 @@ presupuesto, el 2026-08-28 (ver §4.11).
 | `aca_valores` | `manager` ∨ `manager_clientes` | GET `/aca-valores` · `/aca-valores/candidatos` · **POST** ✍ · **DELETE** ✍ | 2 |
 | `control_automatico` | `manager` ∨ `manager_clientes` | POST `/control-automatico/reconciliar` (solo lee) · **POST `/control-automatico/segmentar`** ✍ | 1 |
 | `assets` | `manager` ∨ `manager_titulos` | GET `/assets` · `/assets/gaps` · `/assets/values` · **PATCH `/assets`** ✍ · **PATCH `/assets/{unidad}`** ✍ (DEPRECATED) | 2 |
-| `ons` | `manager` ∨ `manager_titulos` | GET `/ons`, `/ons/values`, `/ons/conciliar`, `/ons/ignoradas` · **POST `/ons`** ✍ · **PATCH `/ons/sector`** ✍ (**el front no lo llama**) · **DELETE `/ons`** ✍ · POST `/ons/parse-flujos` · **POST `/ons/ignorar`** ✍ · **DELETE `/ons/ignorar`** ✍ | 5 |
-| `bonos` | `manager` ∨ `manager_titulos` | GET `/bonos`, `/bonos/sin-flujo`, `/bonos/sin-tasa` · POST `/bonos/parse-flujos` · **POST `/bonos`** ✍ · **DELETE `/bonos`** ✍ | 2 |
+| `bonos` | `manager` ∨ `manager_titulos` | GET `/bonos/sin-flujo` (el resto del router se borró con el tab BONOS) | 0 |
 | `breakevens` | `manager` ∨ `manager_titulos` | GET `/breakevens/pares` · **POST `/breakevens/exclusion`** ✍ | 1 |
 | `renta_variable` | `manager` ∨ `manager_titulos` | GET `/renta-variable` · `/renta-variable/rubros` · **POST `/renta-variable/rubro`** ✍ · **PATCH `/renta-variable`** ✍ · **DELETE `/renta-variable`** ✍ | 3 |
 | `instrumentos` | + `manager_instrumentos` | GET `/checks/discovery-pyrofex` · `/checks/instruments-by-cfi` | — |
@@ -2931,8 +2916,9 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
 31. **`PATCH /api/derivados/agro/pizarra/{commodity}` es huérfano en la práctica**: funciona en el
     backend, **no hay proxy Next**, y `PizarraRow` es read-only con tooltip "Editable en la tab Datos".
     El parámetro `canEdit` se pasa hasta el componente y no se usa.
-32. **`PATCH /api/manager/ons/sector`** sigue vivo pero **el front no lo llama** (el sector va dentro del
-    `POST /ons`).
+32. ~~`PATCH /api/manager/ons/sector`~~ — **resuelto por borrado**: el router `ons.py` entero se
+    eliminó con el sub-tab BONOS. El costo es que reclasificar el sector de una ON dejó de tener
+    pantalla (ver §4.2).
 33. **`valuacion_mensual_debug`** existe en el service (audita `flujos_detalle` + el cashflow exacto del
     XIRR, reproducible con TIR.NO.PER) y **no está expuesto** por ningún router.
 34. **El dato del CANJE** sigue vivo en `/api/analitica/canje` pero **el recuadro se quitó de la HOME** el

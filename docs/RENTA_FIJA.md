@@ -473,7 +473,10 @@ el pipeline de 1816 peleando contra el modelo, en silencio y para siempre.
 
 Los 5 ejes solo los escribía un script one-shot, así que **un bono dado de alta
 desde Manager nacía sin clasificar y no aparecía en la vista**. Ya pasaba con cada
-alta. Ahora se editan en Manager → TÍTULOS → BONOS, sección CLASIFICACIÓN.
+alta. La solución fue que el ALTA los escriba: `upsert_bono` los normaliza con
+`core.curvas_ejes.normalizar_ejes` y los guarda en las columnas. ⚠️ La pantalla
+que los editaba (`Manager → TÍTULOS → BONOS`) **se borró**: hoy los escribe el
+alta del agente, y corregirlos a mano es un UPDATE sobre `mercado.curvas`.
 
 Los ejes van **solo a las COLUMNAS, nunca al blob `data`**: meterlos ahí sería
 agrandar el problema de las dos verdades justo cuando se está cerrando.
@@ -1593,7 +1596,7 @@ que es exactamente la regla que este doc proponía escribir a mano.
 | 8 | Bono cargado que no valúa nada | sin cronograma de pagos | `bono_sin_flujo` → botón `alta_flujos` |
 | 9 | El bono existe en 1816 y no en el master | alta pendiente | `soberanos_faltantes` → botón `alta_bono` |
 | 10 | ¿Nuestra TNA/TEA de un corporativo HD es la de 1816? | (no concluye: es la tabla uno contra otro) | `tasa_vs_1816` (rueda, cada 2 h; un aviso en AHORA con la tabla entera). A mano: `scripts.diag_tea_corp_hd` |
-| 11 | Una ON hard dólar existe en 1816 y cotiza en Primary, y no está en el master | alta pendiente (manual: la rama `on` no convierte el cuadro sola) | `on_faltante` (aviso con emisor/curva para cargar en Manager → TÍTULOS → BONOS → CARGAR → ON) |
+| 11 | Una ON hard dólar existe en 1816 y cotiza en Primary, y no está en el master | alta pendiente (manual: la rama `on` no convierte el cuadro sola) | `on_faltante` → botón `alta_on` (la rama `on` SÍ convierte el cuadro desde que se midió, `AGENT.md` §0.du; cada ON la juzga su propio cotejo contra 1816). ⚠ Ya no hay pantalla de carga manual: `AGENT.md` §0.em |
 
 ⚠️ **La falla #7 es la que más se paga y la única que no se arregla con un dato**:
 un bono nuevo o un cambio de `moneda_flujo`/`flujos` **no impacta hasta reiniciar**

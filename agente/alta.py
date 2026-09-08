@@ -1012,7 +1012,9 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                         "queda en AVISOS y sin este número el bono no muestra tasa.",
                         tabla="macro.series_macro (CER)",
                         aviso="" if cer_emision else
-                              f"Cargar el CER de emisión de {ticker} en Manager → Títulos",
+                              f"Falta el CER de emisión de {ticker}: está en el "
+                              "prospecto o en el BCRA, y hay que cargarlo con un "
+                              "script (ya no hay pantalla)",
                         # Sin el número no hay tasa, pero el número lo tenés vos:
                         # está en el prospecto o en el BCRA. Pedirlo ACÁ y volver a
                         # simular convierte «aplicá y después andá a cargarlo» en
@@ -1204,7 +1206,7 @@ def _chequeos(*, ticker: str, curva_1816: str, ejes, rama: str, conv: dict,
                        "habría que asumir la frecuencia." if "cupon_anual" in faltan
                        else ""),
                     tabla="mercado.curvas",
-                    accion="completar a mano en Manager → TÍTULOS" if faltan else ""))
+                    accion="completar a mano con un script (ya no hay pantalla)" if faltan else ""))
 
     # TASA EXTERNA: el bono nace CON su tasa y su margen, o no nace entero.
     if _fuente_tasa == "1816":
@@ -1714,14 +1716,16 @@ def curva_destino(rama: str, ejes) -> str:
     """
     # ⚠️ **LAS ONs TIENEN OTRA PUERTA, Y ESO NO ES UN OLVIDO.** No viven bajo la
     # curva «on» pelada sino bajo `on_<sector>`, y se escriben por
-    # `api/services/ons.upsert_on` —con su propio panel en Manager— y no por
-    # `bonos_admin.upsert_bono`. Por eso «on» no está en `CURVAS_BONO` y
+    # `api/services/ons.upsert_on` y no por `bonos_admin.upsert_bono`.
+    # Por eso «on» no está en `CURVAS_BONO` y
     # preguntarle a esa lista devolvía "" y BLOQUEABA el alta de cualquier ON.
     #
     # El sector 1816 no lo publica: nace en `on_otros`, que es el default del
-    # propio `slug_sector`, y se reclasifica desde el panel de ONs —que ya tiene
-    # ese botón— sin reiniciar nada. Un sector provisorio no rompe la valuación:
-    # el motor despacha por `curva.startswith("on_")`.
+    # propio `slug_sector`. ⚠️ **Y ahí se queda**: el panel de ONs que lo
+    # reclasificaba se borró con el tab BONOS, así que hoy mover una ON de sector
+    # es un UPDATE a mano sobre `mercado.curvas`. Un sector provisorio no rompe la
+    # valuación —el motor despacha por `curva.startswith("on_")`—, solo la agrupa
+    # en «otros» en la vista /ons.
     if rama == "on":
         from api.services.ons import slug_sector
         return f"on_{slug_sector(getattr(ejes, 'sector', ''))}"
@@ -2436,10 +2440,11 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
         payload["flujos"] = conv["flujos"]
 
     try:
-        # ⚠️ CADA TIPO POR SU PUERTA. Una ON no se escribe por `upsert_bono`: vive
-        # como `on_<sector>` y la mesa la edita desde el panel de ONs. Usar la
-        # puerta de la mesa —y no una escritura propia— es lo que garantiza que
-        # un alta del agente no pueda tener otra shape que un alta humana.
+        # ⚠️ CADA TIPO POR SU PUERTA. Una ON no se escribe por `upsert_bono`:
+        # vive como `on_<sector>` y va por `ons.upsert_on`. Las dos puertas son
+        # las mismas que usaba el panel de Manager antes de borrarse: se fue la
+        # pantalla, no la función, y por eso el alta del agente no puede tener
+        # otra shape que la que tenía un alta humana.
         if sim["rama"] == "on":
             r = _upsert_on_desde_simulacion(sim, payload, actor=actor)
         else:
@@ -2451,7 +2456,7 @@ def aplicar(ticker: str, *, curva_1816: str, actor: str = "",
         return {**sim, "aplicado": False, "pasos": pasos, "error": str(e)}
     _p(f"Escribir el bono · curva «{sim['curva_destino']}»", True,
        ("por la puerta de las ONs (`ons.upsert_on`)" if sim["rama"] == "on"
-        else "por `bonos_admin.upsert_bono`, la misma que Manager")
+        else "por `bonos_admin.upsert_bono`")
        + f" · {len(payload.get('flujos') or [])} flujo(s)")
 
     # ── TASA EXTERNA: el bono NACE con su tasa y su MARGEN ──────────────────

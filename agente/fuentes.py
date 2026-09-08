@@ -279,9 +279,10 @@ def en_cartera() -> set[str] | None:
 
 def ons_no_interesan() -> set[str] | None:
     """Tickers de ON que la mesa YA descartó (`mercado.ons_ignoradas`, §0.eh).
-    Es la MISMA lista que ignora el conciliador del panel de ONs, y ahí se
-    restauran. `None` = no pude leer → no se filtra nada: ofrecer de más es
-    mejor que callar una ON nueva."""
+    La escribe SOLO el agente, desde «no me interesan» (`vista.no_interesan_ons`):
+    el panel de ONs de Manager, que era la otra mitad —y donde se RESTAURABAN—,
+    se borró con el tab BONOS. `None` = no pude leer → no se filtra nada: ofrecer
+    de más es mejor que callar una ON nueva."""
     def _leer():
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT upper(btrim(ticker)) FROM mercado.ons_ignoradas")

@@ -46,7 +46,6 @@ from api.routers.manager import (
     latencia,
     logs,
     mesa,
-    ons,
     operaciones,
     options,
     renta_variable,
@@ -107,7 +106,6 @@ router.include_router(aca_valores.router,         dependencies=_CLIENTES)
 router.include_router(control_automatico.router,  dependencies=_CLIENTES)
 router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)
 router.include_router(assets.router,          dependencies=_TITULOS)
-router.include_router(ons.router,             dependencies=_TITULOS)
 router.include_router(bonos.router,           dependencies=_TITULOS)
 router.include_router(emisores.router,        dependencies=_TITULOS)
 router.include_router(breakevens.router,      dependencies=_TITULOS)

@@ -183,9 +183,13 @@ def bono_sin_flujo(u: dict) -> list[Hallazgo]:
             severidad="alta" if resoluble else "media",
             problema=("Sin cronograma de pagos: no tiene TEA, no entra al "
                       "gráfico y no aporta al fair value."),
+            # ⚠️ El «modelarlo a mano en Manager → TÍTULOS» de la rama NO-resoluble
+            # se cayó con el tab BONOS: ya no hay pantalla de carga. Mandar a una
+            # puerta que no existe es peor que decir que no hay salida automática.
             que_hacer=("Bajar el cuadro de 1816 y darlo de alta." if resoluble
-                       else "1816 tampoco lo publica: hay que modelarlo a mano "
-                            "en Manager → TÍTULOS."),
+                       else "1816 tampoco lo publica y no hay pantalla de carga "
+                            "manual: hay que cargar el cronograma con un script "
+                            "(`bonos_admin.upsert_bono`) desde el prospecto."),
             evidencia={"resoluble_con_1816": resoluble, "curva": d.get("curva"),
                        "emisor": d.get("emisor"),
                        "moneda_flujo": d.get("moneda_flujo"),
@@ -876,9 +880,12 @@ def on_faltante(u: dict) -> list[Hallazgo]:
         # LO QUE NO TENEMOS EN CARTERA no es un problema de un bono: es una
         # oferta de catálogo. Va junta, en UNA fila (ver `FAMILIA_ON`, §0.ds).
         if not lo_tenemos:
-            # La mesa ya la descartó por ticker (Manager → ONs → ignoradas,
-            # §0.eh): no vuelve a ofrecerse, pero SÍ se cuenta — el aviso
+            # La mesa ya la descartó por ticker desde «no me interesan»
+            # (§0.eh): no vuelve a ofrecerse, pero SÍ se cuenta — el aviso
             # renace solo cuando 1816 publique una que no esté en esta lista.
+            # ⚠️ El panel de ONs de Manager, que era donde se RESTAURABAN, se
+            # borró junto con el tab BONOS: hoy des-descartar es un DELETE a
+            # mano sobre `mercado.ons_ignoradas`.
             if tk in descartadas:
                 ya_descartadas += 1
                 continue
@@ -896,7 +903,7 @@ def on_faltante(u: dict) -> list[Hallazgo]:
                      f"{inst.get('denominacion') or ''}".strip(" ·")),
             que_hacer=("Dar de alta desde ENCONTRÓ («ver qué haría» → aplicar): "
                        "baja el cuadro de 1816, muestra la TEA que tendría y "
-                       "escribe por la misma puerta que el panel de ONs. Si el "
+                       "escribe por `ons.upsert_on`, la puerta de siempre. Si el "
                        "cotejo contra 1816 no cierra, el botón lo dice y no "
                        "escribe."),
             evidencia=ficha))
@@ -915,8 +922,8 @@ def on_faltante(u: dict) -> list[Hallazgo]:
             que_hacer=("Tildar las que van y «dar de alta»; tildar las que NO "
                        "interesan y «no me interesan»: se descartan por ticker, "
                        "y este aviso vuelve solo cuando 1816 publique una "
-                       "nueva. Las descartadas se restauran desde Manager → "
-                       "ONs → ignoradas."),
+                       "nueva. ⚠ Descartar es SIN VUELTA desde la app: ya no "
+                       "hay pantalla para restaurarlas."),
             evidencia={"cantidad": len(sueltas), "foto_primary": foto_txt,
                        "fuente_universo": univ["fuente"], "_items": sueltas,
                        "ya_descartadas": ya_descartadas}))

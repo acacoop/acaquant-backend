@@ -261,9 +261,12 @@ def no_interesan_ons(hallazgo_id: int, tickers: list[str], *,
     (cierre por ausencia, lo hace `registro`) y renace únicamente con las que
     1816 publique de acá en más.
 
-    Reusa `mercado.ons_ignoradas` — la MISMA lista que el conciliador del panel
-    de ONs de Manager, donde también se restauran (REGLA #9: una sola lista de
-    «ONs que la mesa no sigue», no dos copias sin árbitro).
+    Escribe `mercado.ons_ignoradas` por `ons.ignorar_concil`. ⚠️ Con el borrado
+    del tab BONOS se fue el panel de ONs, que era la otra mitad: hoy el agente es
+    el ÚNICO que descarta, y **no hay pantalla para restaurar** — des-descartar es
+    un DELETE a mano sobre esa tabla. Lo que NO cambió es que la lista sigue
+    siendo una sola (REGLA #9: no dos copias de «ONs que la mesa no sigue» sin
+    árbitro).
     """
     from agente import fuentes, libro, motor, tipos
     from api.services import ons

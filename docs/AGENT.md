@@ -5691,3 +5691,49 @@ con `alta_cedear.candidatos`, igual que hace `preview`. Nunca se escribe lo
 que manda el navegador. El `problema` dice cuántos están descartados para que
 «3 CEDEARs» no se lea como «solo hay 3».
 
+
+### 0.em SE BORRÓ MANAGER → TÍTULOS → BONOS — y tres cosas quedaron sin pantalla (2026-09-08)
+
+El user: *«el objetivo de esta sesión es borrar de todos lados la parte de BONOS
+dentro de MANAGER - TÍTULOS. Esto ya es algo que hace el agent, buscá solamente
+que no toque nada que haga ya [el agente], para no dejarlo ahí sin poder hacer
+algo»*.
+
+**Lo que se fue.** El sub-tab entero (`CARGAR` / `BONOS` / `REVISAR`, ~1.100
+líneas de `manager-titulos-panel.tsx`), el router `api/routers/manager/ons.py`
+COMPLETO, y de `bonos.py` todo menos `GET /bonos/sin-flujo` (lo consume el check
+homónimo de VALIDACIONES, que no estaba en el pedido). Detrás cayeron las
+funciones que no llamaba nadie más: `list_bonos`, `delete_bono`, `bonos_sin_tasa`,
+`parse_flujos_bono`, `list_ons`, `ons_values`, `delete_on`, `set_sector`,
+`conciliar`, `quitar_ignorar`, `listar_ignoradas` y el parser de flujos pegados
+(`parse_flujos_texto`). **516 endpoints** (eran 531).
+
+**Lo que NO se tocó, y era la pregunta.** Las dos PUERTAS DE ESCRITURA:
+`bonos_admin.upsert_bono` y `ons.upsert_on`. `agente/alta.py` escribe por ahí
+—«la MISMA puerta que usaba la mesa»— así que borrarlas habría dejado a
+`alta_bono` / `alta_flujos` / `alta_on` sin poder aplicar nada. También quedan
+`curvas_validas` (paso `rama` del pre-flight), `slug_sector` e `ignorar_concil`
+(`vista.no_interesan_ons`). **Se fue la pantalla, no la función.**
+
+**Las tres cosas que quedaron sin pantalla, y son deliberadas.** El relevamiento
+encontró que el agente NO cubre tres salidas que él mismo nombraba, y el user
+eligió perderlas antes que mudarlas:
+
+1. **Cargar a mano un bono que 1816 no publica.** Los arreglos copian el cuadro
+   de 1816 y solo escriben si el cotejo cierra; lo que 1816 no publica el
+   detector lo derivaba a esta pantalla. Hoy es un script sobre `upsert_bono`.
+2. **Restaurar una ON descartada.** El agente escribe `mercado.ons_ignoradas`
+   desde «no me interesan», pero NUNCA borró de esa lista: des-descartar vivía
+   en el conciliador del panel. Hoy es un `DELETE` a mano. **Descartar pasó a
+   ser sin vuelta desde la app**, y el `que_hacer` de `on_faltante` lo dice.
+3. **Reclasificar el sector de una ON.** 1816 no publica el sector, así que toda
+   ON que da de alta el agente nace en `on_otros` (default de `slug_sector`) y
+   ahí se queda: el `PATCH /ons/sector` se fue con el router. No rompe la
+   valuación (el motor despacha por `curva.startswith("on_")`), solo agrupa mal
+   en la vista.
+
+**El cambio de código que esto obliga, y es el punto.** Un detector que manda al
+operador a una puerta que ya no existe es peor que uno que dice que no hay
+salida automática: se corrigieron los `que_hacer` y los comentarios de
+`detectores/mercado.py`, `vista.py`, `fuentes.py` y `alta.py` que decían «Manager
+→ TÍTULOS», «Manager → ONs → ignoradas» y «se reclasifica desde el panel de ONs».

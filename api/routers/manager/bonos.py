@@ -1,81 +1,39 @@
-"""Manager sub-router — Títulos → Bonos (Trading.Curvas directo, NO-ON).
+"""Manager sub-router — el ÚNICO endpoint que sobrevivió al borrado del tab BONOS.
 
-Gemelo de `ons.py` pero para bonos soberanos / tasa_fija (Lecaps/Boncaps) / CER,
-que viven DIRECTO en Trading.Curvas (sin BondsMaster). Comparte el parser de
-flujos de ONs (`POST /api/manager/ons/parse-flujos`). Gate `manager_titulos`.
+El sub-tab `/manager → TÍTULOS → BONOS` (CARGAR / BONOS / REVISAR) y el editor de
+ONs que vivía adentro se ELIMINARON: lo que hacían lo hace hoy EL AV AGENT
+(`bono_sin_flujo`, `bono_sin_tasa`, `on_faltante` con sus arreglos `alta_bono`,
+`alta_flujos` y `alta_on`). Con ellos se fueron `GET/POST/DELETE /bonos`,
+`/bonos/sin-tasa`, `/bonos/parse-flujos` y TODO `/bonos` de escritura, más el
+router `ons.py` entero.
 
-  GET    /api/manager/bonos                 → lista (curva opcional)
-  POST   /api/manager/bonos                 → alta/edición (upsert por ticker_corto)
-  DELETE /api/manager/bonos?ticker_corto=X  → baja
+⚠️ **Las PUERTAS de escritura NO se fueron.** `api/services/bonos_admin.upsert_bono`
+y `api/services/ons.upsert_on` siguen enteras porque son por donde escribe
+`agente/alta.py`: se fue la pantalla que las llamaba a mano, no la función.
+
+Queda este endpoint solo, y no por inercia: lo consume el check «Títulos sin flujo»
+de `/manager → VALIDACIONES`, que no estaba en el pedido de borrado.
+
+  GET /api/manager/bonos/sin-flujo  → conciliador unificado (gate `manager_titulos`)
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
-
-from api.auth import get_user_email
-from api.services import bonos_admin as svc
+from fastapi import APIRouter
 
 router = APIRouter()
-
-
-class _Flujo(BaseModel):
-    fecha: str = Field(..., max_length=10)
-    # subset según tipo (tasa_fija: amort/interes · cer/dual/soberano: *_pct)
-    amortizacion: float | None = None
-    interes: float | None = None
-    valor_residual: float | None = None
-    amortizacion_pct: float | None = None
-    cupon_sobre_residual: float | None = None
-    residual_previo_pct: float | None = None
-    cupon_anual: float | None = None
-
-
-class _BonoUpsert(BaseModel):
-    # `forbid` y no el default `ignore`: con el default, un campo que el backend
-    # todavía no conoce se descarta y la respuesta es **200 OK**. Y el front va a
-    # Vercel solo, siempre ANTES que el backend (que se sube a mano al Droplet), o
-    # sea que la ventana de desfasaje existe en cada deploy. Con `ignore`, en esa
-    # ventana el operador clasifica un bono, ve el tilde verde, y el bono sigue sin
-    # clasificar. Con `forbid` falla ruidoso (422) y se entiende qué pasó.
-    model_config = ConfigDict(extra="forbid")
-
-    ticker_corto: str = Field(..., min_length=1, max_length=32)
-    ticker: str = Field(..., min_length=1, max_length=64)
-    curva: str = Field(..., min_length=1, max_length=32)
-    tipo: str | None = Field(None, max_length=32)
-    moneda_flujo: str | None = Field(None, max_length=8)
-    tasa_referencia: str | None = Field(None, max_length=32)
-    fecha_emision: str | None = Field(None, max_length=10)
-    fecha_vencimiento: str | None = Field(None, max_length=10)
-    valor_nominal: float | None = None
-    cer_emision: float | None = None
-    cupon_anual: float | None = None
-    emisor: str | None = Field(None, max_length=128)
-    flujo_vencimiento: float | None = None     # bullet (Lecap/Boncap)
-    flujos: list[_Flujo] | None = None          # cronograma (resto)
-    # EJES (columnas, NO el blob). Son lo que decide en qué tabla de /renta-fija
-    # cae el bono; hasta hoy solo los escribía un script one-shot y por eso un
-    # bono cargado desde acá nacía invisible para la vista. El dominio y la regla
-    # `ajuste_alt != ajuste` los valida `core.curvas_ejes.normalizar_ejes`.
-    emisor_tipo: str | None = Field(None, max_length=16)   # soberano|provincial|corporativo|bcra
-    moneda_eje: str | None = Field(None, max_length=8)     # ARS|USD|EUR
-    ajuste: str | None = Field(None, max_length=16)        # fija|cer|tamar|badlar|dolar_linked|tpm|caucion
-    ajuste_alt: str | None = Field(None, max_length=16)    # la 2ª pata de un dual
-    ley: str | None = Field(None, max_length=8)            # local|ny
-
-
-@router.get("/bonos")
-def list_bonos(curva: str | None = Query(None)) -> dict:
-    bonos = svc.list_bonos(curva=curva)
-    return {"bonos": bonos, "n": len(bonos)}
 
 
 @router.get("/bonos/sin-flujo")
 def bonos_sin_flujo() -> dict:
     """Conciliador unificado: bonos cartera ARS/DL/HD faltantes o incompletos en
     Trading.Curvas (no-ON) o BondsMaster (ONs), con la acción para resolver cada uno.
-    Gate `manager_titulos`. Ignorar/designorar: usar /api/manager/ons/ignorar."""
+    Gate `manager_titulos`.
+
+    ⚠️ La lista de ignorados (`mercado.ons_ignoradas`) la sigue descontando
+    `titulos_sin_flujo`, pero YA NO SE EDITA POR HTTP: la escribe el agente desde
+    «no me interesan» (`agente/vista.no_interesan_ons` → `ons.ignorar_concil`).
+    Restaurar una descartada hoy no tiene pantalla — es un DELETE a mano sobre
+    `mercado.ons_ignoradas`."""
     from api.services.acreencias import titulos_sin_flujo
     falta = titulos_sin_flujo()
     return {
@@ -89,45 +47,3 @@ def bonos_sin_flujo() -> dict:
         "ok": not falta,
         "titulos": falta,
     }
-
-
-@router.get("/bonos/sin-tasa")
-def bonos_sin_tasa() -> dict:
-    """Bonos con precio pero sin TEA en el snapshot (los que muestran "--").
-    SQL read-only, no recalcula. Gate `manager_titulos`."""
-    return svc.bonos_sin_tasa()
-
-
-class _ParseFlujosBono(BaseModel):
-    texto: str = Field(..., max_length=100_000)
-    tipo: str | None = Field(None, max_length=32)
-
-
-@router.post("/bonos/parse-flujos")
-def parse_flujos_bono(req: _ParseFlujosBono = Body(...)) -> dict:
-    """Parsea flujos pegados de Excel (BYMA/IAMC 'c/100 vn' o simple) y los devuelve
-    YA en la shape del tipo elegido (soberano/cer→pct, tasa fija→absoluto) para
-    previsualizar en el form de alta. Gemelo del `/ons/parse-flujos`."""
-    try:
-        return svc.parse_flujos_bono(req.texto, req.tipo or "")
-    except Exception as e:
-        return {"flujos": [], "tasa_cupon": None, "vencimiento": None,
-                "formato": "error", "error": str(e)}
-
-
-@router.post("/bonos")
-def upsert_bono(req: _BonoUpsert = Body(...), actor: str = Depends(get_user_email)) -> dict:
-    try:
-        return svc.upsert_bono(req.model_dump(exclude_none=True), actor=actor or "")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"upsert_bono falló: {e}") from e
-
-
-@router.delete("/bonos")
-def delete_bono(ticker_corto: str = Query(..., min_length=1)) -> dict:
-    try:
-        return svc.delete_bono(ticker_corto)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e

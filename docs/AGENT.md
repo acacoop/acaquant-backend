@@ -6128,10 +6128,14 @@ que es el criterio del repo.
    contra lo ya clasificado a mano — con la línea de base de cuánto acierta hoy
    `inferir_segmento`, y sobre todo cuánto **contradice** (sugerir mal es más
    caro que no sugerir).
-3. **Si la base tiene dos columnas que el código lee y `sql/schema.sql` no
-   declara**: `clientes.comitentes.created_at`/`updated_at` (las escribe
-   `jobs/sync_comitentes` en cada INSERT) y `clientes.contrapartes.denominacion`
-   (la lee `contrapartes_seg._DEN` en toda consulta del panel). O la base está
-   adelante del schema —y entonces `apply_schema` no puede reconstruirla— o algo
-   viene fallando callado. El diag lo cruza contra las últimas corridas del job,
-   que es la prueba que lo decide.
+3. **`sql/schema.sql` ya no describe `clientes.comitentes`.** Al `CREATE TABLE`
+   del repo le faltan **ocho** columnas que `jobs/sync_comitentes` nombra en su
+   INSERT —`tipo_cliente`, `tipo`, `tipo_titular`, `clase`, `perfil_inversion`,
+   `provincia`, `created_at`, `updated_at`— más
+   `clientes.contrapartes.denominacion`, que `contrapartes_seg._DEN` lee en toda
+   consulta del panel. O la base está adelante del schema —y entonces
+   `apply_schema` **no puede reconstruirla**, y una base restaurada rompe el sync
+   en la primera corrida— o algo viene fallando callado. El diag lo cruza contra
+   las últimas corridas del job, que es la prueba que lo decide.
+   ⚠️ Y no es un detalle de higiene para esta habilidad: `tipo_cliente` es la
+   señal más fuerte para segmentar, y es una de las que faltan.

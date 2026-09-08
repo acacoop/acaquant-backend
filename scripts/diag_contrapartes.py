@@ -1,5 +1,12 @@
 """`scripts/diag_contrapartes.py` — LOS NÚMEROS QUE FALTAN PARA QUE EL AGENTE
-VIGILE LAS CONTRAPARTES. Read-only: no escribe una sola fila.
+VIGILE LAS CONTRAPARTES.
+
+⚠️ **Sin flags no escribe nada: son 18 SELECT y nada más.** Con `--aunesa` sí
+deja UNA fila de telemetría en `manager.proveedor_estado`, y no por decisión de
+este script: `core.aunesa.get` anota el estado del proveedor en CADA llamada
+—`core/aunesa.py` lo hace ahí a propósito, para que un 500 repetido no pase sin
+rastro— así que le pasa a todo el repo. Se dice acá porque un docstring que
+promete «cero escrituras» y escribe es peor que uno que no promete nada.
 
 Existe por la REGLA #2. Para agregarle al agente la habilidad «avisame cuando
 entra una cuenta nueva que es contraparte» hay que decidir tres cosas, y las
@@ -13,11 +20,14 @@ tres dependen de datos que sólo están en prod:
        con tres `if` sobre el nombre. Las ~100 filas que la mesa ya clasificó A
        MANO son un set de validación gratis: acá se mide cuánto reproduce cada
        señal candidata, en vez de proponer reglas de memoria.
-    3. ¿QUÉ COLUMNAS TIENE DE VERDAD la base? El código lee dos columnas que
-       `sql/schema.sql` NO declara (`comitentes.created_at` y
-       `contrapartes.denominacion`). O la base está adelante del schema —y
-       entonces `apply_schema` no puede reconstruirla— o algo viene fallando en
-       silencio. Es lo primero que imprime.
+    3. ¿QUÉ COLUMNAS TIENE DE VERDAD la base? **`sql/schema.sql` ya no
+       describe `clientes.comitentes`**: le faltan OCHO columnas que
+       `jobs/sync_comitentes` escribe en cada INSERT —incluida `tipo_cliente`,
+       que es la señal más fuerte para segmentar— más
+       `contrapartes.denominacion`, que el panel lee en toda consulta. O la base
+       está adelante del schema —y entonces `apply_schema` NO puede
+       reconstruirla, y una base restaurada rompe el sync en la primera
+       corrida— o algo viene fallando callado. Es lo primero que imprime.
 
     python -m scripts.diag_contrapartes
     python -m scripts.diag_contrapartes --aunesa   # + qué ve el conciliador que SQL no
@@ -93,13 +103,26 @@ def _token(den: str | None) -> str:
 # ── 1. LA BASE CONTRA EL SCHEMA ───────────────────────────────────────────
 def _columnas() -> None:
     _titulo("1. QUÉ COLUMNAS TIENE DE VERDAD (base contra `sql/schema.sql`)")
-    print("El código lee dos columnas que el schema del repo NO declara. Si acá\n"
-          "aparecen, la base está ADELANTE del schema y `apply_schema` no puede\n"
-          "reconstruirla; si NO aparecen, algo viene fallando callado.\n")
-    esperadas = (("clientes", "comitentes", "created_at",
-                  "lo escribe `jobs/sync_comitentes` en cada INSERT"),
-                 ("clientes", "comitentes", "updated_at",
-                  "lo escribe `jobs/sync_comitentes` en cada INSERT"),
+    print("NUEVE columnas que el código escribe o lee y el `CREATE TABLE` del repo\n"
+          "no declara. Si acá aparecen, la base está ADELANTE del schema y\n"
+          "`apply_schema` NO puede reconstruirla —una base restaurada rompería el\n"
+          "sync en la primera corrida—; si NO aparecen, algo viene fallando callado.\n"
+          "⚠️ `tipo_cliente` además la SELECTEAN las secciones 5 y 6: si falta, esas\n"
+          "dos van a fallar más abajo con un error de columna, no con un número.\n")
+    # ⚠️ La lista NO es «las que me llamaron la atención»: son TODAS las que
+    # `jobs/sync_comitentes` nombra en su INSERT y el `CREATE TABLE` del repo no
+    # declara, más la del panel. Auditar tres de nueve habría dado un veredicto
+    # tranquilizador sobre una tabla que igual no se puede reconstruir.
+    _SYNC = "lo escribe `jobs/sync_comitentes` en cada INSERT"
+    esperadas = (("clientes", "comitentes", "tipo_cliente",
+                  _SYNC + " — y ES LA SEÑAL para segmentar (la usan las secciones 5 y 6)"),
+                 ("clientes", "comitentes", "created_at", _SYNC),
+                 ("clientes", "comitentes", "updated_at", _SYNC),
+                 ("clientes", "comitentes", "tipo", _SYNC),
+                 ("clientes", "comitentes", "tipo_titular", _SYNC),
+                 ("clientes", "comitentes", "clase", _SYNC),
+                 ("clientes", "comitentes", "perfil_inversion", _SYNC),
+                 ("clientes", "comitentes", "provincia", _SYNC),
                  ("clientes", "contrapartes", "denominacion",
                   "la lee `contrapartes_seg._DEN` en TODA consulta del panel"))
     for esquema, tabla, col, quien in esperadas:
@@ -295,10 +318,15 @@ def _pendientes() -> None:
         print(f"      {k:<32} {por_token[k]}{nota}")
 
     print("\n  Y cuántas encuentra HOY el conciliador (keyword de contraparte conocida):")
-    kws = [str(r[0]).strip().upper() for r in
-           _filas("SELECT DISTINCT contraparte FROM clientes.contrapartes "
-                  " WHERE contraparte IS NOT NULL AND length(btrim(contraparte)) >= 3")]
-    kws = [k for k in kws if k and k not in ("NO APLICA", "N/A", "NONE", "NULL", "-")]
+    # ⚠️ El filtro sale de `_norm_keyword`, la MISMA función que usa
+    # `reconciliar()` — no de una copia del largo mínimo y los placeholders. Una
+    # copia mediría un conciliador que ya no existe el día que allá cambie el
+    # criterio, y no fallaría nada (REGLA #9). Es el mismo motivo por el que
+    # `_TIPOS_PH` se importa en vez de copiarse.
+    from api.services.contrapartes_seg import _norm_keyword
+    kws = [k for k in (_norm_keyword(r[0]) for r in
+                       _filas("SELECT DISTINCT contraparte FROM clientes.contrapartes "
+                              " WHERE contraparte IS NOT NULL")) if k]
     rx = re.compile(r"\b(" + "|".join(re.escape(k) for k in
                                       sorted(kws, key=lambda x: (-len(x), x))) + r")\b") if kws else None
     con_kw = sum(1 for (d,) in dens if rx and rx.search(d))
@@ -351,7 +379,9 @@ def _aunesa() -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--aunesa", action="store_true",
-                    help="además, pega Aunesa UNA vez para ver qué falta en SQL")
+                    help="además, pega Aunesa UNA vez para ver qué falta en SQL "
+                         "(⚠ deja una marca de telemetría en manager.proveedor_estado: "
+                         "lo hace toda llamada a Aunesa, no este script)")
     args = ap.parse_args()
     for paso in (_columnas, _padron, _vacios, _vocabulario, _senales, _pendientes):
         try:

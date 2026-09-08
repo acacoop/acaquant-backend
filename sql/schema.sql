@@ -182,6 +182,27 @@ CREATE INDEX IF NOT EXISTS ix_comitentes_nivel1   ON clientes.comitentes(nivel_1
 CREATE INDEX IF NOT EXISTS ix_comitentes_estado   ON clientes.comitentes(estado);
 CREATE INDEX IF NOT EXISTS ix_comitentes_alta     ON clientes.comitentes(fecha_alta_legajo);
 
+-- ⚠️ OCHO COLUMNAS QUE EL CÓDIGO ESCRIBE Y ESTE ARCHIVO NO DECLARABA (2026-09-08).
+-- `jobs/sync_comitentes` las nombra en su INSERT desde siempre y en la base están
+-- (verificado con `scripts/diag_contrapartes`: las nueve dan ESTÁ y las últimas
+-- corridas del job están en `ok`). O sea: la base venía ADELANTE del schema, y
+-- `apply_schema` NO podía reconstruir esta tabla — una base restaurada rompía el
+-- sync en la primera corrida, callada.
+-- `tipo_cliente` no es una más: es la señal que usa la habilidad
+-- `contraparte_faltante` para decidir qué cuenta es institucional (§0.er).
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS tipo_titular     text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS tipo             text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS clase            text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS tipo_cliente     text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS perfil_inversion text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS provincia        text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS created_at       timestamptz;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS updated_at       timestamptz;
+-- El índice que hace barata la consulta de `contraparte_faltante`: filtra por
+-- estado + tipo_cliente sobre 1.900 filas, tres veces por hora.
+CREATE INDEX IF NOT EXISTS ix_comitentes_tipo_cliente
+    ON clientes.comitentes(estado, tipo_cliente);
+
 -- Clientes.ActividadMensual — snapshot point-in-time (operador/segmento CONGELADOS al
 -- correr el job). NO derivar en vivo (rompería el congelado). Se espeja tal cual.
 CREATE TABLE IF NOT EXISTS clientes.actividad_mensual (
@@ -212,6 +233,9 @@ CREATE TABLE IF NOT EXISTS clientes.contrapartes (
 );
 CREATE INDEX IF NOT EXISTS ix_contrapartes_segmento ON clientes.contrapartes(segmento);
 ALTER TABLE clientes.contrapartes ADD COLUMN IF NOT EXISTS codigo_mae text;
+-- Misma historia: `contrapartes_seg._DEN` la lee en TODA consulta del panel y
+-- este archivo no la declaraba (2026-09-08).
+ALTER TABLE clientes.contrapartes ADD COLUMN IF NOT EXISTS denominacion text;
 
 -- CashFlow.Accionistas — set de cuentas accionistas (para el filtro de cuenta de NEGOCIO/
 -- portfolio: accionistas / sin_accionistas / cooperativas). Solo el string `cuenta`.

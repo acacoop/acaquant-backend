@@ -408,6 +408,32 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # copias se separen tres veces en un mes es justo lo que hay que ver.
         naturaleza={"copias_que_no_coinciden": INCIDENTE}),
 
+    # LAS CONTRAPARTES QUE NO ESTÁN CARGADAS (§0.er). El conciliador de Manager
+    # busca por el NOMBRE de las contrapartes que ya tenemos, así que sólo
+    # encuentra más cuentas de las conocidas: medido el 2026-09-08, de 615
+    # cuentas activas sin decidir encontraba CERO. Esta habilidad busca por el
+    # `tipo_cliente` de Aunesa, que es la señal que ese código lee y tira.
+    #
+    # ⚠️ **SIN `automatico`, y no es un olvido.** Dar de alta una contraparte la
+    # SACA del AuM: un robot no decide de qué cuenta deja de contarse la plata.
+    Habilidad(
+        nombre="contraparte_faltante", tipo="detector", dominio="DATOS",
+        que_mira="cuentas institucionales activas que no están cargadas como contraparte",
+        # El sync de comitentes corre 14, 17 y 21 UTC; con media hora, una cuenta
+        # nueva se ve el mismo día que entra. Son dos consultas por índice sobre
+        # 1.900 filas: no toca la red ni cuesta créditos.
+        cada_segundos=30 * _M, ventana="siempre",
+        correr=datos.contraparte_faltante,
+        # Cuántas hacen falta para molestar. En 1 porque una sola contraparte sin
+        # cargar ya ensucia el AuM; se sube en caliente si resulta ruidoso.
+        umbrales={"min_para_avisar": 1},
+        arreglos={"sin_contraparte": "alta_contraparte"},
+        # RECURRENTE y no incidente (§0.ep): el sujeto es la FAMILIA «CONTRAPARTES
+        # NUEVAS», una fila que se llena y se vacía. Que nazca cuatro veces por
+        # mes mide cuántas cuentas institucionales abrió la mesa, no algo mal
+        # configurado.
+        naturaleza={"sin_contraparte": RECURRENTE}),
+
     Habilidad(
         nombre="permiso_flojo", tipo="detector", dominio="SEGURIDAD",
         que_mira="endpoints sin gate, y —probando de verdad— los que contestan igual",

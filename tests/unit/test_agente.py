@@ -1249,7 +1249,11 @@ def test_un_arreglo_que_pide_datos_lo_declara():
     # `alta_cedear` (§0.dl) pide datos por la razón contraria a `completar_ficha`:
     # el sistema SABE escribirlo todo, lo que no puede decidir es CUÁLES sumar.
     # `alta_on` (§0.dv) es el gemelo de `alta_cedear`, y por la misma razón.
-    assert piden == {"completar_ficha", "alta_cedear", "alta_on"}, (
+    # `alta_contraparte` (§0.er): el sistema sabe escribir la fila entera y no
+    # puede decidir CUÁLES son contraparte — y equivocarse saca una cuenta del
+    # AuM. Además el NOMBRE no se deduce de ningún lado: lo pone una persona.
+    assert piden == {"completar_ficha", "alta_cedear", "alta_on",
+                     "alta_contraparte"}, (
         f"cambió qué arreglos piden datos: {piden}")
     assert all("pide_datos" in c for c in arreglos.catalogo())
 
@@ -2317,6 +2321,150 @@ def test_toda_regla_con_boton_declara_su_naturaleza():
         assert "_de_naturaleza(" in _codigo(fn), (
             f"«{fn.__name__}» tiene que leer por `_de_naturaleza`: dos lecturas "
             "de la naturaleza son dos definiciones de crónico")
+
+
+# ── contraparte_faltante (§0.er) ───────────────────────────────────────────
+
+def _armar_contrapartes(monkeypatch, filas, sin_senal=0):
+    """Le pone al detector una base de mentira. Devuelve las filas tal cual las
+    daría la query: (id_cuenta, denominacion, tipo_cliente)."""
+    from unittest.mock import MagicMock
+
+    cur = MagicMock()
+    cur.fetchall.return_value = filas
+    cur.fetchone.return_value = (sin_senal,)
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value = conn
+    import core.postgres
+    monkeypatch.setattr(core.postgres, "get_pool", lambda: pool)
+    return pool
+
+
+def test_contraparte_faltante_solo_mira_los_tipos_INSTITUCIONALES(monkeypatch):
+    """**El recorte es el diseño, y está MEDIDO** (§0.er, `diag_contrapartes` el
+    2026-09-08): sin él son 615 cuentas —332 Empresa, 176 PyMES, 226
+    cooperativas—, que no es una lista de pendientes, es la cartera de clientes.
+    Una lista que no puede llegar a cero no la mira nadie.
+
+    Lo que sí entra es el `tipo_cliente` institucional, y para el FCI la señal
+    se midió contra las 394 que la mesa clasificó a mano: 295 de 295.
+    """
+    _armar_contrapartes(monkeypatch, [
+        ("805", "[805] SUPERFONDO FCI RENTA", "Fondo Común de Inversión"),
+        ("806", "[806] LA SEGUNDA SEGUROS", "Compañía de seguros"),
+    ], sin_senal=562)
+    h = datos.contraparte_faltante({})
+    assert len(h) == 1, "UNA fila de familia, no una por cuenta (§0.cz)"
+    assert h[0].sujeto == datos.FAMILIA_CONTRAPARTES
+    assert h[0].regla == "sin_contraparte"
+
+    # El SQL filtra por los tipos declarados: si alguien agrega «Empresa» a la
+    # tupla, la lista pasa de 53 a 385 y este test lo dice.
+    assert "Empresa" not in datos.TIPOS_INSTITUCIONALES
+    assert "PyMES" not in datos.TIPOS_INSTITUCIONALES
+    assert "Fondo Común de Inversión" in datos.TIPOS_INSTITUCIONALES
+
+    # ⚠️ El número de las que quedan AFUERA viaja en el problema: «53 cuentas»
+    # sin ese contexto se lee como «hay 53 sin decidir», y son 615.
+    assert "562" in h[0].problema
+    assert h[0].evidencia["sin_senal"] == 562
+    assert [f["cuenta"] for f in h[0].evidencia["_items"]] == ["805", "806"]
+
+
+def test_contraparte_faltante_no_inventa_el_segmento_y_dice_de_donde_sale(monkeypatch):
+    """La sugerencia sale de `contrapartes_seg.inferir_segmento` —la MISMA
+    función que usa el conciliador de Manager— y no de una copia: dos criterios
+    harían que la pantalla y el agente sugirieran cosas distintas sin que fallara
+    nada (REGLA #9).
+
+    Y cada fila dice DE DÓNDE sale la sugerencia. No es decorado: «lo dice
+    Aunesa» y «lo dice el nombre» son dos actos distintos de confirmar, y quien
+    tilda tiene que poder distinguirlos sin abrir nada.
+    """
+    _armar_contrapartes(monkeypatch, [
+        ("805", "[805] SUPERFONDO FCI RENTA", "Fondo Común de Inversión"),
+        ("807", "[807] ALGO INSTITUCIONAL", "Institucional"),
+    ])
+    items = datos.contraparte_faltante({})[0].evidencia["_items"]
+    por = {f["cuenta"]: f for f in items}
+    assert por["805"]["segmento_sugerido"] == "Fondos"
+    assert por["805"]["fuente"] == "tipo_cliente", "el FCI lo afirma Aunesa"
+    # El que no cae en ninguna regla queda SIN sugerencia y sin fuente: inventar
+    # un segmento es peor que no proponer nada.
+    assert por["807"]["segmento_sugerido"] == ""
+    assert por["807"]["fuente"] == ""
+    assert "inferir_segmento" in _codigo(datos.contraparte_faltante)
+
+
+def test_contraparte_faltante_no_puede_leer_como_no_hay_nada_un_error(monkeypatch):
+    """Invariante 1. Si la base no contesta, el detector levanta `SinDatos` — no
+    devuelve `[]`. Devolver vacío cerraría el hallazgo POR AUSENCIA y borraría de
+    la pantalla una lista que nadie miró."""
+    from unittest.mock import MagicMock
+
+    roto = MagicMock()
+    roto.connection.side_effect = RuntimeError("Supabase caído")
+    import core.postgres
+    monkeypatch.setattr(core.postgres, "get_pool", lambda: roto)
+    with pytest.raises(tipos.SinDatos):
+        datos.contraparte_faltante({})
+
+
+def test_el_alta_de_contraparte_no_escribe_lo_que_manda_el_navegador():
+    """⚠️⚠️ **LA GUARDA QUE HACE QUE ESTA PUERTA NO SEA UN ABM DEL PADRÓN.**
+
+    Dar de alta una contraparte **la saca del AuM** (`jobs/_aum_filters` reglas 3
+    y 4) y le pone `nivel_3 = PJ GRANDE`. Sin verificar cada cuenta contra la
+    lista VIVA, este endpoint aceptaría sacar del AuM cualquier cuenta del
+    padrón — incluida una que el detector no está mirando. Y no fallaría nada:
+    el AuM saldría con confianza, de menos.
+    """
+    from unittest.mock import patch
+
+    import api.services.contrapartes_seg as cs
+
+    a = arreglos.ARREGLOS["alta_contraparte"]
+    vivas = {"805": {"cuenta": "805", "denominacion": "[805] SUPERFONDO FCI",
+                     "tipo_cliente": "Fondo Común de Inversión",
+                     "segmento_sugerido": "Fondos", "fuente": "tipo_cliente"}}
+    escrito: list[dict] = []
+    with patch.object(a, "_vivas", return_value=vivas), \
+         patch.object(cs, "add_contraparte", lambda **kw: escrito.append(kw)):
+        ajena = a.aplicar("x", {}, por="yo@x", datos=[{"cuenta": "999",
+                                                      "contraparte": "LO QUE SEA"}])
+        assert not ajena.ok and not escrito, "una cuenta que no es candidata NO se escribe"
+
+        sin_nombre = a.aplicar("x", {}, por="yo@x", datos=[{"cuenta": "805",
+                                                            "contraparte": "  "}])
+        assert not sin_nombre.ok and not escrito, "sin nombre no se da de alta"
+
+        ok = a.aplicar("x", {}, por="yo@x", datos=[
+            {"cuenta": "805", "contraparte": "SCHRODER", "segmento": "Fondos"}])
+    assert ok.ok and len(escrito) == 1
+    # Escribe por la PUERTA ÚNICA y con la denominación que guardó el detector,
+    # no con la que mandó el navegador.
+    assert escrito[0]["cuenta"] == "805"
+    assert escrito[0]["denominacion"] == "[805] SUPERFONDO FCI"
+    assert escrito[0]["actor"] == "yo@x"
+    assert "add_contraparte" in _codigo(a.aplicar), (
+        "el alta va por `contrapartes_seg.add_contraparte`, la misma puerta que "
+        "usa Manager: un INSERT propio acá sería una segunda definición de «dar "
+        "de alta una contraparte» (REGLA #9)")
+
+
+def test_dar_de_alta_una_contraparte_nunca_es_automatico():
+    """Un robot no decide de qué cuenta deja de contarse la plata. `automatico`
+    vacío es una DECLARACIÓN, no un olvido — y el test la congela porque el día
+    que alguien la prenda, el efecto (una cuenta menos en el AuM) no lo va a ver
+    nadie hasta el cierre de mes."""
+    h = catalogo.HABILIDADES["contraparte_faltante"]
+    assert h.automatico == {}, (
+        "dar de alta una contraparte la SACA del AuM: no puede aplicarse solo")
+    # Y es RECURRENTE (§0.ep): el sujeto es una familia que se llena y se vacía.
+    assert h.naturaleza == {"sin_contraparte": tipos.RECURRENTE}
+    assert ("contraparte_faltante", "sin_contraparte") in catalogo.sin_episodios()
 
 
 def test_el_peso_se_consolida_por_vista():
@@ -4679,7 +4827,12 @@ def test_el_arreglo_que_puede_probarse_solo_refresca_su_tarjeta():
     # horas, con el bono ya escrito.
     assert arreglos.Arreglo.confirma_ya is False, "el default tiene que ser NO"
     ya = {a.id for a in arreglos.ARREGLOS.values() if a.confirma_ya}
-    assert ya == {"completar_ficha", "arbitrar_copia",
+    # `alta_contraparte` se auto-confirma porque su detector son DOS consultas
+    # por índice sobre 1.900 filas: no toca la red, no cuesta créditos y contesta
+    # en el acto. Sin esto, la tarjeta seguiría diciendo 53 media hora después de
+    # haber dado de alta 20 — los dos números sobre lo mismo que este subsistema
+    # existe para no mostrar.
+    assert ya == {"alta_contraparte", "completar_ficha", "arbitrar_copia",
                   "alta_bono", "alta_on", "alta_cedear"}, (
         f"cambió quién se auto-confirma: {sorted(ya)}. Sumá uno sólo si su "
         "detector puede contestar YA — y decí por qué en el código.")

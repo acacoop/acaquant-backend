@@ -1009,10 +1009,146 @@ class AltaON(Arreglo):
             antes="no estaban", despues=f"{len(escritos)} ON(s)", inmediato=False)
 
 
+class AltaContraparte(Arreglo):
+    """Las cuentas institucionales que no están en `clientes.contrapartes` →
+    alta de las que se tilden, con su segmento. Doc: §0.er.
+
+    **Misma forma que `alta_on` y `alta_cedear`, y por el mismo motivo**: el
+    sistema sabe escribir la fila entera, lo que NO puede decidir es cuáles son
+    contraparte. La diferencia es el precio de equivocarse — dar de alta saca
+    esa cuenta del AuM (`jobs/_aum_filters` reglas 3 y 4) y le pone
+    `nivel_3 = PJ GRANDE`. Un tilde de más le borra plata a un cliente real.
+
+    Por eso:
+
+    · **No se escribe lo que manda el navegador.** Cada cuenta tildada se
+      verifica contra la lista VIVA que recalcula `preview`: una que ya no es
+      candidata —porque alguien la cargó en el medio— no se escribe.
+    · **Escribe por la puerta única** (`contrapartes_seg.add_contraparte`), que
+      es la misma que usa el panel de Manager: hace el upsert por `id_cuenta`,
+      normaliza los campos y deja `actualizado_por`. Una segunda escritura acá
+      sería una segunda definición de «dar de alta una contraparte» (REGLA #9).
+    · **Nunca es automático.** No hay `automatico` en la fila del catálogo, y no
+      es un olvido: un robot no decide qué cuenta sale del AuM.
+    """
+
+    id = "alta_contraparte"
+    titulo = "Dar de alta las cuentas que son contraparte"
+    donde = "clientes.contrapartes"
+    campo = "contraparte"
+    pide_datos = True
+    # El detector son dos consultas contra el padrón (1.900 filas, por índice):
+    # no toca la red y contesta en el acto, así que la tarjeta no tiene por qué
+    # esperar media hora a decir la verdad.
+    confirma_ya = True
+    # El hallazgo es de la FAMILIA: dar de alta 3 de 53 no lo cierra, y hay que
+    # poder aplicarlo de nuevo cada vez que entra una cuenta nueva.
+    inmediato = False
+    repetible = True
+
+    def _vivas(self) -> dict[str, dict]:
+        """La lista VIVA, recalculada: lo que se aplica es lo cierto AHORA."""
+        from agente.detectores import datos as det
+        return {str(f["cuenta"]): f
+                for h in det.contraparte_faltante({})
+                for f in (h.evidencia.get("_items") or [])}
+
+    def preview(self, sujeto: str, ev: dict) -> dict:
+        try:
+            vivas = self._vivas()
+        except Exception as e:
+            return {"ok": False, "error": f"no pude releer el padrón: {e}"[:300]}
+        filas = list(vivas.values())
+        return {
+            "ok": True,
+            "que_escribe": f"las cuentas que tildes, de {len(filas)} candidata(s)",
+            "donde": self.donde,
+            "porque": ("cada alta SACA esa cuenta del AuM y le pone nivel_3 = PJ "
+                       "GRANDE: es lo correcto para una contraparte (sus tenencias "
+                       "son cuotapartes, no plata de un cliente) y está mal para "
+                       "cualquier otra cosa"),
+            "puede_aplicar": bool(filas),
+            "listado": "contrapartes",
+            "contrapartes": filas,
+            # Los valores que YA existen, para que el que carga elija de la lista
+            # en vez de inventar una grafía nueva. Salen de la base, no de una
+            # constante: `Fondos`/`ALYC`/`Bancos` son lo que la mesa escribió.
+            "segmentos": self._existentes("segmento"),
+            "nombres": self._existentes("contraparte"),
+        }
+
+    def _existentes(self, campo: str) -> list[str]:
+        """Los valores que YA existen, para elegir en vez de inventar una grafía.
+
+        ⚠️ **NO se atrapa el error acá.** Un `except` que devolviera `[]` diría
+        «no hay ningún segmento cargado» cuando lo cierto es «no pude leer», y
+        el que carga escribiría `FONDOS` al lado de los 329 `Fondos` que ya
+        están — dos grafías del mismo segmento, y ninguna falla. `preview` de
+        arriba ya convierte cualquier excepción en un error visible.
+        """
+        from api.services._sql import _q
+        return [r["v"] for r in _q(
+            f"SELECT DISTINCT btrim({campo}) AS v FROM clientes.contrapartes "
+            f" WHERE {campo} IS NOT NULL AND btrim({campo}) <> '' ORDER BY 1")]
+
+    def aplicar(self, sujeto: str, ev: dict, por: str = "",
+                datos: list | None = None) -> Resultado:
+        from api.services.contrapartes_seg import add_contraparte
+
+        if not datos:
+            return Resultado(False, "no se eligió ninguna cuenta")
+        try:
+            vivas = self._vivas()
+        except Exception as e:
+            return Resultado(False, f"no pude releer el padrón: {e}"[:300])
+
+        escritas, errores, pasos = [], [], []
+        for d in datos:
+            cuenta = str((d or {}).get("cuenta") or "").strip()
+            viva = vivas.get(cuenta)
+            # ⚠️ La guarda que hace que esta puerta no sea un ABM general: sin
+            # esto, aceptaría sacar del AuM cualquier cuenta del padrón, incluida
+            # una que el detector no está mirando.
+            if viva is None:
+                errores.append(f"{cuenta or '?'}: ya no es candidata")
+                continue
+            nombre = str((d or {}).get("contraparte") or "").strip()
+            segmento = str((d or {}).get("segmento") or "").strip()
+            if not nombre:
+                errores.append(f"{cuenta}: sin nombre de contraparte")
+                continue
+            try:
+                # ⚠️ `add_contraparte` es keyword-only (`*`): posicional levanta
+                # TypeError y el alta no escribiría ninguna.
+                add_contraparte(cuenta=cuenta,
+                                denominacion=viva.get("denominacion") or "",
+                                contraparte=nombre, segmento=segmento or None,
+                                actor=por)
+            except Exception as e:                                # pragma: no cover
+                errores.append(f"{cuenta}: {type(e).__name__}: {e}"[:160])
+                continue
+            escritas.append(cuenta)
+            pasos.append({"titulo": f"{cuenta} {viva.get('denominacion','')[:40]}",
+                          "estado": "ok",
+                          "detalle": f"{nombre}" + (f" · {segmento}" if segmento else "")})
+        if not escritas:
+            return Resultado(False, "no se dio de alta ninguna — "
+                             + "; ".join(errores[:4]), pasos=pasos)
+        return Resultado(
+            True,
+            f"{len(escritas)} cuenta(s) dadas de alta como contraparte: "
+            + ", ".join(escritas)
+            + (f" · {len(errores)} no: {'; '.join(errores[:3])}" if errores else "")
+            + " · salen del AuM en el próximo cálculo",
+            campo=self.campo, donde=self.donde, pasos=pasos,
+            antes="no estaban", despues=f"{len(escritas)} contraparte(s)",
+            inmediato=False)
+
+
 ARREGLOS: dict[str, Arreglo] = {
     a.id: a for a in (PedirPata(), PataDolar(), ApuntarPata(), AltaFlujos(),
                       AltaBono(), RehacerJob(), CompletarFicha(), ArbitrarCopia(),
-                      AltaCedear(), AltaON())
+                      AltaCedear(), AltaON(), AltaContraparte())
 }
 
 

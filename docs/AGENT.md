@@ -6139,3 +6139,82 @@ que es el criterio del repo.
    las últimas corridas del job, que es la prueba que lo decide.
    ⚠️ Y no es un detalle de higiene para esta habilidad: `tipo_cliente` es la
    señal más fuerte para segmentar, y es una de las que faltan.
+
+
+### 0.er EL CONCILIADOR ENCONTRABA CERO DE 615 — la habilidad de contrapartes (2026-09-08)
+
+Pedido del user: *«que constantemente el AGENT sepa avisarme con cuentas nuevas
+si hay contrapartes y cuáles serían»*, y después: *«no quiero usar más MANAGER →
+CONTRAPARTES, la idea es canalizar todo desde acá»*.
+
+El diseño estaba en §0.eq y la REGLA #2 lo frenaba hasta tener tres números.
+`scripts/diag_contrapartes` los trajo, y **decidieron todo**.
+
+#### Lo que midió el diag (2026-09-08)
+
+| | |
+|---|---|
+| cuentas activas no persona física SIN decidir | **615** |
+| de esas, cuántas encuentra el conciliador de hoy | **0** |
+| contrapartes ya cargadas | 398 (Fondos 329 · ALYC 43 · Bancos 22 · vacío 4) |
+| `tipo_cliente = Fondo Común de Inversión` → segmento | **Fondos en 295 de 295 (100%)** |
+| qué acierta hoy `inferir_segmento` | 312 de 394 · **contradice 0** · se calla en 82 |
+
+**Tres conclusiones, y ninguna era la que esperábamos.**
+
+**1. El conciliador no encuentra poco: encuentra CERO.** Su criterio es un regex
+armado con `SELECT DISTINCT contraparte`, o sea que sólo puede encontrar MÁS
+cuentas de contrapartes que ya conocemos. Ninguna de las 615 comparte nombre con
+las 398 cargadas. No es que esté mal calibrado — no puede, por construcción.
+
+**2. Avisar de las 615 habría sido inútil.** 332 Empresa, 176 PyMES, 226
+cooperativas: eso no es una lista de pendientes, es la cartera de clientes. La
+señal que sí sirve es el `tipo_cliente` institucional —el dato que
+`reconciliar()` LEE y usa sólo para descartar personas físicas—, y son **53**
+cuentas: 43 FCI, 8 seguros, 1 institucional, 1 fideicomiso. Una lista de 53 que
+llega a cero.
+
+**3. «Falla en segmentar» era la pregunta equivocada.** `inferir_segmento`
+**contradice 0 veces**: no se equivoca, se calla en 82. Y esos 82 son casi
+exactamente las **87 contrapartes que no están en `clientes.comitentes`** — el
+sync sólo pide `tipoCuenta=Comitente`, así que las ALYC y los bancos llegan sin
+`tipo_cliente`. **No le falta criterio: le falta el dato.** Una regla más
+inteligente no habría movido el número; la FOTO completa de Aunesa sí. Queda
+pendiente y está dicho en el detector.
+
+#### La habilidad
+
+`contraparte_faltante` (DATOS, cada 30 min, `ventana="siempre"`). Lee SQL y
+nunca Aunesa: las cuentas nuevas ya las trae `sync_comitentes` (14, 17 y 21 UTC)
+y acá se ven dentro de la media hora. UNA fila de familia —sujeto
+`CONTRAPARTES NUEVAS`— con la lista en `_items`, que sube y baja de número; el
+`problema` dice además cuántas quedaron afuera del recorte, para que «53» no se
+lea como «hay 53 sin decidir» cuando sin filtrar son 615.
+
+Es **RECURRENTE** por §0.ep, y esa declaración es obligatoria: sin ella, en tres
+semanas daba «⚠ crónico» exactamente igual que las ONs.
+
+#### El botón, y las tres guardas que necesita
+
+`alta_contraparte` despliega la lista para tildar y completar (nombre y
+segmento). **Equivocarse acá cuesta plata**: cada alta saca esa cuenta del AuM
+(`_aum_filters` reglas 3 y 4) y le pone `nivel_3 = PJ GRANDE`. Por eso:
+
+1. **No se escribe lo que manda el navegador.** Cada cuenta se verifica contra
+   la lista VIVA que recalcula `preview`. Sin eso, esta puerta aceptaría sacar
+   del AuM cualquier cuenta del padrón — y no fallaría nada.
+2. **Escribe por la puerta única** (`contrapartes_seg.add_contraparte`), la
+   misma que usa Manager. Un INSERT propio sería una segunda definición de «dar
+   de alta una contraparte» (REGLA #9).
+3. **Nunca automático.** `automatico` vacío es una declaración con su test: un
+   robot no decide de qué cuenta deja de contarse la plata.
+
+#### Lo que NO se hizo, a propósito
+
+- **La FOTO de Aunesa.** Sin ella el agente no ve ALYC ni bancos nuevos. Es el
+  próximo paso y está escrito en el docstring del detector, no supuesto.
+- **Poder decir que NO.** Una cuenta institucional que no es contraparte vuelve
+  a aparecer para siempre. Necesita una tabla aparte (§0.eq (D)) y con 53 filas
+  todavía no duele.
+- **`codigo_mae`.** 135 de 398 lo tienen vacío y no es derivable: lo asigna el
+  MAE. Meterlo en este aviso habría sido ruido sobre un tercio de la tabla.

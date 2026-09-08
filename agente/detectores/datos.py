@@ -373,3 +373,148 @@ def trajo_poco(u: dict) -> list[Hallazgo]:
                        ciegos, len(VOLUMENES))
     return out
 
+
+
+# ═══ contraparte_faltante ══════════════════════════════════════════════════
+#
+# ⚠️⚠️ **CUÁNDO UNA CUENTA ES CONTRAPARTE NO LO DECIDE ESTE DETECTOR: LO
+# DECIDIÓ LA MESA 394 VECES Y ACÁ SE MIDIÓ CONTRA ESO** (§0.er, medido el
+# 2026-09-08 con `scripts/diag_contrapartes`).
+#
+# El resultado, y es lo único que sostiene el recorte de abajo:
+#
+#   tipo_cliente = «Fondo Común de Inversión»  →  Fondos en 295 de 295 (100%)
+#   tipo_cliente = «Empresa»                   →  13 filas, y de las 615
+#                                                 pendientes 332 son Empresa
+#
+# O sea: **la señal fuerte es el `tipo_cliente` institucional, y nada más.** Sin
+# ese recorte la lista son 615 cuentas —332 Empresa, 176 PyMES, 226
+# cooperativas—, que no es una lista de pendientes: es la cartera de clientes.
+# Una lista que no puede llegar a cero no la mira nadie (la lección de
+# `ficha_incompleta`, que se acotó a las carteras justo por esto).
+TIPOS_INSTITUCIONALES: tuple[str, ...] = (
+    # El único MEDIDO al 100%. Y es regla de negocio escrita en otro lado:
+    # `api/services/segmentacion.py` ya trata al FCI como PJ GRANDE siempre.
+    "Fondo Común de Inversión",
+    # Los otros tres NO están medidos —no hay ninguno en las 394 clasificadas—
+    # y entran igual porque **no pueden ser un cliente minorista**: son formas
+    # jurídicas institucionales. Son 10 cuentas en total, así que si el criterio
+    # está mal se ve en una tarde. El hallazgo los muestra con su tipo al lado
+    # para que se pueda distinguir el medido del razonado.
+    "Compañía de seguros",
+    "Institucional",
+    "Fideicomiso",
+)
+
+# El sujeto es una FAMILIA: la fila se llena y se vacía a medida que entran
+# cuentas nuevas. Por eso `naturaleza` la declara RECURRENTE y no cuenta
+# episodios (§0.ep) — sus nacimientos miden cuántas cuentas entraron, no una
+# falla.
+FAMILIA_CONTRAPARTES = "CONTRAPARTES NUEVAS"
+MUESTRA_CONTRAPARTES = 8
+
+
+def contraparte_faltante(u: dict) -> list[Hallazgo]:
+    """Cuentas institucionales activas que **no están en `clientes.contrapartes`**.
+
+    Es la mitad que el conciliador de Manager no puede ver (§0.eq). Su criterio
+    es un regex armado con los nombres de contrapartes que YA tenemos, así que
+    sólo encuentra MÁS cuentas de las que ya conocemos: medido el 2026-09-08,
+    de las 615 cuentas activas sin decidir encontraba **0**.
+
+    ⚠️ **Y no es una lista de tareas: es plata mal contada.** Una contraparte
+    sin registrar cuenta en el AuM como si sus tenencias fueran de un cliente
+    —son cuotapartes— y su `nivel_3` queda mal (`jobs/_aum_filters` reglas 3 y
+    4, `segmentacion.clasificar_nivel_3`). No falla nada: el AuM sale con
+    confianza y de más.
+
+    ⚠️ **LEE SQL Y NUNCA AUNESA.** El conciliador pega la API en vivo porque es
+    un botón; un detector que corre cada media hora no puede. Las cuentas nuevas
+    ya las trae `jobs/sync_comitentes` (14, 17 y 21 UTC), así que acá se ven
+    dentro de la media hora siguiente al sync.
+
+    ⚠️ **LO QUE ESTE DETECTOR NO PUEDE VER, y hay que decirlo:** las ALYC y los
+    bancos. Medido: de las 398 contrapartes cargadas, **87 no están en
+    `clientes.comitentes`** —el sync sólo pide `tipoCuenta=Comitente`— y son
+    justo las que llegan sin `tipo_cliente`. Para esas hace falta una FOTO
+    completa de Aunesa (el patrón de `foto_primary`), que todavía no existe.
+    """
+    from api.services.segmentacion import _TIPOS_PH
+    from core.postgres import get_pool
+
+    minimo = int(u.get("min_para_avisar", 1))
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT m.id_cuenta, coalesce(u.denominacion,''), m.tipo_cliente "
+                "  FROM clientes.comitentes m "
+                "  JOIN clientes.cuentas u ON u.id_cuenta = m.id_cuenta "
+                " WHERE m.estado = 'Activa' "
+                "   AND m.tipo_cliente = ANY(%s) "
+                "   AND NOT EXISTS (SELECT 1 FROM clientes.contrapartes c "
+                "                    WHERE c.id_cuenta = m.id_cuenta) "
+                " ORDER BY m.tipo_cliente, u.denominacion",
+                (list(TIPOS_INSTITUCIONALES),))
+            filas = [{"cuenta": r[0], "denominacion": r[1], "tipo_cliente": r[2]}
+                     for r in cur.fetchall()]
+            # El denominador: cuántas quedan afuera del recorte. Sin este número
+            # «53 cuentas» se lee como «hay 53 sin decidir», y son 615 — el
+            # resto son clientes, no contrapartes, pero eso hay que poder verlo.
+            cur.execute(
+                "SELECT count(*) FROM clientes.comitentes m "
+                " WHERE m.estado = 'Activa' "
+                "   AND coalesce(m.tipo_cliente,'') <> ALL(%s) "
+                "   AND m.tipo_cliente <> ALL(%s) "
+                "   AND NOT EXISTS (SELECT 1 FROM clientes.contrapartes c "
+                "                    WHERE c.id_cuenta = m.id_cuenta)",
+                (list(_TIPOS_PH), list(TIPOS_INSTITUCIONALES)))
+            sin_senal = int(cur.fetchone()[0])
+    except Exception as e:
+        raise SinDatos(f"no pude leer el padrón de clientes: {e}") from e
+
+    if len(filas) < minimo:
+        return []
+
+    # La sugerencia SALE DE LA MISMA FUNCIÓN QUE USA EL CONCILIADOR, no de una
+    # copia (REGLA #9): el día que allá cambie el criterio, la pantalla y el
+    # agente no pueden empezar a sugerir cosas distintas sin que falle nada.
+    from api.services.contrapartes_seg import inferir_segmento
+    for f in filas:
+        f["segmento_sugerido"] = inferir_segmento(f["denominacion"], None) or ""
+        # De DÓNDE sale la sugerencia. No es decorado: «lo dice Aunesa» y «lo
+        # dice el nombre» son dos actos distintos de confirmar, y el que tilda
+        # tiene que poder distinguirlos sin abrir nada.
+        if f["tipo_cliente"] == "Fondo Común de Inversión":
+            f["segmento_sugerido"] = f["segmento_sugerido"] or "Fondos"
+            f["fuente"] = "tipo_cliente"
+        else:
+            f["fuente"] = "nombre" if f["segmento_sugerido"] else ""
+
+    por_tipo: dict[str, int] = {}
+    for f in filas:
+        por_tipo[f["tipo_cliente"]] = por_tipo.get(f["tipo_cliente"], 0) + 1
+    resumen = " · ".join(f"{n} {t}" for t, n in
+                         sorted(por_tipo.items(), key=lambda kv: -kv[1]))
+    muestra = [f"{f['cuenta']} {f['denominacion'][:38]}"
+               for f in filas[:MUESTRA_CONTRAPARTES]]
+    return [Hallazgo(
+        sujeto=FAMILIA_CONTRAPARTES, regla="sin_contraparte", severidad="media",
+        nombre=FAMILIA_CONTRAPARTES,
+        problema=(f"{len(filas)} cuenta(s) institucional(es) activas sin fila en "
+                  f"contrapartes — {resumen}"
+                  + (f" · otras {sin_senal} sin señal (Empresa, PyMES, "
+                     f"cooperativas): son clientes, no entran" if sin_senal else "")
+                  + f" · {reloj.hhmm()}"),
+        detalle=("mientras no estén, sus tenencias cuentan en el AuM como plata "
+                 "de un cliente y su nivel_3 queda mal · " + " · ".join(muestra)
+                 + (" · …" if len(filas) > len(muestra) else "")),
+        que_hacer=("Abrir el listado y tildar las que son contraparte: se dan de "
+                   "alta con su segmento desde acá mismo. Las que NO lo sean, "
+                   "dejarlas sin tildar — vuelven a aparecer hasta que alguien "
+                   "las cargue, porque hoy no hay dónde anotar un «no»."),
+        evidencia={"cantidad": len(filas), "sin_senal": sin_senal,
+                   "por_tipo": por_tipo,
+                   # ⚠️ `_items` es la IDENTIDAD, no la pantalla (§0.cz): con la
+                   # lista, una cuenta NUEVA no reincide sobre un alta que
+                   # escribió OTRAS. El `_` lo esconde del front.
+                   "_items": filas})]

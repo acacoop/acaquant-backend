@@ -85,18 +85,27 @@ def test_todo_arreglo_declarado_existe():
                 f"«{h.nombre}/{regla}» apunta al arreglo «{aid}», que no existe")
 
 
-def test_lo_automatico_tiene_arreglo_y_no_pide_datos():
+def test_un_arreglo_que_pide_datos_solo_es_automatico_si_sabe_solo():
     """Lo que una habilidad declara `automatico` tiene que poder aplicarse
-    SOLA: sobre una regla con arreglo declarado, y cuyo arreglo no pida datos
-    (un robot no tilda listas)."""
+    SOLA: sobre una regla con arreglo declarado y, si ese arreglo `pide_datos`
+    (un listado editable, no un botón), solo vale si sobreescribe `solo` —
+    sabe decir QUÉ escribiría sin que nadie apriete. Un robot no tilda listas
+    (`alta_cedear`, `alta_on` siguen sin poder ser automáticos), pero SÍ puede
+    escribir lo que una regla determinística ya resolvió (`completar_ficha` +
+    `clase_activo`, §0.ei)."""
+    from agente.arreglos import Arreglo
+
     for h in catalogo.HABILIDADES.values():
         for regla, motivo in h.automatico.items():
             assert regla in h.arreglos, (
                 f"«{h.nombre}/{regla}» es automático pero no tiene arreglo declarado")
             aid = h.arreglos[regla]
-            assert arreglos.ARREGLOS[aid].pide_datos is False, (
-                f"«{h.nombre}/{regla}» es automático pero su arreglo «{aid}» "
-                "pide datos: un robot no tilda listas")
+            a = arreglos.ARREGLOS[aid]
+            if a.pide_datos:
+                assert type(a).solo is not Arreglo.solo, (
+                    f"«{h.nombre}/{regla}» es automático y su arreglo «{aid}» "
+                    "pide datos, pero no sabe decir qué escribiría SOLO "
+                    "(`solo` no está sobreescrito): un robot no tilda listas")
             assert str(motivo).strip(), (
                 f"«{h.nombre}/{regla}» es automático sin decir por qué")
 
@@ -138,6 +147,51 @@ def test_el_ejecutor_solo_elige_lo_declarado():
     elegidos = autonomo._elegir(siete, set(), reglas, tope=5)
     assert len(elegidos) == 5
     assert [f["id"] for f in elegidos] == [10, 11, 12, 13, 14]
+
+
+def test_el_ejecutor_repite_lo_repetible_y_no_lo_demas():
+    """El sujeto de una regla REPETIBLE es un CAMPO —una familia—: aplicar de
+    nuevo no duplica nada, así que `en_curso` sigue siendo candidato. Para lo
+    NO repetible, `en_curso` significa «ya se lo apliqué a ESE título» y no
+    hay nada más que hacer ahí.
+
+    Y los dos lados de «ya lo intentué en la ventana» no pesan igual: un
+    intento FALLIDO frena a cualquiera; uno que salió BIEN solo frena a lo no
+    repetible — una familia puede tener títulos nuevos al minuto siguiente.
+    """
+    from agente import autonomo
+
+    base = dict(sujeto="clase_activo", regla="sin_clase_activo",
+                arreglo="completar_ficha", habilidad="ficha_incompleta",
+                detectado_at=date(2026, 1, 1))
+    reglas = {("ficha_incompleta", "sin_clase_activo")}
+    repetibles = frozenset({("ficha_incompleta", "sin_clase_activo")})
+
+    en_curso_repetible = {**base, "id": 1, "estado": tipos.EN_CURSO}
+    elegidos = autonomo._elegir([en_curso_repetible], set(), reglas,
+                                repetibles=repetibles)
+    assert elegidos == [en_curso_repetible], (
+        "una familia en_curso sigue teniendo cosas para completar")
+
+    otra = dict(base, habilidad="on_faltante", regla="no_esta_en_curvas",
+                arreglo="alta_bono")
+    en_curso_no_repetible = {**otra, "id": 2, "estado": tipos.EN_CURSO}
+    elegidos = autonomo._elegir(
+        [en_curso_no_repetible], set(),
+        {("on_faltante", "no_esta_en_curvas")}, repetibles=repetibles)
+    assert elegidos == [], "lo no repetible en_curso ya no tiene nada que hacer"
+
+    reciente_ok = {("ficha_incompleta", "clase_activo", "sin_clase_activo")}
+    nuevo = {**base, "id": 3, "estado": tipos.NUEVO}
+    elegidos = autonomo._elegir([nuevo], set(), reglas, repetibles=repetibles,
+                                recientes_ok=reciente_ok)
+    assert elegidos == [nuevo], (
+        "una acción OK reciente no frena a una familia repetible")
+
+    reciente_fallida = {("ficha_incompleta", "clase_activo", "sin_clase_activo")}
+    elegidos = autonomo._elegir([nuevo], reciente_fallida, reglas,
+                                repetibles=repetibles)
+    assert elegidos == [], "un intento FALLIDO sí frena, incluso a lo repetible"
 
 
 def test_el_actor_del_agente_es_una_constante_y_no_un_email():
@@ -4455,3 +4509,57 @@ def test_el_arreglo_que_puede_probarse_solo_refresca_su_tarjeta():
         "detector puede contestar YA — y decí por qué en el código.")
     # `rehacer_job` es el que NO puede: su respuesta tarda ocho minutos.
     assert not arreglos.ARREGLOS["rehacer_job"].confirma_ya
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA CLASE PROPUESTA — `agente/clase.py` (§0.ei)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_clase_activo_se_propone_con_fuente_y_de_lista_cerrada():
+    """`clase.proponer` es PURA: la regla del derivado gana si su valor ya
+    está en la lista cerrada, y se apaga sola —con una nota— si no está. La
+    de Primary hace lo mismo con la ficha del fondo."""
+    from agente import clase
+
+    call = {"unidad": "[OTC - SOJ.ROS/NOV26 380 C]", "cartera": "DERIVADOS",
+            "ticker": "", "clase_activo": "", "emisor": ""}
+    put = {"unidad": "[SOJ.ROS/MAY27 340 P]", "cartera": "DERIVADOS",
+           "ticker": "", "clase_activo": "", "emisor": ""}
+
+    r = clase.proponer([call, put], None, usadas=["CALL OPCIONES"])
+    # CALL está en la lista cerrada: se propone con fuente REGLA.
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("CALL OPCIONES", clase.REGLA)
+    assert r[0]["nota"] == ""
+    # PUT no está en la lista: la fila viaja vacía, con la nota que dice qué
+    # falta cargar a mano — nunca se inventa la grafía.
+    assert (r[1]["propuesto"], r[1]["fuente"]) == ("", "")
+    assert "PUT OPCIONES" in r[1]["nota"] and "clase_activo" in r[1]["nota"]
+
+    fondo = {"unidad": "[1024] CAFCI643-1024 - SBS Pesos Plus - Clase A",
+             "cartera": "FCI", "ticker": "SBS Pesos Plus - Clase A",
+             "clase_activo": "", "emisor": ""}
+    fichas = [{"simbolo": "sbs pesos plus - clase a", "subyacente": "Mercado de Dinero",
+              "moneda": "ARS", "cficode": "1"}]
+    r = clase.proponer([fondo], fichas, usadas=["MM ARS"])
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("MM ARS", clase.PRIMARY)
+
+    # Sin ficha en Primary, no se propone nada.
+    r = clase.proponer([fondo], [], usadas=["MM ARS"])
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("", "")
+
+
+def test_deterministas_solo_lleva_regla_y_primary():
+    """`deterministas` es lo único que `CompletarFicha.solo` puede escribir
+    sin que nadie apriete: filas con `propuesto` vacío no aportan nada."""
+    from agente import clase
+
+    filas = [
+        {"unidad": "u1", "propuesto": "CALL OPCIONES", "fuente": clase.REGLA},
+        {"unidad": "u2", "propuesto": "MM ARS", "fuente": clase.PRIMARY},
+        {"unidad": "u3", "propuesto": "", "fuente": ""},
+    ]
+    assert clase.deterministas(filas) == [
+        {"unidad": "u1", "valor": "CALL OPCIONES"},
+        {"unidad": "u2", "valor": "MM ARS"},
+    ]

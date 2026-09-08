@@ -306,7 +306,11 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
     Habilidad(
         nombre="ficha_incompleta", tipo="detector", dominio="DATOS",
         que_mira="títulos en carteras de clientes con la ficha sin completar",
-        cada_segundos=6 * _H, ventana="siempre",
+        # Son cinco consultas contra `portafolio.assets`: no tocan la red, no
+        # cuestan créditos y contestan en el acto. Con `6 * _H` un título nuevo
+        # esperaba media jornada para que alguien lo viera; con `_H` el
+        # ejecutor lo completa dentro de la hora.
+        cada_segundos=_H, ventana="siempre",
         correr=cat.ficha_incompleta,
         # Las CUATRO reglas comparten arreglo: el listado editable es el mismo,
         # cambia la columna. Se declaran las cuatro igual —y no un `default`—
@@ -314,7 +318,18 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         arreglos={"sin_cartera": "completar_ficha",
                   "sin_clase_activo": "completar_ficha",
                   "sin_emisor": "completar_ficha",
-                  "fci_sin_ticker": "completar_ficha"}),
+                  "fci_sin_ticker": "completar_ficha"},
+        # Solo `sin_clase_activo`: son las DOS reglas determinísticas de
+        # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES, y FCI
+        # por Primary — Mercado de Dinero → MM, Renta Fija → T1, Renta
+        # Variable → RENTA VARIABLE). Lo demás —el resto de la clase, la
+        # cartera, el emisor— sigue quedando para una persona: no hay regla
+        # que lo resuelva sin criterio de la mesa.
+        automatico={"sin_clase_activo":
+                    "dos reglas determinísticas: derivados con C/P → "
+                    "CALL/PUT OPCIONES, y FCI por Primary (Mercado de Dinero "
+                    "→ MM, Renta Fija → T1, Renta Variable). Lo demás queda "
+                    "para una persona."}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────
     # Lo que un job reporta sin escribir, declarado en `agente/reportes.py`

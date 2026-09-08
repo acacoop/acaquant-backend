@@ -194,12 +194,29 @@ class Arreglo:
     # con el bono ya escrito.
     confirma_ya = False
 
+    # ⚠️ **¿EL SUJETO ES UN CAMPO ENTERO —UNA FAMILIA— Y NO UN TÍTULO?**
+    #
+    # `completar_ficha` no arregla UN asset: arregla la lista de los que le
+    # faltan a `clase_activo` hoy. Aplicarlo dos veces no duplica nada —la
+    # segunda vez completa lo que sigue faltando— y hay que poder aplicarlo
+    # de nuevo cada vez que aparece un título nuevo sin ese campo.
+    #
+    # Es `False` por default: un arreglo sobre UN título (`alta_bono`,
+    # `pedir_pata`) no es repetible sobre el MISMO hallazgo — ya lo resolvió.
+    repetible = False
+
     def preview(self, sujeto: str, ev: dict) -> dict:
         raise NotImplementedError
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "",
                 datos: list | None = None) -> Resultado:
         raise NotImplementedError
+
+    def solo(self, sujeto: str, ev: dict) -> list[dict] | None:
+        """Lo que el agente escribiría SOLO, sin persona: `datos` listos para
+        `aplicar`, o `None` si este arreglo no sabe. Solo lo determinístico:
+        lo del modelo nunca va por acá (§0.ei)."""
+        return None
 
 
 # ── PEDIR UN SÍMBOLO QUE NADIE ESCUCHA ─────────────────────────────────────
@@ -638,6 +655,10 @@ class CompletarFicha(Arreglo):
     # red, no cuesta créditos y contesta en el acto. No hay razón para que la
     # tarjeta espere seis horas a decir la verdad.
     confirma_ya = True
+    # El sujeto es un CAMPO —`clase_activo`, `emisor`—, no un título: aplicarlo
+    # de nuevo no duplica nada, y hay que poder aplicarlo cada vez que aparece
+    # un título nuevo al que le falta ese campo.
+    repetible = True
 
     def _campo(self, sujeto: str, ev: dict) -> dict | None:
         """La definición del campo. **Sale del catálogo de detectores, no del
@@ -668,8 +689,10 @@ class CompletarFicha(Arreglo):
         # la base — y si el gateway no contesta, las filas vuelven sin propuesta
         # y esto queda exactamente como estaba.
         #
-        # Sólo el emisor: la CARTERA y la CLASE_ACTIVO son criterio de la mesa y
-        # no hay de dónde derivarlas. Proponerlas sería inventar.
+        # Hoy la CLASE también se deriva, para DOS casos determinísticos:
+        # derivados con C/P y FCI por Primary (§0.ei). El resto —y la
+        # CARTERA, siempre— sigue siendo criterio de la mesa: no hay de dónde
+        # derivarlo, y proponerlo sería inventar.
         propuestas = 0
         if c["campo"] == "emisor" and filas:
             from agente import emisor as em
@@ -680,6 +703,14 @@ class CompletarFicha(Arreglo):
                 propuestas = sum(1 for f in filas if f.get("propuesto"))
             except Exception as e:
                 logger.warning("completar_ficha: sin propuestas de emisor (%s)", e)
+        if c["campo"] == "clase_activo" and filas:
+            from agente import clase, fuentes
+            try:
+                filas = clase.proponer(filas, fuentes.fichas_primary(),
+                                       det.valores_usados("clase_activo"))
+                propuestas = sum(1 for f in filas if f.get("propuesto"))
+            except Exception as e:
+                logger.warning("completar_ficha: sin propuestas de clase (%s)", e)
         return {
             "ok": True,
             "que_escribe": (f"{c['campo'].upper()} en {len(filas)} título(s) de "
@@ -699,6 +730,21 @@ class CompletarFicha(Arreglo):
             # Tipear es como nacen `HD ` y `hd`, que no fallan y rompen filtros.
             "opciones": det.valores_usados(c["campo"]),
         }
+
+    def solo(self, sujeto: str, ev: dict) -> list[dict] | None:
+        """Lo que el agente completaría SOLO: hoy, únicamente `clase_activo`,
+        y sólo lo que una regla determinística resuelve Y ya existe en la
+        lista cerrada (`clase.deterministas`). El emisor y el resto de la
+        clase siguen sin dueño automático: eso lo decide una persona."""
+        from agente.detectores import catalogo as det
+
+        c = self._campo(sujeto, ev)
+        if c is None or c["campo"] != "clase_activo":
+            return None
+        from agente import clase, fuentes
+        return clase.deterministas(
+            clase.proponer(det.faltantes(c), fuentes.fichas_primary(),
+                           det.valores_usados("clase_activo")))
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "",
                 datos: list | None = None) -> Resultado:

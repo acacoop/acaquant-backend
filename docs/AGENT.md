@@ -1331,6 +1331,9 @@ habilidades, editable sin deploy.
     mismo libro, mismo estado— con el actor `tipos.ACTOR_AGENTE`, nunca por un
     camino propio. Una regla se aplica sola únicamente si su habilidad lo
     declara en `automatico`, y el ejecutor no reintenta lo que ya intentó.
+    Un arreglo que PIDE DATOS solo puede ser automático si sabe decir qué
+    escribiría (`Arreglo.solo`, §0.ei), y eso es únicamente lo determinístico:
+    lo que propone el modelo nunca se escribe sin una persona.
 
 ---
 
@@ -5536,4 +5539,58 @@ ticker por ticker, deja UNA línea en el libro (`no_interesa_on`, con cuántas
 quedaban y cuántas se descartaron) y vuelve a correr `on_faltante` para que la
 tarjeta muestre lo que sigue. En el listado: «no me interesan las N tildadas» y
 «ninguna me interesa · avisar solo las nuevas» (dos clics, sin `confirm`).
+
+
+### 0.ei CLASE_ACTIVO SE COMPLETA SOLA, EN EL ACTO — determinista primero, el modelo después (2026-09-08)
+
+El user, con 263 títulos sin `clase_activo` en la tarjeta: *«quiero seguir con el
+AGENT, que puede llegar a ser determinista así como también usar LLM… apenas se
+reconoce un activo nuevo ahí no se podría disparar? ¿Por qué esperar a un job
+nocturno?»*. Dos reglas que él mismo dictó:
+
+```
+DERIVADOS   unidad/ticker termina en « C» o « P» (SOJ.ROS/MAY27 364 C, con o sin
+            «OTC - »)  →  CALL OPCIONES / PUT OPCIONES.  Solo esos dos: los demás
+            derivados no son opciones y no se tocan.
+FCI         el fondo está en la lista de instrumentos de Primary con su tipo y su
+            moneda: Mercado de Dinero → MM ARS / MM USD · Renta Fija → ARS T1 /
+            HD T1 · Renta Variable → RENTA VARIABLE.  Renta Mixta: después.
+```
+
+**Lo que se verificó antes.** La «tabla de instrumentos» que tiene el tipo del
+fondo y la moneda no es una tabla propia: es `manager.pyrofex_instruments`, lo
+que Primary publica, y el agente ya la leía (`fuentes.fichas_primary`,
+`core.instrumentos_validos.fichas`: `subyacente` = «Mercado de Dinero»…,
+`moneda`). El ticker de un FCI en `assets` es el nombre del fondo, que es lo que
+Primary usa como símbolo: se cruza por nombre normalizado. Y el vocabulario de
+clases ya está fijado por datos (`aca.clase_destacada`, `aca.moneda_regla`).
+
+**Por qué NO es el job nocturno.** `jobs/assets_autofill` sabe hacer esto y lo
+haría a las 3 de la mañana. Pero el ejecutor (§0.ef) ya corre en cada pasada:
+lo que faltaba era que `completar_ficha` —un arreglo que PIDE DATOS, o sea que
+hasta hoy solo lo apretaba una persona— supiera decir **qué escribiría solo**.
+Eso es `Arreglo.solo(sujeto, ev)`: los `datos` listos para `aplicar`, o `None`.
+`CompletarFicha.solo` devuelve únicamente lo que las dos reglas resuelven, con
+la lista viva de faltantes. El ejecutor, para un arreglo que pide datos, pregunta
+`solo` primero: si no hay nada determinístico, no intenta y no ensucia el libro.
+
+**Tres cosas nuevas del ejecutor por esto.** (1) `Arreglo.repetible`: el sujeto
+de `completar_ficha` es un CAMPO entero —una familia— y hay que poder aplicarlo
+cada vez que aparece un título nuevo, así que para los repetibles entra también
+`en_curso` y solo los intentos FALLIDOS frenan 24 h. (2) `ficha_incompleta` pasa
+de cada 6 h a cada hora: son cinco consultas SQL, y con seis horas un título
+nuevo esperaba media jornada. (3) La regla de las reglas: un arreglo con
+`pide_datos` es automático solo si sobreescribe `solo` (test).
+
+**La lista cerrada.** Una regla propone un valor solo si ya existe en
+`clase_activo`. Si dice «PUT OPCIONES» y ese valor no está cargado todavía, la
+fila viaja con `nota` en vez de `propuesto`: se carga una vez a mano y desde ahí
+sale sola. Es el invariante de `agente/emisor.py`: ninguna regla inventa una
+grafía, que es cómo un catálogo se parte en dos.
+
+**Determinista primero, el modelo después.** `agente/clase.py` propone con dos
+fuentes, `regla` y `primary`, y la tarjeta las muestra igual que EMISOR. Lo que
+ninguna regla resuelve queda para una persona; el paso «el modelo elige de la
+lista cerrada» (como en el emisor) se suma cuando haga falta, y **nunca** entra
+por `solo`.
 

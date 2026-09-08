@@ -100,6 +100,10 @@ Reglas fijas del contrato, todas congeladas por test:
         automatico={"mi_regla": "por qué puede ir sola"}),  # SOLO si un robot puede apretarla
 ```
 
+Si el arreglo `pide_datos`, solo puede ser automático si sobreescribe
+`Arreglo.solo(sujeto, ev)` con lo que escribiría por regla (nunca lo del modelo);
+si el sujeto es una familia, `repetible = True` (§0.ei).
+
 `automatico` es la octava pieza y es opcional: declara qué reglas el agente
 aplica SOLO (`agente/autonomo.py`, invariante #14). Solo sobre una regla con
 arreglo que no pida datos; el pre-flight sigue siendo el juez. Nace vacío: se

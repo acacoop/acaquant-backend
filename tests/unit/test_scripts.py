@@ -87,6 +87,13 @@ HERRAMIENTAS: dict[str, str] = {
                              "sale de una regla, y cuánto necesita de verdad un modelo. Sin estos "
                              "números, meter un LLM sería pagarle para tapar un join roto. Se borra "
                              "cuando la habilidad esté hecha.",
+    # ⚠️ TEMPORAL — se BORRA cuando la habilidad de contrapartes esté calibrada.
+    "diag_contrapartes":     "los tres números que la REGLA #2 exige antes de codear la habilidad "
+                             "de contrapartes: de qué TAMAÑO es la lista de pendientes (una que no "
+                             "puede llegar a cero no la mira nadie), qué señal predice el `segmento` "
+                             "—medido contra las que la mesa ya clasificó a mano, no propuesto de "
+                             "memoria— y si la base tiene las dos columnas que el código lee y "
+                             "`sql/schema.sql` no declara.",
     # ⚠️ TEMPORAL — se BORRA cuando el tema de las ONs cierre.
     "diag_agente_corriendo": "separa las cuatro causas de «deployé y sigue igual»: repo viejo, "
                              "daemon viejo, todavía no le tocó, o el código no hace lo que "

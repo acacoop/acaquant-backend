@@ -6016,3 +6016,122 @@ familias **por su constante de módulo** (renombrar la familia no lo evade) y
 exige que ninguna cuente episodios; el otro exige que toda regla con botón
 declare naturaleza y que las tres listas que leen las pantallas salgan de la
 misma función (REGLA #9).
+
+
+### 0.eq LO QUE EL CONCILIADOR NO PUEDE VER — el diseño de la habilidad de contrapartes (2026-09-08)
+
+Pedido del user: *«relacionado a lo de MANAGER → CONTRAPARTES, la idea es lo del
+conciliador: que constantemente el AGENT sepa avisarme con cuentas nuevas si hay
+contrapartes y cuáles serían. Que se dispare con nuevas cuentas, no una vez cada
+tanto, y la idea es ir mejorándolo para que no falle en segmentar»*.
+
+Esta entrada es el DISEÑO y el relevamiento. La habilidad todavía no existe: la
+frena la REGLA #2 y los tres números están al final.
+
+#### Cómo funciona hoy (verificado, no supuesto)
+
+```
+Aunesa  cuentas/listadoCuentas
+   ├─ jobs/sync_comitentes        cron 14, 17 y 21 UTC L-V, tipoCuenta=Comitente + Activa
+   │      → clientes.cuentas (id_cuenta, denominacion)     UPSERT
+   │      → clientes.comitentes (tipo_cliente, estado, …)  UPSERT
+   └─ contrapartes_seg.reconciliar()   ← el BOTÓN «Solicitar cuentas», EN VIVO
+          candidata = Activa + no persona física + NO está en `contrapartes`
+                      + su denominación contiene el NOMBRE de una contraparte YA CONOCIDA
+          sugiere    contraparte = el keyword que matcheó
+                     segmento    = FCI→Fondos · ALYC(en el nombre)→ALYC · BANCO→Bancos · si no, nada
+```
+
+#### Los tres defectos, en orden
+
+**1. Sólo encuentra MÁS cuentas de contrapartes que YA conocemos.** El criterio
+de búsqueda es `SELECT DISTINCT contraparte FROM contrapartes` convertido en un
+regex de palabras. Una contraparte **nueva** —un banco, una ALYC, una gerente
+que nunca registramos— no tiene keyword y **es invisible**. Es exactamente la
+pregunta que el user quiere contestada, y es la única que el conciliador no
+puede contestar.
+
+**2. Es un botón.** Existe mientras alguien esté mirando esa tab.
+
+**3. La segmentación tira la mejor señal que tiene.** `reconciliar()` LEE
+`tipoCliente` de Aunesa (`Fondo Común de Inversión`, `Compañía de seguros`,
+`Empresa`, `Fideicomiso`, `Institucional`) y lo usa **sólo para descartar
+personas físicas**. El segmento sale de tres `if` sobre el nombre, y uno de
+ellos (`"ALYC" in cp`) mira la contraparte SUGERIDA, no la cuenta.
+
+#### Por qué importa, en plata
+
+Registrar una cuenta como contraparte tiene dos efectos automáticos: **sale del
+AuM** (`jobs/_aum_filters` reglas 3 y 4) y su `nivel_3` pasa a **PJ GRANDE**
+(`segmentacion.clasificar_nivel_3`). Entonces una contraparte sin registrar
+**infla el AuM** con cuotapartes que no son plata de clientes; y una cuenta
+registrada de más **borra plata real** del AuM. Los dos casos **no fallan**:
+cada mitad es coherente consigo misma y el número sale con confianza. Es la
+REGLA #9 aplicada al negocio, no a los datos.
+
+#### La arquitectura, y por qué cada pieza
+
+**(A) El disparador ya existe: es el hallazgo.** Un hallazgo nace UNA vez por
+`(habilidad, sujeto, regla)` y no vuelve a nacer mientras siga abierto; cuando
+el trabajo se termina se cierra por ausencia. «Cuenta nueva sin decidir» ya
+tiene esa forma exacta. No hace falta un bus de eventos: hace falta que el
+detector corra seguido.
+
+**(B) Correr seguido obliga a NO llamar a Aunesa.** Un detector cada 15 minutos
+no puede pegar una API externa. Lee SQL: `cuentas` ⨝ `comitentes` ⨝
+`contrapartes`, todo por PK. Las cuentas nuevas ya las trae el sync tres veces
+por día; el agente las ve dentro de los 15 minutos.
+
+**(C) El agujero de (B), y cómo se tapa.** El sync pide `tipoCuenta=Comitente`;
+el conciliador no filtra por tipo. Puede haber cuentas que el conciliador ve y
+SQL no. Si las hay, **se resuelve con el patrón FOTO que el repo ya tiene**
+(`foto_primary`, `foto_1816`): un job baja la lista completa a una tabla, el
+detector lee la tabla y una habilidad vigila que no quede vieja. NO se resuelve
+haciendo que el detector pegue la API.
+
+**(D) La pieza que falta en el modelo es el NO.** `clientes.contrapartes` guarda
+sólo los SÍ. Que una cuenta no esté ahí significa dos cosas opuestas —«no es
+contraparte» y «nadie la miró»— y sin distinguirlas **la lista de pendientes no
+puede llegar a cero nunca**. Es la lección de `ficha_incompleta`, que se acotó a
+las carteras de clientes justo por esto.
+⚠️ **Y no se puede modelar como una fila con el nombre vacío**: `_aum_filters`
+regla 3 excluye del AuM por la SOLA PRESENCIA del `id_cuenta` en esa tabla, así
+que marcar «no es contraparte» ahí **le sacaría del AuM la plata a un cliente
+real**. Si hace falta, va en una tabla aparte que no lee nadie más.
+
+**(E) La habilidad.** Sujeto de GRUPO y `_items` para la identidad (el patrón de
+`ficha_incompleta`): una fila que sube y baja de número, no 300 filas. Y por
+§0.ep está **obligada a declarar** que sus reglas son `RECURRENTE` — entran
+cuentas nuevas todo el tiempo; sin esa declaración, en tres semanas daba «⚠
+crónico» igual que las ONs.
+
+**(F) Mejorar la segmentación es MEDIR, no proponer.** Ya hay ~100 filas
+clasificadas a mano: es un set de validación gratis. Toda señal candidata se
+cruza contra él —cuántas reproduce, cuántas contradice, cuántas no opina— y sólo
+se prende lo que reproduce. Y **una sola definición** (REGLA #9): la función
+vive en `api/services/contrapartes_seg.py` y la usan el conciliador Y el
+detector, nunca una copia en el agente.
+
+**(G) Nada `automatico`, y es a propósito.** Dar de alta una contraparte mueve
+plata del AuM. El agente ordena, propone y muestra la evidencia; el botón lo
+aprieta una persona. Se prende cuando el HISTORIAL muestre una semana limpia,
+que es el criterio del repo.
+
+#### Los tres números que faltan, y por eso esto no se codeó todavía
+
+`scripts/diag_contrapartes.py` (read-only) los junta:
+
+1. **De qué tamaño es la lista de pendientes**, por tramo de señal. Si son 600,
+   la habilidad nace inútil y hay que cambiarle la forma; si son 12, sirve el
+   primer día.
+2. **Cuál es el vocabulario real de `segmento`** y qué señal lo predice, medido
+   contra lo ya clasificado a mano — con la línea de base de cuánto acierta hoy
+   `inferir_segmento`, y sobre todo cuánto **contradice** (sugerir mal es más
+   caro que no sugerir).
+3. **Si la base tiene dos columnas que el código lee y `sql/schema.sql` no
+   declara**: `clientes.comitentes.created_at`/`updated_at` (las escribe
+   `jobs/sync_comitentes` en cada INSERT) y `clientes.contrapartes.denominacion`
+   (la lee `contrapartes_seg._DEN` en toda consulta del panel). O la base está
+   adelante del schema —y entonces `apply_schema` no puede reconstruirla— o algo
+   viene fallando callado. El diag lo cruza contra las últimas corridas del job,
+   que es la prueba que lo decide.

@@ -5807,3 +5807,46 @@ corrida estaba en la misma fila (al lado de la fecha de nacimiento). Ninguna
 falló ruidosa: las tres contestaron seguras y con la cara de siempre. Es REGLA #9
 en su versión más barata de cometer — no dos copias del dato, **dos datos
 distintos con nombres parecidos**, y el código eligiendo por nombre.
+
+### 0.en CI ESTABA EN ROJO HACE CUATRO COMMITS Y EL MOTIVO ERA UNA VERSIÓN (2026-09-08)
+
+Al pushear §0.em apareció, de costado, que **CI venía en `failure` desde la
+corrida 1136** — cuatro commits seguidos, todos por el mismo paso: `gen_mapa_app
+--check`. Ruff, import-linter y pytest pasaban en las cuatro.
+
+Un semáforo que está siempre en rojo deja de ser un semáforo: el día que se rompa
+un test de verdad, la corrida va a decir `failure` igual que ayer y nadie va a
+mirar. Es la MISMA patología que §0.em un piso más arriba — una señal que no
+distingue.
+
+**No era un doc viejo.** `gen_mapa_app --check` pasaba en el sandbox y fallaba en
+CI con el mismo commit. La diferencia: el sandbox tenía **FastAPI 0.141.1** y
+`requirements.txt` pinea **0.136.1**, que es lo que instalan CI y el Droplet.
+
+El conteo de «rutas con gate extra» sale de caminar
+`route.dependant.dependencies`, y 0.141 baja ahí también las `dependencies=` del
+`include_router` que 0.136 deja afuera. O sea que quien regeneró el doc desde un
+entorno sin pinear **contó el gate del módulo como si fuera un extra por ruta**.
+
+    /api/back-office/interbanking   decía «23 rutas con gate extra»   → son 0
+    /api/portfolio                  decía 14                          → son 12
+    /api/ap5                        decía 3                           → es 1
+
+Verificado en el código, no deducido: `api/routers/interbanking.py` no tiene
+**ningún** `dependencies=` por ruta; su único gate es `_BACK_OFFICE` en el
+`include_router` de `api/main.py:300`, que el doc ya reporta en la columna
+«módulo». Las 23 eran esa misma dependencia contada dos veces.
+
+**La seguridad real no cambió** —los gates corren igual, esto es introspección
+para un doc—, pero el doc **afirmaba más protección de la que hay**, que en un
+índice de permisos es la dirección peligrosa (REGLA #8: default-deny también en
+lo que se afirma). Regenerado con la versión pineada.
+
+**El comentario de `ci.yml` decía que este check «da lo mismo acá, en el Droplet
+y en el sandbox».** Era cierto, y le faltaba la mitad: *a igual versión de
+FastAPI*. Esa media verdad es la que dejó el rojo cuatro días. La advertencia
+quedó escrita en los dos lugares donde se comete el error — el paso de CI y la
+línea de `gen_mapa_app` que produce el número.
+
+Misma familia que §0.em otra vez: **el sistema tenía el dato al lado y usó el
+parecido.** La versión que manda estaba en `requirements.txt`.

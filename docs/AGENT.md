@@ -6262,6 +6262,40 @@ SIN la fila que está evaluando: medirlo contra un índice que ya contiene la
 respuesta daría 100% siempre y no diría nada. El número que importa es
 CONTRADICE — proponer mal y que alguien lo tilde es el único error caro.
 
+#### Y la primera versión salió MAL — lo que enseñó medirla
+
+`diag_contrapartes` §5b sobre las 405 cargadas: **acertaba 42% y CONTRADECÍA 27
+veces**. Los fallos, textuales, mostraron tres defectos distintos:
+
+```
+FCI SBS MULTIACTIVOS          → decía SCHRODER, es SBS
+FCI ADCAP BALANCE MULTIACTIVO → decía ONE618,   es ADCAP
+FCI MAX MONEY MARKET          → decía TORONTO,  es MAX
+FCI ALLARIA DÓLAR PERFORMANCE → decía SCHRODER, es ALLARIA
+```
+
+1. **Elegía la palabra con MÁS cuentas detrás**, que es exactamente al revés: la
+   que aparece mucho es de PRODUCTO (`PERFORMANCE`, `BALANCE`, `MONEY`,
+   `ACTIVOS`) y la que identifica es la marca. El docstring decía «gana la más
+   rara» y el código hacía `max()` por cantidad — **el comentario y el código no
+   decían lo mismo**, que es el bug que ningún test agarra.
+2. **Tiraba las palabras de menos de cuatro letras**, que es justo donde viven
+   las marcas: `SBS`, `MAX`, `BM`, `IAM`. Y los números, donde vive el `1810` de
+   Credicoop.
+3. **Exigía unicidad absoluta**: `ALLARIA` quedaba descartada por existir
+   `ALLARIA - ALYC` con UNA cuenta, y ganaba una palabra cualquiera.
+
+La v2 usa la estructura que estos nombres tienen de verdad —**la marca va
+adelante, el producto atrás**—: lee las tres primeras palabras de izquierda a
+derecha y se queda con la primera que el índice conozca, con una contraparte que
+se lleve el 80% de sus cuentas y tenga más de una. Y desempata por el nombre de
+la propia contraparte, que es lo que distingue `ALLARIA` de `ALLARIA - ALYC`.
+
+Sobre los diez fallos medidos: **9 aciertos, 0 contradicciones, 1 sin opinar**.
+Los diez están congelados como test — no un porcentaje de acierto, sino **cero
+contradicciones**: callarse deja la fila para escribir a mano, proponer mal hace
+que alguien tilde una cuenta que mueve el AuM.
+
 #### El «no me interesa», que es lo que deja la lista llegar a cero
 
 Mismo patrón que las ONs y los CEDEARs (§0.eh): se silencia **por clave**, no

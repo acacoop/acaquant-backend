@@ -205,36 +205,83 @@ def _norm_den(v: Any) -> str | None:
 # de la palabra que comparte. La evidencia viaja con la propuesta («CONSULTATIO
 # está en 3 cuentas de ONE618»), así se puede rechazar sin abrir nada.
 
-# Palabras que NO distinguen a nadie: están en media tabla. Sin esta lista,
-# «FONDO» emparejaría todos los FCI entre sí y la sugerencia sería ruido.
+# ⚠️⚠️ **LA VERSIÓN 1 ACERTABA 42% Y CONTRADECÍA 27 VECES. ESTO ES LO QUE
+# ENSEÑARON ESOS 27** (medido con `diag_contrapartes` §5b, leave-one-out):
+#
+#   FCI SBS MULTIACTIVOS          → decía SCHRODER, es SBS
+#   FCI ADCAP BALANCE MULTIACTIVO → decía ONE618,   es ADCAP
+#   FCI MAX MONEY MARKET          → decía TORONTO,  es MAX
+#   FCI ALLARIA DÓLAR PERFORMANCE → decía SCHRODER, es ALLARIA
+#
+# Tres defectos, y los tres se ven en esas cuatro líneas:
+#
+# 1. **La v1 elegía la palabra con MÁS cuentas detrás.** Está exactamente al
+#    revés: una palabra que aparece mucho es COMÚN («PERFORMANCE», «BALANCE»,
+#    «MONEY», «ACTIVOS» son palabras de PRODUCTO), y la que identifica es la
+#    marca. El docstring de la v1 decía «gana la más rara» y el código hacía
+#    `max()` por cantidad — el comentario y el código no decían lo mismo.
+# 2. **Tiraba las palabras de menos de cuatro letras**, que es donde viven las
+#    marcas: SBS, MAX, BM, IAM. Y los números, donde vive 1810 (Credicoop).
+# 3. **Exigía unicidad absoluta**, así que «ALLARIA» quedaba descartada por
+#    existir «ALLARIA - ALYC» con UNA cuenta, y ganaba una palabra de producto.
+#
+# La v2 usa la estructura que estos nombres tienen de verdad: **la marca es de
+# las primeras palabras, y el producto va después.** Se lee de izquierda a
+# derecha y se corta en la primera que resuelva.
+
+# Palabras que no identifican a nadie: formas jurídicas, conectores y —lo que
+# enseñó la medición— PALABRAS DE PRODUCTO. Sin estas últimas, «PERFORMANCE»
+# resolvía a Schroder y le ganaba a la marca que estaba al lado.
 _GENERICAS: frozenset[str] = frozenset({
+    # forma jurídica y conectores
     "FCI", "FONDO", "FONDOS", "COMUN", "COMUNES", "INVERSION", "INVERSIONES",
     "SOCIEDAD", "SOCIEDADES", "ANONIMA", "COMPANIA", "COMPANIAS", "LIMITADA",
+    "ADMINISTRADORA", "GERENTE", "SGFCI", "SA", "SRL", "DE", "DEL", "LA",
+    "EL", "LOS", "LAS", "Y", "SD",
     "SEGURO", "SEGUROS", "ASEGURADORA", "RETIRO", "VIDA", "GENERALES",
     "PERSONAS", "RIESGO", "RIESGOS", "TRABAJO", "COOPERATIVA", "MUTUAL",
-    "FIDEICOMISO", "FINANCIERO", "FINANCIERA", "ADMINISTRADORA", "GERENTE",
-    "CAPITAL", "CAPITALES", "ASSET", "MANAGEMENT", "RENTA", "AHORRO",
-    "PESOS", "DOLARES", "DOLAR", "CLASE", "SERIE", "ESTRATEGIA", "PLUS",
+    "FIDEICOMISO", "FINANCIERO", "FINANCIERA",
+    # PALABRAS DE PRODUCTO — cada una salió de una contradicción medida
+    "PERFORMANCE", "BALANCE", "MULTIACTIVO", "MULTIACTIVOS", "SMART",
+    "MONEY", "MARKET", "AHORRO", "AHORROS", "ACTIVOS", "ACTIVO", "COBERTURA",
+    "DINAMICA", "DINAMICO", "SUSTENTABLE", "CORTO", "LARGO", "PLAZO", "ASG",
+    "CAPITAL", "CAPITALES", "ASSET", "MANAGEMENT", "RENTA", "RENTAS",
+    "PESOS", "DOLAR", "DOLARES", "CLASE", "SERIE", "ESTRATEGIA", "PLUS",
+    "LIQUIDEZ", "AHORRISTA", "CRECIMIENTO", "BALANCEADO", "MIXTO", "GLOBAL",
 })
-# Una palabra de tres letras o menos no distingue (LA, DE, SA, CP, I, II, III).
-_MIN_TOKEN = 4
+# Dos letras alcanzan: BM es Bull Market. Lo que filtra no es el largo — es la
+# lista de arriba y, sobre todo, que la palabra ESTÉ en el índice.
+_MIN_TOKEN = 2
+# Cuántas palabras del principio se miran. La marca está adelante; más allá de
+# la tercera lo que hay es producto, y ahí es donde la v1 se equivocaba.
+_VENTANA_MARCA = 3
+# Qué tan dominante tiene que ser una contraparte para esa palabra. 0.8 deja
+# pasar «ALLARIA» (53 cuentas) conviviendo con «ALLARIA - ALYC» (1), que es el
+# mismo grupo escrito con otro detalle, y sigue frenando un empate real.
+_DOMINANCIA = 0.8
 
 
-def _palabras(denominacion: Any) -> set[str]:
-    """Las palabras DISTINTIVAS de una denominación, normalizadas."""
+def _palabras(denominacion: Any) -> list[str]:
+    """Las palabras candidatas a MARCA, **en orden**. La posición es el dato:
+    en «FCI ALLARIA DÓLAR PERFORMANCE» la marca es la primera y el resto es
+    producto, y la v1 perdió justamente por ignorarlo."""
     d = _norm_den(denominacion) or ""
-    # El prefijo «[805] » que trae la denominación de Aunesa no dice nada.
-    d = re.sub(r"^\[[^\]]*\]\s*", "", d)
-    return {w for w in re.findall(r"[A-Z0-9]+", d)
-            if len(w) >= _MIN_TOKEN and w not in _GENERICAS and not w.isdigit()}
+    d = re.sub(r"^\[[^\]]*\]\s*", "", d)          # el prefijo «[805] » de Aunesa
+    fuera = []
+    for w in re.findall(r"[A-Z0-9]+", d):
+        if len(w) < _MIN_TOKEN or w in _GENERICAS:
+            continue
+        if w not in fuera:
+            fuera.append(w)
+    return fuera
 
 
 def indice_contrapartes(filas: list[dict] | None = None) -> dict[str, dict[str, int]]:
     """`{palabra: {contraparte: en cuántas cuentas aparece}}`, de lo YA cargado.
 
     `filas` se acepta para poder medirlo dejando una fuera (`diag_contrapartes`
-    lo usa para el leave-one-out): sin eso, cualquier medición se evaluaría
-    contra un índice que ya contiene la respuesta.
+    §5b lo usa para el leave-one-out): sin eso, cualquier medición se evaluaría
+    contra un índice que ya contiene la respuesta y daría 100% sin decir nada.
     """
     if filas is None:
         filas = _q(f"SELECT {_DEN} AS den, c.contraparte AS cp "
@@ -247,7 +294,10 @@ def indice_contrapartes(filas: list[dict] | None = None) -> dict[str, dict[str, 
         if not cp:
             continue
         original = str(f.get("cp")).strip()
-        for w in _palabras(f.get("den")):
+        # Sólo las primeras palabras entran al índice: si entrara el nombre
+        # completo, «PERFORMANCE» quedaría asociada a Schroder y volveríamos al
+        # problema de la v1 por la puerta de atrás.
+        for w in _palabras(f.get("den"))[:_VENTANA_MARCA]:
             idx.setdefault(w, {})
             idx[w][original] = idx[w].get(original, 0) + 1
     return idx
@@ -257,28 +307,42 @@ def sugerir_contraparte(denominacion: Any,
                         idx: dict[str, dict[str, int]]) -> tuple[str, str]:
     """→ `(contraparte, por qué)`. Vacío si no hay evidencia LIMPIA.
 
-    ⚠️ **Sólo propone cuando la palabra apunta a UNA sola contraparte.** Una
-    palabra que aparece bajo dos nombres distintos no se usa: no es que la
-    sugerencia sea peor, es que sería una moneda al aire con cara de dato. Y
-    entre varias palabras limpias gana la MÁS RARA —la que cubre menos
-    contrapartes en el resto del índice—, que es la que de verdad identifica.
+    Lee las primeras palabras **de izquierda a derecha** y se queda con la
+    PRIMERA que resuelva: en estos nombres la marca va adelante y el producto
+    atrás, así que la primera que el índice conoce es la marca.
 
-    Devolver `("", "")` es una respuesta y no una falla: la fila queda para que
-    una persona escriba, igual que hoy.
+    Para resolver, esa palabra tiene que apuntar a una contraparte que se lleve
+    al menos el 80% de sus cuentas y tenga **más de una**: una sola cuenta no es
+    un patrón, es una coincidencia.
+
+    ⚠️ Devolver `("", "")` es una respuesta y no una falla. Callarse deja la
+    fila para escribir a mano —que es como estaba—; proponer mal hace que
+    alguien tilde una cuenta equivocada, y eso mueve el AuM.
     """
-    limpias: list[tuple[int, str, str]] = []
-    for w in _palabras(denominacion):
-        candidatos = idx.get(w) or {}
-        if len(candidatos) != 1:
+    for palabra in _palabras(denominacion)[:_VENTANA_MARCA]:
+        candidatos = idx.get(palabra) or {}
+        if not candidatos:
             continue
-        cp, n = next(iter(candidatos.items()))
-        limpias.append((n, w, cp))
-    if not limpias:
-        return "", ""
-    # Más cuentas detrás = más evidencia; a igualdad, la palabra más larga (más
-    # específica). Nunca al azar: el orden tiene que ser estable entre corridas.
-    n, palabra, cp = max(limpias, key=lambda t: (t[0], len(t[1]), t[1]))
-    return cp, f"«{palabra}» está en {n} cuenta(s) de {cp}"
+        # ⚠️ **DESEMPATE POR EL NOMBRE DE LA PROPIA CONTRAPARTE.** Varias
+        # comparten marca y se distinguen por un sufijo que dice QUÉ entidad es
+        # («ALLARIA» el fondo, «ALLARIA - ALYC» el agente). La cuenta
+        # «ALLARIA S.A. ALYC» trae ese sufijo en su denominación: si una sola
+        # candidata lo tiene en el nombre, es ésa. Sin esto ganaba siempre la
+        # que tiene más cuentas, que es la otra.
+        propias = set(_palabras(denominacion))
+        afines = {c: len(propias & set(_palabras(c))) for c in candidatos}
+        mejor = max(afines.values())
+        if mejor > 0 and sum(1 for v in afines.values() if v == mejor) == 1:
+            candidatos = {c: n for c, n in candidatos.items() if afines[c] == mejor}
+        total = sum(candidatos.values())
+        cp, n = max(candidatos.items(), key=lambda kv: (kv[1], kv[0]))
+        if n < 2 or n / total < _DOMINANCIA:
+            # La palabra existe pero está repartida: no se usa, y tampoco se
+            # sigue buscando — si la MARCA es ambigua, lo que venga después es
+            # producto y sería peor.
+            return "", ""
+        return cp, f"«{palabra}» está en {n} cuenta(s) de {cp}"
+    return "", ""
 
 
 def importar_masivo(rows: list[dict], *, actor: str | None = None) -> dict:

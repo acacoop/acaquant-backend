@@ -2501,8 +2501,10 @@ def test_la_contraparte_se_aprende_de_las_cargadas_y_no_se_lee_del_nombre():
 
     # Las genéricas NO emparejan a nadie: si «FCI» o «FONDO» contaran, todos los
     # fondos serían parientes de todos y la sugerencia sería ruido con formato
-    # de dato.
-    assert _palabras("[9] FCI FONDO COMUN DE INVERSION") == set()
+    # de dato. Devuelve una LISTA y no un set porque **el orden es el dato**:
+    # la marca va adelante y el producto atrás (§0.es, v2).
+    assert _palabras("[9] FCI FONDO COMUN DE INVERSION") == []
+    assert _palabras("[2010] FCI Consultatio Estrategia I") == ["CONSULTATIO"]
     assert sugerir_contraparte("[999] FCI RENTA FIJA PESOS", idx) == ("", "")
 
     # ⚠️ Y una palabra que apunta a DOS contrapartes no se usa. No es que la
@@ -2511,6 +2513,89 @@ def test_la_contraparte_se_aprende_de_las_cargadas_y_no_se_lee_del_nombre():
         {"den": "[77] CONSULTATIO OTRA COSA", "cp": "OTRO GESTOR"}])
     assert sugerir_contraparte("[2011] FCI Consultatio Estrategia IV",
                                ambiguo) == ("", "")
+
+
+def test_el_sugeridor_no_repite_los_27_errores_que_midio_el_diag():
+    """**LOS CASOS SON REALES, NO INVENTADOS** (§0.es). La v1 del sugeridor
+    acertaba 42% y CONTRADECÍA 27 veces, medido con `diag_contrapartes` §5b
+    (leave-one-out) el 2026-09-08. Estos son diez de esos fallos, textuales.
+
+    Cada uno mostró un defecto distinto y por eso están todos:
+
+      · `FCI SBS MULTIACTIVOS` → la marca tiene TRES letras y la v1 tiraba todo
+        lo de menos de cuatro. Igual `MAX`, `BM` y el `1810` de Credicoop (que
+        además es un número, y los números también se tiraban).
+      · `FCI ADCAP BALANCE MULTIACTIVO` → la v1 elegía la palabra con MÁS
+        cuentas detrás, así que una palabra de PRODUCTO («BALANCE») le ganaba a
+        la marca que estaba al lado.
+      · `ALLARIA S.A. ALYC` → existir «ALLARIA - ALYC» con una sola cuenta hacía
+        que «ALLARIA» quedara descartada por ambigua, y ganaba una palabra
+        cualquiera.
+
+    ⚠️ El test exige **CERO contradicciones**, no un porcentaje de acierto. No
+    opinar deja la fila para escribir a mano, que es como estaba; proponer mal
+    hace que alguien tilde una cuenta equivocada, y eso mueve el AuM.
+    """
+    from api.services.contrapartes_seg import (
+        indice_contrapartes,
+        sugerir_contraparte,
+    )
+
+    cargadas: list[dict] = []
+
+    def add(cp: str, *dens: str) -> None:
+        cargadas.extend({"den": d, "cp": cp} for d in dens)
+
+    add("SCHRODER", "FCI SCHRODER PERFORMANCE", "FCI SCHRODER RETORNO TOTAL",
+        "FCI SCHRODER ARGENTINA")
+    add("SBS", "FCI SBS AHORRO PESOS", "FCI SBS ACCIONES ARGENTINA",
+        "FCI SBS RENTA PESOS")
+    add("ADCAP", "FCI ADCAP RENTA FIJA", "FCI ADCAP AHORRO PESOS",
+        "FCI ADCAP WISE CAPITAL")
+    add("ONE618", "FCI CONSULTATIO ESTRATEGIA I", "FCI CONSULTATIO ESTRATEGIA II",
+        "FCI CONSULTATIO BALANCE", "FCI ONE618 RENTA")
+    add("MAX", "FCI MAX RENTA FIJA", "FCI MAX AHORRO", "FCI MAX ACCIONES")
+    add("TORONTO", "FCI TORONTO MONEY MARKET", "FCI TORONTO RENTA",
+        "FCI TORONTO AHORRO")
+    add("ALLARIA", "FCI ALLARIA RENTA FIJA", "FCI ALLARIA AHORRO",
+        "FCI ALLARIA ACCIONES", "FCI ALLARIA GLOBAL", "FCI ALLARIA COBERTURA")
+    add("ALLARIA - ALYC", "ALLARIA S.A. ALYC")
+    add("BULL MARKET", "FCI BM RENTA FIJA", "FCI BM AHORRO PESOS",
+        "FCI BM ACCIONES")
+    add("CREDICOOP", "FCI 1810 RENTA FIJA", "FCI 1810 AHORRO", "FCI 1810 ACCIONES")
+    add("ARGENFUNDS", "FCI ARGENFUNDS RENTA", "FCI ARGENFUNDS COBERTURA DINAMICA")
+    add("BANCO GALICIA", "FCI GALICIA SUSTENTABLE", "FCI GALICIA RENTA")
+    idx = indice_contrapartes(cargadas)
+
+    # (denominación, quién es de verdad) — copiados del output del diag.
+    casos = (
+        ("FCI BM SMART CORTO PLAZO", "BULL MARKET"),
+        ("FCI ADCAP BALANCE MULTIACTIVO", "ADCAP"),
+        ("FCI SBS MULTIACTIVOS", "SBS"),
+        ("FCI MAX MONEY MARKET", "MAX"),
+        ("FCI ALLARIA DÓLAR PERFORMANCE", "ALLARIA"),
+        ("FCI 1810 AHORROS ACTIVOS", "CREDICOOP"),
+        ("FCI BVSA SD ALLARIA COBERTURA DINAMICA", "ALLARIA"),
+        ("FCI ALLARIA SUSTENTABLE ASG FCI", "ALLARIA"),
+        ("BACS ADMINISTRADORA DE ACTIVOS S.A.", "TORONTO"),
+        ("ALLARIA S.A. ALYC", "ALLARIA - ALYC"),
+        # El que YA andaba con la v1: no se puede romper al arreglar los otros.
+        ("FCI Consultatio Estrategia IV", "ONE618"),
+    )
+    contradice, acierta = [], 0
+    for den, real in casos:
+        sug, _porque = sugerir_contraparte(den, idx)
+        if not sug:
+            continue
+        if sug == real:
+            acierta += 1
+        else:
+            contradice.append(f"{den} → dijo «{sug}», es «{real}»")
+    assert not contradice, (
+        "el sugeridor volvió a proponer mal:\n  " + "\n  ".join(contradice))
+    assert acierta >= 9, (
+        f"acertó {acierta} de {len(casos)}: la v1 acertaba 0 de estos. Si baja, "
+        "algo del recorte por posición o de `_GENERICAS` se rompió")
 
 
 def test_no_es_contraparte_no_se_anota_en_la_tabla_que_mueve_el_AuM():

@@ -21,6 +21,8 @@ sino en otra tabla (`mercado.curvas`) o en el censo de 1816.
 ⚠️ **LISTA CERRADA, mismo invariante que `clase.py` y `emisor.py`.** Una regla
 no inventa grafías: si el valor que la regla derivaría todavía no existe en
 `cartera`, la fila NO se escribe sola — viaja con `propuesto=""` y una nota.
+La comparación es tolerante a grafía (`core.clase_activo.en_lista_cerrada`):
+si ya existe una grafía que normaliza igual, se escribe ESA, no la de la regla.
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ import logging
 
 from agente.detectores.mercado import _es_pata_1816, _tk
 from core.cartera import de_ejes
+from core.clase_activo import en_lista_cerrada
 from core.curvas_ejes import desde_1816
 
 logger = logging.getLogger(__name__)
@@ -89,7 +92,6 @@ def proponer(filas: list[dict], master: list[dict] | None,
     fin, fci, otc, tk_regla = _reglas_job()
     indice_master = _indice_master(master)
     indice_1816 = _indice_1816(universo_1816)
-    permitidos = set(usadas or [])
     out = []
     for f in filas:
         fila = {**f, "propuesto": "", "fuente": "", "nota": ""}
@@ -116,12 +118,17 @@ def proponer(filas: list[dict], master: list[dict] | None,
                 if ejes is not None and (v := de_ejes(ejes.moneda, ejes.ajuste)):
                     fila["propuesto"], fila["fuente"] = v, MIL816
 
-        # ⚠️ **LA LISTA CERRADA**, mismo invariante que `clase.py`/`emisor.py`.
-        if fila["propuesto"] and fila["propuesto"] not in permitidos:
-            valor = fila["propuesto"]
-            fila["propuesto"], fila["fuente"] = "", ""
-            fila["nota"] = (f"la regla dice «{valor}», pero ese valor todavía "
-                            "no existe en cartera: cargalo una vez a mano")
+        # ⚠️ **LA LISTA CERRADA**, mismo invariante que `clase.py`/`emisor.py`,
+        # tolerante a grafía (`en_lista_cerrada`).
+        if fila["propuesto"]:
+            grafia = en_lista_cerrada(fila["propuesto"], usadas or [])
+            if grafia:
+                fila["propuesto"] = grafia
+            else:
+                valor = fila["propuesto"]
+                fila["propuesto"], fila["fuente"] = "", ""
+                fila["nota"] = (f"la regla dice «{valor}», pero ese valor todavía "
+                                "no existe en cartera: cargalo una vez a mano")
         out.append(fila)
     return out
 

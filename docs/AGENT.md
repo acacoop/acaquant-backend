@@ -5596,6 +5596,15 @@ grafía, que es cómo un catálogo se parte en dos.
 master → nada. Fuente nueva: `curva`. Solo si la curva dice `moneda_eje = ARS`:
 un HD mal carteado como ARS no se clasifica por la cartera equivocada.
 
+**Y los derivados que no son opciones, el mismo día.** El producto sale del
+prefijo del contrato —`SOJ`/`SOY` → SOJA, `MAI`/`CRN` → MAIZ, `TRI` → TRIGO,
+`DLR` → DOLAR— y la forma de si dice `OTC`: `[SOJ.ROS.P/DIS26]` → FUTUROS DE
+SOJA, `[OTC - CRN.CME/NOV26]` → OTC MAIZ, `[OTC - DLR012027]` → OTC DOLAR. El
+dólar solo bajo OTC. Las opciones C/P siguen yendo primero. Y la lista cerrada
+pasa a comparar SIN acentos y a escribir la grafía que ya existe en la base
+(`core.clase_activo.en_lista_cerrada`): «MAIZ» contra «MAÍZ» no bloquea ni crea
+una segunda grafía.
+
 **Determinista primero, el modelo después.** `agente/clase.py` propone con tres
 fuentes, `regla`, `primary` y `curva`, y la tarjeta las muestra igual que EMISOR. Lo que
 ninguna regla resuelve queda para una persona; el paso «el modelo elige de la

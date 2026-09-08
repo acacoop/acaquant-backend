@@ -4611,6 +4611,14 @@ def test_clase_activo_se_propone_con_fuente_y_de_lista_cerrada():
     r = clase.proponer([hd], None, usadas=["HD"])
     assert (r[0]["propuesto"], r[0]["fuente"]) == ("HD", clase.REGLA)
 
+    # Un futuro (DERIVADOS sin C/P): la regla dice "FUTUROS DE MAIZ" sin
+    # acento, pero la base ya usa la grafía con acento — se escribe ESA, no la
+    # de la regla (lista cerrada tolerante a grafía, `en_lista_cerrada`).
+    futuro = {"unidad": "[MAI.ROS/JUL27]", "cartera": "DERIVADOS", "ticker": "",
+              "clase_activo": "", "emisor": ""}
+    r = clase.proponer([futuro], None, usadas=["FUTUROS DE MAÍZ"])
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("FUTUROS DE MAÍZ", clase.REGLA)
+
 
 def test_clase_activo_ars_se_propone_por_la_curva_del_master():
     """La regla CURVA: cartera ARS, ejes del bono en `mercado.curvas`

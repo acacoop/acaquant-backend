@@ -48,6 +48,32 @@ def test_de_cartera_es_copia_directa_de_las_tres_carteras():
     assert ca.de_cartera("") == ""
 
 
+def test_de_futuro_por_el_prefijo_del_contrato():
+    # Ejemplos reales del user, futuros y OTC de agro.
+    assert ca.de_futuro("DERIVADOS", "[MAI.ROS/JUL27]", "") == "FUTUROS DE MAIZ"
+    assert ca.de_futuro("DERIVADOS", "[SOJ.ROS.P/DIS26]", "") == "FUTUROS DE SOJA"
+    assert ca.de_futuro("DERIVADOS", "[SOY.CME/ABR27]", "") == "FUTUROS DE SOJA"
+    assert ca.de_futuro("DERIVADOS", "[TRI.MIN/DIC26]", "") == "FUTUROS DE TRIGO"
+    assert ca.de_futuro("DERIVADOS", "[OTC - CRN.CME/NOV26]", "") == "OTC MAIZ"
+    assert ca.de_futuro("DERIVADOS", "[OTC - DLR012027]", "") == "OTC DOLAR"
+    # Por ticker suelto, sin corchetes.
+    assert ca.de_futuro("DERIVADOS", "", "MAI.ROS/SEP27") == "FUTUROS DE MAIZ"
+    # Es una OPCIÓN (C/P al final): esa regla va primero, acá no se propone nada.
+    assert ca.de_futuro("DERIVADOS", "[SOJ.ROS/MAY27 364 C]", "") == ""
+    # El dólar SOLO se propone bajo OTC.
+    assert ca.de_futuro("DERIVADOS", "DLR/ENE27", "") == ""
+    # Otra cartera: la regla es SOLO de DERIVADOS.
+    assert ca.de_futuro("FCI", "[MAI.ROS/JUL27]", "") == ""
+    # Prefijo desconocido: no se propone nada.
+    assert ca.de_futuro("DERIVADOS", "[GFG.ROS/JUL27]", "") == ""
+
+
+def test_en_lista_cerrada_tolera_grafia():
+    assert ca.en_lista_cerrada("OTC MAIZ", ["OTC MAÍZ"]) == "OTC MAÍZ"
+    assert ca.en_lista_cerrada("OTC MAIZ", ["OTC TRIGO"]) == ""
+    assert ca.en_lista_cerrada("", ["OTC MAIZ"]) == ""
+
+
 def test_de_curva_solo_ars_ars_y_por_el_ajuste():
     assert ca.de_curva("ARS", "ARS", "cer", None) == "CER"
     assert ca.de_curva("ARS", "ARS", "fija", None) == "FIJA"

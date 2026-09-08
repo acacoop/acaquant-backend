@@ -323,17 +323,19 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # la ficha vacía siempre. No son crónicas, son el ritmo de la cartera.
         recurrentes=("sin_cartera", "sin_clase_activo", "sin_emisor",
                      "fci_sin_ticker"),
-        # Solo `sin_clase_activo`: son las CUATRO reglas determinísticas de
-        # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES, copia
+        # Solo `sin_clase_activo`: son las CINCO reglas determinísticas de
+        # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES,
+        # futuros y OTC de agro/dólar por el prefijo del contrato, copia
         # de cartera — RENTA VARIABLE/HD/DL —, FCI por Primary — Mercado de
         # Dinero → MM, Renta Fija → T1, Renta Variable —, y ARS por la CURVA
         # del bono en el master). Lo demás —el emisor, y la cartera para lo
-        # que no cae en ninguna de estas cuatro— sigue quedando para una
+        # que no cae en ninguna de estas cinco— sigue quedando para una
         # persona: no hay regla que lo resuelva sin criterio de la mesa.
         automatico={"sin_clase_activo":
-                    "derivados C/P, copia de cartera (RENTA VARIABLE/HD/DL), "
-                    "FCI por Primary y ARS por la curva del master. Lo demás "
-                    "queda para una persona.",
+                    "derivados C/P, futuros y OTC de agro/dólar por el "
+                    "prefijo del contrato, copia de cartera (RENTA "
+                    "VARIABLE/HD/DL), FCI por Primary y ARS por la curva del "
+                    "master. Lo demás queda para una persona.",
                     "sin_cartera":
                     "reglas del job (pagarés, FCI, OTC/agro) + los ejes del "
                     "bono en el master o en el catálogo de 1816: "

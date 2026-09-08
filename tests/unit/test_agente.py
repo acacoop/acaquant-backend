@@ -1198,6 +1198,47 @@ def test_completar_ficha_no_resuelve_el_hallazgo_de_una():
     assert "estado" not in src and "RESUELTO" not in src
 
 
+def test_cartera_se_propone_por_regla_master_o_1816():
+    """`cartera.proponer` es PURA: la cadena regla-del-job → EJES del master →
+    EJES de 1816, y la lista cerrada frena un valor que el catálogo todavía
+    no usa (§0.ej)."""
+    from agente import cartera
+
+    pagare = {"unidad": "[*BIN031000050] *BIN031000050 Nro. 29805263 "
+                        "Vto. 03/10/2026", "cartera": "", "ticker": ""}
+    bono_master = {"unidad": "[9999] AL30 - BONO", "cartera": "", "ticker": "AL30"}
+    bono_1816 = {"unidad": "[8888] XYZ26 - BONO", "cartera": "", "ticker": "XYZ26"}
+    sin_nada = {"unidad": "[7777] NADA1 - BONO", "cartera": "", "ticker": "NADA1"}
+
+    master = [{"ticker_corto": "AL30", "moneda_eje": "USD", "ajuste": "fija"}]
+    # "Corporativos USD" existe en `curvas_ejes.EJES_1816` → Ejes(corporativo,
+    # USD, fija) → HD.
+    universo = {"instrumentos": {"XYZ26": {"_curva": "Corporativos USD"}}}
+    usadas = ["FINANCIAMIENTO", "HD"]
+
+    out = cartera.proponer([pagare, bono_master, bono_1816, sin_nada], master,
+                           universo, usadas)
+    por_unidad = {f["unidad"]: f for f in out}
+
+    assert por_unidad[pagare["unidad"]]["propuesto"] == "FINANCIAMIENTO"
+    assert por_unidad[pagare["unidad"]]["fuente"] == cartera.REGLA
+
+    assert por_unidad[bono_master["unidad"]]["propuesto"] == "HD"
+    assert por_unidad[bono_master["unidad"]]["fuente"] == cartera.CURVA
+
+    assert por_unidad[bono_1816["unidad"]]["propuesto"] == "HD"
+    assert por_unidad[bono_1816["unidad"]]["fuente"] == cartera.MIL816
+
+    assert por_unidad[sin_nada["unidad"]]["propuesto"] == ""
+    assert por_unidad[sin_nada["unidad"]]["fuente"] == ""
+
+    # Lista cerrada: sin "HD" en `usadas`, el mismo bono no se escribe solo.
+    out2 = cartera.proponer([bono_master], master, universo, ["FINANCIAMIENTO"])
+    assert out2[0]["propuesto"] == ""
+    assert out2[0]["fuente"] == ""
+    assert "HD" in out2[0]["nota"]
+
+
 def test_un_arreglo_que_pide_datos_lo_declara():
     """El front no puede adivinar cuáles llevan listado editable y cuáles son un
     botón: adivinar significa una lista de ids en el navegador que nadie mantiene

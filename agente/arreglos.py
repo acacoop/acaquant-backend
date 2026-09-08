@@ -691,9 +691,12 @@ class CompletarFicha(Arreglo):
         #
         # Hoy la CLASE también se deriva, para CUATRO casos determinísticos:
         # derivados con C/P, copia de cartera (RENTA VARIABLE/HD/DL), FCI por
-        # Primary y ARS por la curva del bono en el master (§0.ei). El resto
-        # sigue siendo criterio de la mesa: no hay de dónde derivarlo, y
-        # proponerlo sería inventar.
+        # Primary y ARS por la curva del bono en el master (§0.ei). Y la
+        # CARTERA de un bono se deriva por las reglas del job (financiamiento,
+        # FCI, OTC/agro) o, si ninguna aplica, por sus EJES —moneda, ajuste—
+        # en el master o en el catálogo de 1816 (§0.ej). El resto sigue siendo
+        # criterio de la mesa: no hay de dónde derivarlo, y proponerlo sería
+        # inventar.
         propuestas = 0
         if c["campo"] == "emisor" and filas:
             from agente import emisor as em
@@ -713,6 +716,14 @@ class CompletarFicha(Arreglo):
                 propuestas = sum(1 for f in filas if f.get("propuesto"))
             except Exception as e:
                 logger.warning("completar_ficha: sin propuestas de clase (%s)", e)
+        if c["campo"] == "cartera" and filas:
+            from agente import cartera, fuentes
+            try:
+                filas = cartera.proponer(filas, fuentes.master(), fuentes.universo_1816(),
+                                         det.valores_usados("cartera"))
+                propuestas = sum(1 for f in filas if f.get("propuesto"))
+            except Exception as e:
+                logger.warning("completar_ficha: sin propuestas de cartera (%s)", e)
         return {
             "ok": True,
             "que_escribe": (f"{c['campo'].upper()} en {len(filas)} título(s) de "
@@ -734,20 +745,30 @@ class CompletarFicha(Arreglo):
         }
 
     def solo(self, sujeto: str, ev: dict) -> list[dict] | None:
-        """Lo que el agente completaría SOLO: hoy, únicamente `clase_activo`,
+        """Lo que el agente completaría SOLO: hoy, `clase_activo` y `cartera`,
         y sólo lo que una regla determinística resuelve Y ya existe en la
-        lista cerrada (`clase.deterministas`). El emisor y el resto de la
-        clase siguen sin dueño automático: eso lo decide una persona."""
+        lista cerrada (`clase.deterministas` / `cartera.deterministas`). El
+        emisor y el resto de la clase siguen sin dueño automático: eso lo
+        decide una persona."""
         from agente.detectores import catalogo as det
 
         c = self._campo(sujeto, ev)
-        if c is None or c["campo"] != "clase_activo":
+        if c is None:
             return None
-        from agente import clase, fuentes
-        return clase.deterministas(
-            clase.proponer(det.faltantes(c), fuentes.fichas_primary(),
-                           det.valores_usados("clase_activo"),
-                           master=fuentes.master()))
+        from agente import fuentes
+        if c["campo"] == "clase_activo":
+            from agente import clase
+            return clase.deterministas(
+                clase.proponer(det.faltantes(c), fuentes.fichas_primary(),
+                               det.valores_usados("clase_activo"),
+                               master=fuentes.master()))
+        if c["campo"] == "cartera":
+            from agente import cartera
+            return cartera.deterministas(
+                cartera.proponer(det.faltantes(c), fuentes.master(),
+                                 fuentes.universo_1816(),
+                                 det.valores_usados("cartera")))
+        return None
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "",
                 datos: list | None = None) -> Resultado:

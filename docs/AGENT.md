@@ -5602,3 +5602,37 @@ ninguna regla resuelve queda para una persona; el paso «el modelo elige de la
 lista cerrada» (como en el emisor) se suma cuando haga falta, y **nunca** entra
 por `solo`.
 
+
+### 0.ej LA CARTERA DE UN BONO NUNCA TUVO REGLA — y ahora se completa sola (2026-09-08)
+
+El user, con tres ONs sin cartera en la tarjeta (EAC3O, PFC4O, ARC1O): *«¿por
+qué no sugiere qué cartera? ¿O mismo lo hace solo? ¿Está fallando algo? Estos
+tres fácilmente se podría saber a qué cartera pertenecen»*.
+
+**No fallaba nada: para `cartera` nunca se escribió una regla que sepa qué es un
+bono.** Los assets nacen vacíos (el escritor de `assets_sql` inserta la unidad
+y nada más, por diseño). `jobs/assets_autofill` sabe tres carteras y solo esas:
+pagarés → FINANCIAMIENTO, fondos → FCI, OTC/agro → DERIVADOS. Un `[58364] EAC3O`
+no matchea ninguna. Y `CompletarFicha` no proponía nada para la cartera porque
+un comentario decía que era «criterio de la mesa». El «crónico 7× en 30 d» era
+la medida honesta de cuántas veces por mes entra un título nuevo sin cartera.
+
+**El dato ya estaba en dos lugares.** Los EJES del bono son la clasificación
+única del sistema (`core/curvas_ejes`), y el agente ya los lee: en el master
+(`fuentes.master()`, si el bono está dado de alta) y en el catálogo local de
+1816 (`fuentes.universo_1816()`, la curva traducida con `desde_1816`, la misma
+función que usa el alta). De los ejes a la cartera es una tabla de tres líneas
+(`core/cartera.py::de_ejes`): `dolar_linked` → DL; USD/EUR → HD; ARS → ARS.
+
+**La cadena** (`agente/cartera.py`, misma forma que `clase.py`): primero las
+reglas del job —importadas, no copiadas, como `emisor.por_regla`—, después el
+master (`curva`), después 1816 (`1816`). Lista cerrada contra lo que ya existe
+en `cartera`. `CompletarFicha` propone y sabe `solo()` también para este campo,
+y `ficha_incompleta` declara `sin_cartera` automático.
+
+**Efecto dominó, a favor.** Las reglas de `clase_activo` (§0.ei) arrancan de la
+cartera. Sin cartera, un bono tampoco recibía clase. Ahora una pasada escribe
+la cartera y la siguiente la clase, sin código extra. Lo que sigue para una
+persona: acciones y CEDEARs (RENTA VARIABLE, derivable del cficode de Primary
+como paso siguiente) y cualquier ticker que no esté ni en el master ni en 1816.
+

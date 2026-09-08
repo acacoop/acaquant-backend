@@ -58,6 +58,8 @@ def main() -> int:
     ap.add_argument("--ticker", default="", help="un solo bono, por ticker corto")
     ap.add_argument("--todos", action="store_true",
                     help="incluir también los que sí tienen TEA en el snapshot")
+    ap.add_argument("--ficha", action="store_true",
+                    help="además, la ficha cruda de cada bono que no dio TEA")
     a = ap.parse_args()
 
     from core import market_snapshot
@@ -136,6 +138,7 @@ def main() -> int:
                 "paridad": m.get("paridad"), "dur": m.get("duration"),
                 "mod_dur": m.get("mod_duration"),
                 "vto": (d.get("fecha_vencimiento") or "")[:10],
+                "doc": d, "simbolo": simbolo,
             })
     finally:
         mc.xirr, mc.macaulay_duration = xirr_real, mac_real
@@ -162,6 +165,64 @@ def main() -> int:
               f"{f['veredicto']:<32}{_pct(f['cruda']):>11}{_pct(ta):>11}"
               f"{_num(f['paridad'], 2):>10}{_num(f['dur'], 3):>8}"
               f"{_num(f['mod_dur'], 3):>8}")
+
+    # ── LA FICHA CRUDA (--ficha) ────────────────────────────────────────────
+    #
+    # Para qué: una TEA absurda con la paridad absurda al lado NO es un problema
+    # de tasa, es la FICHA en otra escala que el precio. Esto lo muestra sin
+    # interpretar nada — usa las MISMAS `fecha_flujo`/`monto_flujo` del motor,
+    # y las tres divisiones del precio para no tener que adivinar la rama.
+    #
+    # Cómo se lee: la escala sana es ≈1 en la columna que le toca a la rama (un
+    # bono cerca de la par paga, en total, más o menos lo que cuesta). 0,0008 o
+    # 1.600 no es una tasa rara: es la ficha en otras unidades.
+    if a.ficha:
+        print("\n" + "═" * 70 + "\nLA FICHA CRUDA DE LOS QUE NO DIERON TEA\n" + "═" * 70)
+        for f in filas:
+            if f["veredicto"].startswith("OK"):
+                continue
+            d = f["doc"]
+            todos_f = d.get("flujos") or []
+            hoy = datetime.utcnow().date()
+
+            # Defensivo a propósito: acá se están mirando fichas que YA se sabe
+            # que están raras. Una fecha o un monto malformado tiene que salir
+            # impreso, no tumbar el diag antes de llegar al bono siguiente.
+            def _fecha(x):
+                try:
+                    return mc.fecha_flujo(x)
+                except Exception:
+                    return None
+
+            def _monto(x):
+                try:
+                    return float(mc.monto_flujo(x))
+                except Exception:
+                    return 0.0
+
+            fut = [x for x in todos_f if (_fecha(x) or hoy) > hoy]
+            suma = sum(_monto(x) for x in fut) if fut else 0.0
+            px = f["precio"]
+            print(f"\n{f['tk']} · {d.get('emisor_tipo') or 'SIN EJES'} · "
+                  f"curva={d.get('curva')} · ajuste={d.get('ajuste')} · "
+                  f"moneda_flujo={d.get('moneda_flujo')} · VN={d.get('valor_nominal')}")
+            print(f"  símbolo {f['simbolo']}")
+            print(f"  precio {px:>14,.2f}   /MEP {px / mep if mep else 0:>12,.2f}"
+                  f"   /A3500 {px / a3500 if a3500 else 0:>12,.2f}")
+            print(f"  flujos futuros {len(fut)} de {len(todos_f)} · "
+                  f"Σ monto_flujo {suma:,.4f} · paridad calculada "
+                  f"{_num(f['paridad'], 2)}")
+            if suma and px:
+                print(f"  escala Σflujos/precio →  crudo {suma / px:>10,.4f}"
+                      f" · /MEP {suma / (px / mep) if mep else 0:>10,.4f}"
+                      f" · /A3500 {suma / (px / a3500) if a3500 else 0:>10,.4f}"
+                      f"   (sana ≈ 1)")
+            if fut:
+                print(f"  primer flujo futuro: {fut[0]}")
+            elif todos_f:
+                print(f"  ⚠ NINGÚN flujo futuro. El último de la ficha: {todos_f[-1]}")
+            else:
+                print("  ⚠ la ficha NO TIENE flujos")
 
     # ── EL RESUMEN, que es lo que decide qué se hace ────────────────────────
     print()

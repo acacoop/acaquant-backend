@@ -5397,3 +5397,70 @@ cotejo «al mismo precio» le manda a 1816 el precio ya en dólares —el mismo 
 que consume el motor— y cierra a 0 bps; y el mensaje deja de culpar al «180-360»,
 que es la convención de la TNA. Las demás ramas (soberanos, CER) siguen con la
 paridad sobre el residual: no se midieron, no se tocan.
+
+### 0.ef EL MAPA — la misma tabla, leída como estructura (2026-09-08)
+
+**De dónde salió.** Mirando el grafo que Google ADK dibuja de un agente —un
+árbol con el agente arriba y sus herramientas colgando—, el pedido fue directo:
+*«no hay nada de lo que tengo que yo pueda ver así»*. Es cierto, y el hueco es
+real: el catálogo declara 27 habilidades con dominio, ritmo, ventana y arreglo,
+y la única forma de leerlo era una lista de 27 filas.
+
+**Lo primero que se decidió fue lo que NO se hace: un grafo.** El dibujo de ADK
+tiene flechas porque ahí hay FLUJO — un agente le pasa la posta al siguiente por
+un estado compartido. Las habilidades del AV AGENT **no se hablan entre sí**: no
+comparten estado, no se llaman, no hay orden entre ellas. Dibujarles flechas
+sería copiar la forma sin la estructura, que es la manera más rápida de tener un
+diagrama que parece decir algo y no dice nada. Lo que hay es un catálogo con
+atributos categóricos y una dimensión temporal, y eso se dibuja como grilla.
+
+**Qué pregunta contesta, y es otra que la de la lista.** La lista contesta «¿qué
+pasó con cada habilidad?». El mapa contesta **«¿qué NO se está mirando?»**. Con
+27 filas los huecos de cobertura son invisibles; en la grilla dominio × ventana
+una celda vacía se ve de un golpe. La primera lectura ya dejó tres a la vista:
+SISTEMA está entero en `siempre` (nada mira distinto dentro y fuera de rueda),
+`rueda` y `cierre` son exclusivas de MERCADO, y `habil` la usa **una** habilidad
+en todo el sistema. Ninguna de las tres es necesariamente un error — son
+decisiones que hasta hoy estaban implícitas en 27 filas y ahora están dibujadas.
+
+**Tres lecturas, un control.** No es un toggle adentro de otro toggle: la tab
+HABILIDADES tiene un selector de tres posiciones —LISTA · MAPA·DOMINIO ·
+MAPA·RITMO— porque son tres vistas hermanas del mismo payload, no una principal
+con variantes. En DOMINIO las columnas van ordenadas **por tamaño**, así que la
+altura de cada una es el dato: se ve que SISTEMA pesa el doble que MERCADO sin
+leer un número. En RITMO son carriles de 2 minutos a 12 horas.
+
+**El color significa UNA cosa: salud.** El dominio se codifica por posición (en
+DOMINIO) o por etiqueta de texto (en RITMO), nunca por color — dos escalas de
+color en el mismo dibujo no se leen. La clase va en la FORMA: cuadrado relleno =
+tiene arreglo, contorno = solo avisa. Así salud y clase se leen a la vez sin
+competir.
+
+**Cero backend.** `GET /api/agente/habilidades` ya devolvía todo lo que el mapa
+necesita —y de yapa `ultima_corrida_at`, `ultimo_resultado`, `corridas_hoy` y
+`hallazgos_abiertos`, que es lo que convierte el dibujo en un tablero de salud y
+no un diagrama muerto. No se agregó ningún endpoint, ninguna query y ninguna
+columna. Agregar un endpoint que contara lo mismo habría sido servir la REGLA #9
+en bandeja.
+
+**Los cuatro estados se mudaron a `tipos.ts`.** `ESTADO_HABILIDAD` y
+`saludDe()` vivían dentro del panel; ahora los dibujan **dos** pantallas. Con
+una copia en cada archivo, el día que cambie un color el mapa y la lista
+pintarían la misma habilidad de distinto y ninguno de los dos fallaría.
+
+**La grilla de cobertura se calcula en el navegador, y es la excepción que
+confirma la regla.** El front no deriva contadores: la razón es que un número
+calculado acá puede discrepar con el backend. Acá no hay segunda fuente — es un
+PIVOT del mismo array que se está dibujando dos centímetros más arriba, en el
+mismo render. No puede decir algo distinto de la lista porque **es** la lista.
+
+**Los dominios y las ventanas salen de los datos, no de una lista escrita a
+mano.** Es la condición para que el mapa sea la prueba visual de la REGLA #10:
+si una habilidad está declarada, aparece; si aparece algo que no reconocés, está
+declarado. Con las columnas hardcodeadas, una ventana nueva no se dibujaría y el
+mapa mentiría en silencio — que es exactamente el modo de falla que el agente
+existe para evitar.
+
+**Lo que quedó pendiente.** La tab mostraba **29** y el catálogo tiene **27**.
+No se tocó: hay que ver si el front cuenta algo que el catálogo no tiene o si es
+otra cosa. Es, otra vez, dos conteos de lo mismo que no coinciden.

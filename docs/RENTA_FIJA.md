@@ -1596,7 +1596,7 @@ que es exactamente la regla que este doc proponía escribir a mano.
 | 8 | Bono cargado que no valúa nada | sin cronograma de pagos | `bono_sin_flujo` → botón `alta_flujos` |
 | 9 | El bono existe en 1816 y no en el master | alta pendiente | `soberanos_faltantes` → botón `alta_bono` |
 | 10 | ¿Nuestra TNA/TEA de un corporativo HD es la de 1816? | (no concluye: es la tabla uno contra otro) | `tasa_vs_1816` (rueda, cada 2 h; un aviso en AHORA con la tabla entera). A mano: `scripts.diag_tea_corp_hd` |
-| 11 | Una ON hard dólar existe en 1816 y cotiza en Primary, y no está en el master | alta pendiente (manual: la rama `on` no convierte el cuadro sola) | `on_faltante` → botón `alta_on` (la rama `on` SÍ convierte el cuadro desde que se midió, `AGENT.md` §0.du; cada ON la juzga su propio cotejo contra 1816). ⚠ Ya no hay pantalla de carga manual: `AGENT.md` §0.em |
+| 11 | Una ON hard dólar existe en 1816 y cotiza en Primary, y no está en el master | alta pendiente (la rama `on` se prendió el 2026-09-06 CON la medición delante: 8 de 8 en base 100) | `on_faltante` → botón `alta_on` (la rama `on` SÍ convierte el cuadro desde que se midió, `AGENT.md` §0.du; cada ON la juzga su propio cotejo contra 1816). ⚠ Ya no hay pantalla de carga manual: `AGENT.md` §0.em |
 
 ⚠️ **La falla #7 es la que más se paga y la única que no se arregla con un dato**:
 un bono nuevo o un cambio de `moneda_flujo`/`flujos` **no impacta hasta reiniciar**

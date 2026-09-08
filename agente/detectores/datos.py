@@ -463,8 +463,13 @@ def contraparte_faltante(u: dict) -> list[Hallazgo]:
             cur.execute(
                 "SELECT count(*) FROM clientes.comitentes m "
                 " WHERE m.estado = 'Activa' "
+                # ⚠️ `coalesce` en las DOS, y no es cosmético: `NULL <> ALL(...)`
+                # da NULL, así que la fila se cae del conteo. Las 52 cuentas
+                # activas sin `tipo_cliente` (las que el sync no clasifica) se
+                # habrían perdido y el número de «las que quedan afuera» habría
+                # salido 510 donde son 562 — un contador que miente bajo.
                 "   AND coalesce(m.tipo_cliente,'') <> ALL(%s) "
-                "   AND m.tipo_cliente <> ALL(%s) "
+                "   AND coalesce(m.tipo_cliente,'') <> ALL(%s) "
                 "   AND NOT EXISTS (SELECT 1 FROM clientes.contrapartes c "
                 "                    WHERE c.id_cuenta = m.id_cuenta)",
                 (list(_TIPOS_PH), list(TIPOS_INSTITUCIONALES)))

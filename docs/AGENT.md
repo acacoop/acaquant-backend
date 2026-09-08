@@ -5588,8 +5588,16 @@ fila viaja con `nota` en vez de `propuesto`: se carga una vez a mano y desde ah�
 sale sola. Es el invariante de `agente/emisor.py`: ninguna regla inventa una
 grafía, que es cómo un catálogo se parte en dos.
 
-**Determinista primero, el modelo después.** `agente/clase.py` propone con dos
-fuentes, `regla` y `primary`, y la tarjeta las muestra igual que EMISOR. Lo que
+**Las siguientes tres reglas, el mismo día.** Copiar la cartera cuando es
+`RENTA VARIABLE`, `HD` o `DL` (la clase es la misma palabra), y para la cartera
+`ARS` leer la CURVA del bono en `mercado.curvas`: `ajuste_alt` no vacío → `DUAL`
+(un dual es la consecuencia de tener dos ajustes), `cer` → `CER`, `fija` →
+`FIJA`, `tamar` → `TAMAR`; `badlar`/`tpm`/`caucion` o bono que no está en el
+master → nada. Fuente nueva: `curva`. Solo si la curva dice `moneda_eje = ARS`:
+un HD mal carteado como ARS no se clasifica por la cartera equivocada.
+
+**Determinista primero, el modelo después.** `agente/clase.py` propone con tres
+fuentes, `regla`, `primary` y `curva`, y la tarjeta las muestra igual que EMISOR. Lo que
 ninguna regla resuelve queda para una persona; el paso «el modelo elige de la
 lista cerrada» (como en el emisor) se suma cuando haga falta, y **nunca** entra
 por `solo`.

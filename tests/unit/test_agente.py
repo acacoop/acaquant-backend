@@ -4548,8 +4548,37 @@ def test_clase_activo_se_propone_con_fuente_y_de_lista_cerrada():
     r = clase.proponer([fondo], [], usadas=["MM ARS"])
     assert (r[0]["propuesto"], r[0]["fuente"]) == ("", "")
 
+    # Cartera HD: copia directa, fuente REGLA (misma regla que DERIVADOS pero
+    # sin cotejar unidad/ticker — la cartera ES la clase).
+    hd = {"unidad": "u_hd", "cartera": "HD", "ticker": "", "clase_activo": "",
+          "emisor": ""}
+    r = clase.proponer([hd], None, usadas=["HD"])
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("HD", clase.REGLA)
 
-def test_deterministas_solo_lleva_regla_y_primary():
+
+def test_clase_activo_ars_se_propone_por_la_curva_del_master():
+    """La regla CURVA: cartera ARS, ejes del bono en `mercado.curvas`
+    (`ticker_corto` == `ticker` del asset, upper/strip)."""
+    from agente import clase
+
+    bono = {"unidad": "u_al30", "cartera": "ARS", "ticker": "al30",
+            "clase_activo": "", "emisor": ""}
+    master = [{"ticker_corto": "AL30", "ajuste": "cer", "moneda_eje": "ARS"}]
+
+    r = clase.proponer([bono], None, usadas=["CER"], master=master)
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("CER", clase.CURVA)
+
+    master_dual = [{"ticker_corto": "AL30", "ajuste": "cer",
+                    "ajuste_alt": "tamar", "moneda_eje": "ARS"}]
+    r = clase.proponer([bono], None, usadas=["DUAL"], master=master_dual)
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("DUAL", clase.CURVA)
+
+    # El ticker del asset no está en el master: no se propone nada.
+    r = clase.proponer([bono], None, usadas=["CER"], master=[])
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("", "")
+
+
+def test_deterministas_solo_lleva_regla_primary_y_curva():
     """`deterministas` es lo único que `CompletarFicha.solo` puede escribir
     sin que nadie apriete: filas con `propuesto` vacío no aportan nada."""
     from agente import clase
@@ -4557,9 +4586,11 @@ def test_deterministas_solo_lleva_regla_y_primary():
     filas = [
         {"unidad": "u1", "propuesto": "CALL OPCIONES", "fuente": clase.REGLA},
         {"unidad": "u2", "propuesto": "MM ARS", "fuente": clase.PRIMARY},
-        {"unidad": "u3", "propuesto": "", "fuente": ""},
+        {"unidad": "u3", "propuesto": "CER", "fuente": clase.CURVA},
+        {"unidad": "u4", "propuesto": "", "fuente": ""},
     ]
     assert clase.deterministas(filas) == [
         {"unidad": "u1", "valor": "CALL OPCIONES"},
         {"unidad": "u2", "valor": "MM ARS"},
+        {"unidad": "u3", "valor": "CER"},
     ]

@@ -2,7 +2,7 @@
 
 Doc: `docs/AGENT.md` §0.ei → habilidad `ficha_incompleta`, regla `sin_clase_activo`.
 
-Dos reglas DETERMINÍSTICAS, pedidas por el user. **Sin base, sin red, sin
+Cinco reglas DETERMINÍSTICAS, pedidas por el user. **Sin base, sin red, sin
 imports del proyecto**: recibe lo que necesita y devuelve un string, o "" si
 la regla no aplica. La escritura y la lista cerrada las maneja `agente/clase.py`.
 
@@ -20,6 +20,21 @@ la regla no aplica. La escritura y la lista cerrada las maneja `agente/clase.py`
        Renta Fija        + ARS → ARS T1     Renta Fija        + USD → HD T1
        Renta Variable    + (ARS|USD)        → RENTA VARIABLE
        Renta Mixta, cualquier otro subyacente, o moneda que no sea ARS/USD → ""
+
+3. **Copia de la cartera.** Para las carteras que SON la clase (comparación
+   upper/strip):
+
+       RENTA VARIABLE → RENTA VARIABLE     HD → HD     DL → DL
+
+4. **Cartera ARS, por la CURVA del bono en el master** (`mercado.curvas`, doc
+   por `ticker_corto`). Solo si `moneda_eje` es `ARS` (los EJES del bono,
+   `core/curvas_ejes.py`):
+
+       ajuste_alt no vacío → DUAL   (un dual es la consecuencia de tener dos ajustes)
+       ajuste == cer   → CER
+       ajuste == fija  → FIJA
+       ajuste == tamar → TAMAR
+       badlar, tpm, caucion, dolar_linked, sin ejes, o bono no encontrado → ""
 """
 from __future__ import annotations
 
@@ -31,7 +46,16 @@ MM = {"ARS": "MM ARS", "USD": "MM USD"}
 T1 = {"ARS": "ARS T1", "USD": "HD T1"}
 RENTA_VARIABLE = "RENTA VARIABLE"
 
+# Carteras que SON la clase: copia directa, comparación upper/strip.
+CARTERA_COPIA = {"RENTA VARIABLE": "RENTA VARIABLE", "HD": "HD", "DL": "DL"}
+
+# El `ajuste` de los EJES (`core/curvas_ejes.py::AJUSTES`) que sí tiene clase.
+# `badlar`, `tpm`, `caucion`, `dolar_linked` no están: no se propone nada.
+POR_AJUSTE = {"cer": "CER", "fija": "FIJA", "tamar": "TAMAR"}
+DUAL = "DUAL"
+
 _CARTERA_DERIVADOS = "DERIVADOS"
+_CARTERA_ARS = "ARS"
 
 # El punto ES parte del contrato (`SOJ.ROS`, `MAI.ROS`), igual que en
 # `jobs/assets_autofill._PREFIJOS_AGRO`: no es un separador cualquiera. La
@@ -90,3 +114,26 @@ def de_fci(subyacente: str, moneda: str) -> str:
     if sub == "RENTA VARIABLE":
         return RENTA_VARIABLE if m in MM else ""
     return ""
+
+
+def de_cartera(cartera: str) -> str:
+    """Copia directa de la cartera cuando la cartera ES la clase, o "" si no
+    aplica. **PURA.** Comparación upper/strip."""
+    return CARTERA_COPIA.get((cartera or "").strip().upper(), "")
+
+
+def de_curva(cartera: str, moneda_eje: str, ajuste: str, ajuste_alt: str | None) -> str:
+    """La clase de un bono en pesos, por los EJES de su curva en el master, o
+    "" si no aplica. **PURA.** Solo cartera `ARS` (upper/strip) Y
+    `moneda_eje` `ARS`: un `ajuste_alt` no vacío es un DUAL —la consecuencia
+    de tener dos ajustes—, y si no hay, `ajuste` decide CER/FIJA/TAMAR.
+    `badlar`, `tpm`, `caucion`, `dolar_linked`, sin ejes, o `moneda_eje`
+    distinto de ARS no se proponen.
+    """
+    if (cartera or "").strip().upper() != _CARTERA_ARS:
+        return ""
+    if (moneda_eje or "").strip().upper() != "ARS":
+        return ""
+    if (ajuste_alt or "").strip():
+        return DUAL
+    return POR_AJUSTE.get((ajuste or "").strip().lower(), "")

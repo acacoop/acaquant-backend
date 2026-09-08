@@ -34,3 +34,33 @@ def test_normalizar_nombre():
     assert ca.normalizar_nombre("  Sbs   Pesos  Plus - Clase A  ") == \
         "SBS PESOS PLUS - CLASE A"
     assert ca.normalizar_nombre("Ciclo Nóva Ahórro") == "CICLO NOVA AHORRO"
+
+
+def test_de_cartera_es_copia_directa_de_las_tres_carteras():
+    assert ca.de_cartera("HD") == "HD"
+    assert ca.de_cartera("DL") == "DL"
+    assert ca.de_cartera("RENTA VARIABLE") == ca.RENTA_VARIABLE
+    # upper/strip: minúsculas y espacios no rompen la copia.
+    assert ca.de_cartera("  hd  ") == "HD"
+    assert ca.de_cartera("renta variable") == ca.RENTA_VARIABLE
+    # Otra cartera no tiene copia — la deriva `de_curva`, no `de_cartera`.
+    assert ca.de_cartera("ARS") == ""
+    assert ca.de_cartera("") == ""
+
+
+def test_de_curva_solo_ars_ars_y_por_el_ajuste():
+    assert ca.de_curva("ARS", "ARS", "cer", None) == "CER"
+    assert ca.de_curva("ARS", "ARS", "fija", None) == "FIJA"
+    assert ca.de_curva("ARS", "ARS", "tamar", "") == "TAMAR"
+    # `ajuste_alt` manda DUAL aunque el `ajuste` primario sea uno de los tres.
+    assert ca.de_curva("ARS", "ARS", "cer", "tamar") == ca.DUAL
+    # `moneda_eje` distinto de ARS: no se propone, aunque la cartera sea ARS.
+    assert ca.de_curva("ARS", "USD", "cer", None) == ""
+    # Otra cartera: esta regla es solo de la cartera ARS.
+    assert ca.de_curva("HD", "ARS", "cer", None) == ""
+    # Ajustes sin clase (badlar/tpm/caucion/dolar_linked) o sin ejes: nada.
+    assert ca.de_curva("ARS", "ARS", "badlar", None) == ""
+    assert ca.de_curva("ARS", "ARS", "tpm", None) == ""
+    assert ca.de_curva("ARS", "ARS", "caucion", None) == ""
+    assert ca.de_curva("ARS", "ARS", "dolar_linked", None) == ""
+    assert ca.de_curva("ARS", "ARS", "", None) == ""

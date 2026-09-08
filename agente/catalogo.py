@@ -319,17 +319,17 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "sin_clase_activo": "completar_ficha",
                   "sin_emisor": "completar_ficha",
                   "fci_sin_ticker": "completar_ficha"},
-        # Solo `sin_clase_activo`: son las DOS reglas determinísticas de
-        # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES, y FCI
-        # por Primary — Mercado de Dinero → MM, Renta Fija → T1, Renta
-        # Variable → RENTA VARIABLE). Lo demás —el resto de la clase, la
-        # cartera, el emisor— sigue quedando para una persona: no hay regla
-        # que lo resuelva sin criterio de la mesa.
+        # Solo `sin_clase_activo`: son las CUATRO reglas determinísticas de
+        # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES, copia
+        # de cartera — RENTA VARIABLE/HD/DL —, FCI por Primary — Mercado de
+        # Dinero → MM, Renta Fija → T1, Renta Variable —, y ARS por la CURVA
+        # del bono en el master). Lo demás —el emisor, y la cartera para lo
+        # que no cae en ninguna de estas cuatro— sigue quedando para una
+        # persona: no hay regla que lo resuelva sin criterio de la mesa.
         automatico={"sin_clase_activo":
-                    "dos reglas determinísticas: derivados con C/P → "
-                    "CALL/PUT OPCIONES, y FCI por Primary (Mercado de Dinero "
-                    "→ MM, Renta Fija → T1, Renta Variable). Lo demás queda "
-                    "para una persona."}),
+                    "derivados C/P, copia de cartera (RENTA VARIABLE/HD/DL), "
+                    "FCI por Primary y ARS por la curva del master. Lo demás "
+                    "queda para una persona."}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────
     # Lo que un job reporta sin escribir, declarado en `agente/reportes.py`

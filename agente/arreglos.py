@@ -689,10 +689,11 @@ class CompletarFicha(Arreglo):
         # la base — y si el gateway no contesta, las filas vuelven sin propuesta
         # y esto queda exactamente como estaba.
         #
-        # Hoy la CLASE también se deriva, para DOS casos determinísticos:
-        # derivados con C/P y FCI por Primary (§0.ei). El resto —y la
-        # CARTERA, siempre— sigue siendo criterio de la mesa: no hay de dónde
-        # derivarlo, y proponerlo sería inventar.
+        # Hoy la CLASE también se deriva, para CUATRO casos determinísticos:
+        # derivados con C/P, copia de cartera (RENTA VARIABLE/HD/DL), FCI por
+        # Primary y ARS por la curva del bono en el master (§0.ei). El resto
+        # sigue siendo criterio de la mesa: no hay de dónde derivarlo, y
+        # proponerlo sería inventar.
         propuestas = 0
         if c["campo"] == "emisor" and filas:
             from agente import emisor as em
@@ -707,7 +708,8 @@ class CompletarFicha(Arreglo):
             from agente import clase, fuentes
             try:
                 filas = clase.proponer(filas, fuentes.fichas_primary(),
-                                       det.valores_usados("clase_activo"))
+                                       det.valores_usados("clase_activo"),
+                                       master=fuentes.master())
                 propuestas = sum(1 for f in filas if f.get("propuesto"))
             except Exception as e:
                 logger.warning("completar_ficha: sin propuestas de clase (%s)", e)
@@ -744,7 +746,8 @@ class CompletarFicha(Arreglo):
         from agente import clase, fuentes
         return clase.deterministas(
             clase.proponer(det.faltantes(c), fuentes.fichas_primary(),
-                           det.valores_usados("clase_activo")))
+                           det.valores_usados("clase_activo"),
+                           master=fuentes.master()))
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "",
                 datos: list | None = None) -> Resultado:

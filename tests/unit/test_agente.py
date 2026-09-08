@@ -2366,10 +2366,12 @@ def test_contraparte_faltante_solo_mira_los_tipos_INSTITUCIONALES(monkeypatch):
     assert "PyMES" not in datos.TIPOS_INSTITUCIONALES
     assert "Fondo Común de Inversión" in datos.TIPOS_INSTITUCIONALES
 
-    # ⚠️ El número de las que quedan AFUERA viaja en el problema: «53 cuentas»
-    # sin ese contexto se lee como «hay 53 sin decidir», y son 615.
-    assert "562" in h[0].problema
+    # ⚠️ El número de las que quedan AFUERA ya NO va en el texto (§0.es: el user
+    # lo pidió corto) pero NO se perdió: vive en la evidencia, que es donde se
+    # mira cuando se quiere mirar. Sacarlo del todo dejaría «53» leyéndose como
+    # «hay 53 sin decidir», y son 615.
     assert h[0].evidencia["sin_senal"] == 562
+    assert len(h[0].problema) < 90, "el aviso volvió a ser un choclo"
     assert [f["cuenta"] for f in h[0].evidencia["_items"]] == ["805", "806"]
 
 
@@ -2465,6 +2467,92 @@ def test_dar_de_alta_una_contraparte_nunca_es_automatico():
     # Y es RECURRENTE (§0.ep): el sujeto es una familia que se llena y se vacía.
     assert h.naturaleza == {"sin_contraparte": tipos.RECURRENTE}
     assert ("contraparte_faltante", "sin_contraparte") in catalogo.sin_episodios()
+
+
+def test_la_contraparte_se_aprende_de_las_cargadas_y_no_se_lee_del_nombre():
+    """**EL CASO DEL USER, ENTERO** (§0.es).
+
+    *«FCI Consultatio Estrategia I / II / III / IV — si acá leés uno creerías
+    que es Consultatio, pero si revisás el historial que ya hay, Consultatio es
+    ONE618»*.
+
+    Ese es el motivo por el que el sugeridor mira la TABLA y no el nombre: la
+    propuesta ingenua suena perfectamente razonable, y por eso el que tilda la
+    acepta. Un sugeridor que se equivoca con seguridad es peor que ninguno.
+    """
+    from api.services.contrapartes_seg import (
+        _palabras,
+        indice_contrapartes,
+        sugerir_contraparte,
+    )
+
+    cargadas = [
+        {"den": "[2010] FCI Consultatio Estrategia I", "cp": "ONE618"},
+        {"den": "[2014] FCI Consultatio Estrategia II", "cp": "ONE618"},
+        {"den": "[1925] FCI Consultatio Estrategia III", "cp": "ONE618"},
+        {"den": "[105] LA SEGUNDA ASEGURADORA DE RIESGO", "cp": "LA SEGUNDA"},
+    ]
+    idx = indice_contrapartes(cargadas)
+    cp, porque = sugerir_contraparte("[2011] FCI Consultatio Estrategia IV", idx)
+    assert cp == "ONE618", "tiene que salir de la historia, no del nombre"
+    assert "CONSULTATIO" in porque and "3" in porque, (
+        "la propuesta viaja con su evidencia: sin el porqué no se puede "
+        "rechazar sin abrir otra pantalla")
+
+    # Las genéricas NO emparejan a nadie: si «FCI» o «FONDO» contaran, todos los
+    # fondos serían parientes de todos y la sugerencia sería ruido con formato
+    # de dato.
+    assert _palabras("[9] FCI FONDO COMUN DE INVERSION") == set()
+    assert sugerir_contraparte("[999] FCI RENTA FIJA PESOS", idx) == ("", "")
+
+    # ⚠️ Y una palabra que apunta a DOS contrapartes no se usa. No es que la
+    # sugerencia sea peor: sería una moneda al aire con cara de dato.
+    ambiguo = indice_contrapartes(cargadas + [
+        {"den": "[77] CONSULTATIO OTRA COSA", "cp": "OTRO GESTOR"}])
+    assert sugerir_contraparte("[2011] FCI Consultatio Estrategia IV",
+                               ambiguo) == ("", "")
+
+
+def test_no_es_contraparte_no_se_anota_en_la_tabla_que_mueve_el_AuM():
+    """⚠️⚠️ **EL NO VA EN SU PROPIA TABLA, Y ES LO QUE EVITA UN AGUJERO DE PLATA.**
+
+    `jobs/_aum_filters` regla 3 excluye del AuM por la SOLA PRESENCIA del
+    `id_cuenta` en `clientes.contrapartes`. Anotar ahí «esta NO es contraparte»
+    —una fila con el nombre vacío— le sacaría del AuM la plata de un cliente
+    real, sin que fallara nada. Por eso hay una tabla aparte que no lee nadie
+    más que el detector.
+    """
+    from agente import vista
+
+    src = _codigo(vista.no_interesan_contrapartes)
+    assert "contrapartes_descartadas" in src
+    assert "INSERT INTO clientes.contrapartes " not in src, (
+        "el descarte NUNCA escribe en `contrapartes`: esa tabla saca del AuM")
+    # Y el detector las resta EN LA MISMA consulta que arma la lista: dos
+    # filtros serían dos números que se desincronizan sin fallar.
+    det = _codigo(datos.contraparte_faltante)
+    assert "contrapartes_descartadas" in det
+
+    # La guarda de siempre: sólo se silencia lo que ESTE hallazgo ofreció.
+    assert "permitidas" in src and "_items" in src
+
+
+def test_el_aviso_de_contrapartes_es_corto_y_lo_que_se_saco_sigue_estando():
+    """User (§0.es): *«demasiado texto, no me interesa nada acá»*. La tarjeta
+    tenía el desglose por tipo, el denominador del recorte, ocho denominaciones
+    truncadas y una frase sobre el AuM — y la lista entera está a un click.
+
+    Corto NO es perder el dato: el desglose y el denominador siguen viajando en
+    la evidencia, que es donde se miran cuando se quieren mirar.
+    """
+    src = _codigo(datos.contraparte_faltante)
+    assert "cuenta(s) institucional(es) sin contraparte" in src
+    assert len(_codigo(datos.contraparte_faltante).split("problema=")[1]
+               .split("que_hacer=")[0]) < 90, "el `problema` volvió a crecer"
+    for fuera in ("sus tenencias cuentan en el AuM", "sin señal (Empresa"):
+        assert fuera not in src, f"volvió el texto largo: «{fuera}»"
+    # Pero el dato no se perdió.
+    assert "'sin_senal': sin_senal" in src and "'por_tipo': por_tipo" in src
 
 
 def test_el_peso_se_consolida_por_vista():

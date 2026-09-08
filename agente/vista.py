@@ -321,6 +321,80 @@ def no_interesan_ons(hallazgo_id: int, tickers: list[str], *,
             "errores": errores}
 
 
+# ── DESCARTAR CUENTAS QUE NO SON CONTRAPARTE ────────────────────────────────
+def no_interesan_contrapartes(hallazgo_id: int, cuentas: list[str], *,
+                              todas: bool = False, por: str = "") -> dict:
+    """«Esta no es contraparte», por cuenta — el gemelo de `no_interesan_ons`
+    para la oferta de `contraparte_faltante` (§0.es, misma forma).
+
+    ⚠️⚠️ **ES LA PIEZA QUE HACE QUE LA LISTA PUEDA LLEGAR A CERO.** Sin un lugar
+    donde anotar el NO, una cuenta institucional que la mesa ya miró y descartó
+    vuelve a ofrecerse para siempre, y una lista que no se vacía no la mira
+    nadie.
+
+    ⚠️ Escribe `clientes.contrapartes_descartadas`, **una tabla aparte y no una
+    fila vacía en `contrapartes`**: `jobs/_aum_filters` regla 3 excluye del AuM
+    por la SOLA PRESENCIA del `id_cuenta` ahí, así que anotar el NO en esa tabla
+    le sacaría del AuM la plata de un cliente real, callado.
+    """
+    from datetime import UTC, datetime
+
+    from agente import libro, motor, tipos
+
+    h = _hallazgo_on(hallazgo_id)
+    if h is None:
+        return {"ok": False, "error": "ese hallazgo no existe"}
+    if h["habilidad"] != "contraparte_faltante" or h["regla"] != "sin_contraparte":
+        return {"ok": False, "error": "esto solo aplica a la oferta de contrapartes"}
+    if h["estado"] not in tipos.ABIERTOS:
+        return {"ok": False, "error": f"ese hallazgo está «{h['estado']}»"}
+
+    # ⚠️ NO se escribe lo que manda el navegador: solo lo que el propio detector
+    # ofreció en ESTA fila. Sin esto, la puerta silenciaría cualquier cuenta del
+    # padrón — y una cuenta silenciada no vuelve a ofrecerse nunca.
+    permitidas = {str(x.get("cuenta") or "").strip()
+                  for x in h["evidencia"].get("_items") or []} - {""}
+    elegidas = permitidas if todas else ({str(c).strip() for c in cuentas}
+                                         & permitidas)
+    if not elegidas:
+        return {"ok": False, "error": "no elegiste ninguna cuenta de la lista"}
+
+    escritas, errores = [], []
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for c in sorted(elegidas):
+            try:
+                cur.execute(
+                    "INSERT INTO clientes.contrapartes_descartadas "
+                    "  (id_cuenta, motivo, por, at) VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (id_cuenta) DO NOTHING",
+                    (c, "no es contraparte", por, datetime.now(UTC)))
+                escritas.append(c)
+            except Exception as e:
+                errores.append(f"{c}: {e}"[:160])
+        conn.commit()
+
+    libro.registrar(
+        accion="no_es_contraparte", objetivo=h["sujeto"], habilidad=h["habilidad"],
+        regla=h["regla"], hallazgo_id=hallazgo_id, por=por,
+        destino="clientes.contrapartes_descartadas", campo="cuentas descartadas",
+        antes=str(len(permitidas)),
+        despues=f"{len(permitidas) - len(escritas)} (descartadas {len(escritas)})",
+        ok=bool(escritas), error="; ".join(errores)[:300])
+
+    try:
+        motor.correr_una("contraparte_faltante")
+    except Exception:
+        logger.warning("vista: no_interesan_contrapartes descartó, pero no pude "
+                       "refrescar contraparte_faltante", exc_info=True)
+
+    return {"ok": True, "descartadas": sorted(escritas),
+            "quedan": len(permitidas) - len(escritas),
+            "detalle": (f"{len(escritas)} descartada(s) · quedan "
+                        f"{len(permitidas) - len(escritas)} · el aviso vuelve "
+                        "solo con las cuentas nuevas"),
+            "errores": errores}
+
+
 # ── DESCARTAR CEDEARs POR TICKER ─────────────────────────────────────────────
 def no_interesan_cedears(hallazgo_id: int, tickers: list[str], *,
                          todas: bool = False, por: str = "") -> dict:

@@ -411,7 +411,6 @@ TIPOS_INSTITUCIONALES: tuple[str, ...] = (
 # episodios (§0.ep) — sus nacimientos miden cuántas cuentas entraron, no una
 # falla.
 FAMILIA_CONTRAPARTES = "CONTRAPARTES NUEVAS"
-MUESTRA_CONTRAPARTES = 8
 
 
 def contraparte_faltante(u: dict) -> list[Hallazgo]:
@@ -453,6 +452,11 @@ def contraparte_faltante(u: dict) -> list[Hallazgo]:
                 "   AND m.tipo_cliente = ANY(%s) "
                 "   AND NOT EXISTS (SELECT 1 FROM clientes.contrapartes c "
                 "                    WHERE c.id_cuenta = m.id_cuenta) "
+                # Las que la mesa ya dijo que NO son (§0.es). Se restan acá y no
+                # en Python para que el conteo y la lista salgan de la MISMA
+                # consulta: dos filtros son dos números que se desincronizan.
+                "   AND NOT EXISTS (SELECT 1 FROM clientes.contrapartes_descartadas d "
+                "                    WHERE d.id_cuenta = m.id_cuenta) "
                 " ORDER BY m.tipo_cliente, u.denominacion",
                 (list(TIPOS_INSTITUCIONALES),))
             filas = [{"cuenta": r[0], "denominacion": r[1], "tipo_cliente": r[2]}
@@ -483,8 +487,25 @@ def contraparte_faltante(u: dict) -> list[Hallazgo]:
     # La sugerencia SALE DE LA MISMA FUNCIÓN QUE USA EL CONCILIADOR, no de una
     # copia (REGLA #9): el día que allá cambie el criterio, la pantalla y el
     # agente no pueden empezar a sugerir cosas distintas sin que falle nada.
-    from api.services.contrapartes_seg import inferir_segmento
+    from api.services.contrapartes_seg import (
+        indice_contrapartes,
+        inferir_segmento,
+        sugerir_contraparte,
+    )
+    # ⚠️ **LA CONTRAPARTE SE APRENDE DE LAS QUE YA ESTÁN, no se lee del nombre**
+    # (§0.es). «FCI Consultatio Estrategia IV» parece Consultatio y en la tabla
+    # esas cuentas son ONE618: un sugeridor que mire el nombre se equivoca con
+    # seguridad, y el que tilda acepta una propuesta que suena razonable.
+    try:
+        idx = indice_contrapartes()
+    except Exception as e:
+        # Sin índice se sigue: las filas salen sin propuesta, que es como
+        # estaban. No poder sugerir NO es motivo para ocultar el aviso.
+        logger.warning("contraparte_faltante: sin índice de contrapartes (%s)", e)
+        idx = {}
     for f in filas:
+        f["contraparte_sugerida"], f["porque"] = sugerir_contraparte(
+            f["denominacion"], idx)
         f["segmento_sugerido"] = inferir_segmento(f["denominacion"], None) or ""
         # De DÓNDE sale la sugerencia. No es decorado: «lo dice Aunesa» y «lo
         # dice el nombre» son dos actos distintos de confirmar, y el que tilda
@@ -498,27 +519,21 @@ def contraparte_faltante(u: dict) -> list[Hallazgo]:
     por_tipo: dict[str, int] = {}
     for f in filas:
         por_tipo[f["tipo_cliente"]] = por_tipo.get(f["tipo_cliente"], 0) + 1
-    resumen = " · ".join(f"{n} {t}" for t, n in
-                         sorted(por_tipo.items(), key=lambda kv: -kv[1]))
-    muestra = [f"{f['cuenta']} {f['denominacion'][:38]}"
-               for f in filas[:MUESTRA_CONTRAPARTES]]
+    sugeridas = sum(1 for f in filas if f["contraparte_sugerida"])
     return [Hallazgo(
         sujeto=FAMILIA_CONTRAPARTES, regla="sin_contraparte", severidad="media",
         nombre=FAMILIA_CONTRAPARTES,
-        problema=(f"{len(filas)} cuenta(s) institucional(es) activas sin fila en "
-                  f"contrapartes — {resumen}"
-                  + (f" · otras {sin_senal} sin señal (Empresa, PyMES, "
-                     f"cooperativas): son clientes, no entran" if sin_senal else "")
-                  + f" · {reloj.hhmm()}"),
-        detalle=("mientras no estén, sus tenencias cuentan en el AuM como plata "
-                 "de un cliente y su nivel_3 queda mal · " + " · ".join(muestra)
-                 + (" · …" if len(filas) > len(muestra) else "")),
-        que_hacer=("Abrir el listado y tildar las que son contraparte: se dan de "
-                   "alta con su segmento desde acá mismo. Las que NO lo sean, "
-                   "dejarlas sin tildar — vuelven a aparecer hasta que alguien "
-                   "las cargue, porque hoy no hay dónde anotar un «no»."),
+        # ⚠️ **CORTO A PROPÓSITO** (pedido del user, §0.es). Acá no hay un
+        # problema que explicar: hay un número y un botón. La tarjeta llegó a
+        # tener el desglose por tipo, las que quedaban afuera del recorte, ocho
+        # denominaciones truncadas y una frase sobre el AuM — y nada de eso se
+        # lee, porque la lista entera está a un click en el listado. Lo que
+        # sacamos vive igual: el desglose y el denominador, en la evidencia.
+        problema=f"{len(filas)} cuenta(s) institucional(es) sin contraparte",
+        que_hacer=("Abrir el listado: tildá las que son contraparte y se dan de "
+                   "alta; las que no, «no me interesan» y dejan de ofrecerse."),
         evidencia={"cantidad": len(filas), "sin_senal": sin_senal,
-                   "por_tipo": por_tipo,
+                   "por_tipo": por_tipo, "sugeridas": sugeridas,
                    # ⚠️ `_items` es la IDENTIDAD, no la pantalla (§0.cz): con la
                    # lista, una cuenta NUEVA no reincide sobre un alta que
                    # escribió OTRAS. El `_` lo esconde del front.

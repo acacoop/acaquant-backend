@@ -6218,3 +6218,70 @@ segmento). **Equivocarse acá cuesta plata**: cada alta saca esa cuenta del AuM
   todavía no duele.
 - **`codigo_mae`.** 135 de 398 lo tienen vacío y no es derivable: lo asigna el
   MAE. Meterlo en este aviso habría sido ruido sobre un tercio de la tabla.
+
+
+### 0.es LA CONTRAPARTE NO SE LEE DEL NOMBRE: SE APRENDE DE LAS QUE YA ESTÁN (2026-09-08)
+
+Cuatro pedidos del user sobre la tarjeta de `contraparte_faltante`, ya
+funcionando en pantalla. Tres son de forma; el cuarto cambia lo que la
+habilidad sabe hacer.
+
+#### El caso que lo explica todo
+
+> *«2010 FCI Consultatio Estrategia I · 2014 FCI Consultatio Estrategia II ·
+> 1925 FCI Consultatio Estrategia III · 2011 FCI Consultatio Estrategia IV — si
+> acá leés uno creerías que es Consultatio, pero si revisás el historial que ya
+> hay, Consultatio es **ONE618**. La mayoría de los fondos, viendo similitudes,
+> se podrían ir sugiriendo.»*
+
+**Y ahí está el peligro, no la oportunidad.** «Consultatio» es la respuesta que
+suena bien, y por eso el que tilda la acepta. Un sugeridor que mire el NOMBRE se
+equivoca con seguridad; uno que mire la TABLA acierta por el mismo motivo por el
+que el user acierta: porque hay historia.
+
+#### Cómo funciona el sugeridor
+
+De cada contraparte YA cargada se sacan las palabras **distintivas** de sus
+cuentas —descartando las que están en media tabla (`FCI`, `FONDO`, `SEGUROS`,
+`SOCIEDAD`…)— y se arma `{palabra: {contraparte: en cuántas cuentas}}`. Una
+cuenta nueva hereda la contraparte de la palabra que comparte.
+
+Dos guardas, y las dos son sobre cuándo **no** opinar:
+
+1. **Sólo si la palabra apunta a UNA sola contraparte.** Si «CONSULTATIO»
+   estuviera bajo dos nombres, no se propone nada. No es que la sugerencia sea
+   peor: sería una moneda al aire con cara de dato.
+2. **La propuesta viaja con su evidencia** — «CONSULTATIO está en 3 cuenta(s) de
+   ONE618» — para poder rechazarla sin abrir otra pantalla.
+
+Vive en `api/services/contrapartes_seg.py`, al lado de `inferir_segmento`, así
+lo usan el agente y el conciliador de Manager (REGLA #9).
+
+**Y se mide dejando cada fila afuera.** `diag_contrapartes` §5b arma el índice
+SIN la fila que está evaluando: medirlo contra un índice que ya contiene la
+respuesta daría 100% siempre y no diría nada. El número que importa es
+CONTRADICE — proponer mal y que alguien lo tilde es el único error caro.
+
+#### El «no me interesa», que es lo que deja la lista llegar a cero
+
+Mismo patrón que las ONs y los CEDEARs (§0.eh): se silencia **por clave**, no
+por evento, y el aviso vuelve solo con las cuentas nuevas.
+
+⚠️ **Va en `clientes.contrapartes_descartadas`, una tabla propia.** No se puede
+anotar el NO como una fila vacía en `contrapartes`: `jobs/_aum_filters` regla 3
+excluye del AuM por la **sola presencia** del `id_cuenta` ahí, así que marcar
+«esta no es contraparte» en esa tabla le sacaría del AuM la plata de un cliente
+real, y no fallaría nada. El detector las resta EN LA MISMA consulta que arma la
+lista: dos filtros serían dos números que se desincronizan.
+
+#### Lo que se sacó de la pantalla
+
+*«Demasiado texto, no me interesa nada acá»*, y tenía razón. La tarjeta traía el
+desglose por tipo, el denominador del recorte, ocho denominaciones truncadas y
+una frase sobre el AuM — **con la lista entera a un click**. Quedó el número y el
+botón, igual que `ficha_incompleta` (§0.dz): acá no hay un problema que
+explicar. También se fue el cartel del AuM del listado.
+
+**Corto no es perder el dato**: el desglose y el denominador siguen viajando en
+la evidencia, que es donde se miran cuando se quieren mirar. Un test lo exige en
+las dos direcciones — que el texto no vuelva a crecer y que el dato no se pierda.

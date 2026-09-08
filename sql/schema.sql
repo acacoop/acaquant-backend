@@ -237,6 +237,23 @@ ALTER TABLE clientes.contrapartes ADD COLUMN IF NOT EXISTS codigo_mae text;
 -- este archivo no la declaraba (2026-09-08).
 ALTER TABLE clientes.contrapartes ADD COLUMN IF NOT EXISTS denominacion text;
 
+-- ⚠️⚠️ **«NO ES CONTRAPARTE» NECESITA TABLA PROPIA, Y NO ES UN CAPRICHO.**
+-- La habilidad `contraparte_faltante` ofrece cuentas institucionales sin cargar;
+-- las que la mesa descarta tienen que dejar de ofrecerse, o la lista no llega a
+-- cero nunca. Pero **NO se puede anotar como una fila vacía en `contrapartes`**:
+-- `jobs/_aum_filters` regla 3 excluye del AuM por la SOLA PRESENCIA del
+-- `id_cuenta` en esa tabla, así que marcar «esta no es contraparte» ahí le
+-- borraría del AuM la plata de un cliente real, en silencio.
+-- Acá no lee nadie más que el detector. Mismo patrón que `mercado.ons_ignoradas`
+-- (§0.eh): se silencia por CLAVE, no por evento, y el aviso vuelve solo con las
+-- cuentas nuevas. Des-descartar es un DELETE a mano.
+CREATE TABLE IF NOT EXISTS clientes.contrapartes_descartadas (
+    id_cuenta text PRIMARY KEY,
+    motivo    text,
+    por       text,
+    at        timestamptz
+);
+
 -- CashFlow.Accionistas — set de cuentas accionistas (para el filtro de cuenta de NEGOCIO/
 -- portfolio: accionistas / sin_accionistas / cooperativas). Solo el string `cuenta`.
 CREATE TABLE IF NOT EXISTS clientes.accionistas (

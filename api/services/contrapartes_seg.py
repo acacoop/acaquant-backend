@@ -187,6 +187,100 @@ def _norm_den(v: Any) -> str | None:
     return re.sub(r"\s+", " ", s).strip() or None
 
 
+# ── SUGERIR LA CONTRAPARTE POR PARECIDO CON LO QUE YA HAY ─────────────────
+#
+# ⚠️⚠️ **EL NOMBRE DE LA CONTRAPARTE NO SE LEE DE LA CUENTA: SE APRENDE DE LAS
+# QUE YA ESTÁN CARGADAS.** Es la diferencia entera, y el caso del user lo dice
+# mejor que cualquier explicación (§0.es):
+#
+#     «FCI Consultatio Estrategia I / II / III / IV»
+#
+# Leyendo eso cualquiera pondría «Consultatio». Está MAL: en la tabla, las
+# cuentas Consultatio ya cargadas tienen contraparte **ONE618**. Un sugeridor
+# que mire el nombre y no la historia se equivoca con seguridad — y como el que
+# tilda ve una propuesta que suena razonable, la acepta.
+#
+# Por eso el índice va al revés: de cada contraparte YA cargada se sacan las
+# palabras distintivas de sus cuentas, y una cuenta nueva hereda la contraparte
+# de la palabra que comparte. La evidencia viaja con la propuesta («CONSULTATIO
+# está en 3 cuentas de ONE618»), así se puede rechazar sin abrir nada.
+
+# Palabras que NO distinguen a nadie: están en media tabla. Sin esta lista,
+# «FONDO» emparejaría todos los FCI entre sí y la sugerencia sería ruido.
+_GENERICAS: frozenset[str] = frozenset({
+    "FCI", "FONDO", "FONDOS", "COMUN", "COMUNES", "INVERSION", "INVERSIONES",
+    "SOCIEDAD", "SOCIEDADES", "ANONIMA", "COMPANIA", "COMPANIAS", "LIMITADA",
+    "SEGURO", "SEGUROS", "ASEGURADORA", "RETIRO", "VIDA", "GENERALES",
+    "PERSONAS", "RIESGO", "RIESGOS", "TRABAJO", "COOPERATIVA", "MUTUAL",
+    "FIDEICOMISO", "FINANCIERO", "FINANCIERA", "ADMINISTRADORA", "GERENTE",
+    "CAPITAL", "CAPITALES", "ASSET", "MANAGEMENT", "RENTA", "AHORRO",
+    "PESOS", "DOLARES", "DOLAR", "CLASE", "SERIE", "ESTRATEGIA", "PLUS",
+})
+# Una palabra de tres letras o menos no distingue (LA, DE, SA, CP, I, II, III).
+_MIN_TOKEN = 4
+
+
+def _palabras(denominacion: Any) -> set[str]:
+    """Las palabras DISTINTIVAS de una denominación, normalizadas."""
+    d = _norm_den(denominacion) or ""
+    # El prefijo «[805] » que trae la denominación de Aunesa no dice nada.
+    d = re.sub(r"^\[[^\]]*\]\s*", "", d)
+    return {w for w in re.findall(r"[A-Z0-9]+", d)
+            if len(w) >= _MIN_TOKEN and w not in _GENERICAS and not w.isdigit()}
+
+
+def indice_contrapartes(filas: list[dict] | None = None) -> dict[str, dict[str, int]]:
+    """`{palabra: {contraparte: en cuántas cuentas aparece}}`, de lo YA cargado.
+
+    `filas` se acepta para poder medirlo dejando una fuera (`diag_contrapartes`
+    lo usa para el leave-one-out): sin eso, cualquier medición se evaluaría
+    contra un índice que ya contiene la respuesta.
+    """
+    if filas is None:
+        filas = _q(f"SELECT {_DEN} AS den, c.contraparte AS cp "
+                   "  FROM contrapartes c "
+                   "  LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+                   " WHERE c.contraparte IS NOT NULL AND btrim(c.contraparte) <> ''")
+    idx: dict[str, dict[str, int]] = {}
+    for f in filas:
+        cp = _norm_keyword(f.get("cp"))
+        if not cp:
+            continue
+        original = str(f.get("cp")).strip()
+        for w in _palabras(f.get("den")):
+            idx.setdefault(w, {})
+            idx[w][original] = idx[w].get(original, 0) + 1
+    return idx
+
+
+def sugerir_contraparte(denominacion: Any,
+                        idx: dict[str, dict[str, int]]) -> tuple[str, str]:
+    """→ `(contraparte, por qué)`. Vacío si no hay evidencia LIMPIA.
+
+    ⚠️ **Sólo propone cuando la palabra apunta a UNA sola contraparte.** Una
+    palabra que aparece bajo dos nombres distintos no se usa: no es que la
+    sugerencia sea peor, es que sería una moneda al aire con cara de dato. Y
+    entre varias palabras limpias gana la MÁS RARA —la que cubre menos
+    contrapartes en el resto del índice—, que es la que de verdad identifica.
+
+    Devolver `("", "")` es una respuesta y no una falla: la fila queda para que
+    una persona escriba, igual que hoy.
+    """
+    limpias: list[tuple[int, str, str]] = []
+    for w in _palabras(denominacion):
+        candidatos = idx.get(w) or {}
+        if len(candidatos) != 1:
+            continue
+        cp, n = next(iter(candidatos.items()))
+        limpias.append((n, w, cp))
+    if not limpias:
+        return "", ""
+    # Más cuentas detrás = más evidencia; a igualdad, la palabra más larga (más
+    # específica). Nunca al azar: el orden tiene que ser estable entre corridas.
+    n, palabra, cp = max(limpias, key=lambda t: (t[0], len(t[1]), t[1]))
+    return cp, f"«{palabra}» está en {n} cuenta(s) de {cp}"
+
+
 def importar_masivo(rows: list[dict], *, actor: str | None = None) -> dict:
     """Import de Excel: completa contraparte/segmento/codigo_mae de filas YA existentes.
 

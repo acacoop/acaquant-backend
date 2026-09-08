@@ -281,6 +281,57 @@ def _senales() -> None:
     print(f"\n  Personas físicas excluidas por el conciliador: tipo_cliente ∈ {sorted(_TIPOS_PH)}")
 
 
+# ── 5b. ¿ACIERTA EL SUGERIDOR DE CONTRAPARTE? (leave-one-out) ─────────────
+def _sugeridor() -> None:
+    from api.services.contrapartes_seg import (
+        indice_contrapartes,
+        sugerir_contraparte,
+    )
+
+    _titulo("5b. EL SUGERIDOR DE CONTRAPARTE — medido dejando cada fila AFUERA")
+    print("⚠️ **LEAVE-ONE-OUT, y no es rigor de más.** El sugeridor aprende de las\n"
+          "contrapartes ya cargadas; medirlo contra el índice que YA contiene la\n"
+          "respuesta daría 100% siempre y no diría nada. Acá, para cada fila, el\n"
+          "índice se arma SIN ella y recién ahí se le pregunta.\n")
+    filas = _filas(
+        "SELECT c.id_cuenta, btrim(c.contraparte), "
+        "       upper(coalesce(c.denominacion, u.denominacion, '')) "
+        "  FROM clientes.contrapartes c "
+        "  LEFT JOIN clientes.cuentas u ON u.id_cuenta = c.id_cuenta "
+        " WHERE c.contraparte IS NOT NULL AND btrim(c.contraparte) <> ''")
+    if len(filas) < 5:
+        print(f"  Sólo {len(filas)} fila(s) con contraparte: no alcanza para medir.")
+        return
+
+    todas = [{"den": d, "cp": cp} for _, cp, d in filas]
+    acierta = contradice = calla = 0
+    errores: list[str] = []
+    for i, (idc, cp_real, den) in enumerate(filas):
+        # El índice SIN esta fila. Se rearma entero por fila: son ~400, y una
+        # medición que se apura reusando el índice completo mide otra cosa.
+        idx = indice_contrapartes(todas[:i] + todas[i + 1:])
+        sug, _porque = sugerir_contraparte(den, idx)
+        if not sug:
+            calla += 1
+        elif sug.strip().upper() == cp_real.strip().upper():
+            acierta += 1
+        else:
+            contradice += 1
+            if len(errores) < 10:
+                errores.append(f"{idc}: dice «{sug}», es «{cp_real}» — {den[:44]}")
+    tot = len(filas)
+    print(f"  Sobre {tot} contrapartes cargadas a mano:")
+    print(f"      acierta ....... {acierta:>4}  ({100 * acierta // tot}%)")
+    print(f"      CONTRADICE .... {contradice:>4}  ← lo caro: propone mal y alguien lo tilda")
+    print(f"      no opina ...... {calla:>4}  (queda para escribir a mano, como hoy)")
+    for e in errores:
+        print(f"        · {e}")
+    if contradice:
+        print("\n  ⚠️ Si CONTRADICE es más que un puñado, la regla de «una palabra")
+        print("     que apunta a UNA sola contraparte» no alcanza: hay que subir el")
+        print("     mínimo de cuentas detrás de la palabra, o ampliar `_GENERICAS`.")
+
+
 # ── 6. EL TAMAÑO DE LA LISTA DE PENDIENTES ────────────────────────────────
 def _pendientes() -> None:
     from api.services.segmentacion import _TIPOS_PH
@@ -383,7 +434,8 @@ def main() -> int:
                          "(⚠ deja una marca de telemetría en manager.proveedor_estado: "
                          "lo hace toda llamada a Aunesa, no este script)")
     args = ap.parse_args()
-    for paso in (_columnas, _padron, _vacios, _vocabulario, _senales, _pendientes):
+    for paso in (_columnas, _padron, _vacios, _vocabulario, _senales,
+                 _sugeridor, _pendientes):
         try:
             paso()
         except Exception as e:

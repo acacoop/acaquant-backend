@@ -203,6 +203,23 @@ def cedears_no_interesan(body: NoInteresan, email: str = Depends(get_user_email)
     return v.no_interesan_cedears(body.id, body.tickers, todas=body.todas, por=email)
 
 
+class NoSonContrapartes(BaseModel):
+    id: int = Field(..., ge=1)
+    cuentas: list[str] = Field(default_factory=list, max_length=500)
+    todas: bool = False
+
+
+@router.post("/contrapartes/no-interesan")
+def contrapartes_no_interesan(body: NoSonContrapartes,
+                              email: str = Depends(get_user_email)):
+    """«Estas NO son contraparte» (por cuenta), no el aviso entero: dejan de
+    ofrecerse y el aviso vuelve solo con las cuentas institucionales nuevas
+    (`clientes.contrapartes_descartadas`, §0.es)."""
+    from agente import vista as v
+    return v.no_interesan_contrapartes(body.id, body.cuentas, todas=body.todas,
+                                       por=email)
+
+
 class Correr(BaseModel):
     habilidad: str = Field("", max_length=64)
 

@@ -17,8 +17,10 @@ Este script separa el universo en tres, que es lo que hace falta para decidir:
      que hoy no existe en ninguna parte y sin el cual no se puede declarar el
      T-N de cada tabla (REGLA #2: se mide antes de codear).
   C) CAMBIÓ LA ELECCIÓN  → tablas donde la regla vieja (primera columna temporal
-     del DDL) y la nueva (nunca un `date` si hay un sello) NO coinciden. Medido
-     sobre `sql/schema.sql` son 26; esto dice cuántas son en la base REAL.
+     del DDL) y la nueva NO coinciden. Medido sobre `sql/schema.sql`: **46** en
+     total — 26 salían de una `date` (una fecha de negocio) y las otras 20 de un
+     sello que no servía (`creado_at`, que no se mueve; `expira_at`, que es
+     futuro). Esto dice cuántas son en la base REAL.
 
 NO escribe nada. NO pega a ninguna API. Una query al catálogo + una `max()` por
 tabla agrupadas en un solo viaje (la misma que el agente ya corre en cada pasada).
@@ -79,7 +81,7 @@ def main() -> None:
     print(f"  con alguna columna temporal ..... {len(con_col)}")
     print(f"  A) juzgadas por SELLO ........... {len(con_col) - len(negocio)}")
     print(f"  B) juzgadas por FECHA DE NEGOCIO  {len(negocio)}   ← el punto ciego que queda")
-    print(f"  C) cambian de columna ........... {len(cambian)}   (estimado en repo: 26)")
+    print(f"  C) cambian de columna ........... {len(cambian)}   (estimado en repo: 46)")
 
     if not args.solo_negocio:
         _titulo("C) TABLAS QUE CAMBIAN DE COLUMNA — antes se medía el dato, ahora la escritura")

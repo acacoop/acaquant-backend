@@ -4833,3 +4833,61 @@ def test_el_aviso_falso_del_mayor_no_vuelve_a_salir():
     assert tablas.frescura(
         muerto, ahora=_dt(2026, 9, 7, 12, 0, tzinfo=_U),
         declarado=nuevo)["estado"] == "ok"
+
+
+def test_el_agente_no_se_queda_ciego_eligiendo_mal_el_sello():
+    """Los tres modos de elegir un `timestamptz` que NO mide la escritura.
+
+    Arreglar `date` vs `timestamptz` dejaba el MISMO defecto un nivel más abajo:
+    entre dos sellos que no están en ninguna lista, volvía a decidir el orden del
+    `CREATE TABLE`. Medido sobre `sql/schema.sql`, y los tres fallan distinto:
+
+    · **Uno que no se mueve** — `operaciones.latidos` elegía `arrancado_at` (una
+      vez, al arrancar el proceso) en vez de `latido_at`, que se escribe cada
+      15 s. Falla ruidoso: canta la tabla como caída.
+    · **Uno que sólo tienen algunas filas** — `anulado_en` describe la última
+      anulación, no la última escritura.
+    · **Uno FUTURO** — `manager.tokens_externos` elegía `expira_at`. Ese falla
+      CALLADO y es el peor: `max()` da un instante que todavía no llegó, el
+      atraso sale negativo y la tabla queda en verde **para siempre**. Un aviso
+      falso se ve y se vota; una tabla que nunca avisa no se ve nunca.
+    """
+    from agente.tablas import _elegir_col
+
+    ts = ["timestamptz", "timestamptz"]
+    # El que se mueve gana, aunque nadie lo haya anotado en una lista.
+    assert _elegir_col(["arrancado_at", "latido_at"], ts)[0] == "latido_at"
+    assert _elegir_col(["first_seen", "last_seen"], ts)[0] == "last_seen"
+    # `ultimo_dato` DICE «último» pero es un dato copiado de otra tabla; la
+    # convención declarada (`medido_at`) le gana a la regla de morfemas.
+    assert _elegir_col(["ultimo_dato", "medido_at"], ts)[0] == "medido_at"
+    # Un sello de alta le gana a uno que sólo tienen algunas filas: en una tabla
+    # que sólo appendea, `ingestado_en` ES el instante de escritura.
+    assert _elegir_col(["ingestado_en", "anulado_en"], ts)[0] == "ingestado_en"
+    # Un vencimiento no se elige nunca…
+    assert _elegir_col(["expira_at", "obtenido_at", "dia", "llamadas_at"],
+                       ["timestamptz", "timestamptz", "date",
+                        "timestamptz"])[0] == "llamadas_at"
+    # …y si es lo ÚNICO que hay, la tabla queda SIN columna —fuera del detector—
+    # antes que en verde por un atraso negativo.
+    assert _elegir_col(["expira_at"], ["timestamptz"]) == (None, False)
+
+
+def test_un_cron_de_fin_de_semana_no_se_marca_como_de_dias_habiles():
+    """`solo_habiles` sale del campo día-de-semana != `*`, y eso lo cumple
+    también un cron que corra SÓLO sábado y domingo. Marcarlo así sería mentira
+    dos veces: `hueco_maximo_union` le descontaría el finde —que es justo cuando
+    corre— y `tablas.frescura` le sumaría `_segundos_de_finde` encima.
+
+    La grilla contesta lo que el campo no puede: ¿dispara algún lunes-a-viernes?
+    """
+    from core import crontab
+
+    assert crontab.hueco_maximo_union(["0 6 * * 6,0"])[1] is False
+    assert crontab.hueco_maximo_union(["0 22 * * 1-5"])[1] is True
+    # Y el caso real que mezcla los dos: `market_quotes` corre L-V de día y
+    # Ma-Sá de madrugada (el corrimiento ART→UTC). Tiene corridas hábiles, así
+    # que SÍ es de días hábiles, y el hueco es el de la mañana (~8 h), no el del
+    # fin de semana entero.
+    hueco, habiles = crontab.hueco_maximo_union(["* 10-23 * * 1-5", "* 0-1 * * 2-6"])
+    assert habiles is True and 8 * 3600 <= hueco < 9 * 3600

@@ -189,6 +189,14 @@ def hueco_maximo_union(schedules) -> tuple[int, bool] | None:
             solo_habiles = False
     if not tuvo_alguna or not momentos:
         return None
+    # ⚠️ **«SOLO HÁBILES» TIENE QUE SIGNIFICAR QUE CORRE EN DÍAS HÁBILES.** El
+    # campo día-de-semana != `*` lo cumple también un cron que corra SÓLO sábado
+    # y domingo (`0 6 * * 6,0`), y ahí la marca sería mentira dos veces: acá se
+    # le descontaría el finde —que es justo cuando corre— y el que consume le
+    # sumaría `_segundos_de_finde` encima. La grilla contesta la pregunta que el
+    # campo no puede: ¿dispara algún lunes-a-viernes?
+    if not any(x // 1440 < 5 for x in momentos):
+        solo_habiles = False
     ordenados = sorted(momentos)
     extendidos = ordenados + [ordenados[0] + _SEMANA_MIN]
     huecos = []
@@ -200,8 +208,17 @@ def hueco_maximo_union(schedules) -> tuple[int, bool] | None:
             hueco -= dias_finde * 1440
         huecos.append(hueco)
     maximo = max(huecos)
+    # ⚠️ **SI EL DESCUENTO SE COMIÓ EL HUECO, NO SE DEJA DE MIRAR: SE MIRA SIN
+    # DESCONTAR.** `solo_habiles` se lee de los CAMPOS (día-de-semana != `*`), y
+    # eso incluye un cron que corra SÓLO sábado y domingo (`0 6 * * 6,0`): ahí el
+    # descuento borra el hueco entero y quedaría ≤ 0. Abstenerse sería sacar ese
+    # módulo del radar **en silencio**, que es el modo de falla que este archivo
+    # entero viene a evitar. Se devuelve el hueco crudo y `solo_habiles=False`,
+    # que además es la verdad: un job de fin de semana no es de días hábiles, y
+    # el que consume no le tiene que descontar ningún finde.
     if maximo <= 0:
-        return None
+        crudo = max(b - a for a, b in pairwise(extendidos))
+        return (crudo * 60, False) if crudo > 0 else None
     return maximo * 60, solo_habiles
 
 

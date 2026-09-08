@@ -55,6 +55,7 @@ detectar un cambio, y NO funciona para detectar algo que está mal desde siempre
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 
 from core.postgres import get_pool
@@ -93,12 +94,47 @@ logger = logging.getLogger(__name__)
 # vez que corrió.)
 _SELLO_ESCRITURA = ("updated_at", "actualizado_at", "actualizado_en",
                     "sincronizado_at", "sellado_at", "tomado_at", "corrida_at",
-                    "computed_at", "agregado_at")
+                    "computed_at", "medido_at", "agregado_at", "latido_at",
+                    "llamadas_at", "visto_at", "last_seen")
 _SELLO_ALTA = ("ingestado_en", "ingestado_at", "importado_en", "generado_at",
-               "creado_at", "created_at", "creada_at")
+               "obtenido_at", "arrancado_at", "creado_at", "created_at",
+               "creada_at", "first_seen", "primera_vez")
 # Fecha de NEGOCIO: de qué día son los datos, no cuándo se escribieron. Sólo se
 # usan cuando la tabla no tiene NINGÚN sello (ver `_elegir_col`).
 _FECHA_NEGOCIO = ("ts", "fecha", "concertacion", "hora")
+
+# ⚠️⚠️ **LA LISTA NO ALCANZA: HAY QUE PODER CLASIFICAR UN NOMBRE QUE NADIE
+# ANOTÓ.** Arreglar el fallback `date` vs `timestamptz` dejaba el MISMO defecto
+# un nivel más abajo — entre dos `timestamptz` que no están en ninguna lista,
+# volvía a decidir el orden del DDL. Medido sobre `sql/schema.sql`, con eso solo:
+#
+#   operaciones.latidos       → `arrancado_at` (una vez, al arrancar el proceso)
+#                               en vez de `latido_at`, que se escribe cada 15 s
+#   mercado.simbolos_cuarentena → `first_seen` en vez de `last_seen`
+#   manager.tokens_externos   → `expira_at` en vez de `llamadas_at`
+#
+# Así que además de la lista hay una regla sobre el IDIOMA: los morfemas que
+# dicen «último» mandan, los que dicen «primero/alta» pierden. Eso sí escala a
+# un nombre nuevo; una lista sólo cubre lo que alguien se acordó de anotar.
+_MUEVE = re.compile(r"(^|_)(ultim\w*|last)(_|$)")
+_NO_MUEVE = re.compile(r"(^|_)(primer\w*|first|alta|nacim\w*)(_|$)")
+
+# ⚠️⚠️ **UN VENCIMIENTO NO ES UNA ESCRITURA, Y ELEGIRLO DEJA CIEGO AL DETECTOR.**
+# `expira_at` / `vence_at` guardan un instante **futuro**. Si el agente los toma
+# como sello, `max()` da una fecha que todavía no llegó, el atraso sale NEGATIVO
+# y la tabla queda en verde **para siempre**. Eso es peor que el aviso falso que
+# este cambio vino a arreglar: un aviso falso se ve y se vota; una tabla que
+# nunca avisa no se ve nunca. Por eso, si es lo ÚNICO que hay, se prefiere
+# devolver `None` —«no tengo con qué medir esto»— antes que un verde mentiroso.
+_FUTURO = re.compile(r"(^|_)(expira\w*|vence\w*|vencim\w*|caduca\w*|valido_hasta)(_|$)")
+
+# ⚠️ **UN SELLO QUE SÓLO TIENEN ALGUNAS FILAS NO MIDE LA TABLA.** `anulado_en`,
+# `revocada_at`, `cerrado_at` marcan un estado excepcional: en la mayoría de las
+# filas son NULL, así que `max()` describe la última anulación, no la última
+# escritura. Pierden incluso contra un sello de alta — `ingestado_en` en una
+# tabla que sólo appendea ES el instante de escritura, y se mueve con cada fila.
+_SOLO_ALGUNAS = re.compile(
+    r"(^|_)(anulad\w*|revocad\w*|cancelad\w*|borrad\w*|eliminad\w*)(_|$)")
 
 COLS_FECHA = _SELLO_ESCRITURA + _SELLO_ALTA + _FECHA_NEGOCIO
 
@@ -167,15 +203,30 @@ def _elegir_col(cols: list[str], tipos: list[str]) -> tuple[str | None, bool]:
     if len(tipos) < len(cols):
         tipos = tipos + [None] * (len(cols) - len(tipos))
     sellos = [c for c, t in zip(cols, tipos, strict=False) if t != "date"]
-    if sellos:
-        elegida = (next((c for c in _SELLO_ESCRITURA if c in sellos), None)
-                   # Un sello que no está en ninguna lista le gana a uno de
-                   # ALTA: no sabemos qué es, pero al menos puede moverse, y
-                   # `creado_at` seguro que no.
-                   or next((c for c in sellos if c not in _SELLO_ALTA), None)
-                   or next((c for c in _SELLO_ALTA if c in sellos), None)
-                   or sellos[0])
+    # Un vencimiento NO es un sello de escritura: se descarta ANTES de elegir.
+    utiles = [c for c in sellos if not _FUTURO.search(c)]
+    if utiles:
+        elegida = (
+            # 1. La convención declarada del repo.
+            next((c for c in _SELLO_ESCRITURA if c in utiles), None)
+            # 2. El que dice «último» en su nombre, aunque nadie lo haya anotado.
+            or next((c for c in utiles if _MUEVE.search(c)), None)
+            # 3. Cualquiera que no diga «primero/alta»: no sabemos qué es, pero
+            #    al menos puede moverse, y `creado_at` seguro que no.
+            or next((c for c in utiles
+                     if c not in _SELLO_ALTA and not _NO_MUEVE.search(c)
+                     and not _SOLO_ALGUNAS.search(c)), None)
+            # 4. Recién ahí, un sello de alta: congelado si la tabla se
+            #    upsertea, pero exacto si sólo appendea.
+            or next((c for c in _SELLO_ALTA if c in utiles), None)
+            # 5. Último: el que sólo tienen algunas filas.
+            or utiles[0])
         return elegida, False
+    # Sólo quedaban vencimientos: medir contra ellos daría un atraso NEGATIVO y
+    # un verde permanente. Se prefiere no tener columna — la tabla queda sin
+    # ritmo y fuera del detector, que es honesto, en vez de sana por error.
+    if sellos:
+        return None, False
     # Ninguna columna sobrevivió al filtro: todas son `date`. Se juzga por
     # fecha de negocio, y se dice.
     return next((c for c in COLS_FECHA if c in cols), cols[0]), True

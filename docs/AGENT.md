@@ -5755,10 +5755,38 @@ quince minutos. Por eso los sellos de alta pierden incluso contra un sello que n
 está en ninguna lista. Lo cazó `agente.habilidades`, que elegía `creada_at` en
 vez de `ultima_corrida_at`.
 
+**Y ARREGLAR `date` VS `timestamptz` DEJABA EL MISMO DEFECTO UN NIVEL MÁS
+ABAJO.** Lo cazó la revisión adversarial del diff, corriendo la regla nueva
+contra el schema real: entre dos `timestamptz` que no estaban en ninguna lista,
+seguía decidiendo el orden del `CREATE TABLE`. Tres modos de falla distintos:
+
+| tabla | elegía | debía | cómo falla |
+|---|---|---|---|
+| `operaciones.latidos` | `arrancado_at` (una vez) | `latido_at` (cada 15 s) | ruidoso: la canta caída |
+| `mercado.simbolos_cuarentena` | `first_seen` | `last_seen` | ruidoso |
+| `manager.tabla_perfil` | `ultimo_dato` (copiado de OTRA tabla) | `medido_at` | ruidoso |
+| `manager.tokens_externos` | **`expira_at`** | `llamadas_at` | **callado** |
+
+El último es el peor y es de otra clase: `expira_at` guarda un instante
+**futuro**, así que `max()` da una fecha que todavía no llegó, el atraso sale
+NEGATIVO y la tabla queda en verde **para siempre**. Un aviso falso se ve y se
+vota; una tabla que no avisa nunca no se ve nunca. Por eso un vencimiento no se
+elige jamás, y si es lo ÚNICO que hay la tabla queda **sin columna** —fuera del
+detector— antes que sana por error.
+
+La lista sola no podía arreglarlo: sólo cubre lo que alguien se acordó de anotar.
+Se agrega una regla sobre el IDIOMA, que sí escala a un nombre nuevo — los
+morfemas que dicen «último» (`ultim*`, `last_*`) mandan, los que dicen
+«primero/alta» (`primer*`, `first`, `creado`) pierden, los que dicen
+«vencimiento» se descartan, y los que marcan un estado excepcional (`anulado_en`,
+`revocada_at`: NULL en casi todas las filas, así que `max()` describe la última
+anulación y no la última escritura) pierden hasta contra un sello de alta —
+porque en una tabla que sólo appendea, `ingestado_en` **es** el instante de
+escritura.
+
 **Medido sobre `sql/schema.sql` (207 tablas): 46 cambian de columna** — 26 salían
 de una `date` (`portafolio.tenencia_live`, `bancos.saldos`,
-`operaciones.tesoreria_saldos`, …) y 20 pasan de un sello de alta a uno de
-escritura.
+`operaciones.tesoreria_saldos`, …) y 20 de un sello que no servía.
 
 **LO QUE QUEDA ABIERTO, Y POR QUÉ NO SE CODEÓ.** Quedan **17 tablas que no tienen
 ningún sello**: su única columna temporal es un `date` (`portafolio.tenencia`,

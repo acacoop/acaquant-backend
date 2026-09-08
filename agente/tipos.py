@@ -235,6 +235,14 @@ class Habilidad:
     # PATRONES.
     informes: tuple = ()
 
+    # ⚠️ **QUÉ REGLAS SON TRABAJO RECURRENTE, no un patrón** (`AGENT.md` §0.ek).
+    # La ficha de un título nuevo llega vacía SIEMPRE —cartera, clase, emisor—
+    # porque entran activos nuevos todo el tiempo: que el aviso nazca siete
+    # veces por mes es la medida de cuántos títulos entraron, no de algo mal
+    # configurado. Lo crónico es para el sistema (motores, feeds, jobs). Igual
+    # que `informes`, no cuentan episodios ni entran en PATRONES.
+    recurrentes: tuple = ()
+
     def __post_init__(self):
         for campo, validos in (("tipo", TIPOS), ("dominio", DOMINIOS),
                                ("ventana", VENTANAS)):

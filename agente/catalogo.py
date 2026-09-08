@@ -319,6 +319,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                   "sin_clase_activo": "completar_ficha",
                   "sin_emisor": "completar_ficha",
                   "fci_sin_ticker": "completar_ficha"},
+        # Las cuatro son TRABAJO RECURRENTE (§0.ek): un título nuevo llega con
+        # la ficha vacía siempre. No son crónicas, son el ritmo de la cartera.
+        recurrentes=("sin_cartera", "sin_clase_activo", "sin_emisor",
+                     "fci_sin_ticker"),
         # Solo `sin_clase_activo`: son las CUATRO reglas determinísticas de
         # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES, copia
         # de cartera — RENTA VARIABLE/HD/DL —, FCI por Primary — Mercado de
@@ -414,6 +418,7 @@ def estado() -> list[dict]:
         f["arreglos"] = dict(h.arreglos) if h else {}
         f["automatico"] = dict(h.automatico) if h else {}
         f["informes"] = list(h.informes) if h else []
+        f["recurrentes"] = list(h.recurrentes) if h else []
         f["clase"] = ("trabajo" if (h and h.arreglos) else "aviso")
     return filas
 
@@ -423,6 +428,20 @@ def informes() -> list[tuple[str, str]]:
     §0.eg): nacen por calendario y por eso aparecen todos los días. `vista.py`
     las excluye del conteo de episodios y de PATRONES."""
     return [(h.nombre, r) for h in HABILIDADES.values() for r in h.informes]
+
+
+def recurrentes() -> list[tuple[str, str]]:
+    """Las reglas que son TRABAJO RECURRENTE por diseño (`AGENT.md` §0.ek):
+    entran activos nuevos todo el tiempo y la ficha llega vacía. Tampoco
+    cuentan episodios."""
+    return [(h.nombre, r) for h in HABILIDADES.values() for r in h.recurrentes]
+
+
+def sin_episodios() -> list[tuple[str, str]]:
+    """Todo lo que NO cuenta episodios ni entra en PATRONES: informes (nacen
+    por calendario) y recurrentes (nacen porque entran activos nuevos). Lo
+    crónico queda para lo que sí es un patrón: sistema, motores, feeds, jobs."""
+    return informes() + recurrentes()
 
 
 def umbrales_de(nombre: str) -> dict:

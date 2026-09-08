@@ -5636,3 +5636,20 @@ la cartera y la siguiente la clase, sin código extra. Lo que sigue para una
 persona: acciones y CEDEARs (RENTA VARIABLE, derivable del cficode de Primary
 como paso siguiente) y cualquier ticker que no esté ni en el master ni en 1816.
 
+
+### 0.ek LA FICHA DE UN TÍTULO NUEVO NO ES CRÓNICA — lo crónico es del sistema (2026-09-08)
+
+El user: *«clase activo, emisor, cartera no entran en lo de crónico. Son
+justamente el tipo de cosas que van a pasar constantemente porque siempre
+aparecen nuevos activos. Lo importante es que se segmenten bien. Lo de crónico
+va para cosas de sistema, monitor, salud»*.
+
+Tiene razón, y es la segunda vez que la regla de §6.10 marca como patrón algo
+que es ritmo: primero los INFORMES (§0.eg, nacen por calendario), ahora el
+TRABAJO RECURRENTE. Que `sin_cartera` nazca siete veces por mes mide cuántos
+títulos nuevos entraron, no algo mal configurado. `Habilidad.recurrentes`
+declara esas reglas —las cuatro de `ficha_incompleta`— y `catalogo.sin_episodios()`
+junta informes y recurrentes para `vista._con_historial` y `vista.cronicos`. Un
+test exige que toda regla de la ficha esté declarada recurrente. Lo crónico
+queda para lo que sí es un patrón: motores, feeds, jobs, proveedores.
+

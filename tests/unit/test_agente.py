@@ -2221,8 +2221,23 @@ def test_un_informe_periodico_no_es_cronico():
     # La exclusión vive en la QUERY (tres listas paralelas, nunca un string
     # pegado de habilidad+regla — hay un test que lo prohíbe) y no en Python.
     src_cronicos = _codigo(vista.cronicos)
-    assert "unnest" in src_cronicos and "informes(" in src_cronicos
+    assert "unnest" in src_cronicos and "sin_episodios(" in src_cronicos
     assert "informe" in _codigo(vista._con_historial)
+
+
+def test_la_ficha_de_un_titulo_nuevo_es_trabajo_recurrente_no_cronico():
+    """User (2026-09-08): *«clase activo, emisor, cartera no entran en lo de
+    crónico: son justamente el tipo de cosas que van a pasar constantemente
+    porque siempre aparecen nuevos activos. Lo de crónico va para cosas de
+    sistema, monitor, salud»*. Las cuatro reglas de `ficha_incompleta` se
+    declaran recurrentes y salen del conteo junto con los informes."""
+    h = catalogo.HABILIDADES["ficha_incompleta"]
+    assert set(h.recurrentes) == set(h.arreglos), (
+        "toda regla de la ficha es recurrente: si aparece una nueva, declararla")
+    for r in h.recurrentes:
+        assert ("ficha_incompleta", r) in catalogo.sin_episodios()
+    # Lo del SISTEMA sí cuenta: un motor que se cae tres veces es un patrón.
+    assert not catalogo.HABILIDADES["motores"].recurrentes if "motores" in catalogo.HABILIDADES else True
 
 
 def test_el_peso_se_consolida_por_vista():

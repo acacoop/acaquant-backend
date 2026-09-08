@@ -80,7 +80,7 @@ def _con_historial(filas: list[dict]) -> list[dict]:
 
     if not filas:
         return filas
-    inf = set(catalogo.informes())
+    inf = set(catalogo.sin_episodios())
     for f in filas:
         f["informe"] = (f["habilidad"], f["regla"]) in inf
     trios = {(f["habilidad"], f["sujeto"], f["regla"]) for f in filas
@@ -412,7 +412,7 @@ def cronicos(limite: int = 60) -> dict:
     # definición, no un patrón a corregir. Se excluye por el mismo patrón de
     # tres listas paralelas que usa `_con_historial` — habilidad+regla nunca se
     # pega en un string (hay un test que lo prohíbe).
-    inf = catalogo.informes()
+    inf = catalogo.sin_episodios()
     habs_inf = [h for h, _ in inf]
     regs_inf = [r for _, r in inf]
 

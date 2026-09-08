@@ -49,26 +49,30 @@ REPORTES: tuple[Reporte, ...] = (
             severidad="alta"),
     Reporte("tamar_1816", "sin_dato",
             "pata(s) TAMAR/dual a las que 1816 no les publica tasa",
-            "Nada que apretar: 1816 no cubre esos tickers. Quedan sin TEA ni "
-            "margen en la vista; si es uno que importa, pedirle la cobertura a 1816."),
+            "Si alguna de esas patas importa, pedirle la cobertura a 1816: hasta "
+            "entonces quedan sin TEA ni margen en la vista."),
     Reporte("snapshot_cierre", "curvas_salteadas",
             "curva(s) que el cierre diario SALTEÓ (sin universo o sin snapshot)",
             "El cierre de hoy no tiene esas curvas: mirar el log del job y, si el "
             "motor de curvas no escribió, rehacerlo desde `cierre_chain`.",
             severidad="alta"),
-    Reporte("cleanup_curvas", "borrados",
-            "bono(s) que el cleanup borró del master por estar por vencer",
-            "Nada que hacer: es lo esperado. Es para saber QUÉ se fue, que hasta "
-            "hoy no quedaba en ningún lado.",
-            severidad="baja"),
+    # ⚠️ **NO HAY FILA PARA `cleanup_curvas · borrados`, Y NO ES UN OLVIDO**
+    # (§0.eu). Su `que_hacer` decía «Nada que hacer: es lo esperado» — o sea,
+    # declaraba por escrito que no era un problema y aun así ocupaba un renglón
+    # de AHORA todos los días. El agente avisa de lo NUESTRO cuando algo está
+    # mal; un bono que el cleanup borra porque vence es el sistema funcionando.
+    #
+    # **No se pierde el dato**: el job guarda igual el número y la lista en
+    # `manager.job_runs` (`borrados` / `borrados_lista`), que es donde vivía
+    # antes de existir esta tabla. Lo que se saca es el AVISO, no el registro.
     Reporte("validar_instrumentos", "simbolos_borrados",
             "símbolo(s) borrados de `mercado.especies` por no existir en Primary",
             "Si alguno debería existir, la foto de Primary estaba vieja ese día: "
             "`foto_primary` lo vigila. Si no, es basura que ya no vuelve."),
     Reporte("validar_instrumentos", "tickers_no_vigentes",
             "ticker(s) cuyos assets están TODOS dados de baja",
-            "Nada que apretar: son papeles que amortizaron. Si uno sigue vivo, "
-            "destildar VIGENTE en Manager → TÍTULOS · ASSETS (sella `manual`).",
+            "Repasar la lista: si alguno sigue vivo, destildar VIGENTE en "
+            "Manager → TÍTULOS · ASSETS (sella `manual`). El resto amortizaron.",
             severidad="baja"),
     Reporte("ops_tasa_mav", "formato_desconocido",
             "boleto(s) cuya `informacion` no matchea '@<tasa>%'",

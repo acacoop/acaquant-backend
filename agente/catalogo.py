@@ -125,16 +125,23 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         naturaleza={"no_esta_en_curvas": INCIDENTE,
                     "no_estan_en_curvas": RECURRENTE}),
 
+    # ⚠️ **LA ILIQUIDEZ NO ES UNA REGLA DE ESTA HABILIDAD: ES SU SILENCIO**
+    # (§0.eu). De las cuatro causas de «este bono no tiene precio», TRES son
+    # nuestras y las tres avisan `alta` (`sin_simbolo`, `simbolo_rechazado`,
+    # `no_suscripto`). La cuarta —lo pedimos y el mercado no dio punta— no
+    # emite nada: es un hecho del papel, no del sistema, y el detector lo
+    # saltea. Que las tres primeras sigan existiendo es lo que hace que el
+    # silencio SIGNIFIQUE iliquidez y no «no miramos».
     Habilidad(
         nombre="bono_sin_precio", tipo="detector", dominio="MERCADO",
-        que_mira="bonos sin precio en rueda, separando las cuatro causas",
+        que_mira="bonos sin precio en rueda: avisa las 3 causas nuestras, calla la iliquidez",
         cada_segundos=5 * _M, ventana="rueda",
         correr=mercado.bono_sin_precio, sujeto_es="bono",
         umbrales={"precio_viejo_min": 20},
-        # `sin_punta` y `precio_viejo` NO tienen arreglo, y eso se DECLARA: son
-        # datos sobre el papel, no sobre el sistema.
+        # `sin_simbolo`, `simbolo_rechazado` y `precio_viejo` NO tienen arreglo,
+        # y eso se DECLARA: hay algo que verificar, pero no un botón que escriba.
         arreglos={"no_suscripto": "pedir_pata"},
-        # Sujeto = un ticker, y las cuatro reglas son sobre el feed de ESE
+        # Sujeto = un ticker, y todas las reglas son sobre el feed de ESE
         # papel: repetirse es exactamente lo que hay que ver.
         naturaleza={"no_suscripto": INCIDENTE}),
 

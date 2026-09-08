@@ -3088,6 +3088,84 @@ def test_bono_sin_precio_dice_por_que_no_esta_suscripto(monkeypatch):
     assert catalogo.HABILIDADES["bono_sin_precio"].arreglo_de("simbolo_rechazado") == ""
 
 
+# ── LA ILIQUIDEZ NO ES UN ERROR: ES EL SILENCIO (§0.eu) ───────────────────
+
+def test_la_iliquidez_no_genera_hallazgo_y_las_tres_causas_nuestras_si(monkeypatch):
+    """User (2026-09-08), sobre `BYZ2O · sin_punta · ×26`: *«si es por iliquidez
+    no lo quiero ver. Ver solamente algo que ES un error. Iliquidez no es un
+    error... SIN AVISO DOY POR SENTADO LA ILIQUIDEZ»*.
+
+    ⚠️ **Y ESE «doy por sentado» es lo que este test protege.** El silencio sólo
+    significa iliquidez si las TRES causas nuestras siguen cantando: sin símbolo
+    cargado, símbolo que el mercado rechaza, y símbolo que nadie suscribió. El
+    día que se caiga una de las tres, callar el cuarto caso pasa a esconder un
+    error — por eso las cuatro ramas se verifican juntas, en un solo test.
+    """
+    from datetime import datetime
+
+    from agente import fuentes, reloj
+    ahora = datetime(2026, 9, 8, 15, 0, tzinfo=UTC)
+    monkeypatch.setattr(mercado, "_feed_o_sindatos", lambda: None)
+    monkeypatch.setattr(reloj, "ahora_utc", lambda a=None: ahora)
+    monkeypatch.setattr(reloj, "en_rueda", lambda a=None: True)
+    monkeypatch.setattr(fuentes, "master", lambda: [
+        {"ticker_corto": "RECH", "ticker": "MERV - XMEV - RECH - 24hs"},
+        {"ticker_corto": "NADIE", "ticker": "MERV - XMEV - NADIE - 24hs"},
+        {"ticker_corto": "SINSIM", "ticker": ""},
+        {"ticker_corto": "BYZ2O", "ticker": "MERV - XMEV - BYZ2O - 24hs"},
+        {"ticker_corto": "OPERA", "ticker": "MERV - XMEV - OPERA - 24hs"}])
+    monkeypatch.setattr(fuentes, "snapshot", lambda *a, **k: {
+        # Lo estamos escuchando y el mercado no dio punta: ILIQUIDEZ.
+        "MERV - XMEV - BYZ2O - 24hs": {"last_price": 0, "updated_at": ahora},
+        "MERV - XMEV - OPERA - 24hs": {"last_price": 74.19, "updated_at": ahora}})
+    monkeypatch.setattr(fuentes, "latidos", lambda: {"engines.valores": {"data": {
+        "ws_rechazados_primary": ["MERV - XMEV - RECH - 24hs"]}}})
+
+    por = {h.sujeto: h.regla for h in mercado.bono_sin_precio({})}
+    assert por == {"RECH": "simbolo_rechazado", "NADIE": "no_suscripto",
+                   "SINSIM": "sin_simbolo"}, (
+        "el que no tiene punta y el que opera no son hallazgos; las tres causas "
+        "NUESTRAS sí, y las tres en alta")
+    assert "BYZ2O" not in por, (
+        "lo estamos escuchando y el mercado no dio punta: eso es el papel, no "
+        "el sistema — y sin aviso la iliquidez se da por sentada")
+    # Lo que impide que la regla vuelva no es este test: es que su `que_hacer`
+    # tendría que nombrar una acción, y no hay ninguna (`tipos.NADA_QUE_HACER`).
+
+
+def test_un_que_hacer_que_dice_QUE_NO_HAY_NADA_QUE_HACER_no_es_un_hallazgo():
+    """El invariante #2 se cumplía **de forma nominal**: `sin_punta` escribía
+    «Nada que apretar» y pasaba el CHECK. Un CHECK que se contesta «no hay nada
+    que hacer» no es un CHECK — ahora lo rechaza el constructor, que es donde no
+    se puede olvidar.
+
+    Al ponerlo aparecieron TRES casos más, y ninguno se había notado: dos tenían
+    la acción escondida después de la frase (se reordenaron) y el tercero
+    —`cleanup_curvas·borrados`— declaraba por escrito que no era un problema y
+    ocupaba un renglón igual.
+    """
+    for frase in ("Nada que apretar: el papel no operó.",
+                  "Nada que hacer: es lo esperado.",
+                  "No hay nada que hacer acá.",
+                  "  ninguna ACCIÓN necesaria  "):
+        with pytest.raises(ValueError, match="no hay nada que hacer"):
+            tipos.Hallazgo(sujeto="X", regla="r", severidad="baja",
+                           problema="p", que_hacer=frase)
+    # Y un `que_hacer` que NOMBRA una acción entra, aunque contenga la palabra.
+    tipos.Hallazgo(sujeto="X", regla="r", severidad="baja", problema="p",
+                   que_hacer="Relanzar el job; si no cambia nada, no hacer nada más.")
+
+    # ⚠️ Los avisos de jobs no pasan por `Hallazgo` hasta que el detector corre,
+    # así que la tabla se barre acá: un `Reporte` mal escrito hoy reventaría en
+    # producción el día que su contador diera > 0, y no antes.
+    from agente.reportes import REPORTES
+    for r in REPORTES:
+        assert not " ".join(r.que_hacer.split()).lower().startswith(
+            tipos.NADA_QUE_HACER), (
+            f"{r.job}·{r.stat}: su `que_hacer` empieza diciendo que no hay nada "
+            "que hacer. O nombra la acción, o no es un aviso")
+
+
 # ── LOS RELANZABLES SE DERIVAN (§0.db) ────────────────────────────────────
 
 def test_los_relanzables_salen_del_crontab_y_de_los_contratos():
@@ -3236,8 +3314,8 @@ def test_job_reporto_convierte_el_contador_en_aviso_con_su_lista(monkeypatch):
         "tamar_1816": {"finished_at": datetime(2026, 9, 1, 20, 0, tzinfo=UTC),
                        "status": "ok", "stats": {"sin_dato": 0}},
         # Corre código viejo: tiene el número y no la lista → igual se canta.
-        "cleanup_curvas": {"finished_at": datetime(2026, 9, 1, 12, 30, tzinfo=UTC),
-                           "status": "ok", "stats": {"borrados": 3}},
+        "snapshot_cierre": {"finished_at": datetime(2026, 9, 1, 12, 30, tzinfo=UTC),
+                            "status": "ok", "stats": {"curvas_salteadas": 3}},
     }
     monkeypatch.setattr(datos, "_ultima_corrida", lambda job: corridas.get(job))
     por = {h.sujeto: h for h in datos.job_reporto({})}
@@ -3246,7 +3324,7 @@ def test_job_reporto_convierte_el_contador_en_aviso_con_su_lista(monkeypatch):
     assert "2 bono(s)" in h.problema and "01/09 22:31" in h.problema
     assert "AO29" in h.detalle and h.evidencia["lista"][1].startswith("CO32")
     assert "tamar_1816·sin_dato" not in por, "cero no es un aviso"
-    assert "próxima corrida" in por["cleanup_curvas·borrados"].detalle
+    assert "próxima corrida" in por["snapshot_cierre·curvas_salteadas"].detalle
     # Sin poder leer job_runs, no se afirma nada.
     def _rompe(job):
         raise RuntimeError("db caída")

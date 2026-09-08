@@ -1354,6 +1354,17 @@ habilidades, editable sin deploy.
     Un arreglo que PIDE DATOS solo puede ser automático si sabe decir qué
     escribiría (`Arreglo.solo`, §0.ei), y eso es únicamente lo determinístico:
     lo que propone el modelo nunca se escribe sin una persona.
+15. **El agente avisa de lo NUESTRO. Un hecho del mundo no es un hallazgo: es
+    el SILENCIO** (§0.eu). Si el `que_hacer` de una regla empieza diciendo que
+    no hay nada que hacer, esa regla no está mal escrita — no es una regla.
+    Es el invariante #2 llevado hasta donde debía llegar: no alcanza con que
+    haya un texto en `que_hacer`, tiene que NOMBRAR una acción, y lo exige
+    `tipos.Hallazgo` (`tipos.NADA_QUE_HACER`), no un test.
+    ⚠️ **Callar sólo es legítimo si lo NUESTRO se descartó primero.** En
+    `bono_sin_precio` el silencio significa «iliquidez» únicamente porque las
+    tres causas propias —`sin_simbolo`, `simbolo_rechazado`, `no_suscripto`—
+    siguen cantando en `alta`. Sacar una de ellas convierte el silencio en un
+    error escondido.
 
 ---
 
@@ -6341,3 +6352,98 @@ muestra lo que tiene botón: una regla recurrente SIN arreglo, sacada de AHORA,
 no quedaría en ninguna pantalla. Un test lo exige — toda regla recurrente tiene
 arreglo. Y por eso el criterio son las RECURRENTES y no los INFORMES: los
 informes son avisos sin botón y su única pantalla es AHORA.
+
+---
+
+### 0.eu LA ILIQUIDEZ NO ES UN ERROR — el silencio como respuesta (2026-09-08)
+
+El user, mirando AHORA:
+
+> *«8/9 10:36 · confirmado 12:51 · BYZ2O · bono_sin_precio · ×26 · sin punta hoy
+> · lo estamos pidiendo, así que es iliquidez»* — **«Tengo muchos casos así. Si
+> es por iliquidez NO LO QUIERO VER. La lógica sería: ver solamente algo que ES
+> un error. Iliquidez no es un error, por lo que no me interesa el aviso: SIN
+> AVISO DOY POR SENTADO LA ILIQUIDEZ.»**
+
+#### Qué estaba pasando, exactamente
+
+`bono_sin_precio` corre cada 5 min en rueda, cruza `mercado.curvas` contra
+`mercado.market_snapshot` y separaba CINCO estados. Cuando el símbolo estaba en
+el snapshot —o sea, el motor lo suscribió y **estamos escuchando**— con
+`last_price = 0`, emitía un hallazgo `sin_punta` severidad `baja`:
+
+    problema:   «sin punta hoy · lo estamos pidiendo, así que es iliquidez»
+    que_hacer:  «Nada que apretar: el papel no operó.»
+
+Sin arreglo declarado, su clase es **aviso**: no entra a ENCONTRÓ (que exige
+botón) y vive sólo en AHORA. El `×26` no son 26 hallazgos: es UNA fila que el
+detector volvió a ver 26 veces (`veces`), y el «confirmado 12:51» es su
+`visto_ultima_vez`. Nace a las 10:36 y ocupa un renglón de AHORA todo el día.
+
+#### La contradicción que ya estaba escrita en el modelo
+
+El invariante #2 dice **«un hallazgo sin `que_hacer` no se guarda»**, y lo
+sostiene un CHECK de la base. `sin_punta` lo cumplía **de forma nominal**: el
+campo tenía texto, y el texto decía que no había nada que hacer.
+
+Medido —leyendo el AST, no a ojo— sobre los **83 textos `que_hacer`** que
+declaraba el agente (**52** llamadas a `Hallazgo()` en `agente/detectores/` +
+**31** filas de `agente/reportes.py`): **CUATRO** empezaban diciendo que no había
+nada que hacer, y `sin_punta` era **el único de los detectores**. Los otros 79
+nombran una acción: «Relanzar», «Revisar», «Mirar el log», «Cargarle el
+símbolo», «Cerrarlo en el router». O sea: **el modelo ya sabía que esto no era
+un hallazgo, y la frase lo esquivó.** Un CHECK que se contesta «no hay nada que
+hacer» no es un CHECK.
+
+#### Por qué el silencio SÍ alcanza, y de qué depende
+
+Un bono sin precio tiene cuatro causas y **tres son nuestras**, las tres `alta`:
+
+    sin_simbolo        nadie le cargó el símbolo      → NUESTRO   → alta
+    simbolo_rechazado  lo pedimos y no existe allá    → NUESTRO   → alta
+    no_suscripto       está y nadie lo pidió          → NUESTRO   → alta + botón
+    (sin punta)        lo pedimos y no vino           → EL PAPEL  → SILENCIO
+
+Si ninguna de las tres cantó, la única causa que queda es el mercado. Por eso
+«sin aviso doy por sentado la iliquidez» es una inferencia **válida** y no una
+apuesta: el silencio no significa «no miramos», significa «miramos las tres
+cosas que pueden ser culpa nuestra y ninguna pasa».
+
+⚠️ **Y ahí está la dependencia que hay que cuidar** (invariante #15): el día que
+se saque una de esas tres ramas, callar el cuarto caso deja de ser honesto y
+pasa a esconder un error. Lo congela
+`test_la_iliquidez_no_genera_hallazgo_y_las_tres_causas_nuestras_si`, que
+verifica las cuatro ramas juntas y no la que se sacó.
+
+#### `precio_viejo` NO se tocó, y es a propósito
+
+Es la otra regla ruidosa de la misma habilidad (195 de los 225 hallazgos del
+2026-08-28, §0 de `agente/reloj.py`), pero **no es el mismo caso**: ahí hubo
+precio y dejó de llegar, y eso puede ser el papel o puede ser nuestro feed. Su
+`que_hacer` nombra una verificación real. Hay algo que mirar → hay hallazgo.
+
+#### Lo que la guarda destapó sola: tres casos más
+
+La prohibición no quedó en un test: vive en `tipos.Hallazgo.__post_init__`
+(`tipos.NADA_QUE_HACER`), porque *un test que existe para recordarte algo es la
+señal de que el diseño no lo garantiza solo*. Al ponerla, la suite reventó en
+tres avisos de jobs (`agente/reportes.py`) que nadie había mirado con esta luz:
+
+| Aviso | Qué decía | Qué se hizo |
+|---|---|---|
+| `tamar_1816 · sin_dato` | «Nada que apretar: 1816 no cubre esos tickers… si es uno que importa, pedirle la cobertura» | **Reordenado**: la acción existía y estaba enterrada detrás de la frase |
+| `validar_instrumentos · tickers_no_vigentes` | «Nada que apretar: son papeles que amortizaron. Si uno sigue vivo, destildar VIGENTE» | **Reordenado**, ídem |
+| `cleanup_curvas · borrados` | «Nada que hacer: **es lo esperado**» | **Se sacó la fila.** Declaraba por escrito que no era un problema |
+
+El tercero es el mismo defecto que `sin_punta`: un bono que el cleanup borra
+porque vence es el sistema funcionando. **No se pierde el dato** — el job sigue
+guardando `borrados` y `borrados_lista` en `manager.job_runs`, que es donde
+vivían antes de que existiera la tabla de reportes. Lo que se sacó es el AVISO,
+no el registro.
+
+#### Nada que borrar a mano
+
+Los `sin_punta` abiertos **se cierran solos**: la habilidad deja de verlos y
+`registro._cerrar_ausentes` los cierra POR AUSENCIA en la primera corrida `ok`
+—que además es el cierre que NO habilita reincidencia (invariante 4)—. No hay
+backfill, no hay `UPDATE` masivo, no aplica la REGLA #4.

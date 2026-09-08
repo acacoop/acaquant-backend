@@ -1591,7 +1591,7 @@ que es exactamente la regla que este doc proponía escribir a mano.
 | 3 | Paridad explotada (ej. 144.500%) | `valor_residual` en otra escala que el flujo | `precio_moneda` (umbral `paridad_max=160`) |
 | 4 | TEA negativa/inflada en un HD | **pata peso** guardada en un HD → ÷MEP infla el precio | `precio_moneda · pata_equivocada` → botón `apuntar_pata` |
 | 5 | TEA absurda (>50% o <−50%) | precio stale/ilíquido, o bono distressed | `bono_sin_precio · precio_viejo` (**sin arreglo a propósito**: es un dato del papel, no del sistema) |
-| 6 | Bono sin TEA pero con precio | precio de pantalla sin trade (market data) | `bono_sin_precio · sin_punta` (aviso, sin arreglo) |
+| 6 | Bono suscripto que no da punta en toda la rueda | **iliquidez**: lo estamos pidiendo y el mercado no operó | **NADIE, y es a propósito** (`AGENT.md` §0.eu, invariante #15). No es un error del sistema, así que no genera hallazgo: **la ausencia de aviso ES la respuesta**. Vale porque las tres causas nuestras —`sin_simbolo`, `simbolo_rechazado`, `no_suscripto`— sí cantan en `alta` |
 | 7 | Bono no cotiza tras un alta o un cambio | **los motores cargan `mercado.curvas` una sola vez al arrancar** | `bono_sin_precio · no_suscripto` → botón `pedir_pata`; si no, `systemctl try-restart motor_rofex motor_curvas` **fuera de rueda** |
 | 8 | Bono cargado que no valúa nada | sin cronograma de pagos | `bono_sin_flujo` → botón `alta_flujos` |
 | 9 | El bono existe en 1816 y no en el master | alta pendiente | `soberanos_faltantes` → botón `alta_bono` |

@@ -147,6 +147,41 @@ SIN_EPISODIOS = (INFORME, RECURRENTE)
 DIAS_ACTIVO = 7
 
 
+# ── «NO HAY NADA QUE HACER» NO ES UN `que_hacer` ───────────────────────────
+#
+# ⚠️⚠️ **EL AGENTE AVISA DE LO NUESTRO. UN HECHO DEL MUNDO NO ES UN HALLAZGO:
+# ES EL SILENCIO.**
+#
+# User (2026-09-08), sobre `bono_sin_precio · sin_punta` (§0.eu):
+#
+#   *«si es por iliquidez no lo quiero ver. Ver solamente algo que ES un error.
+#    Iliquidez no es un error, por lo que no me interesa el aviso: SIN AVISO DOY
+#    POR SENTADO LA ILIQUIDEZ»*
+#
+# El invariante #2 —«un hallazgo sin `que_hacer` no se guarda»— ya decía esto, y
+# `sin_punta` lo cumplía **de forma nominal**: su `que_hacer` era la frase «Nada
+# que apretar: el papel no operó».
+#
+# Medido sobre los **83 textos `que_hacer`** que declaraba el agente (52 llamadas
+# a `Hallazgo()` en `agente/detectores/` + 31 filas de `agente/reportes.py`):
+# **CUATRO** empezaban diciendo que no había nada que hacer, y `sin_punta` era el
+# único de los detectores. Los otros 79 nombran una acción — «Relanzar»,
+# «Revisar», «Mirar el log», «Cargarle el símbolo», «Cerrarlo en el router».
+#
+# O sea: el modelo ya sabía que eso no era un hallazgo, y el texto lo esquivó.
+# Un CHECK que se cumple escribiendo «no hay nada que hacer» no es un CHECK. Por
+# eso la prohibición vive acá —en el constructor, donde no se puede olvidar— y
+# no en un test: *un test que existe para recordarte algo es la señal de que el
+# diseño no lo garantiza solo.*
+#
+# ⚠️ Compara sólo el ARRANQUE del texto, normalizado. «Ver si el job dejó de
+# escribir; si no cambia nada, no hacer nada» es un `que_hacer` legítimo y no
+# empieza con ninguna de estas.
+NADA_QUE_HACER = ("nada que", "nada para", "no hay nada", "ninguna accion",
+                  "ninguna acción", "no hacer nada", "no hay accion",
+                  "no hay acción")
+
+
 class SinDatos(Exception):
     """«No pude mirar». La levanta un detector que no pudo leer su fuente.
 
@@ -163,6 +198,10 @@ class Hallazgo:
     ⚠️ `que_hacer` es obligatorio y la base lo exige con un CHECK. **Si no se
     puede decir qué hacer, la regla está mal pensada** — una fila que solo dice
     «esto está mal» le pasa el problema entero al que la lee.
+
+    ⚠️ Y **tampoco vale escribir que no hay nada que hacer** (`NADA_QUE_HACER`).
+    Ahí la regla no está mal pensada: no es una regla. Es un hecho del mundo, y
+    el lugar de un hecho del mundo es el silencio (§0.eu).
     """
 
     sujeto: str
@@ -193,6 +232,14 @@ class Hallazgo:
                              "problema es habilidad+sujeto+regla")
         if not str(self.que_hacer).strip():
             raise ValueError(f"«{self.sujeto}/{self.regla}» sin `que_hacer`")
+        if " ".join(str(self.que_hacer).split()).lower().startswith(NADA_QUE_HACER):
+            raise ValueError(
+                f"«{self.sujeto}/{self.regla}»: el `que_hacer` empieza diciendo "
+                f"que no hay nada que hacer ({self.que_hacer[:40]!r}). Entonces "
+                "esto no es un hallazgo, es un dato: el agente avisa de lo "
+                "NUESTRO y un hecho del mundo se afirma con el SILENCIO. Si "
+                "igual hace falta guardarlo, no es por acá — es una tabla del "
+                "dominio, no `agente.hallazgos`")
         if self.severidad not in SEVERIDADES:
             raise ValueError(f"severidad «{self.severidad}» no existe")
 

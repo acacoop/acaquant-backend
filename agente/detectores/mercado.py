@@ -291,7 +291,20 @@ def _rechazo(simbolo: str) -> str:
 def bono_sin_precio(u: dict) -> list[Hallazgo]:
     """Bonos del master a los que el motor NO les está dando precio, en rueda.
 
-    Cuatro estados, y la diferencia importa porque el arreglo es OTRO en cada uno.
+    **Cuatro causas, y sólo TRES son nuestras.** La diferencia no es cosmética:
+    decide si esto es un error (se avisa) o un hecho del mundo (se calla).
+
+        sin_simbolo        nadie le cargó el símbolo      → NUESTRO   → alta
+        simbolo_rechazado  lo pedimos y no existe allá    → NUESTRO   → alta
+        no_suscripto       está y nadie lo pidió          → NUESTRO   → alta + botón
+        (sin punta)        lo pedimos y no vino           → EL PAPEL  → SILENCIO
+
+    La cuarta **no emite hallazgo**: es iliquidez, y el silencio la afirma
+    porque las otras tres se descartaron primero. Ver el bloque de `if not px`.
+
+    `precio_viejo` es aparte y sí se avisa: ahí SÍ hubo precio y dejó de
+    llegar, y eso puede ser el papel o puede ser nuestro feed — hay algo que
+    verificar, así que hay hallazgo.
     """
     _feed_o_sindatos()
     docs, snap = fuentes.master(), fuentes.snapshot()
@@ -353,17 +366,39 @@ def bono_sin_precio(u: dict) -> list[Hallazgo]:
         except (TypeError, ValueError):
             px = 0.0
         if not px:
-            # `baja` y es del MERCADO: acá SÍ estamos escuchando, así que la
-            # ausencia de punta es un dato sobre el papel (iliquidez) y no sobre
-            # el sistema. Es la otra cara de la regla de «no se puede concluir
-            # que no existe desde una tabla que solo tiene lo que pedimos».
-            out.append(Hallazgo(
-                sujeto=tk, regla="sin_punta", severidad="baja",
-                problema=f"sin punta hoy · lo estamos pidiendo, así que es "
-                         f"iliquidez · {reloj.hhmm(ahora)}",
-                que_hacer="Nada que apretar: el papel no operó. Si la ausencia "
-                          "dura toda la rueda, es un dato sobre el papel.",
-                evidencia={**ev, "estado": "sin_punta"}))
+            # ═══ ILIQUIDEZ: EL SILENCIO ES LA RESPUESTA ═══════════════════
+            #
+            # ⚠️⚠️ **NO HAY HALLAZGO ACÁ, Y NO ES UN OLVIDO.** Está en el
+            # snapshot, o sea que el motor lo suscribió y estamos escuchando;
+            # que no venga punta es un dato sobre EL PAPEL, no sobre nosotros.
+            # No hay nada roto, nada que apretar y nada que verificar.
+            #
+            # User (2026-09-08), viendo `BYZ2O · sin_punta · ×26`: *«si es por
+            # iliquidez no lo quiero ver. Ver solamente algo que ES un error.
+            # Iliquidez no es un error, por lo que no me interesa el aviso:
+            # SIN AVISO DOY POR SENTADO LA ILIQUIDEZ»*.
+            #
+            # **Y esa inferencia es válida precisamente por las tres ramas de
+            # arriba.** Un bono sin precio tiene cuatro causas posibles y tres
+            # son NUESTRAS —`sin_simbolo`, `simbolo_rechazado`,
+            # `no_suscripto`, las tres `alta`—; si ninguna cantó, la única que
+            # queda es el mercado. El silencio no es «no miramos»: es «miramos
+            # las tres cosas que pueden ser culpa nuestra y ninguna pasa».
+            # El día que se saque una de esas tres ramas, este `continue` deja
+            # de ser verdad y hay que volver a mirar acá.
+            #
+            # Lo que había era un hallazgo `baja` cuyo `que_hacer` decía
+            # literalmente «Nada que apretar» — la única de todo el catálogo
+            # que no le pedía nada a nadie. El invariante #2 («un hallazgo sin
+            # `que_hacer` no se guarda») ya lo prohibía; la frase lo esquivaba
+            # cumpliéndolo de forma nominal. Ahora lo prohíbe la estructura:
+            # `tipos.Hallazgo` rechaza un `que_hacer` que dice «no hay nada
+            # que hacer» (`tipos.NADA_QUE_HACER`).
+            #
+            # Los que quedaron abiertos NO hay que borrarlos a mano: esta misma
+            # habilidad los deja de ver y `registro._cerrar_ausentes` los cierra
+            # POR AUSENCIA en la primera corrida `ok` — que además es el cierre
+            # que NO habilita reincidencia (invariante 4).
             continue
 
         if not abierto:

@@ -60,6 +60,15 @@ paths:
 >     hallazgo hace falta una fuente que AFIRME la baja, con fecha; si dos
 >     fuentes se contradicen, es «no sé» y no se cierra nada.
 > 13. **El agente no se autoevalúa**: sin votos, sin eval set, sin confianza.
+> 14. **Lo automático entra por la misma puerta** (`arreglos.aplicar`) y firma
+>     como `tipos.ACTOR_AGENTE`; una regla se aplica sola sólo si su habilidad
+>     lo declara en `automatico`.
+> 15. **El agente avisa de lo NUESTRO. Un hecho del mundo no es un hallazgo: es
+>     el SILENCIO** (§0.eu). Un `que_hacer` que empieza diciendo que no hay nada
+>     que hacer no es una regla mal escrita: no es una regla — lo rechaza
+>     `tipos.Hallazgo`, no un test. ⚠️ Callar sólo vale si lo NUESTRO se
+>     descartó primero: en `bono_sin_precio` el silencio significa «iliquidez»
+>     porque las tres causas propias siguen cantando en `alta`.
 >
 > **Las pantallas** (`/api/agente`, admin-only, REGLA #8 congelada por test).
 > TRES son el ciclo de trabajo: **AHORA** = hallazgos de HOY sin leer y sin

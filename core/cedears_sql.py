@@ -113,3 +113,54 @@ def alta(ticker_corto: str, *, simbolo: str, underlying: str | None = None,
     return {"ticker_corto": tc, "simbolo": sim, "underlying": und,
             "existia": previo is not None, "antes": antes,
             "despues": f"{tc} → {und} · activo=sí"}
+
+
+def descartar(ticker_corto: str, *, simbolo: str, underlying: str | None = None,
+             actor: str = "") -> dict:
+    """«No me interesa ESTE» (§0.eh, gemelo del descarte de ONs): queda
+    `activo=false` en la MISMA tabla del alta, con la marca en `data`
+    (REGLA #9 B — una sola lista de «CEDEARs que la mesa no sigue»).
+
+    ⚠️ **UN CEDEAR ACTIVO NUNCA SE APAGA POR ACÁ.** El `ON CONFLICT` sólo
+    entra si la fila existente NO está activa (`WHERE … activo IS NOT TRUE`):
+    descartar es para lo que Primary ofrece y nunca se sumó, no un apagado
+    disfrazado de un CEDEAR que la mesa ya está usando.
+    """
+    tc = (ticker_corto or "").strip().upper()
+    if not tc:
+        raise ValueError("ticker_corto vacío")
+    sim = (simbolo or "").strip()
+    if not sim:
+        raise ValueError(f"{tc}: sin símbolo de mercado no hay nada que descartar")
+    und = (underlying or tc).strip().upper()
+    marca = {
+        "descartado": True, "descartado_por": actor or None,
+        "descartado_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, ticker_corto, underlying, activo "
+                    "FROM mercado.cedears WHERE ticker = %s", (sim,))
+        previo = cur.fetchone()
+        if previo is not None and previo[3]:
+            # Ya está activo: no se apaga desde el descarte.
+            logger.info("cedears_sql.descartar: %s (%s) ya está activo, no se toca "
+                        "(por=%s)", tc, sim, actor or "?")
+            return {"ticker_corto": tc, "simbolo": sim, "existia": True, "activo": True,
+                    "tocado": False,
+                    "antes": f"{previo[1]} → {previo[2]} · activo=sí",
+                    "despues": f"{previo[1]} → {previo[2]} · activo=sí"}
+        cur.execute(
+            "INSERT INTO mercado.cedears (ticker, ticker_corto, underlying, activo, data) "
+            "VALUES (%s, %s, %s, false, %s) "
+            "ON CONFLICT (ticker) DO UPDATE SET ticker_corto = EXCLUDED.ticker_corto, "
+            "  underlying = EXCLUDED.underlying, activo = false, "
+            "  data = COALESCE(mercado.cedears.data, '{}'::jsonb) || EXCLUDED.data "
+            "WHERE mercado.cedears.activo IS NOT TRUE",
+            (sim, tc, und, Jsonb({k: v for k, v in marca.items() if v is not None})))
+        conn.commit()
+    antes = "no estaba" if previo is None else f"{previo[1]} → {previo[2]} · activo=no"
+    logger.info("cedears_sql.descartar: %s (%s) por=%s existía=%s",
+                tc, sim, actor or "?", previo is not None)
+    return {"ticker_corto": tc, "simbolo": sim, "existia": previo is not None,
+            "activo": False, "tocado": True, "antes": antes,
+            "despues": f"{tc} descartado · activo=no"}

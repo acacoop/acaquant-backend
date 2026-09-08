@@ -3995,6 +3995,47 @@ def test_no_interesan_ons_solo_descarta_lo_que_el_detector_ofrecio(monkeypatch):
     assert r3["ok"] is False
 
 
+def test_no_interesan_cedears_solo_descarta_lo_que_primary_ofrece(monkeypatch):
+    """Gemelo de las ONs (§0.eh): no se escribe lo que manda el navegador,
+    solo lo que `alta_cedear.candidatos` ofrece EN VIVO ahora — no la
+    `muestra` congelada del hallazgo."""
+    from agente import alta_cedear, fuentes, libro, motor, vista
+    from core import cedears_sql
+
+    hallazgo = {"id": 1, "habilidad": "cedear_faltante", "sujeto": alta_cedear.FAMILIA,
+                "regla": "no_esta_en_master", "estado": tipos.NUEVO,
+                "evidencia": {"cantidad": 2, "muestra": ["META", "GOOGL"]}}
+    monkeypatch.setattr(vista, "_hallazgo_on", lambda hid: dict(hallazgo))
+    monkeypatch.setattr(fuentes, "cedears_master", lambda: [{"ticker": "x"}])
+    monkeypatch.setattr(fuentes, "fichas_primary", lambda: [{"simbolo": "x"}])
+    filas = [{"unidad": "META", "simbolo": "MERV - XMEV - META - 24hs",
+              "subyacente_primary": "META"},
+             {"unidad": "GOOGL", "simbolo": "MERV - XMEV - GOOGL - 24hs",
+              "subyacente_primary": "GOOGL"}]
+    monkeypatch.setattr(alta_cedear, "candidatos",
+                        lambda master, fichas, min_propios=3: {"filas": filas})
+    llamadas = []
+    monkeypatch.setattr(cedears_sql, "descartar",
+                        lambda tk, **kw: llamadas.append(tk))
+    monkeypatch.setattr(libro, "registrar", lambda **kw: None)
+    monkeypatch.setattr(fuentes, "refrescar", lambda: None)
+    monkeypatch.setattr(motor, "correr_una", lambda h: None)
+
+    r = vista.no_interesan_cedears(1, ["meta", "ZZZZ"])
+    assert r["ok"] and r["descartados"] == ["META"], "ZZZZ no la ofreció candidatos"
+    assert llamadas == ["META"]
+
+    llamadas.clear()
+    r2 = vista.no_interesan_cedears(1, [], todas=True)
+    assert r2["ok"] and set(r2["descartados"]) == {"META", "GOOGL"}
+    assert set(llamadas) == {"META", "GOOGL"}
+
+    otra_regla = {**hallazgo, "regla": "otra_regla"}
+    monkeypatch.setattr(vista, "_hallazgo_on", lambda hid: dict(otra_regla))
+    r3 = vista.no_interesan_cedears(1, ["META"])
+    assert r3["ok"] is False
+
+
 def test_el_preflight_pregunta_al_MOTOR_si_va_a_haber_TEA():
     """⚠️ **DOS PREGUNTAS DISTINTAS CON UNA SOLA RESPUESTA** (REGLA #9(B)).
 

@@ -179,19 +179,28 @@ def ignorar(body: Ignorar, email: str = Depends(get_user_email)):
                      deshacer=body.deshacer)
 
 
-class NoInteresanOns(BaseModel):
+class NoInteresan(BaseModel):
     id: int = Field(..., ge=1)
     tickers: list[str] = Field(default_factory=list, max_length=500)
     todas: bool = False
 
 
 @router.post("/ons/no-interesan")
-def ons_no_interesan(body: NoInteresanOns, email: str = Depends(get_user_email)):
+def ons_no_interesan(body: NoInteresan, email: str = Depends(get_user_email)):
     """«No me interesan ESTAS» (por ticker), no el aviso entero: las
     descartadas dejan de contarse y el aviso vuelve solo cuando 1816 publique
     una que no esté en la lista (`mercado.ons_ignoradas`, §0.eh)."""
     from agente import vista as v
     return v.no_interesan_ons(body.id, body.tickers, todas=body.todas, por=email)
+
+
+@router.post("/cedears/no-interesan")
+def cedears_no_interesan(body: NoInteresan, email: str = Depends(get_user_email)):
+    """«No me interesan ESTOS» (por ticker), no el aviso entero: los
+    descartados dejan de contarse y el aviso vuelve solo cuando Primary liste
+    uno nuevo (quedan apagados en `mercado.cedears`, §0.eh)."""
+    from agente import vista as v
+    return v.no_interesan_cedears(body.id, body.tickers, todas=body.todas, por=email)
 
 
 class Correr(BaseModel):

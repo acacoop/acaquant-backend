@@ -316,6 +316,88 @@ def no_interesan_ons(hallazgo_id: int, tickers: list[str], *,
             "errores": errores}
 
 
+# ── DESCARTAR CEDEARs POR TICKER ─────────────────────────────────────────────
+def no_interesan_cedears(hallazgo_id: int, tickers: list[str], *,
+                         todas: bool = False, por: str = "") -> dict:
+    """«No me interesan ESTOS», por ticker — el gemelo de `no_interesan_ons`
+    para la oferta de `cedear_faltante` (§0.eh, misma forma).
+
+    A diferencia de `ignorar` —que apaga el aviso ENTERO para siempre— esto
+    descarta CEDEARs puntuales de la oferta: los descartados dejan de
+    contarse, el aviso desaparece solo cuando no queda ninguno sin descartar
+    (cierre por ausencia, lo hace `registro`) y renace únicamente con los que
+    Primary liste de acá en más.
+
+    ⚠️ **LOS PERMITIDOS SE RECALCULAN EN VIVO**, igual que `AltaCedear.preview`:
+    la evidencia del hallazgo trae solo una `muestra`, así que lo que se puede
+    escribir es lo que `alta_cedear.candidatos` ofrece AHORA sobre la foto de
+    Primary y el master actuales, no lo que decía la foto cuando se abrió la
+    pantalla.
+
+    El descarte va a `mercado.cedears` (`core.cedears_sql.descartar`), la
+    MISMA tabla del alta (REGLA #9 B): no hay una segunda lista de «CEDEARs
+    que la mesa no sigue». Se restauran desde Manager → RENTA VARIABLE.
+    """
+    from agente import alta_cedear, fuentes, libro, motor, tipos
+
+    h = _hallazgo_on(hallazgo_id)
+    if h is None:
+        return {"ok": False, "error": "ese hallazgo no existe"}
+    if h["habilidad"] != "cedear_faltante" or h["regla"] != "no_esta_en_master":
+        return {"ok": False, "error": "esto solo aplica a la oferta de CEDEARs"}
+    if h["estado"] not in tipos.ABIERTOS:
+        return {"ok": False, "error": f"ese hallazgo está «{h['estado']}»"}
+
+    master = fuentes.cedears_master()
+    fichas = fuentes.fichas_primary()
+    if master is None or fichas is None:
+        return {"ok": False, "error": "no pude leer el master o la foto de Primary "
+                                       "— sin eso no puedo recalcular la oferta"}
+    c = alta_cedear.candidatos(master, fichas, min_propios=alta_cedear.MIN_PROPIOS)
+    permitidos = {f["unidad"]: f for f in c["filas"]}
+    # ⚠️ NO se escribe lo que manda el navegador: solo lo que la oferta EN VIVO
+    # todavía ofrece.
+    elegidos = (set(permitidos) if todas else
+               ({t.strip().upper() for t in tickers} & set(permitidos)))
+    if not elegidos:
+        return {"ok": False, "error": "no elegiste ningún CEDEAR de la lista"}
+
+    from core import cedears_sql
+
+    escritas, errores = [], []
+    for tk in sorted(elegidos):
+        fila = permitidos[tk]
+        try:
+            cedears_sql.descartar(tk, simbolo=fila["simbolo"],
+                                  underlying=fila.get("subyacente_primary") or tk,
+                                  actor=por)
+            escritas.append(tk)
+        except Exception as e:
+            errores.append(f"{tk}: {e}"[:160])
+
+    libro.registrar(
+        accion="no_interesa_cedear", objetivo=h["sujeto"], habilidad=h["habilidad"],
+        regla=h["regla"], hallazgo_id=hallazgo_id, por=por,
+        destino="mercado.cedears", campo="CEDEARs descartados",
+        antes=str(len(permitidos)),
+        despues=f"{len(permitidos) - len(escritas)} (descartados {len(escritas)})",
+        ok=bool(escritas), error="; ".join(errores)[:300])
+
+    try:
+        fuentes.refrescar()
+        motor.correr_una("cedear_faltante")
+    except Exception:
+        logger.warning("vista: no_interesan_cedears descartó, pero no pude "
+                       "refrescar cedear_faltante", exc_info=True)
+
+    return {"ok": True, "descartados": sorted(escritas),
+            "quedan": len(permitidos) - len(escritas),
+            "detalle": (f"{len(escritas)} descartado(s) · quedan "
+                        f"{len(permitidos) - len(escritas)} · el aviso vuelve "
+                        "solo con los nuevos"),
+            "errores": errores}
+
+
 # ── HISTORIAL ──────────────────────────────────────────────────────────────
 LIMITE = 200
 

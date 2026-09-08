@@ -81,7 +81,10 @@ def test_un_hallazgo_por_familia_y_uno_por_cada_activo_que_no_cotiza(monkeypatch
     Un activo nuestro que Primary NO lista es un problema por título: cada uno
     se corrige o se apaga por separado, y no tiene botón a propósito."""
     from agente import fuentes
-    master = _master(*PROPIOS) + _master("FANTASMA")
+    ya_descartado = {"ticker": _sim("DESCARTADO"), "ticker_corto": "DESCARTADO",
+                     "underlying": "DESCARTADO", "activo": False,
+                     "sin_cedear": False, "data": {"descartado": True}}
+    master = _master(*PROPIOS) + _master("FANTASMA") + [ya_descartado]
     fichas = [_ficha(t) for t in PROPIOS] + [_ficha("META"), _ficha("GOOGL")]
     monkeypatch.setattr(fuentes, "cedears_master", lambda: master)
     monkeypatch.setattr(fuentes, "fichas_primary", lambda: fichas)
@@ -90,6 +93,10 @@ def test_un_hallazgo_por_familia_y_uno_por_cada_activo_que_no_cotiza(monkeypatch
     familia = [h for h in hs if h.regla == "no_esta_en_master"]
     assert len(familia) == 1 and familia[0].sujeto == alta_cedear.FAMILIA
     assert familia[0].evidencia["cantidad"] == 2
+    # Lo que YA se descartó por ticker (§0.eh) sigue sin ofrecerse, pero se
+    # cuenta: el número del aviso no puede mentir sobre lo que hay atrás.
+    assert familia[0].evidencia["ya_descartados"] == 1
+    assert "1 ya descartado" in familia[0].problema
     muertos = [h for h in hs if h.regla == "no_cotiza_en_primary"]
     assert [h.sujeto for h in muertos] == ["FANTASMA"]
     h = catalogo.HABILIDADES["cedear_faltante"]

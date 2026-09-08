@@ -66,6 +66,10 @@ class _CedearPatch(BaseModel):
     es_ia: bool | None = None
     ric: str | None = Field(default=None, max_length=40)   # RIC Refinitiv (None/'' = vaciar)
     ratio: float | None = Field(default=None, gt=0)        # CEDEARs por acción (None = vaciar)
+    # Prender/apagar. Es lo que REACTIVA un CEDEAR que el agente descartó
+    # («no me interesan», `cedears_sql.descartar`, AGENT.md §0.el): el descarte
+    # es `activo = false` en esta misma tabla, y la vuelta es este campo.
+    activo: bool | None = None
 
 
 @router.patch("/renta-variable")
@@ -88,8 +92,10 @@ def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
         sets["ric"] = (req.ric or "").strip() or None
     if "ratio" in req.model_fields_set:
         sets["ratio"] = req.ratio
+    if "activo" in req.model_fields_set and req.activo is not None:
+        sets["activo"] = req.activo
     if not sets:
-        raise HTTPException(400, "body sin campos editables (rubro / es_ia / ric / ratio)")
+        raise HTTPException(400, "body sin campos editables (rubro / es_ia / ric / ratio / activo)")
     cols = ", ".join(f"{k} = %({k})s" for k in sets)
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(f"UPDATE mercado.cedears SET {cols} WHERE ticker = %(ticker)s",

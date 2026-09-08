@@ -5662,3 +5662,32 @@ junta informes y recurrentes para `vista._con_historial` y `vista.cronicos`. Un
 test exige que toda regla de la ficha esté declarada recurrente. Lo crónico
 queda para lo que sí es un patrón: motores, feeds, jobs, proveedores.
 
+
+### 0.el CEDEARs: el subyacente a la vista, y «no me interesan» por ticker (2026-09-08)
+
+El user, sobre la tarjeta de 303 CEDEARs que Primary lista y no tenemos: *«acá
+me gustaría agregar (a) el underlying y (b) poder tener el patrón de marcar los
+que no me interesan y que aparezcan solo nuevos, como ya hicimos en lo otro»*.
+
+**(a) El dato ya viajaba.** `alta_cedear.candidatos` pone en cada fila
+`subyacente_primary` —lo que Primary declara como subyacente— y la pantalla no
+lo mostraba. Ahora hay una columna «subyacente Primary», solo lectura. **No se
+usa de default** para el subyacente US que se escribe: no está medido qué pone
+Primary ahí para un CEDEAR (REGLA #2), así que se muestra para que quien tilda
+decida, y el default sigue siendo el ticker.
+
+**(b) Dónde vive el descarte, sin tabla nueva.** El detector considera «en el
+sistema» todo lo que está en `mercado.cedears`, activo o no. Entonces descartar
+es escribir la fila con `activo = false` y la marca `data.descartado` (quién y
+cuándo), por `cedears_sql.descartar`, que **nunca apaga uno activo**. Deja de
+ofrecerse sin tocar el detector, el aviso se cierra por ausencia cuando no queda
+ninguno y renace con el primero que Primary liste fuera del master; y Manager →
+RENTA VARIABLE lo lista y lo reactiva. Una lista, no dos (REGLA #9).
+
+**La puerta.** `POST /api/agente/cedears/no-interesan` → `vista.no_interesan_cedears`,
+copia de la de las ONs (§0.eh) con una diferencia obligada: la evidencia del
+hallazgo trae solo una MUESTRA, así que los permitidos se recalculan EN VIVO
+con `alta_cedear.candidatos`, igual que hace `preview`. Nunca se escribe lo
+que manda el navegador. El `problema` dice cuántos están descartados para que
+«3 CEDEARs» no se lea como «solo hay 3».
+

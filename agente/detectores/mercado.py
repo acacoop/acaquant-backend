@@ -618,6 +618,12 @@ def cedear_faltante(u: dict) -> list[Hallazgo]:
                        f"{c['propios']} propios Primary lista {c['reconocidos']} y "
                        f"ningún cficode llega a {min_propios}")
 
+    # Cuántos de los que Primary ofrece la mesa YA descartó por ticker (§0.eh):
+    # siguen sin cotizar (mismo criterio que `on_faltante`), pero no vuelven a
+    # ofrecerse — solo se cuentan, para que el número del aviso no mienta.
+    ya_descartados = sum(1 for m in master if not m.get("activo")
+                         and (m.get("data") or {}).get("descartado"))
+
     foto = fuentes.primary_fecha()
     foto_txt = foto.strftime("%d/%m %H:%M UTC") if foto else "sin fecha"
     out = []
@@ -626,20 +632,23 @@ def cedear_faltante(u: dict) -> list[Hallazgo]:
         muestra = [f["unidad"] for f in c["filas"][:MUESTRA_CEDEARS]]
         out.append(Hallazgo(
             sujeto=alta_cedear.FAMILIA, regla="no_esta_en_master", severidad="baja",
-            problema=(f"{n} CEDEAR(s) cotizan en Primary y no están en el sistema · "
-                      f"{reloj.hhmm()}"),
+            problema=(f"{n} CEDEAR(s) cotizan en Primary y no están en el sistema"
+                      + (f" · {ya_descartados} ya descartado(s)"
+                         if ya_descartados > 0 else "")
+                      + f" · {reloj.hhmm()}"),
             detalle=(f"foto de Primary del {foto_txt} · ficha cficode {c['cficodes']} "
                      f"plazo {c['plazos']} moneda {c['monedas']} (calibrada con "
                      f"{c['reconocidos']} de nuestros {c['propios']}) · "
                      + " · ".join(muestra) + (" · …" if n > len(muestra) else "")),
-            que_hacer=("Elegir cuáles sumar desde ENCONTRÓ («ver qué haría» → tildar "
-                       "→ dar de alta): entran al master, al motor, al scanner y a "
-                       "Manager → TÍTULOS → RENTA VARIABLE de una. Los que no "
-                       "interesan se dejan: no todo lo que BYMA lista es para la mesa."),
+            que_hacer=("Tildar los que van y «dar de alta»; tildar los que NO "
+                       "interesan y «no me interesan»: se descartan por ticker "
+                       "(quedan apagados en el master) y este aviso vuelve solo "
+                       "cuando Primary liste uno nuevo. Se reactivan desde "
+                       "Manager → RENTA VARIABLE."),
             evidencia={"cantidad": n, "muestra": muestra, "cficodes": c["cficodes"],
                        "plazos": c["plazos"], "monedas": c["monedas"],
                        "propios": c["propios"], "reconocidos": c["reconocidos"],
-                       "foto_de": foto_txt}))
+                       "foto_de": foto_txt, "ya_descartados": ya_descartados}))
     for simbolo in c["no_cotizan"]:
         out.append(Hallazgo(
             sujeto=alta_cedear.corto(simbolo), regla="no_cotiza_en_primary",

@@ -28,23 +28,31 @@ CAMPOS = ("ticker", "pata", "ticker_1816", "tea", "tna", "spread",
 
 
 def upsert(filas: list[dict]) -> int:
-    """Upsert por `(ticker, pata)`. Idempotente: re-correr no duplica."""
+    """Upsert por `(ticker, pata)`. Idempotente: re-correr no duplica.
+
+    `moneda` es a qué dólar se le pidieron los números a 1816. El default `ars`
+    es el de la API, y para un instrumento que paga en dólares significa que los
+    indicadores salieron al CCL de ELLOS — que no es el MEP con el que trabaja
+    todo lo demás. Se graba junto al dato en vez de deducirse después: es la
+    única forma de que la habilidad `hd_1816_al_ccl` pueda cantarlo (§0.ez).
+    """
     if not filas:
         return 0
     from core.postgres import get_pool
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO mercado.tamar_1816 (ticker,pata,ticker_1816,tea,tna,spread,"
-            "precio_clean,duration,paridad,fecha_operacion) VALUES "
+            "precio_clean,duration,paridad,fecha_operacion,moneda) VALUES "
             "(%(ticker)s,%(pata)s,%(ticker_1816)s,%(tea)s,%(tna)s,%(spread)s,"
-            "%(precio_clean)s,%(duration)s,%(paridad)s,%(fecha_operacion)s) "
+            "%(precio_clean)s,%(duration)s,%(paridad)s,%(fecha_operacion)s,"
+            "%(moneda)s) "
             "ON CONFLICT (ticker,pata) DO UPDATE SET "
             "ticker_1816 = EXCLUDED.ticker_1816, tea = EXCLUDED.tea, "
             "tna = EXCLUDED.tna, spread = EXCLUDED.spread, "
             "precio_clean = EXCLUDED.precio_clean, duration = EXCLUDED.duration, "
             "paridad = EXCLUDED.paridad, fecha_operacion = EXCLUDED.fecha_operacion, "
-            "actualizado_en = now()",
-            filas,
+            "moneda = EXCLUDED.moneda, actualizado_en = now()",
+            [{"moneda": "ars", **f} for f in filas],
         )
     return len(filas)
 
@@ -64,8 +72,13 @@ def sembrar_desde_1816(ticker: str, pata: str) -> dict:
     from core import mercado_1816
     campos = ["tea", "tna", "spread", "precioClean", "duration", "paridad"]
     tk = mercado_1816.normalizar_ticker(ticker)
+    # A QUÉ DÓLAR. Sin esto se iba con el default de la API (`ars`) y, para un
+    # bono que paga en dólares, lo que volvía estaba calculado al CCL de 1816.
+    # Estos números los muestra `curvas_vista` como la TEA de la pata SIN
+    # convertir nada, así que el dólar del pedido es el dólar que ve la mesa.
+    moneda = mercado_1816.monedas_de([tk]).get(tk, "ars")
     try:
-        resp = mercado_1816.indicadores_vigentes([tk], campos)
+        resp = mercado_1816.indicadores_vigentes([tk], campos, moneda=moneda)
     except Exception as e:
         return {"ok": False, "error": f"1816 no respondió: {e}"[:200]}
     if not resp:
@@ -83,7 +96,7 @@ def sembrar_desde_1816(ticker: str, pata: str) -> dict:
             "tea": v.get("tea"), "tna": v.get("tna"), "spread": v.get("spread"),
             "precio_clean": v.get("precioClean"), "duration": v.get("duration"),
             "paridad": v.get("paridad"),
-            "fecha_operacion": resp.get("fechaOperacion")}
+            "fecha_operacion": resp.get("fechaOperacion"), "moneda": moneda}
     try:
         upsert([fila])
     except Exception as e:

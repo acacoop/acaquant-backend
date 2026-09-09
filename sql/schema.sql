@@ -1894,9 +1894,17 @@ CREATE TABLE IF NOT EXISTS mercado.tamar_1816 (
     duration        double precision,
     paridad         double precision,
     fecha_operacion date,               -- la rueda a la que corresponden los valores
+    -- A QUÉ DÓLAR pidió estos números `jobs/tamar_1816` (2026-09-09). El default
+    -- de la API es `ars`, que para un instrumento que paga en moneda distinta a
+    -- ARS calcula los indicadores dividiendo por SU CCL — y esta tabla la lee
+    -- `curvas_vista` para mostrar la TEA de la pata, sin convertir nada. Sin
+    -- esta columna no había forma de saber si el número era MEP o CCL: la
+    -- habilidad `hd_1816_al_ccl` del AV AGENT la mira.
+    moneda          text NOT NULL DEFAULT 'ars',
     actualizado_en  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (ticker, pata)
 );
+ALTER TABLE mercado.tamar_1816 ADD COLUMN IF NOT EXISTS moneda text NOT NULL DEFAULT 'ars';
 -- Sin índice extra: son ~23 filas y el Seq Scan es óptimo (misma razón que las
 -- tablas chicas de Tesorería). La PK ya cubre el join por ticker.
 
@@ -5222,9 +5230,15 @@ CREATE TABLE IF NOT EXISTS agente.tasa_1816 (
     duration    numeric,
     precio      numeric,
     fecha_1816  date,
+    -- Misma razón que en `mercado.tamar_1816`: estos números van DERECHO a la
+    -- vista de Renta Fija como la TEA del bono, sin conversión. Si se pidieron
+    -- con el default `ars` y el bono paga en dólares, la mesa está viendo la
+    -- tasa al CCL de 1816 al lado de las que el motor calcula al MEP.
+    moneda      text NOT NULL DEFAULT 'ars',
     pedido_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (ticker, pata)
 );
+ALTER TABLE agente.tasa_1816 ADD COLUMN IF NOT EXISTS moneda text NOT NULL DEFAULT 'ars';
 
 -- LO QUE EL AGENTE LE MANDA A UNA PERSONA. No es un hallazgo: un hallazgo es un
 -- problema del sistema, esto es un mensaje dirigido. Mezclarlos fue una de las

@@ -69,17 +69,30 @@ def refrescar() -> dict:
     if not mercado_1816.disponible():
         return {"ok": False, "error": "1816 no está configurado"}
 
-    try:
-        d = mercado_1816.indicadores_vigentes(tickers, list(CAMPOS)) or {}
-    except Exception as e:
-        logger.warning("tasa_1816: 1816 no contestó (%s)", e)
-        return {"ok": False, "error": str(e)[:300]}
+    # ⚠️ **A QUÉ DÓLAR (2026-09-09, §0.ez).** Estas tasas van DERECHO a la vista
+    # de Renta Fija como la TEA del bono, sin que nadie las convierta. Con el
+    # default de la API (`ars`), un bono que paga en dólares vuelve calculado al
+    # CCL de 1816 — o sea que la mesa veía una TEA al CCL al lado de las que el
+    # motor calcula al MEP, y no falla nada: es un número plausible.
+    # Una llamada por moneda, porque `/indicadores` lleva UNA.
+    por_mon = mercado_1816.por_moneda(tickers)
+    fecha, inst, moneda_de = None, {}, {}
+    for moneda, tks in sorted(por_mon.items()):
+        try:
+            d = mercado_1816.indicadores_vigentes(tks, list(CAMPOS),
+                                                  fecha=fecha, moneda=moneda) or {}
+        except Exception as e:
+            logger.warning("tasa_1816: 1816 no contestó en %s (%s)", moneda, e)
+            continue
+        # La respuesta viene como `{instrumentos: {TICKER: {...}}, fechaOperacion}`.
+        # Es el mismo shape que parsea `jobs/tamar_1816`: se lee de ahí y no se
+        # inventa una forma paralela.
+        fecha = fecha or d.get("fechaOperacion")
+        inst.update(d.get("instrumentos") or {})
+        moneda_de.update(dict.fromkeys(tks, moneda))
+    if not inst:
+        return {"ok": False, "error": "1816 no contestó en ninguna moneda"}
 
-    # La respuesta viene como `{instrumentos: {TICKER: {...}}, fechaOperacion}`.
-    # Es el mismo shape que parsea `jobs/tamar_1816`: se lee de ahí y no se
-    # inventa una forma paralela.
-    fecha = d.get("fechaOperacion")
-    inst = d.get("instrumentos") or {}
     escritos, sin_dato = 0, []
     with get_pool().connection() as conn, conn.cursor() as cur:
         for tk in tickers:
@@ -92,14 +105,14 @@ def refrescar() -> dict:
                 continue
             cur.execute(
                 "INSERT INTO agente.tasa_1816 "
-                " (ticker, pata, tea, duration, precio, fecha_1816, pedido_at) "
-                "VALUES (%s,'',%s,%s,%s,%s, now()) "
+                " (ticker, pata, tea, duration, precio, fecha_1816, moneda, pedido_at) "
+                "VALUES (%s,'',%s,%s,%s,%s,%s, now()) "
                 "ON CONFLICT (ticker, pata) DO UPDATE SET "
                 "  tea = EXCLUDED.tea, duration = EXCLUDED.duration, "
                 "  precio = EXCLUDED.precio, fecha_1816 = EXCLUDED.fecha_1816, "
-                "  pedido_at = now()",
+                "  moneda = EXCLUDED.moneda, pedido_at = now()",
                 (tk, _num(v.get("tea")), _num(v.get("duration")),
-                 _num(v.get("precioClean")), fecha))
+                 _num(v.get("precioClean")), fecha, moneda_de.get(tk, "ars")))
             escritos += 1
     return {"ok": True, "tickers": len(tickers), "escritos": escritos,
             "sin_dato": sin_dato, "fecha_1816": fecha}
@@ -124,12 +137,17 @@ def tasas() -> dict[str, dict]:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT ticker, tea, duration, precio, fecha_1816, "
-                        "       pedido_at FROM agente.tasa_1816")
+                        "       pedido_at, moneda FROM agente.tasa_1816")
             return {r[0]: {"tea": _f(r[1]), "duration": _f(r[2]),
                            "precio": _f(r[3]),
                            "tea_fuente": "1816",
                            "tea_fecha": r[4].isoformat() if r[4] else None,
-                           "tea_pedida_at": r[5].isoformat() if r[5] else None}
+                           "tea_pedida_at": r[5].isoformat() if r[5] else None,
+                           # A qué dólar se pidió. Viaja con el dato por la misma
+                           # razón que `tea_fuente` y `tea_fecha`: un número que
+                           # no dice de dónde ni en qué unidad sale obliga a
+                           # adivinar, y adivinar fue el bug (§0.ez).
+                           "tea_moneda": r[6]}
                     for r in cur.fetchall()}
     except Exception as e:
         logger.warning("tasa_1816: no pude leer las tasas (%s)", e)

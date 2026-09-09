@@ -673,6 +673,56 @@ def moneda_series(moneda_pago: str | None) -> str:
     """
     return "mep" if (moneda_pago or "").strip().upper() == "USD" else "ars"
 
+
+def monedas_de(tickers) -> dict[str, str]:
+    """{ticker: moneda con la que hay que pedírselo a 1816}, para una lista.
+
+    Es `moneda_series` aplicada al catálogo: busca el `monedaPago` de cada
+    ticker en `research.mkt_1816_instrumentos` (lo llena
+    `jobs/mercado_1816_discovery --apply --catalogo`, que corre todos los días)
+    y devuelve `mep` para los que pagan en dólares, `ars` para el resto.
+
+    **Existe para que ningún consumidor de 1816 tenga que acordarse.** El
+    default de la API es `ars`, que para un bono en dólares calcula al CCL de
+    ellos, y omitirlo NO falla: devuelve un número plausible al dólar
+    equivocado. Cada llamador que resolviera esto por su cuenta sería otra copia
+    del criterio esperando divergir (REGLA #9).
+
+    Acepta la grafía exacta de 1816, sufijos de pata incluidos (`TXMD9 @TAMAR`):
+    el catálogo las guarda tal cual. Lo que no está en el catálogo cae en `ars`,
+    que es el default de la API — ante la duda no se cambia de convención, y la
+    habilidad `hd_1816_al_ccl` del AV AGENT canta si alguno quedó ahí.
+    """
+    tks = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    if not tks:
+        return {}
+    # Import diferido: este módulo es el cliente HTTP y no arrastra la base en
+    # el import (lo cargan scripts y jobs que a veces corren sin Postgres).
+    from core.postgres import get_pool
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT ticker, moneda_pago FROM research.mkt_1816_instrumentos "
+                        "WHERE ticker = ANY(%s)", (tks,))
+            ficha = dict(cur.fetchall())
+    except Exception as e:
+        logger.warning("mercado_1816.monedas_de: no pude leer el catálogo (%s) — "
+                       "todo a `ars` (el default de la API)", e)
+        ficha = {}
+    return {tk: moneda_series(ficha.get(tk)) for tk in tks}
+
+
+def por_moneda(tickers) -> dict[str, list[str]]:
+    """{moneda: [tickers]} — el mismo criterio, ya agrupado para llamar.
+
+    `/indicadores` y `/series` llevan UNA moneda por llamada, así que todo el
+    que pide un lote mixto tiene que partirlo. Se agrupa acá una vez y no en
+    cada job.
+    """
+    out: dict[str, list[str]] = {}
+    for tk, mon in monedas_de(tickers).items():
+        out.setdefault(mon, []).append(tk)
+    return {m: sorted(tks) for m, tks in out.items()}
+
 # Los campos que `/indicadores` acepta, TEXTUAL del enum del spec.
 CAMPOS_INDICADORES = (
     "convencionTna", "currentYield", "denominacion", "duration", "durationMod",

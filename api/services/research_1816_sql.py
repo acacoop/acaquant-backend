@@ -72,17 +72,17 @@ def _monedas(tickers: tuple[str, ...]) -> dict[str, str]:
     """
     if not tickers:
         return {}
+    # La moneda que le TOCA a cada ticker sale del cliente, que es donde vive la
+    # convención y de donde la toman también los jobs. Acá solo se decide qué
+    # hay guardado.
+    objetivo = mercado_1816.monedas_de(list(tickers))
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT ticker, moneda_pago FROM research.mkt_1816_instrumentos "
-                    "WHERE ticker = ANY(%s)", (list(tickers),))
-        ficha = dict(cur.fetchall())
         cur.execute("SELECT ticker, moneda, count(*) FROM research.mkt_1816_series "
                     "WHERE ticker = ANY(%s) GROUP BY ticker, moneda", (list(tickers),))
         guardadas: dict[str, dict[str, int]] = {}
         for tk, mon, n in cur.fetchall():
             guardadas.setdefault(tk, {})[mon] = n
-    return {tk: _moneda_efectiva(mercado_1816.moneda_series(ficha.get(tk)),
-                                 guardadas.get(tk, {}))
+    return {tk: _moneda_efectiva(objetivo.get(tk, "ars"), guardadas.get(tk, {}))
             for tk in tickers}
 
 

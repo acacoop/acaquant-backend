@@ -5491,3 +5491,110 @@ def test_una_columna_que_mira_al_futuro_no_da_verde_eterno():
     assert tablas.frescura({"cadencia": "diaria", "col_fecha": "fecha",
                             "ultimo_dato": _dt(2026, 9, 7, tzinfo=_U)},
                            ahora=ahora)["estado"] == "ok"
+
+
+def test_hd_1816_al_ccl_canta_el_pipeline_y_no_el_bono(monkeypatch):
+    """El caso real (2026-09-09, §0.ez): RESEARCH → RENTA FIJA ARGENTINA mostraba
+    la TEA de los Bonares y Globales al CCL de 1816 y no al MEP.
+
+    Lo difícil no era el bug, era que **no falla nada**: pedirle a 1816 sin decir
+    la moneda devuelve un número plausible, calculado con el dólar de ellos.
+    Medido en prod, BPOB7 daba 7,26% en `ars` contra 2,44% en `mep`.
+
+    Tres cosas congela este test:
+      · el sujeto es la TABLA (el pipeline), no el bono — se rompen los 21
+        juntos o ninguno, y 21 filas en AHORA diciendo lo mismo es ruido;
+      · **`monedaPago`, no `monedaDenom`**: un dólar-linked está denominado en
+        USD y paga en pesos, así que `ars` es lo CORRECTO para él y no puede
+        salir como hallazgo (1816 ni siquiera publica `mep` para esos);
+      · un ticker sin ficha en el catálogo no se da por bueno: se pide con el
+        default `ars` y, si paga en dólares, queda al CCL sin que se note.
+    """
+    from datetime import datetime as _dt
+
+    from agente import fuentes, reloj
+    from agente.detectores import datos as det
+
+    filas = [
+        # Hard dollar guardado en `ars` = al CCL. Tiene que cantar.
+        {"tabla": "research.mkt_1816_series", "ticker": "GD30",
+         "moneda_pago": "USD", "moneda": "ars", "filas": 1364, "desde": "2025-07-21"},
+        {"tabla": "research.mkt_1816_series", "ticker": "AL30",
+         "moneda_pago": "USD", "moneda": "ars", "filas": 1364, "desde": "2025-07-21"},
+        # El mismo bono YA rebajado: la fila en `mep` no es un hallazgo.
+        {"tabla": "research.mkt_1816_series", "ticker": "AE38",
+         "moneda_pago": "USD", "moneda": "mep", "filas": 980, "desde": "2025-09-10"},
+        # Otro pipeline, otro sujeto.
+        {"tabla": "agente.tasa_1816", "ticker": "BPOB7",
+         "moneda_pago": "USD", "moneda": "ars", "filas": 1, "desde": "2026-09-09"},
+        # Dólar-linked: denominado en USD, PAGA en pesos → `ars` está bien.
+        {"tabla": "research.mkt_1816_series", "ticker": "TZV27",
+         "moneda_pago": "ARS", "moneda": "ars", "filas": 520, "desde": "2026-01-05"},
+        # Bono en pesos de toda la vida.
+        {"tabla": "research.mkt_1816_series", "ticker": "TX26",
+         "moneda_pago": "ARS", "moneda": "ars", "filas": 672, "desde": "2026-01-05"},
+    ]
+    monkeypatch.setattr(fuentes, "monedas_1816", lambda: filas)
+    monkeypatch.setattr(reloj, "ahora_utc",
+                        lambda a=None: _dt(2026, 9, 9, 15, 0, tzinfo=UTC))
+
+    por = {h.sujeto: h for h in det.hd_1816_al_ccl({"sin_ficha_max": 0})}
+    assert set(por) == {"research.mkt_1816_series", "agente.tasa_1816"}
+
+    h = por["research.mkt_1816_series"]
+    assert h.regla == "al_ccl" and h.severidad == "alta"
+    # Los bonos van en `evidencia["items"]`, no cada uno en su fila.
+    assert h.evidencia["items"] == ["AL30", "GD30"]
+    assert h.evidencia["filas"] == 1364 * 2
+    assert "TZV27" not in h.evidencia["items"], "un dólar-linked paga en pesos"
+    assert "AE38" not in h.evidencia["items"], "ese ya está en mep"
+    assert h.que_hacer.strip()
+
+    # Sin ficha en el catálogo: no se afirma que esté mal, se canta el agujero.
+    sin_ficha = [{"tabla": "agente.tasa_1816", "ticker": "XXXX",
+                  "moneda_pago": None, "moneda": "ars", "filas": 1, "desde": None}]
+    monkeypatch.setattr(fuentes, "monedas_1816", lambda: sin_ficha)
+    hs = det.hd_1816_al_ccl({"sin_ficha_max": 0})
+    assert [x.regla for x in hs] == ["sin_ficha_1816"]
+    assert hs[0].evidencia["items"] == ["XXXX"]
+    # Y el umbral se respeta: con tolerancia 1, ese mismo caso no canta.
+    assert det.hd_1816_al_ccl({"sin_ficha_max": 1}) == []
+
+    # Nada limpio → nada que decir.
+    monkeypatch.setattr(fuentes, "monedas_1816",
+                        lambda: [f for f in filas if f["moneda_pago"] != "USD"])
+    assert det.hd_1816_al_ccl({"sin_ficha_max": 0}) == []
+
+    # No pude leer ≠ está todo bien (invariante #6).
+    monkeypatch.setattr(fuentes, "monedas_1816", lambda: None)
+    with pytest.raises(tipos.SinDatos):
+        det.hd_1816_al_ccl({})
+
+
+def test_hd_1816_al_ccl_esta_conectada_y_es_un_aviso():
+    """La estructura (REGLA #10). Y una en particular: **no tiene arreglo, a
+    propósito**.
+
+    Rehacer una serie de 1816 cuesta créditos y es un backfill — REGLA #4, o sea
+    que no puede salir de un botón del tablero. Un `arreglos` vacío por olvido y
+    uno vacío por decisión se ven igual en el código; lo que los distingue es que
+    este test lo exija.
+    """
+    from agente.catalogo import HABILIDADES
+    from agente.detectores import datos as det
+
+    h = HABILIDADES["hd_1816_al_ccl"]
+    assert h.dominio == "DATOS" and h.tipo == "detector"
+    assert h.correr is det.hd_1816_al_ccl
+    assert h.arreglos == {}, "es un AVISO: el arreglo es un backfill (REGLA #4)"
+    assert "sin_ficha_max" in h.umbrales, "el umbral se declara acá, no en el detector"
+    assert h.ventana == "siempre", "no depende de rueda ni de precio"
+
+    # El detector no escribe: solo `agente/registro.py` escribe hallazgos.
+    fuente = inspect.getsource(det.hd_1816_al_ccl)
+    for prohibido in ("INSERT", "UPDATE ", "DELETE", "registro."):
+        assert prohibido not in fuente, f"el detector no puede {prohibido}"
+
+    # La regla de qué moneda corresponde NO se reimplementa acá: se deriva del
+    # cliente, que es de donde la toman también los jobs (REGLA #9).
+    assert "moneda_series" in fuente

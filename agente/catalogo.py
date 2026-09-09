@@ -399,6 +399,44 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
     # Lo que un job reporta sin escribir, declarado en `agente/reportes.py`
     # (§0.dd): una fila por stat. Sin arreglo: cada aviso dice qué hacer, y
     # lo que el job no corrige es porque no debe (la moneda, un conflicto).
+    # ⚠️ **A QUÉ DÓLAR está lo que trae 1816** (§0.ez). Su API calcula los
+    # indicadores de un bono que paga en dólares dividiendo por SU CCL si no se
+    # le pide otra cosa, y esta plataforma trabaja en MEP. Pedirlo mal **no
+    # falla**: devuelve un número plausible al dólar equivocado (medido: 481 bps
+    # en BPOB7). Mira las TRES tablas donde termina un dato de 1816 —los
+    # gráficos de Research, la TEA que ve la mesa y las patas TAMAR— porque la
+    # pregunta es la misma en las tres y contestarla por vista fue cómo se
+    # escapó. Un pipeline nuevo que se olvide de la moneda cae acá solo.
+    #
+    # SIN ARREGLO A PROPÓSITO: rehacer una serie cuesta créditos de 1816 y es un
+    # backfill, o sea REGLA #4 — eso no sale de un botón. Y se cierra solo:
+    # corregido el pedido, el cron reescribe las filas.
+    Habilidad(
+        nombre="hd_1816_al_ccl", tipo="detector", dominio="DATOS",
+        que_mira="datos de 1816 de bonos hard dólar guardados al CCL en vez del MEP",
+        # No depende de rueda ni de precio: es cierto un domingo. Una vez por
+        # hora alcanza — lo que lo cambia es un cron, no un trade.
+        cada_segundos=1 * _H, ventana="siempre",
+        correr=datos.hd_1816_al_ccl,
+        # Cuántos tickers sin ficha se toleran antes de cantar. 0 = cualquiera:
+        # un ticker sin ficha se pide con el default `ars`, y si paga en dólares
+        # queda al CCL sin que se note. Es la puerta por la que volvería.
+        umbrales={"sin_ficha_max": 0},
+        arreglos={},
+        # Sujeto = la TABLA (el pipeline), no el bono: se rompen los 21 juntos o
+        # ninguno, y 21 filas en AHORA diciendo lo mismo es ruido. Los tickers
+        # viajan en `evidencia["items"]` para que la reincidencia se cuente por
+        # bono (§0.cz). Sin `sujeto_es`: ese campo declara que el sujeto es un
+        # BONO para que `vigencia` sepa caducarlo, y acá es una tabla — que no
+        # se da de baja.
+        # INCIDENTE, no RECURRENTE, y lo corrigió un test antes que yo. El sujeto
+        # es UNA COSA FIJA (esta tabla), así que «apareció tres veces» sí es un
+        # patrón: alguien arregló el escritor y se volvió a romper. Y RECURRENTE
+        # habría sido peor que impreciso — las recurrentes salen de AHORA para
+        # vivir en ENCONTRÓ, y ENCONTRÓ sólo muestra lo que tiene botón: un aviso
+        # recurrente desaparece de las DOS pantallas (§0.et).
+        naturaleza={"al_ccl": INCIDENTE, "sin_ficha_1816": INCIDENTE}),
+
     Habilidad(
         nombre="job_reporto", tipo="detector", dominio="DATOS",
         que_mira="lo que los jobs encontraron y no corrigieron: cada contador, con su lista",

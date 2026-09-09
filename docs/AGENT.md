@@ -6811,3 +6811,88 @@ mientras la pantalla mostraba 3 y 3, porque tenía su propio criterio.
 
 La decisión de diseño —¿dónde vive un problema real que nadie puede apretar?—
 queda ABIERTA hasta tener el número.
+
+### 0.ez EL DÓLAR QUE NADIE DECLARABA — 481 bps al CCL, en tres pipelines (2026-09-09)
+
+El user, mirando RESEARCH → RENTA FIJA ARGENTINA → SPREAD y COMPARAR: *«creo que
+los datos están viniendo mal, vienen con moneda denominación CCL y no es ese, es
+MEP. ¿Podemos validar?»*.
+
+**Era cierto, y el mecanismo es el peor de todos: no falla nada.** La API de
+1816 lleva un parámetro `moneda` cuyo default es `ars`, y su spec dice que con
+`ars` *«para instrumentos pagaderos en moneda distinta a ARS, para calcular
+indicadores las cotizaciones se dividen por CCL»*. Toda esta plataforma divide
+por MEP (`engines/curvas.py::precio_soberano_a_usd`). Omitir el parámetro no
+devuelve un error ni un vacío: devuelve **un número plausible al dólar
+equivocado**.
+
+**Medido** (`scripts/diag_1816_moneda_series --pedir`, misma rueda, mismos
+campos, mismos tickers):
+
+| | TEA `ars` (=CCL) | TEA `mep` | Δ | Paridad `ars` | Paridad `mep` |
+|---|---|---|---|---|---|
+| BPOA7 | 6,898% | 2,498% | **−440 bps** | 98,51% | 102,16% |
+| BPOA8 | 9,186% | 7,059% | **−213 bps** | 88,67% | 92,35% |
+| BPOB7 | 7,255% | 2,441% | **−481 bps** | 98,22% | 102,20% |
+
+Y `precioClean` en `ars` viene en PESOS (BPOA7: 157.089,89 contra 102,19), o sea
+que el cuadrante COMPARAR sobre "Precio" mezclaba escalas de tres órdenes de
+magnitud sin que se entendiera por qué.
+
+**Lo que convierte esto en una entrada del diario y no en un fix.** El bug ya
+había aparecido antes, en otro pipeline: los **202 bps de GD46** del simulador de
+alta (§0.y) eran esto mismo, y ahí se arregló *en ese pipeline*
+(`alta.moneda_cotejo_1816`). Nadie fue a mirar los demás. Al buscarlo esta vez
+aparecieron **tres lugares distintos** pidiéndole a 1816 sin declarar la moneda:
+
+| Dónde | Qué alimenta | Se veía en |
+|---|---|---|
+| `jobs/mercado_1816_series` | `research.mkt_1816_series` | los gráficos de Research |
+| `agente/tasa_1816` | `agente.tasa_1816` | **la TEA que ve la mesa en Renta Fija** |
+| `core/tamar_1816_sql.sembrar_desde_1816` | `mercado.tamar_1816` | la TEA y el margen de cada pata |
+
+El segundo es el que más duele: esas tasas van **derecho a la vista sin que
+nadie las convierta** (`curvas_vista`), o sea que un bono en dólares mostraba su
+tasa al CCL al lado de las que el motor calcula al MEP.
+
+**La corrección tiene tres capas, y la del medio es la que evita repetir.**
+
+1. **La regla, en un solo lugar**: `core.mercado_1816.moneda_series(moneda_pago)`
+   → `mep` si paga en dólares, `ars` si no; y `monedas_de()` / `por_moneda()`
+   que la aplican sobre el catálogo. Todos los consumidores la usan. ⚠️ El
+   predicado es **`monedaPago`, nunca `monedaDenom`**: un dólar-linked está
+   denominado en USD y paga en pesos, y 1816 ni publica `mep` para ellos (D30O6
+   devolvió todo `None`).
+2. **Cada dato guardado DICE a qué dólar se pidió.** Se agregó la columna
+   `moneda` a `mercado.tamar_1816` y a `agente.tasa_1816` (`research.
+   mkt_1816_series` ya la tenía, en la PK). Sin eso la pregunta «¿esto está al
+   CCL?» no se podía hacer sobre el dato: había que ir a leer el job.
+3. **La habilidad `hd_1816_al_ccl`**, que mira las TRES tablas juntas. Pedido
+   textual del user: *«esto abarca para TODO lo que venga de 1816 y sea HARD
+   DOLAR»*. Por eso el detector no pregunta por una vista: pregunta por todo lo
+   que 1816 dejó escrito, sea cual sea el job que lo trajo — **un pipeline nuevo
+   que se olvide de la moneda cae ahí solo**, sin que nadie se acuerde de
+   agregarlo a una lista.
+
+**Sujeto = la TABLA, no el bono.** Se rompen los 21 hard dollar juntos o
+ninguno; 21 filas en AHORA diciendo lo mismo es ruido. Los tickers viajan en
+`evidencia["items"]` para que la reincidencia se cuente por bono (§0.cz).
+`naturaleza = RECURRENTE`: si aparece dos meses seguidos no es un incidente, es
+que el escritor sigue sin derivar la moneda (§6.10).
+
+**Sin arreglo, a propósito.** Rehacer una serie cuesta créditos de 1816 y es un
+backfill — REGLA #4, eso no sale de un botón del tablero. Y no hace falta: se
+cierra solo, porque corregido el pedido el cron reescribe las filas.
+
+**La segunda regla, la que casi no escribo.** El detector también canta los
+tickers que **no están en el catálogo de 1816**: de esos no se puede DERIVAR en
+qué moneda pagan, se piden con el default `ars`, y si alguno paga en dólares
+queda al CCL sin que se note. Es exactamente la puerta por la que el problema
+volvería.
+
+**Alcance del rebajado**: 21 de 82 bonos del watch pagan en dólares (6
+BOPREALes, 9 Bonares, 6 Globales). El backfill se corrió el 2026-09-09 con
+`--moneda mep --desde 2025-09-10` y el diag confirmó **21 de 21 en MEP**. Las
+filas viejas en `ars` no se borran: son el único registro del tramo que la API
+ya no deja rebajar (topea en 1 año) y la lectura las ignora. Detalle del lado de
+Research en `docs/RESEARCH.md` §A.4.7b.

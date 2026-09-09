@@ -335,3 +335,53 @@ def corridas(job: str, n: int = 15) -> list[dict] | None:
                     for r in cur.fetchall()]
     return _una_vez(f"corridas:{job}:{n}", _leer)
 
+
+
+# ── A QUÉ DÓLAR ESTÁ GUARDADO CADA DATO DE 1816 (§0.ez) ────────────────────
+def monedas_1816() -> list[dict] | None:
+    """Todo lo que 1816 nos dejó escrito, con la moneda con la que se pidió.
+
+    Una fila por `(tabla, ticker, moneda)`: `[{tabla, ticker, moneda_pago,
+    moneda, filas, desde}]`. Junta las TRES tablas donde termina un número de
+    1816, porque la pregunta «¿esto está al CCL?» es la misma en las tres y
+    responderla por separado es cómo se escapó la primera vez:
+
+      · `research.mkt_1816_series`  → los gráficos de RESEARCH (spread/comparar)
+      · `agente.tasa_1816`          → la TEA que ve la mesa en RENTA FIJA
+      · `mercado.tamar_1816`        → la TEA y el margen de cada pata
+
+    `moneda_pago` viene del catálogo (`mkt_1816_instrumentos`) y es lo que
+    decide qué moneda CORRESPONDE — el que paga en dólares tiene que estar en
+    `mep`. Un ticker que no está en el catálogo sale con `moneda_pago = None`:
+    de ese no se puede afirmar nada y el detector lo dice así, no lo asume bien.
+
+    `None` = no pude leer.
+    """
+    def _leer():
+        # LEFT JOIN contra el catálogo en las tres: sin `moneda_pago` no se
+        # puede juzgar, y una fila que falta es distinto de una fila que dice ARS.
+        sql = """
+            SELECT 'research.mkt_1816_series' AS tabla, s.ticker,
+                   i.moneda_pago, s.moneda, count(*) AS filas, min(s.fecha)::text AS desde
+              FROM research.mkt_1816_series s
+              LEFT JOIN research.mkt_1816_instrumentos i ON i.ticker = s.ticker
+             GROUP BY s.ticker, i.moneda_pago, s.moneda
+            UNION ALL
+            SELECT 'agente.tasa_1816', t.ticker, i.moneda_pago, t.moneda,
+                   count(*), min(t.fecha_1816)::text
+              FROM agente.tasa_1816 t
+              LEFT JOIN research.mkt_1816_instrumentos i ON i.ticker = t.ticker
+             GROUP BY t.ticker, i.moneda_pago, t.moneda
+            UNION ALL
+            SELECT 'mercado.tamar_1816', m.ticker_1816, i.moneda_pago, m.moneda,
+                   count(*), min(m.fecha_operacion)::text
+              FROM mercado.tamar_1816 m
+              LEFT JOIN research.mkt_1816_instrumentos i ON i.ticker = m.ticker_1816
+             GROUP BY m.ticker_1816, i.moneda_pago, m.moneda
+        """
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            return [{"tabla": r[0], "ticker": r[1], "moneda_pago": r[2],
+                     "moneda": r[3], "filas": r[4], "desde": r[5]}
+                    for r in cur.fetchall()]
+    return _una_vez("monedas_1816", _leer)

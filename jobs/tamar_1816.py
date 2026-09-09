@@ -255,22 +255,39 @@ def main() -> None:
         # `core.mercado_1816.indicadores_vigentes` para que el pre-flight del AV
         # Agent no tuviera que reescribirla — dos criterios para la misma
         # pregunta terminan siempre con uno de los dos viejo.
-        resp = mercado_1816.indicadores_vigentes(
-            sorted(pedidos), _CAMPOS, fecha=args.fecha,
-            al_retroceder=lambda d: jr.log(f"{d}: sin datos, retrocedo un hábil"))
-        if not resp:
+        # A QUÉ DÓLAR se pide cada grafía. Hoy los TAMAR y las duales pagan
+        # todos en pesos, o sea que esto no cambia un número — pero el job no
+        # tiene por qué saberlo: si mañana entra acá una pata que paga en
+        # dólares, el default de la API (`ars`) la calcularía al CCL de 1816 y
+        # `curvas_vista` la mostraría como la TEA de la pata sin convertir nada.
+        # Se deriva del catálogo, igual que el resto de los consumidores (§0.ez).
+        fecha_op, mejores = None, {}
+        for moneda, grafias in sorted(mercado_1816.por_moneda(sorted(pedidos)).items()):
+            resp = mercado_1816.indicadores_vigentes(
+                grafias, _CAMPOS, fecha=args.fecha or fecha_op,
+                moneda=moneda,
+                al_retroceder=lambda d: jr.log(f"{d}: sin datos, retrocedo un hábil"))
+            if not resp:
+                jr.log(f"[{moneda}] 5 ruedas sin datos para {len(grafias)} grafías")
+                continue
+            # La rueda se fija con la primera tanda que trae datos: media tabla
+            # de una rueda y media de otra no se notaría.
+            fecha_op = fecha_op or resp["fechaOperacion"]
+            for clave, v in _mejor_por_pata(
+                    {g: pedidos[g] for g in grafias if g in pedidos},
+                    resp.get("instrumentos") or {}).items():
+                mejores[clave] = {**v, "moneda": moneda}
+        if not mejores:
             jr.set_stat("filas", 0)
             jr.set_stat("motivo", "sin datos en 5 ruedas")
             print("✗ 5 ruedas seguidas sin datos. No se escribió nada.")
             return
-        inst = resp.get("instrumentos") or {}
-        fecha_op = resp["fechaOperacion"]
-        mejores = _mejor_por_pata(pedidos, inst)
         filas = [{
             "ticker": tk, "pata": pata, "ticker_1816": v["ticker_1816"],
             "tea": v.get("tea"), "tna": v.get("tna"), "spread": v.get("spread"),
             "precio_clean": v.get("precioClean"), "duration": v.get("duration"),
             "paridad": v.get("paridad"), "fecha_operacion": fecha_op,
+            "moneda": v.get("moneda", "ars"),
         } for (tk, pata), v in mejores.items()]
         n = _upsert(filas)
         n_snap = _a_market_snapshot(filas)

@@ -538,3 +538,100 @@ def contraparte_faltante(u: dict) -> list[Hallazgo]:
                    # lista, una cuenta NUEVA no reincide sobre un alta que
                    # escribió OTRAS. El `_` lo esconde del front.
                    "_items": filas})]
+
+
+# ═══ hd_1816_al_ccl ════════════════════════════════════════════════════════
+#
+# El sujeto es la TABLA, no el bono: lo que se decide es «este pipeline está
+# pidiéndole a 1816 al dólar equivocado», y son 21 bonos a la vez o ninguno. Los
+# tickers van en `evidencia["items"]` para que la reincidencia se cuente por
+# bono (§0.cz) sin llenar AHORA de 21 filas que dicen lo mismo.
+def hd_1816_al_ccl(u: dict) -> list[Hallazgo]:
+    """Datos de 1816 de un bono HARD DOLLAR guardados al CCL en vez del MEP.
+
+    **Por qué existe, y por qué mira las tres tablas juntas** (§0.ez). El
+    default de la API de 1816 es `moneda=ars`, y su spec dice que con `ars`
+    *«para instrumentos pagaderos en moneda distinta a ARS, para calcular
+    indicadores las cotizaciones se dividen por CCL»*. Toda esta plataforma
+    divide por MEP. Pedir sin decir la moneda **no falla**: devuelve un número
+    plausible al dólar de ellos. Medido el 2026-09-09: BPOB7 daba TEA 7,26% en
+    `ars` contra 2,44% en `mep` — 481 bps, y la paridad 3,98 pp arriba.
+
+    Se escapó una vez en RESEARCH y, al buscarlo, estaba también en la tabla que
+    alimenta la TEA de RENTA FIJA. Por eso el detector no pregunta por una vista:
+    pregunta por **todo lo que 1816 nos dejó escrito**, sea cual sea el job que
+    lo trajo. Un pipeline nuevo que se olvide de la moneda entra acá solo, sin
+    que nadie se acuerde de agregarlo.
+
+    Es un AVISO a propósito (`arreglos={}` en el catálogo): rehacer la serie
+    cuesta créditos de 1816 y es un backfill, o sea REGLA #4 — no sale de un
+    botón. Y se cierra solo: arreglado el pedido, el cron reescribe las filas.
+    """
+    from agente import fuentes
+    filas = fuentes.monedas_1816()
+    if filas is None:
+        raise SinDatos("no pude leer las monedas de lo que trajo 1816: no sé si "
+                       "algún bono en dólares está guardado al CCL")
+
+    # Qué moneda le CORRESPONDE a cada uno sale del cliente, la misma función
+    # que usan los jobs para pedir. Dos criterios para la misma pregunta
+    # terminan siempre con uno de los dos viejo (REGLA #9).
+    from core import mercado_1816
+
+    mal: dict[str, list[dict]] = {}
+    sin_ficha: dict[str, set[str]] = {}
+    for f in filas:
+        if not f.get("moneda_pago"):
+            # Sin ficha en el catálogo no se puede AFIRMAR que esté mal. Se
+            # cuenta aparte: es un agujero de catálogo, no un dato al CCL.
+            sin_ficha.setdefault(f["tabla"], set()).add(f["ticker"])
+            continue
+        debe = mercado_1816.moneda_series(f["moneda_pago"])
+        if debe == "mep" and f.get("moneda") != "mep":
+            mal.setdefault(f["tabla"], []).append(f)
+
+    hh = reloj.hhmm()
+    out = []
+    for tabla, malas in sorted(mal.items()):
+        tickers = sorted({m["ticker"] for m in malas})
+        filas_mal = sum(int(m.get("filas") or 0) for m in malas)
+        monedas = sorted({str(m.get("moneda")) for m in malas})
+        out.append(Hallazgo(
+            sujeto=tabla, regla="al_ccl", severidad="alta",
+            nombre=tabla,
+            problema=f"{len(tickers)} bonos que PAGAN EN DÓLARES tienen sus "
+                     f"números de 1816 guardados en {'/'.join(monedas)} y no en "
+                     f"`mep`: son {filas_mal} filas calculadas al CCL de 1816, no "
+                     f"al MEP con el que trabaja el resto · {hh}",
+            detalle=", ".join(tickers[:40]) + ("…" if len(tickers) > 40 else ""),
+            que_hacer=f"1) revisar que el escritor de {tabla} pida "
+                      f"`moneda` derivada de `core.mercado_1816.monedas_de`, no "
+                      f"el default de la API. 2) rehacer las filas: para "
+                      f"`research.mkt_1816_series` es "
+                      f"`jobs.mercado_1816_series --backfill --moneda mep` "
+                      f"(cuesta créditos, REGLA #4); las otras dos las reescribe "
+                      f"su cron en la próxima corrida.",
+            evidencia={"tabla": tabla, "items": tickers, "filas": filas_mal,
+                       "monedas_guardadas": monedas,
+                       "moneda_que_corresponde": "mep"}))
+
+    # Un ticker sin ficha cae en `ars` por default: si además paga en dólares,
+    # está al CCL y nadie lo sabe. Es la puerta por la que volvería el problema.
+    tope = int(u.get("sin_ficha_max", 0))
+    for tabla, tks in sorted(sin_ficha.items()):
+        if len(tks) <= tope:
+            continue
+        out.append(Hallazgo(
+            sujeto=f"{tabla} · sin ficha", regla="sin_ficha_1816", severidad="media",
+            nombre=tabla,
+            problema=f"{len(tks)} tickers de {tabla} no están en el catálogo de "
+                     f"1816: de esos no se puede DERIVAR en qué moneda pagan, "
+                     f"así que se piden con el default `ars` — y si alguno paga "
+                     f"en dólares queda al CCL sin que se note · {hh}",
+            detalle=", ".join(sorted(tks)[:40]) + ("…" if len(tks) > 40 else ""),
+            que_hacer="correr `python -m jobs.mercado_1816_discovery --apply "
+                      "--catalogo` para refrescar el catálogo; si después de eso "
+                      "siguen faltando, 1816 no los publica y hay que fijarles la "
+                      "moneda a mano en el escritor.",
+            evidencia={"tabla": tabla, "items": sorted(tks)}))
+    return out

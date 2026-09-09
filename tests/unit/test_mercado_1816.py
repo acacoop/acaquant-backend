@@ -197,3 +197,85 @@ def test_el_limite_de_1_PETICION_POR_SEGUNDO_es_GLOBAL():
     assert "RETURNING extract(epoch from (now() - llamadas_prev_at))" in marc
     # Sin base devuelve 0 y manda el throttle local (degradar ≠ fallar).
     assert m._marcar_llamada() == 0.0
+
+
+def test_la_moneda_de_las_series_sale_de_en_que_PAGA_el_bono():
+    """`moneda_series` es la regla que decide a qué dólar se pide —y se lee— la
+    serie de cada bono, y el predicado es `monedaPago`, NUNCA `monedaDenom`.
+
+    El caso que obliga a distinguirlos son los **dólar-linked**: denominados en
+    USD, pagan en pesos. Con `monedaDenom` caerían en `mep`, que 1816 no publica
+    para ellos (medido 2026-08-17 con D30O6: todo `None`) → la serie quedaría
+    VACÍA y el bono desaparecería del laboratorio, sin un solo error.
+    """
+    from core import mercado_1816 as m
+
+    assert m.moneda_series("USD") == "mep"      # Bonares, Globales, BOPREALes
+    assert m.moneda_series("usd") == "mep"      # el catálogo no garantiza la caja
+    assert m.moneda_series("ARS") == "ars"      # CER, tasa fija, TAMAR, duales
+    assert m.moneda_series("ars") == "ars"
+    # Dólar-linked: el catálogo dice monedaDenom=USD y monedaPago=ARS. Lo que
+    # manda es el pago.
+    assert m.moneda_series("ARS") == "ars"
+    # Sin ficha en el catálogo NO se inventa una conversión: queda el default de
+    # la API, que es lo que se venía haciendo.
+    assert m.moneda_series(None) == "ars"
+    assert m.moneda_series("") == "ars"
+    assert m.moneda_series("   ") == "ars"
+    # Y lo que devuelve tiene que ser un valor que la API acepte: un valor
+    # inventado no falla en su campo, hace fallar la llamada ENTERA.
+    assert m.moneda_series("USD") in m.MONEDAS
+    assert m.moneda_series("ARS") in m.MONEDAS
+
+
+def test_el_writer_y_el_reader_de_series_usan_LA_MISMA_regla_de_moneda():
+    """Nadie más puede derivar la moneda por su cuenta.
+
+    Son dos mitades del mismo dato: `jobs/mercado_1816_series` decide en qué
+    moneda GRABA y `api/services/research_1816_sql` en qué moneda BUSCA. Si cada
+    uno tuviera su copia del criterio, el día que difieran no falla nada — el
+    job escribe filas en `mep` y la lectura pide `ars`, y el gráfico queda vacío
+    o dibuja la serie vieja al CCL. Es la REGLA #9 en una línea de código.
+    """
+    import pathlib
+
+    raiz = pathlib.Path(__file__).resolve().parents[2]
+    for archivo in ("jobs/mercado_1816_series.py",
+                    "api/services/research_1816_sql.py"):
+        src = (raiz / archivo).read_text()
+        assert "mercado_1816.moneda_series(" in src, (
+            f"{archivo} tiene que DERIVAR la moneda con core.mercado_1816."
+            "moneda_series, no decidirla por su cuenta")
+
+
+def test_la_lectura_de_series_FILTRA_por_moneda():
+    """`moneda` es parte de la PK de `mkt_1816_series`, así que las filas en
+    `mep` conviven con las viejas en `ars` del MISMO ticker, fecha y campo.
+
+    Una lectura sin `moneda` en el WHERE devuelve las dos, y el JOIN de
+    `spread()` devuelve el producto cartesiano: hasta cuatro spreads por fecha,
+    todos plausibles, ninguno marcado. Este test congela el filtro.
+    """
+    import inspect
+
+    from api.services import research_1816_sql as svc
+
+    ser = inspect.getsource(svc.series)
+    assert "moneda = %s" in ser, "series() tiene que filtrar por moneda"
+    spr = inspect.getsource(svc.spread)
+    assert "x.moneda = %s" in spr and "y.moneda = %s" in spr, (
+        "spread() tiene que filtrar LOS DOS lados del JOIN por moneda")
+
+
+def test_la_moneda_efectiva_no_deja_el_grafico_en_blanco_antes_del_backfill():
+    """Entre el deploy y el rebajado, un hard dollar tiene solo la serie vieja en
+    `ars`. Exigir `mep` a secas lo borraría del selector y dejaría el gráfico
+    vacío; el fallback devuelve lo que HAY y el rótulo de la UI dice CCL."""
+    from api.services.research_1816_sql import _moneda_efectiva
+
+    assert _moneda_efectiva("mep", {"mep": 1364, "ars": 1364}) == "mep"
+    assert _moneda_efectiva("mep", {"ars": 1364}) == "ars"      # todavía sin rebajar
+    assert _moneda_efectiva("ars", {"ars": 672}) == "ars"
+    assert _moneda_efectiva("mep", {}) == "mep"                 # bono sin series
+    # Con varias y ninguna igual al objetivo, gana la que más historia tiene.
+    assert _moneda_efectiva("mep", {"ars": 10, "ccl": 900}) == "ccl"

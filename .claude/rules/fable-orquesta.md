@@ -1,65 +1,39 @@
-# REGLA — Con FABLE: el modelo caro diseña, los baratos ejecutan
+# REGLA — Con FABLE: se delega SOLO la verificación, nunca la implementación
 
-⚠️⚠️ **APLICA SÓLO SI LA SESIÓN PRINCIPAL CORRE CON FABLE.** Con Opus o con
-cualquier otro modelo, NO: se trabaja derecho en la principal, sin repartir.
-Decisión del user, y es un recorte a propósito — antes decía «o cualquier modelo
-de la capa cara: Opus» y eso hacía que la regla se activara casi siempre.
+⚠️ **APLICA SÓLO SI LA SESIÓN PRINCIPAL CORRE CON FABLE** (confirmado con
+`get_session` del servidor claude-code-remote, o porque el user lo dijo). Con
+Opus o cualquier otro modelo, no aplica.
 
-⚠️ **Y EL DEFAULT ES NO DELEGAR**, porque el gatillo de esta regla es
-justamente lo único que la sesión NO puede ver: el modelo que sirve un turno
-puede cambiar en el medio (un fallback por sobrecarga, un cambio de modelo), y
-el prompt del sistema prohíbe afirmar cuál es sin consultarlo. Entonces:
+## Por qué se acotó
 
-- **Ante la duda, no se delega.** Una regla que se enciende sola sobre un dato
-  que no se puede verificar se enciende cuando no corresponde.
-- **Se enciende si el user lo dice** («estoy en Fable», «delegá esto»), o si la
-  sesión CONFIRMA el modelo con la herramienta `get_session` del servidor
-  claude-code-remote y `session_context.model` es Fable.
+La versión anterior mandaba a delegar también la implementación a sub-agentes
+con Sonnet. Medido en la sesión del simulador de descuento por LOTE: tres
+implementadores (5, 10 y 17 minutos) más dos revisores (4 y 5), en cadena, y el
+turno tardó 40 minutos donde antes tardaba 10. Cada sub-agente arranca sin
+contexto y relee todo; el ahorro de tokens no compensa el tiempo de pared.
+Decisión del user: **el principal escribe el código**.
 
-Con la regla encendida, el principal es el ARQUITECTO: lee, decide, especifica,
-revisa y le explica al usuario. La ejecución mecánica va a sub-agentes con un
-modelo más barato. Doc oficial: code.claude.com/docs/en/costs («Sonnet resuelve
-la mayoría de las tareas de código; reservar el modelo grande para decisiones de
-arquitectura») y code.claude.com/docs/en/sub-agents.
-
-⚠️ **El CONTRATO de abajo vale SIEMPRE que se delegue**, con Fable o porque el
-user lo pidió suelto: la spec completa, el informe con output real, que el
-sub-agente no commitea, y que la revisión final no se delega. Lo que cambia con
-el modelo es CUÁNDO se reparte, no cómo.
-
-## Qué se delega y a quién
+## Qué SÍ se delega (y solo esto)
 
 | Tarea | Sub-agente |
 |---|---|
-| Relevar, buscar, listar («dónde se lee tal campo», «qué llama a X») | `explorador` (haiku, solo lectura) |
-| Implementar un cambio YA especificado | `implementador` (sonnet) |
-| Correr las verificaciones (imports, ruff, perf_scan, tests) | `pre-deploy-check` (sonnet) |
-| Revisar un diff con ojos frescos antes de pushear | `revisor` (sonnet) |
-| El mismo cambio en N archivos | N `implementador` en paralelo |
+| Correr las verificaciones previas al push | `pre-deploy-check` (backend) / `pre-push-check` (front) |
+| Revisar el diff con ojos frescos antes de commitear | `revisor` |
+| Relevar de solo lectura cuando el principal no sabe por dónde empezar | `explorador` / `Explore` |
 
-El default de los sub-agentes SIN modelo declarado es Sonnet
-(`CLAUDE_CODE_SUBAGENT_MODEL` en `settings.json` → `env`). Para subir uno a
-Fable hay que pedirlo explícito: el barato es el default, el caro se justifica.
+Los tres son de lectura o de ejecución de comandos: no escriben código. Van en
+paralelo cuando se puede (revisor + pre-*-check a la vez), nunca en cadena.
 
 ## Qué NO se delega
 
-- **Las decisiones de diseño** y cualquier cambio que cruce los dos repos
-  (REGLA #9: dos mitades coherentes cada una consigo misma y no entre sí).
-- **Lo que tiene la especificación ambigua.** Un modelo menor rellena los huecos
-  suponiendo, que es justo lo que prohíbe la REGLA #2. Si la spec no se puede
-  escribir completa, la tarea no se delega: se hace en el principal.
-- **La revisión final** del trabajo del sub-agente y la explicación ejecutiva
-  (REGLA #3). El ahorro real es que el modelo caro LEE 200 líneas de diff en vez
-  de escribirlas.
+- **La implementación**, siempre. Ni «el mismo cambio en N archivos».
+- **Las decisiones de diseño** y todo cambio que cruce los dos repos.
+- **La explicación ejecutiva** (REGLA #3).
 
-## El contrato de delegación
+## El contrato (vale para los tres de arriba)
 
-1. **La spec es completa**: archivos por ruta, función, comportamiento esperado,
-   qué tests deben pasar, qué NO tocar, qué regla del repo aplica.
-2. **El sub-agente devuelve tres cosas**: qué cambió, qué corrió y con qué
-   resultado (output real, no «pasó»), y qué NO pudo hacer o dónde dudó. Nunca
-   «listo».
-3. **El principal lee el diff** antes de dar por cerrado. El informe del
-   sub-agente no le llega al usuario: se relata verificado.
-4. **Un sub-agente no commitea ni pushea.** Lo hace el principal, después de
-   revisar. Los hooks de `git push` corren igual.
+1. El sub-agente devuelve **output real** (el comando y lo que imprimió), no
+   «pasó».
+2. El principal lee el informe y decide; el informe no le llega al user, se
+   relata verificado.
+3. Un sub-agente no commitea ni pushea, ni pisa `user.name`/`user.email`.

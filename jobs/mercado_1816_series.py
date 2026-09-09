@@ -24,6 +24,8 @@ entrado): correr `python -m scripts.diag_1816_moneda_series`.
 Uso:
     python -m jobs.mercado_1816_series --dry-run       # universo + costo, sin pegar
     python -m jobs.mercado_1816_series --backfill       # carga inicial 1 año
+    python -m jobs.mercado_1816_series --backfill --moneda mep --desde 2025-09-10
+                                                       # solo los hard dollar
     python -m jobs.mercado_1816_series                  # diario (últimos 7 días)
 """
 from __future__ import annotations
@@ -120,6 +122,12 @@ def main() -> None:
                     "(default 1-ene del año; máx 1 año atrás por límite de la API)")
     ap.add_argument("--dias", type=int, default=7,
                     help="ventana del modo diario (default 7, cubre correcciones/feriados)")
+    ap.add_argument("--moneda", choices=("ars", "mep"),
+                    help="acota el universo a los bonos que se piden en ESTA moneda. "
+                         "Es lo que hace SCOPEADO a un backfill de corrección: sin "
+                         "esto, `--desde` de hace un año re-baja también los 61 bonos "
+                         "en pesos que ya están bien (medido: 119.720 créditos contra "
+                         "30.660, y el límite diario es 100k).")
     ap.add_argument("--dry-run", action="store_true",
                     help="muestra universo + costo estimado; NO pega a la API ni escribe")
     args = ap.parse_args()
@@ -143,6 +151,10 @@ def main() -> None:
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         universo = _universo(cur)
+        if args.moneda:
+            antes = len(universo)
+            universo = [par for par in universo if par[1] == args.moneda]
+            print(f"Scope --moneda {args.moneda}: {len(universo)} de {antes} bonos.")
         if args.backfill:
             # Resumible por RANGO: salta los que ya tienen historia hasta `desde`
             # (min(fecha) <= desde) → no re-paga, y si se corta por el límite diario
@@ -151,8 +163,12 @@ def main() -> None:
             if ya:
                 antes = len(universo)
                 universo = [par for par in universo if par not in ya]
-                print(f"Backfill resumible: {len(ya)} pares (ticker, moneda) ya cubren "
-                      f"desde {desde} → bajo {len(universo)} nuevos (de {antes}).")
+                # Se informa lo SALTEADO, no el largo de `ya`: `ya` cuenta pares
+                # que pueden no estar en este universo (un (AL30, ars) viejo
+                # cuando el universo ya pide (AL30, mep)), y leerlo como
+                # "salteados" hacía parecer que el filtro no había corrido.
+                print(f"Backfill resumible: {antes - len(universo)} salteados por "
+                      f"tener historia hasta {desde} → bajo {len(universo)} de {antes}.")
 
     if not universo:
         print("✓ nada para bajar (todo el universo ya tiene historia). Listo.")

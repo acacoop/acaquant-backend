@@ -65,6 +65,36 @@ de tocar la vista más usada de la app.
 | 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
 | 24 | Layout de los dos modales de la vista: 50/50 en la FICHA DEL BONO, y la ficha sale del simulador (§24) | sí | ✅ **hecho** (2026-09-03) |
 | 25 | Filtro de **EMISOR por nombre** en la tab CURVAS (§25) | sí | ✅ **hecho** (2026-09-04) |
+| 26 | FICHA DEL BONO: ficha + cronograma a la izquierda, los dos gráficos del flujo a toda la altura a la derecha (§26) | sí | ✅ **hecho** (2026-09-09) |
+
+### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, gráficos a la derecha
+
+Segundo cambio de LAYOUT del mismo modal, cero cálculo: no se tocó un endpoint,
+un service ni una fórmula. El 50/50 del paso 24 puso juntas las dos cosas que se
+comparan, pero repartió mal el alto: **la FICHA ocupaba sola toda la columna
+izquierda** —son once a dieciséis renglones, o sea media columna vacía en
+cualquier bono— y en la derecha el cronograma le comía la mitad de la altura a
+los gráficos. Resultado: barras aplastadas contra una tabla de ocho filas
+estirada al doble de lo que necesita.
+
+**El criterio nuevo es agrupar por CÓMO se lee, no por qué bloque es.** Ficha y
+cronograma son texto y contestan lo mismo —qué bono es, qué paga— así que
+comparten la columna izquierda, la ficha arriba y el cronograma abajo. La
+derecha queda entera para el flujo: los dos gráficos, uno por panel, a toda la
+altura del modal.
+
+- **Los dos paneles de la izquierda van a su alto NATURAL**, no estirados. El que
+  se achica cuando no entran los dos es el cronograma, que ya se lee scrolleando;
+  la ficha no, porque recortarla esconde justo el dato que se vino a buscar
+  (tope: 60% de la columna, por el CER con todas sus filas opcionales).
+- **Cada gráfico en su propio recuadro y con SU eje de fechas.** Antes compartían
+  uno solo abajo, que pegados se leía bien; separados, el de arriba parecía no
+  tener fechas. El `syncId` los mantiene atados en el hover — siguen siendo el
+  mismo cronograma en dos escalas, por lo del paso 24.
+- Debajo de `lg` sigue apilando y scrolleando el modal: primero los gráficos,
+  después la ficha y el cronograma.
+
+- **Archivos**: `bono-modal.tsx` en `acaquant-frontend`. Nada en el backend.
 
 ### Paso 25 (2026-09-04) — el filtro de EMISOR por NOMBRE (y la fila pasa a llamarse TIPO)
 

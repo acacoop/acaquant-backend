@@ -348,9 +348,9 @@ gráfico en blanco, y la UI lo rotula **CCL**. Cuando el backfill entra, pasa a
 Medido en el dry-run del 2026-09-09: sin el flag el universo son los 82 bonos ×
 4 campos × 365 días = **119.720 créditos**, por encima del límite diario de 100k;
 con el flag son los 21 afectados = **30.660** (~31%). Y no alcanza con
-`_ya_backfilleados`: los 61 bonos en pesos tienen historia de ~168 días (arrancan
-en 2026-03), o sea que NO cubren hasta 2025-09-10 y se re-bajarían enteros aunque
-su serie `ars` ya esté bien. El resumible salta 11 pares —los hard dollar con
+`_ya_backfilleados`: los 61 bonos en pesos tienen ~168 ruedas de historia (672
+filas ÷ 4 campos) contra las ~341 de los soberanos viejos, o sea que NO llegan
+hasta 2025-09-10 y se re-bajarían enteros aunque su serie `ars` ya esté bien. El resumible salta 11 pares —los hard dollar con
 historia larga— pero son `(ticker, ars)`, y el universo ahora pide
 `(ticker, mep)`: no matchean, que es exactamente lo que se busca.
 

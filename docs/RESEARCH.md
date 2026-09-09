@@ -179,6 +179,8 @@ default byma), `plazo` (0/1/2, default 1), `moneda` (ars/mep/ccl, default ars),
 **Decidir y fijar** una combinación default por vista (probable: `fuente=byma`,
 `plazo=1`, `moneda=ars` para pesos y `mep`/`ccl` para HD) y exponer los toggles
 en la UI. Estos parámetros cambian el número → se guardan junto al dato.
+⚠️ **Esto sigue ABIERTO y hoy se pide el default (`ars` = su CCL) para TODO,
+hard dollar incluido — ver §A.4.7b**, que es donde vive el problema y el diag.
 
 #### A.4.4 Campos (glosario para la UI + el copiloto futuro)
 
@@ -273,6 +275,46 @@ arreglado).
 - ~~`jobs/mercado_1816_snapshot.py`~~ — **NUNCA SE ESCRIBIÓ** (decisión del user
   2026-07-17: alcanza con el cierre diario, sin intradía). El "hoy" se arma del
   último cierre. Se reevalúa solo si el user pide el vivo (~250k créditos/mes).
+
+#### A.4.7b ⚠️ A QUÉ DÓLAR están las series — ABIERTO (diag entregado, falta correrlo)
+
+**El pendiente de §A.4.3 nunca se cerró.** Ese párrafo dice «decidir y fijar una
+combinación default por vista (probable: `moneda=ars` para pesos y `mep`/`ccl`
+para HD)». No se decidió: `jobs/mercado_1816_series` llama a
+`mercado_1816.series(lote, _CAMPOS, desde, hasta)` **sin pasar `moneda`**, o sea
+con el default de la API, `ars`.
+
+**Por qué eso no es neutro.** El spec de 1816 (transcripto arriba de `MONEDAS` en
+`core/mercado_1816.py`) dice que con `ars`, *«para instrumentos pagaderos en
+moneda distinta a ARS, para calcular indicadores las cotizaciones se dividen por
+CCL»*. **Toda esta plataforma divide por MEP** (`engines/curvas.py::
+precio_soberano_a_usd`). Hipótesis, entonces: la TEA, la paridad y el precio de
+los hard dollar que grafican SPREAD A−B y COMPARAR están a CCL, y compararlos
+contra un bono en pesos —o contra nuestra propia pantalla de Renta Fija— mezcla
+dos tipos de cambio.
+
+**Verificado en OTRO pipeline, no todavía en éste.** `agente/alta.py::
+moneda_cotejo_1816` (2026-08-17) midió que para GD46 1816 da paridad **0,7278 en
+`ars` contra 0,7556 en `mep`** — 4,07% de diferencia contra 0,24% —, y de ahí
+salieron los 202 bps de TEA. Ahí se corrigió pidiendo `mep` para soberanos y ONs
+en USD; las series de Research quedaron afuera de esa corrección.
+
+**Lo que falta medir** (`python -m scripts.diag_1816_moneda_series --pedir`):
+qué `moneda` quedó grabada en `mkt_1816_series`, cuántos bonos del watch pagan en
+USD (los afectados) y cuánto difieren `ars` y `mep` en la misma rueda.
+
+**Y tres cosas que la corrección va a tener que resolver, no una:**
+1. El job tiene que elegir la moneda **por ticker** (`moneda_pago` del catálogo),
+   no una para todos: los **dólar-linked** están denominados en USD pero pagan en
+   pesos, y 1816 **no publica `mep` para ellos** (medido con D30O6: todo `None`).
+   Como `series()` toma UNA moneda por llamada, son dos tandas de lotes.
+2. La PK de `mkt_1816_series` incluye `moneda` → las filas nuevas en `mep`
+   **conviven** con las viejas en `ars`. Y `api/services/research_1816_sql.py` no
+   filtra por `moneda` en ningún lado: el JOIN de `spread()` pasaría a devolver el
+   producto cartesiano de las dos monedas por fecha. **La lectura se arregla en el
+   mismo commit que la escritura, o el gráfico duplica puntos en silencio.**
+3. Rebajar la historia de los HD cuesta créditos (tickers × campos × días) → va
+   con la REGLA #4 y con el número del diag en la mano, no a ojo.
 
 #### A.4.8 Cliente y capa de servicio
 

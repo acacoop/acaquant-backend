@@ -65,9 +65,9 @@ de tocar la vista más usada de la app.
 | 21 | Modal **SIMULAR INVERSIÓN** (importe + bono + precio → TIR y cronograma) (§21) | sí | ✅ **hecho** (2026-08-30) |
 | 24 | Layout de los dos modales de la vista: 50/50 en la FICHA DEL BONO, y la ficha sale del simulador (§24) | sí | ✅ **hecho** (2026-09-03) |
 | 25 | Filtro de **EMISOR por nombre** en la tab CURVAS (§25) | sí | ✅ **hecho** (2026-09-04) |
-| 26 | FICHA DEL BONO: ficha + cronograma a la izquierda, los dos gráficos del flujo a toda la altura a la derecha (§26) | sí | ✅ **hecho** (2026-09-09) |
+| 26 | FICHA DEL BONO: ficha + cronograma a la izquierda, el flujo en UN gráfico de doble eje a la derecha (§26) | sí | ✅ **hecho** (2026-09-09) |
 
-### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, gráficos a la derecha
+### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, el flujo a la derecha
 
 Segundo cambio de LAYOUT del mismo modal, cero cálculo: no se tocó un endpoint,
 un service ni una fórmula. El 50/50 del paso 24 puso juntas las dos cosas que se
@@ -80,17 +80,30 @@ estirada al doble de lo que necesita.
 **El criterio nuevo es agrupar por CÓMO se lee, no por qué bloque es.** Ficha y
 cronograma son texto y contestan lo mismo —qué bono es, qué paga— así que
 comparten la columna izquierda, la ficha arriba y el cronograma abajo. La
-derecha queda entera para el flujo: los dos gráficos, uno por panel, a toda la
-altura del modal.
+derecha queda entera para el flujo, a toda la altura del modal.
 
 - **Los dos paneles de la izquierda van a su alto NATURAL**, no estirados. El que
   se achica cuando no entran los dos es el cronograma, que ya se lee scrolleando;
   la ficha no, porque recortarla esconde justo el dato que se vino a buscar
   (tope: 60% de la columna, por el CER con todas sus filas opcionales).
-- **Cada gráfico en su propio recuadro y con SU eje de fechas.** Antes compartían
-  uno solo abajo, que pegados se leía bien; separados, el de arriba parecía no
-  tener fechas. El `syncId` los mantiene atados en el hover — siguen siendo el
-  mismo cronograma en dos escalas, por lo del paso 24.
+- **El flujo vuelve a UN gráfico, con dos ejes y dos FORMAS.** Los dos paneles
+  apilados del paso 24 resolvían la escala pero partían en dos algo que es un
+  solo cronograma, y quedaban chatos. Ahora es un gráfico: el **capital en
+  barras finas contra el eje izquierdo** y la **renta como línea de puntos
+  contra el derecho, con el monto del cupón escrito sobre cada punto**. Que cada
+  serie tenga su forma es lo que desarma la trampa del doble eje que el paso 24
+  evitaba (misma unidad en dos escalas: el ojo compara alturas que no son
+  comparables) — **nadie compara la altura de una línea contra la de una barra**,
+  y el cupón se lee por su NÚMERO, no midiéndolo contra su escala. Cada eje va
+  del color de su serie, el mismo criterio del gráfico de ALTA DE CUENTAS.
+- **El eje de la renta tiene techo fijo** (`≈ cupón máximo × 2,2`, redondeado a
+  un número lindo): manda los cupones al tercio de abajo, así no le pelean la
+  altura a las barras, y deja las marcas en 1,50 / 3,00 / 4,50 en vez de
+  3,78 / 2,85. Las barras van **finas y al 50% de opacidad**: macizas y anchas
+  el gráfico es un paredón donde no se lee ni la línea ni sus números.
+- **Los números del cupón aparecen si ENTRAN**, medido en píxeles por pago
+  (`ResizeObserver` sobre la caja del gráfico, umbral 46 px), no contando pagos:
+  los mismos 8 pagos entran holgados en el modal y se pisan en un teléfono.
 - Debajo de `lg` sigue apilando y scrolleando el modal: primero los gráficos,
   después la ficha y el cronograma.
 

@@ -187,6 +187,17 @@ HERRAMIENTAS: dict[str, str] = {
                              "(2026-09-04, abierto).",
     "diag_ctas_ops":         "mide cuánto cambia CTAS OPS del INFORME si el número pasa a salir de "
                              "operaciones.operaciones (para que las cuentas OTC cuenten como operativas). Sin este número la decisión se toma a ciegas.",
+    # ⚠️ TEMPORAL — se BORRA en el commit que decida dónde vive un aviso que
+    # nadie puede apretar (REGLA #5). El motivo se puede escribir y CUÁNDO
+    # muere también.
+    "diag_invisibles":       "cuánto de lo que el agente tiene ABIERTO no se ve en NINGUNA de las tres "
+                             "pantallas. Un aviso sin botón que nació ayer se fue de AHORA al cambiar el "
+                             "día y a ENCONTRÓ no entra: sigue abierto, el detector lo reconfirma cada "
+                             "pasada, y no lo mira nadie. No define «visible» —llama a `vista.ahora()`, "
+                             "`vista.encontro()` y `vista.cronicos()`, las mismas que dibujan el modal— "
+                             "porque un WHERE propio sería una CUARTA definición (REGLA #9, AGENT.md "
+                             "§0.ey). Es el número que falta para decidir si hay que crear una cuarta "
+                             "pantalla o cambiar la regla de AHORA.",
 }
 
 _RE_ESCRIBE = re.compile(

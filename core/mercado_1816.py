@@ -647,6 +647,32 @@ def indicadores_vigentes(tickers: list[str], campos: list[str], *,
 # distintos — eso fueron los 202 bps de GD46, no la fórmula.
 MONEDAS = ("ars", "ccl", "mep")
 
+
+def moneda_series(moneda_pago: str | None) -> str:
+    """En qué `moneda` pedirle —y leerle— las series a 1816, según en qué moneda
+    PAGA el instrumento (`monedaPago` del catálogo, `mkt_1816_instrumentos`).
+
+    **Una sola función porque el writer y el reader no pueden opinar distinto.**
+    `jobs/mercado_1816_series` la usa para elegir cómo pedir cada lote y
+    `api/services/research_1816_sql` para elegir qué filas leer; si cada uno
+    derivara la suya, el día que difieran el gráfico no falla — muestra la serie
+    del otro dólar y nadie se entera (REGLA #9). Por eso la regla vive acá, en el
+    cliente, que es de quien es la convención.
+
+    **Medido en prod el 2026-09-09** (`scripts/diag_1816_moneda_series --pedir`,
+    misma rueda, mismos campos): pedir el default `ars` para un bono que paga en
+    dólares devuelve los indicadores al CCL de ellos, no al MEP nuestro —
+    BPOB7 dio **TEA 7,25% en `ars` contra 2,44% en `mep`** (481 bps) y paridad
+    98,22% contra 102,20% (3,98 pp).
+
+    ⚠️ **Paga ≠ denomina.** Los dólar-linked y los duales están DENOMINADOS en
+    USD y pagan en pesos: para ellos `ars` es lo correcto, y encima 1816 no
+    publica `mep` (medido con D30O6: todo `None`). Por eso el predicado es
+    `monedaPago`, nunca `monedaDenom`. Sin ficha en el catálogo se contesta
+    `ars`, que es el default de la API: ante la duda, no cambiar de convención.
+    """
+    return "mep" if (moneda_pago or "").strip().upper() == "USD" else "ars"
+
 # Los campos que `/indicadores` acepta, TEXTUAL del enum del spec.
 CAMPOS_INDICADORES = (
     "convencionTna", "currentYield", "denominacion", "duration", "durationMod",

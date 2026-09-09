@@ -179,8 +179,10 @@ default byma), `plazo` (0/1/2, default 1), `moneda` (ars/mep/ccl, default ars),
 **Decidir y fijar** una combinación default por vista (probable: `fuente=byma`,
 `plazo=1`, `moneda=ars` para pesos y `mep`/`ccl` para HD) y exponer los toggles
 en la UI. Estos parámetros cambian el número → se guardan junto al dato.
-⚠️ **Esto sigue ABIERTO y hoy se pide el default (`ars` = su CCL) para TODO,
-hard dollar incluido — ver §A.4.7b**, que es donde vive el problema y el diag.
+✅ **RESUELTO el 2026-09-09 — ver §A.4.7b.** Cada bono se pide en la moneda que
+le corresponde según en qué PAGA: `mep` los hard dollar, `ars` el resto. Hasta
+ahí se pedía el default (`ars`) para todos, que para un bono en dólares calcula
+al CCL de 1816 — medido, 481 bps de TEA en BPOB7.
 
 #### A.4.4 Campos (glosario para la UI + el copiloto futuro)
 
@@ -276,45 +278,81 @@ arreglado).
   2026-07-17: alcanza con el cierre diario, sin intradía). El "hoy" se arma del
   último cierre. Se reevalúa solo si el user pide el vivo (~250k créditos/mes).
 
-#### A.4.7b ⚠️ A QUÉ DÓLAR están las series — ABIERTO (diag entregado, falta correrlo)
+#### A.4.7b A QUÉ DÓLAR están las series — RESUELTO (medido en prod)
 
-**El pendiente de §A.4.3 nunca se cerró.** Ese párrafo dice «decidir y fijar una
-combinación default por vista (probable: `moneda=ars` para pesos y `mep`/`ccl`
-para HD)». No se decidió: `jobs/mercado_1816_series` llama a
-`mercado_1816.series(lote, _CAMPOS, desde, hasta)` **sin pasar `moneda`**, o sea
-con el default de la API, `ars`.
+**Qué pasaba.** `jobs/mercado_1816_series` pedía las series sin `moneda`, o sea
+con el default de la API (`ars`). El spec de 1816 dice que con `ars`, *«para
+instrumentos pagaderos en moneda distinta a ARS, para calcular indicadores las
+cotizaciones se dividen por CCL»*. **Esta plataforma divide por MEP**
+(`engines/curvas.py::precio_soberano_a_usd`), así que la TEA, la paridad y el
+precio de los hard dollar que grafican SPREAD A−B y COMPARAR estaban al CCL de
+1816 — no comparables con nuestra pantalla de Renta Fija ni con un bono en pesos.
 
-**Por qué eso no es neutro.** El spec de 1816 (transcripto arriba de `MONEDAS` en
-`core/mercado_1816.py`) dice que con `ars`, *«para instrumentos pagaderos en
-moneda distinta a ARS, para calcular indicadores las cotizaciones se dividen por
-CCL»*. **Toda esta plataforma divide por MEP** (`engines/curvas.py::
-precio_soberano_a_usd`). Hipótesis, entonces: la TEA, la paridad y el precio de
-los hard dollar que grafican SPREAD A−B y COMPARAR están a CCL, y compararlos
-contra un bono en pesos —o contra nuestra propia pantalla de Renta Fija— mezcla
-dos tipos de cambio.
+**MEDIDO** (`scripts/diag_1816_moneda_series --pedir`, misma rueda 2026-09-09,
+mismos campos, mismos tickers):
 
-**Verificado en OTRO pipeline, no todavía en éste.** `agente/alta.py::
-moneda_cotejo_1816` (2026-08-17) midió que para GD46 1816 da paridad **0,7278 en
-`ars` contra 0,7556 en `mep`** — 4,07% de diferencia contra 0,24% —, y de ahí
-salieron los 202 bps de TEA. Ahí se corrigió pidiendo `mep` para soberanos y ONs
-en USD; las series de Research quedaron afuera de esa corrección.
+| Ticker | TEA `ars` (=CCL) | TEA `mep` | Δ | Paridad `ars` | Paridad `mep` | Δ |
+|---|---|---|---|---|---|---|
+| BPOA7 | 6,898% | 2,498% | **−440 bps** | 98,51% | 102,16% | +3,65 pp |
+| BPOA8 | 9,186% | 7,059% | **−213 bps** | 88,67% | 92,35% | +3,68 pp |
+| BPOB7 | 7,255% | 2,441% | **−481 bps** | 98,22% | 102,20% | +3,98 pp |
 
-**Lo que falta medir** (`python -m scripts.diag_1816_moneda_series --pedir`):
-qué `moneda` quedó grabada en `mkt_1816_series`, cuántos bonos del watch pagan en
-USD (los afectados) y cuánto difieren `ars` y `mep` en la misma rueda.
+Y `precioClean` en `ars` viene en PESOS (BPOA7: 157.089,89 contra 102,19 en
+`mep`), o sea que el cuadrante COMPARAR sobre "Precio" mezclaba escalas: un
+hard dollar contra un bono en pesos difería por tres órdenes de magnitud.
 
-**Y tres cosas que la corrección va a tener que resolver, no una:**
-1. El job tiene que elegir la moneda **por ticker** (`moneda_pago` del catálogo),
-   no una para todos: los **dólar-linked** están denominados en USD pero pagan en
-   pesos, y 1816 **no publica `mep` para ellos** (medido con D30O6: todo `None`).
-   Como `series()` toma UNA moneda por llamada, son dos tandas de lotes.
-2. La PK de `mkt_1816_series` incluye `moneda` → las filas nuevas en `mep`
-   **conviven** con las viejas en `ars`. Y `api/services/research_1816_sql.py` no
-   filtra por `moneda` en ningún lado: el JOIN de `spread()` pasaría a devolver el
-   producto cartesiano de las dos monedas por fecha. **La lectura se arregla en el
-   mismo commit que la escritura, o el gráfico duplica puntos en silencio.**
-3. Rebajar la historia de los HD cuesta créditos (tickers × campos × días) → va
-   con la REGLA #4 y con el número del diag en la mano, no a ojo.
+**Alcance, medido el 2026-09-09**: **21 de 82** bonos del watch pagan en dólares
+(6 BOPREALes, 9 Bonares, 6 Globales) = **20.886 de 44.258 filas**. Los otros 61
+—CER, tasa fija, TAMAR, duales y **dólar-linked**— pagan en pesos y `ars` es lo
+correcto para ellos.
+
+**La corrección (2026-09-09), tres piezas que van juntas:**
+
+1. **La regla vive en UN lugar**: `core.mercado_1816.moneda_series(moneda_pago)`
+   → `mep` si el bono paga en USD, `ars` si no. El predicado es **`monedaPago`,
+   nunca `monedaDenom`**: los dólar-linked están denominados en USD y pagan en
+   pesos, y 1816 **no publica `mep` para ellos** (D30O6 devolvió todo `None`).
+2. **El writer** (`jobs/mercado_1816_series`) parte el universo en dos tandas de
+   lotes, una por moneda —`/series` lleva UNA moneda por llamada—, y **corta el
+   lote si la API contesta en otra moneda que la pedida**: guardar una serie al
+   CCL rotulada `mep` sería mentir en la etiqueta y el gráfico no se quejaría.
+   `_ya_backfilleados` ahora agrupa por **(ticker, moneda)**: si agrupara solo
+   por ticker, los 21 hard dollar que ya tienen su `ars` se saltearían para
+   siempre y la serie en `mep` no se bajaría nunca.
+3. **El reader** (`api/services/research_1816_sql`) filtra por moneda en
+   `series()` y en **los dos lados del JOIN** de `spread()`. ⚠️ Sin esto el
+   cambio sería PEOR que el problema: `moneda` es parte de la PK, las filas en
+   `mep` conviven con las viejas en `ars`, y un `WHERE ticker = …` sin moneda
+   devuelve las dos → el JOIN da el producto cartesiano, hasta cuatro spreads
+   por fecha, todos plausibles y ninguno marcado.
+
+**Las filas viejas en `ars` de los hard dollar NO se borran.** Son el único
+registro del tramo que la API ya no deja rebajar (topea en 1 año, y la historia
+arranca en 2025-07-21), y con el filtro del reader quedan invisibles. `moneda`
+está en la PK justamente para que las dos convivan.
+
+**La ventana entre el deploy y el rebajado**: mientras un hard dollar tenga solo
+la serie en `ars`, `_moneda_efectiva` cae en lo que haya en vez de dejar el
+gráfico en blanco, y la UI lo rotula **CCL**. Cuando el backfill entra, pasa a
+**MEP** solo.
+
+**El rebajado** (REGLA #4 — fuera de rueda, vía `run_job.sh`, idempotente por PK):
+
+```bash
+/root/TradingAV/deploy/run_job.sh mercado_1816_series 30m \
+  'cd /root/TradingAV && venv/bin/python -m jobs.mercado_1816_series --backfill --desde 2025-09-10'
+```
+
+Costo: 21 × 4 campos × 365 días ≈ **30.700 créditos** (~31% del límite diario de
+100k). El job imprime el costo estimado y **aborta solo** si el pull pasa el 90%
+del límite; los 61 bonos en pesos los saltea `_ya_backfilleados` porque su serie
+`ars` ya cubre el rango. Correrlo con `--dry-run` primero muestra el reparto por
+moneda sin pegarle a la API.
+
+**En la vista**: `universo()` devuelve `dolar` por bono (`MEP` / `CCL` / `ARS`) y
+`research-lab.tsx` lo muestra al lado del ticker —en el selector y en los chips
+de COMPARAR— para los que no son ARS. La pregunta que abrió todo esto se
+contesta mirando la pantalla.
 
 #### A.4.8 Cliente y capa de servicio
 

@@ -6884,6 +6884,15 @@ que el escritor sigue sin derivar la moneda (§6.10).
 backfill — REGLA #4, eso no sale de un botón del tablero. Y no hace falta: se
 cierra solo, porque corregido el pedido el cron reescribe las filas.
 
+**La trampa del detector, que me comí escribiéndolo.** La primera versión
+juzgaba FILA POR FILA: «hay una fila en `ars` para un bono que paga en dólares →
+hallazgo». Pero un hard dollar ya rebajado tiene **las dos** series, y la vieja
+en `ars` se conserva a propósito. O sea que el detector iba a cantar todos los
+días, para siempre, sobre algo que está bien — la forma más rápida de que se
+deje de mirar el tablero. Lo que está mal no es que SOBRE una moneda: es que
+FALTE la que corresponde. Se junta por `(tabla, ticker)` antes de juzgar y el
+predicado es `"mep" not in monedas`. Congelado por test con AE38 en las dos.
+
 **La segunda regla, la que casi no escribo.** El detector también canta los
 tickers que **no están en el catálogo de 1816**: de esos no se puede DERIVAR en
 qué moneda pagan, se piden con el default `ars`, y si alguno paga en dólares

@@ -5521,7 +5521,12 @@ def test_hd_1816_al_ccl_canta_el_pipeline_y_no_el_bono(monkeypatch):
          "moneda_pago": "USD", "moneda": "ars", "filas": 1364, "desde": "2025-07-21"},
         {"tabla": "research.mkt_1816_series", "ticker": "AL30",
          "moneda_pago": "USD", "moneda": "ars", "filas": 1364, "desde": "2025-07-21"},
-        # El mismo bono YA rebajado: la fila en `mep` no es un hallazgo.
+        # ⚠️ EL CASO QUE ROMPÍA LA PRIMERA VERSIÓN: un bono YA rebajado tiene
+        # LAS DOS series. La `ars` se conserva a propósito (es el tramo que la
+        # API ya no deja rebajar) y la lectura la ignora. Juzgando fila por
+        # fila, esa `ars` intencional era un hallazgo eterno.
+        {"tabla": "research.mkt_1816_series", "ticker": "AE38",
+         "moneda_pago": "USD", "moneda": "ars", "filas": 1364, "desde": "2025-07-21"},
         {"tabla": "research.mkt_1816_series", "ticker": "AE38",
          "moneda_pago": "USD", "moneda": "mep", "filas": 980, "desde": "2025-09-10"},
         # Otro pipeline, otro sujeto.
@@ -5547,7 +5552,9 @@ def test_hd_1816_al_ccl_canta_el_pipeline_y_no_el_bono(monkeypatch):
     assert h.evidencia["items"] == ["AL30", "GD30"]
     assert h.evidencia["filas"] == 1364 * 2
     assert "TZV27" not in h.evidencia["items"], "un dólar-linked paga en pesos"
-    assert "AE38" not in h.evidencia["items"], "ese ya está en mep"
+    assert "AE38" not in h.evidencia["items"], (
+        "AE38 tiene las dos series: lo que importa es que EXISTA la de `mep`, "
+        "no que sobre la vieja en `ars` — si no, el hallazgo sería eterno")
     assert h.que_hacer.strip()
 
     # Sin ficha en el catálogo: no se afirma que esté mal, se canta el agujero.

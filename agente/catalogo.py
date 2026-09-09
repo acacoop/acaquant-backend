@@ -269,19 +269,33 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         cada_segundos=30 * _M, ventana="siempre",
         correr=sistema.cron_desalineado),
 
+    # ⚠️ **UNA SOLA FUENTE: `manager.latencia_endpoints`.** Las vistas ciegas
+    # vivían acá adentro y leen OTRA tabla, así que no poder leer esa dejaba a
+    # esta habilidad entera en «no pude mirar» — los 5xx y la degradación, que
+    # son lo importante, se apagaban por una fuente secundaria (§0.ex). Es el
+    # mismo motivo por el que `pantalla_tildada` ya se había separado (§0.dm).
     Habilidad(
         nombre="latencia", tipo="detector", dominio="SISTEMA",
-        que_mira="endpoints degradados contra SU PROPIA normalidad, los 5xx, y las vistas ciegas",
+        que_mira="endpoints degradados contra SU PROPIA normalidad, y los que dan 5xx",
         cada_segundos=10 * _M, ventana="siempre",
-        correr=sistema.latencia,
-        # `vista_ciega` (§0.dg): el pulso que manda una pantalla que no puede
-        # refrescar. Su hermana `pantalla_tildada` es una habilidad APARTE (y no
-        # una regla más de acá) para que no poder leer una fuente no apague las
-        # otras dos que esta habilidad sí puede ver — ver §0.dm.
+        correr=sistema.latencia),
+
+    # UNA de las tres formas de «se me colgó la app», y la que el servidor ve de
+    # refilón: los pedidos fallan y el navegador anda bien. Lo cuenta la propia
+    # pantalla (`POST /api/pulso` con `tipo='ciega'`) porque un 502 que el
+    # navegador reintenta no deja rastro del lado del servidor. Sin arreglo, y
+    # declarado: el agente no reinicia la API. Doc: §0.dg, §0.ex.
+    Habilidad(
+        nombre="vista_ciega", tipo="detector", dominio="SISTEMA",
+        que_mira="pantallas de la mesa que llevan minutos sin poder refrescar, y por qué",
+        cada_segundos=10 * _M, ventana="siempre",
+        correr=sistema.vista_ciega,
+        # Una ceguera es AHORA: 10' es la ventana en la que todavía se puede
+        # hacer algo. Más larga junta episodios viejos con el de recién.
         umbrales={"pulso_ventana_min": 10}),
 
-    # La OTRA mitad de «se me colgó la app», y la que no pasa por el servidor
-    # NUNCA: el navegador trabado. Nada falla, no hay request ni excepción — si
+    # La TERCERA, y la única que no pasa por el servidor NUNCA:
+    # el navegador trabado. Nada falla, no hay request ni excepción — si
     # no lo cuenta el propio navegador (`lib/tilde.ts` → `POST /api/pulso` con
     # `tipo='tilde'`), acá no se entera nadie. Sin arreglo, y declarado: el
     # agente no puede tocar la pestaña de nadie. Doc: §0.dm.

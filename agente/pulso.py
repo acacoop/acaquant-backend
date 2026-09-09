@@ -7,7 +7,7 @@ navegador no responde (hilo principal bloqueado N ms) y nada falla.
 
 El router (`api/routers/pulso.py`) es plumbing; la escritura vive acá, junto
 con la lectura (`agente/fuentes.pulsos`) y la regla que lo interpreta
-(`sistema._vistas_ciegas`). Un pulso nunca levanta hacia el navegador: si la
+(`sistema.vista_ciega`). Un pulso nunca levanta hacia el navegador: si la
 base no está, la pantalla ya tiene bastante con estar ciega.
 """
 from __future__ import annotations

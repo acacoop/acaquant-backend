@@ -865,6 +865,19 @@ def latencia(u: dict) -> list[Hallazgo]:
     No es un ranking de lentos: un ranking muestra lo lento y esa lista no
     cambia nunca. La referencia es la mediana de las propias horas previas del
     endpoint.
+
+    ⚠️ **UNA HABILIDAD, UNA FUENTE QUE PUEDE FALTAR.** Acá adentro vivían
+    también las VISTAS CIEGAS, que leen otra tabla (`agente.pulso_cliente`), y
+    con eso no poder leer ESA dejaba a la habilidad entera en «no pude mirar»:
+    los 5xx y la degradación —que son lo importante y salen de
+    `manager.latencia_endpoints`— se apagaban por una fuente secundaria, y el
+    motivo que quedaba en pantalla mandaba a mirar la tabla del navegador
+    mientras lo que se caía era un endpoint. Peor: los casos ya estaban
+    calculados y se tiraban.
+
+    Es exactamente lo que `pantalla_tildada` documentó al salir de este mismo
+    lugar (§0.dm) — se separó una mitad y quedó la otra. Ahora `vista_ciega` es
+    su propia habilidad y esta lee UNA sola tabla.
     """
     from agente import latencia as maq
     try:
@@ -872,7 +885,7 @@ def latencia(u: dict) -> list[Hallazgo]:
     except Exception as e:
         raise SinDatos(f"no pude leer la telemetría: {e}") from e
 
-    out = _vistas_ciegas(u)
+    out: list[Hallazgo] = []
     for c in casos:
         if c["roto"]:
             out.append(Hallazgo(
@@ -898,7 +911,7 @@ def latencia(u: dict) -> list[Hallazgo]:
     return out
 
 
-def _vistas_ciegas(u: dict) -> list[Hallazgo]:
+def vista_ciega(u: dict) -> list[Hallazgo]:
     """Lo que la mesa tiene enfrente y el servidor no ve (§0.dg).
 
     Cada pantalla que lleva más de un minuto sin poder refrescar deja un pulso
@@ -906,7 +919,18 @@ def _vistas_ciegas(u: dict) -> list[Hallazgo]:
     desde cuándo, qué pedido falla y con qué error. Y se cruza con el latido
     de la API: si arrancó adentro de la ventana, la causa más probable es el
     reinicio, y se dice. **No pudo leer ≠ no hubo pulsos**: sin tabla, no se
-    afirma nada (SinDatos lo decide `latencia` entera).
+    afirma nada — levanta `SinDatos` y no cierra nada.
+
+    ⚠️ **HABILIDAD PROPIA, y no una regla adentro de `latencia`** (§0.ex).
+    Vivía ahí, y por eso ese `SinDatos` apagaba también los 5xx y la
+    degradación de endpoints, que se leen de otra tabla y son lo importante.
+    Es el mismo error por el que `pantalla_tildada` salió de este lugar
+    (§0.dm): se separó una mitad y quedó la otra. La regla es la del invariante
+    #1 puesta al revés — **si «no pude mirar» no puede cerrar nada, tampoco
+    puede ser CONTAGIOSO**: una habilidad, una fuente que puede faltar.
+
+    Sin arreglo, y declarado: el agente no puede tocar el navegador de nadie ni
+    reiniciar la API. Es un aviso — vive en AHORA, no en ENCONTRÓ.
     """
     from agente import fuentes
 

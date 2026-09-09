@@ -6670,3 +6670,72 @@ hallazgo abierto: la clase de su sello, el ritmo declarado, el veredicto, y las
 que correr **antes** de meter el paso 1 adentro del detector. Es la REGLA #2: el
 cambio de modelo se decide con el número de prod delante, no con la lectura del
 código.
+
+---
+
+### 0.ex «NO PUDE MIRAR» NO PUEDE SER CONTAGIOSO — `latencia` se apagaba por la tabla del navegador (2026-09-09)
+
+Relevando el subsistema entero apareció el mismo bug que ya se había encontrado
+y corregido **a medias**.
+
+`latencia` miraba TRES cosas de una sola vez, y el resultado era uno solo:
+
+| | Qué vigila | De dónde lo lee |
+|---|---|---|
+| 1 | endpoints degradados contra su propia normalidad | `manager.latencia_endpoints` |
+| 2 | endpoints que devuelven **5xx** | la misma tabla |
+| 3 | **vistas ciegas**: pantallas que no pueden refrescar | `agente.pulso_cliente` |
+
+`_vistas_ciegas` levanta `SinDatos` cuando no puede leer su tabla — que es lo
+correcto: sin pulsos no se afirma nada y no se cierra nada. El problema es que
+vivía **adentro** de `latencia`, así que ese `SinDatos` dejaba a la habilidad
+entera en «no pude mirar»:
+
+```python
+out = _vistas_ciegas(u)   # ← levanta, y se lleva puesto todo lo de abajo
+for c in casos:           #   ...aunque `casos` YA estaba calculado
+```
+
+Tres costos, y el segundo es el peor:
+
+1. **Los 5xx no se reportan.** Son lo más grave que vigila esta habilidad y se
+   leen de una tabla que no tiene nada que ver con la que falló.
+2. **El trabajo ya estaba hecho y se tiraba.** `maq.comparar()` corre ANTES:
+   los endpoints rotos estaban contados y se descartaban.
+3. **El cartel manda al lugar equivocado.** En HABILIDADES queda «no pude leer
+   `agente.pulso_cliente`» — te manda a mirar el pulso del navegador mientras
+   lo que se cae es un endpoint.
+
+#### Lo que hace que esto valga una entrada: ya lo sabíamos
+
+Es **el mismo bug** que hizo salir a `pantalla_tildada` de este lugar (§0.dm), y
+su docstring lo dejó escrito con todas las letras:
+
+> *«Nació ahí y estuvo mal media hora: `latencia` mira TRES cosas y, con el
+> tilde adentro, no poder leer una tabla nueva la dejaba entera en "no pude
+> mirar" — o sea, la degradación de endpoints y los 5xx, que son lo importante
+> y se leen de otro lado, se apagaban por una fuente secundaria.»*
+
+Se separó **la mitad** —los tildes— y se dejó la otra adentro. El diagnóstico
+estaba escrito y completo; la corrección se aplicó a un caso en vez de a la
+forma.
+
+#### La regla, que es el invariante #1 puesto al revés
+
+> **Si «no pude mirar» no puede cerrar nada, tampoco puede ser CONTAGIOSO.**
+> Una habilidad, una fuente que puede faltar.
+
+`vista_ciega` pasa a ser habilidad propia (SISTEMA, cada 10 min, ventana
+`siempre`, sin arreglo — el agente no reinicia la API). `latencia` queda con
+una sola tabla y sin umbrales. Ninguna regla cambia de nombre: el hallazgo
+sigue siendo `vista_ciega` sobre el mismo sujeto, así que lo que estaba abierto
+no nace de nuevo ni se duplica.
+
+Lo congela `test_no_poder_mirar_una_fuente_no_apaga_las_otras`, que prueba la
+FORMA y no el caso: con el pulso muerto, un 5xx tiene que salir igual, y ninguna
+de las dos puede volver a leer la fuente de la otra.
+
+⚠️ El test mira el CÓDIGO (`_codigo()`), no el archivo: los dos docstrings se
+nombran entre sí a propósito —explican el bug que evitan— y un test que grepea
+la prosa castiga justo la documentación que hace falta. Es la trampa que ese
+helper ya documentaba, y en la que caí al escribir este test.

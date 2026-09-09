@@ -3407,17 +3407,61 @@ def test_vista_ciega_agrupa_por_vista_y_cruza_con_el_reinicio_de_la_api(monkeypa
          "desde_at": t0 + timedelta(minutes=2)}])
     monkeypatch.setattr(fuentes, "latidos", lambda: {"api.main": {
         "arrancado_at": ahora - timedelta(minutes=5)}})
-    por = {h.sujeto: h for h in sistema.latencia({"pulso_ventana_min": 10})}
+    por = {h.sujeto: h for h in sistema.vista_ciega({"pulso_ventana_min": 10})}
     assert por["/agro"].regla == "vista_ciega"
     assert "2 pantalla" in por["/agro"].problema and "reinicio de la API" in por["/agro"].problema
     assert por["/agro"].evidencia["personas"] == ["a@x", "b@x"]
     assert "/api/cotizaciones/snapshot-live" in por["/renta-fija"].detalle
     # Sin pulsos no hay nada; sin poder leer, no se afirma.
     monkeypatch.setattr(fuentes, "pulsos", lambda m=10: [])
-    assert sistema.latencia({}) == []
+    assert sistema.vista_ciega({}) == []
     monkeypatch.setattr(fuentes, "pulsos", lambda m=10: None)
     with pytest.raises(tipos.SinDatos):
-        sistema.latencia({})
+        sistema.vista_ciega({})
+
+
+def test_no_poder_mirar_una_fuente_no_apaga_las_otras(monkeypatch):
+    """**«No pude mirar» no puede ser CONTAGIOSO** (§0.ex).
+
+    Es el invariante #1 puesto al revés: si una corrida ciega no puede cerrar
+    nada, tampoco puede apagar lo que SÍ se pudo ver. `latencia` leía dos
+    tablas —`manager.latencia_endpoints` para los 5xx y la degradación, y
+    `agente.pulso_cliente` para las pantallas ciegas— y el `SinDatos` de la
+    segunda se llevaba puesta a la primera: los casos ya estaban calculados y
+    se tiraban, y el motivo que quedaba en pantalla mandaba a mirar la tabla
+    del navegador mientras lo que se caía era un endpoint.
+
+    Es el MISMO error por el que `pantalla_tildada` ya se había separado de
+    acá (§0.dm) — se corrigió una mitad y quedó la otra. Este test congela la
+    forma, no el caso: **una habilidad, una fuente que puede faltar.**
+    """
+    from agente import fuentes
+    from agente import latencia as maq
+
+    # La fuente del pulso, MUERTA. Antes esto dejaba a `latencia` en sin_datos.
+    monkeypatch.setattr(fuentes, "pulsos", lambda m=10: None)
+    monkeypatch.setattr(maq, "comparar", lambda: [
+        {"endpoint": "/api/back-office/tesoreria/dia", "n": 120, "avg_ms": 900,
+         "base_ms": 700, "veces": 1.3, "max_ms": 4000, "errores": 12,
+         "degradado": False, "roto": True}])
+    hallazgos = sistema.latencia({})
+    assert [h.regla for h in hallazgos] == ["errores"], (
+        "los 5xx se apagaron porque no se pudo leer OTRA tabla")
+    assert hallazgos[0].severidad == "alta"
+
+    # Y la forma, que es lo que evita que vuelva: cada una lee UNA tabla.
+    # ⚠️ Sobre el CÓDIGO (`_codigo`), no sobre el archivo: los dos docstrings
+    # se nombran entre sí a propósito —explican el bug que evitan— y un test
+    # que grepea la prosa castiga justo la documentación que hace falta.
+    assert "pulsos" not in _codigo(sistema.latencia), (
+        "`latencia` volvió a leer el pulso del cliente: son dos habilidades")
+    assert "comparar" not in _codigo(sistema.vista_ciega), (
+        "`vista_ciega` volvió a depender de la telemetría de endpoints")
+
+    # Las dos están declaradas, y ninguna promete un botón que no tiene.
+    for nombre in ("latencia", "vista_ciega"):
+        assert not catalogo.HABILIDADES[nombre].arreglos, (
+            f"«{nombre}» es un aviso: el agente no reinicia la API")
 
 
 def test_la_api_late_y_el_pulso_tiene_puerta():

@@ -36,11 +36,13 @@ ABIERTO (cincuenta filas en el orden de magnitud de hoy). No toca la red, no
 cuesta créditos, no mira la tenencia ni el master. Se puede correr en rueda.
 
     python -m scripts.diag_invisibles
-    python -m scripts.diag_invisibles --detalle    # una línea por hallazgo
+    python -m scripts.diag_invisibles --detalle               # el TEXTO de cada uno
+    python -m scripts.diag_invisibles --detalle --evidencia   # + la evidencia cruda
 """
 from __future__ import annotations
 
 import argparse
+import textwrap
 from collections import defaultdict
 
 from agente import tipos
@@ -56,9 +58,10 @@ def _abiertos() -> list[dict]:
     """
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT f.id, f.habilidad, f.regla, f.sujeto, f.severidad, "
+            "SELECT f.id, f.habilidad, f.regla, f.sujeto, f.severidad, f.nombre, "
+            "       f.problema, f.que_hacer, f.evidencia, "
             "       f.arreglo, f.detectado_at, f.visto_ultima_vez, f.veces, "
-            "       f.leido_at "
+            "       f.leido_at, f.leido_por "
             "  FROM agente.hallazgos f "
             " WHERE f.estado = ANY(%s) "
             " ORDER BY f.detectado_at",
@@ -87,12 +90,71 @@ def _dias(desde, ahora) -> float:
     return (ahora - desde).total_seconds() / 86400
 
 
+def _parrafo(rotulo: str, txt: str) -> None:
+    """Un párrafo con rótulo que entra en la consola del Droplet, que es angosta."""
+    # 13 = 2 de margen + 11 del rótulo: la continuación alinea con el texto.
+    sangria = " " * 13
+    cuerpo = textwrap.fill(" ".join((txt or "").split()), 76,
+                           initial_indent=sangria, subsequent_indent=sangria)
+    print(f"  {rotulo + ':':11}{cuerpo.lstrip()}")
+
+
+def _detalle(invisibles: list[dict], ahora_utc, *, con_evidencia: bool) -> None:
+    """El texto de cada problema, **agrupado por (habilidad, regla)**.
+
+    ⚠️ Agrupar no es cosmético: es lo que hace posible contestar «¿esto es
+    basura?». `job_reporto` tiene diecisiete hallazgos invisibles, pero son DOS
+    reglas — el texto y el `que_hacer` son los mismos para toda la familia y lo
+    único que cambia es el sujeto. Imprimirlos de a uno son diecisiete párrafos
+    repetidos que nadie lee; imprimir el texto UNA vez y los sujetos abajo entra
+    en una pantalla y se juzga de un vistazo.
+
+    Por cada fila se dice **por qué no se ve**, que es la mitad del juicio: no es
+    lo mismo «nació ayer y no tiene botón» (el agujero de diseño) que «alguien
+    apretó ✓ el 2 de septiembre» (una decisión de una persona, que se revierte
+    destildando).
+    """
+    grupos: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for f in invisibles:
+        grupos[(f["habilidad"], f["regla"])].append(f)
+
+    for (hab, regla), fs in sorted(grupos.items(), key=lambda x: -len(x[1])):
+        uno = fs[0]
+        print(f"\n{'─' * 78}")
+        # La severidad la fija la regla, pero no se AFIRMA: si el grupo trae
+        # más de una, se imprimen las que hay (REGLA #2 en chiquito).
+        sev = "/".join(sorted({f["severidad"] for f in fs})).upper()
+        print(f" {hab} · {regla} · {len(fs)} invisible(s) · severidad {sev}")
+        print(f"{'─' * 78}")
+        if uno["nombre"]:
+            print(f"  {uno['nombre']}")
+        _parrafo("QUÉ DICE", uno["problema"])
+        _parrafo("QUÉ HACER", uno["que_hacer"])
+        print()
+        print(f"    {'SUJETO':40} {'DÍAS':>5} {'VECES':>6}  {'ÚLT. OK':>11}  POR QUÉ NO SE VE")
+        for f in sorted(fs, key=lambda x: x["detectado_at"]):
+            if f["arreglo"]:
+                porque = "TIENE BOTÓN y no está en ENCONTRÓ ← mirar"
+            elif f["leido_at"] is not None:
+                quien = f["leido_por"] or "alguien"
+                porque = f"✓ leído por {quien} el {f['leido_at'].astimezone(AR_TZ):%d/%m}"
+            else:
+                porque = "aviso sin botón, nació antes de hoy"
+            print(f"    {f['sujeto'][:40]:40} "
+                  f"{_dias(f['detectado_at'], ahora_utc):>5.1f} {f['veces']:>6}  "
+                  f"{f['visto_ultima_vez'].astimezone(AR_TZ):%d/%m %H:%M}  {porque}")
+            if con_evidencia:
+                print(f"        evidencia: {f['evidencia']}")
+
+
 def main() -> int:
     from datetime import UTC, datetime
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--detalle", action="store_true",
-                    help="una línea por hallazgo invisible, no solo el resumen")
+                    help="el TEXTO de cada problema invisible, agrupado por regla")
+    ap.add_argument("--evidencia", action="store_true",
+                    help="con --detalle: agrega la evidencia cruda de cada uno")
     a = ap.parse_args()
 
     ahora_utc = datetime.now(UTC)
@@ -156,12 +218,7 @@ def main() -> int:
               f"{ultimo.astimezone(AR_TZ):%d/%m %H:%M}  {reglas[:34]}")
 
     if a.detalle:
-        print("\n  UNO POR UNO")
-        print(f"    {'HABILIDAD':20} {'REGLA':22} {'SEV':5} {'DÍAS':>5} {'×':>4}  SUJETO")
-        for f in sorted(invisibles, key=lambda x: x["detectado_at"]):
-            print(f"    {f['habilidad'][:20]:20} {f['regla'][:22]:22} "
-                  f"{f['severidad']:5} {_dias(f['detectado_at'], ahora_utc):>5.1f} "
-                  f"{f['veces']:>4}  {f['sujeto'][:40]}")
+        _detalle(invisibles, ahora_utc, con_evidencia=a.evidencia)
 
     altas = sum(1 for f in invisibles if f["severidad"] == "alta")
     print(f"\n  De los {len(invisibles)} invisibles, {altas} son severidad ALTA.")

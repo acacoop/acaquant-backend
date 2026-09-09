@@ -5,41 +5,29 @@ Herramienta: diag · Primero la base (gratis), después la API (cuesta créditos
 EL PUNTO
 ========
 
-Los cuadrantes SPREAD A−B y COMPARAR leen `research.mkt_1816_series`, que llena
-`jobs/mercado_1816_series`. Ese job pide las series así:
+Los cuadrantes SPREAD A−B y COMPARAR leen `research.mkt_1816_series`. Hasta el
+2026-09-09 ese feed se pedía con el default de la API (`ars`), y el spec de 1816
+dice que con `ars` *«para instrumentos pagaderos en moneda distinta a ARS, para
+calcular indicadores las cotizaciones se dividen por CCL»*. Esta plataforma
+divide por **MEP**: la TEA y la paridad de todo bono en dólares estaban al dólar
+de ellos. **Medido**: BPOB7 daba 7,26% en `ars` contra 2,44% en `mep` — 481 bps.
 
-    mercado_1816.series(lote, _CAMPOS, desde, hasta)     # jobs/mercado_1816_series.py:160
+Ya está corregido (`core.mercado_1816.moneda_series`: cada bono se pide en la
+moneda en la que PAGA), así que este diag contesta las dos preguntas que quedan:
 
-…sin pasar `moneda`, o sea con el **default de la API, `ars`**. Y el spec de 1816
-dice —textual, transcripto en `core/mercado_1816.py` arriba de `MONEDAS`— que con
-`ars`, *«para instrumentos pagaderos en moneda distinta a ARS, para calcular
-indicadores las cotizaciones se dividen por CCL»*.
+PASO 1 — GRATIS (solo Postgres). **¿Ya está cada bono en la moneda que le toca?**
+   Por ticker: en qué paga, qué moneda le corresponde, qué series hay guardadas
+   y el veredicto — `✅ MEP`, `⚠ FALTA REBAJAR` (todavía se lee al CCL), u
+   `ok — paga en pesos`. Es la verificación de que el backfill entró.
 
-**Toda esta plataforma divide por MEP**, no por CCL (`engines/curvas.py::
-precio_soberano_a_usd`). O sea que la sospecha es concreta: la TEA, la paridad y
-el precio de los HARD DOLLAR (Bonares, Globales, BOPREALes) que se grafican en
-Spread y Comparar estarían a CCL, y el spread contra un bono en pesos —o contra
-nuestra propia pantalla de Renta Fija— mezcla dos tipos de cambio.
-
-No es teoría: ya se midió una vez en otro pipeline (`agente/alta.py::
-moneda_cotejo_1816`, 2026-08-17). Para GD46, 1816 daba paridad **0,7278 en `ars`
-contra 0,7556 en `mep`** — 4,07% de diferencia contra 0,24%, y 202 bps de TEA.
-Lo que este diag contesta es si ESE mismo problema está en las series históricas.
-
-PASO 1 — GRATIS (solo Postgres). Tres preguntas:
-   a) ¿Qué `moneda` quedó grabada en las filas de `mkt_1816_series`?
-   b) ¿Qué bonos del watch son HARD DOLLAR (pagan en USD) y por lo tanto están
-      afectados, y cuáles son en pesos (donde `ars` es lo correcto)?
-   c) ¿Cuántas filas de cada uno? = el tamaño de lo que habría que rebajar.
-
-PASO 2 — CUESTA CRÉDITOS, por eso es opt-in (`--pedir`). Le pide a 1816 los
-MISMOS campos, del MISMO día, para los mismos tickers, una vez en `ars` y otra en
-`mep`, y muestra la diferencia. Si las dos columnas dan igual, la hipótesis se
-cae y no hay nada que arreglar. Costo: tickers × campos × 2 (default 3×3×2 = 18).
+PASO 2 — CUESTA CRÉDITOS, por eso es opt-in (`--pedir`). Le pregunta a 1816 los
+MISMOS campos, del MISMO día, en `ars` y en `mep`, y muestra la diferencia. Es lo
+que prueba que las dos monedas NO son la misma cosa. Costo: tickers × campos × 2
+(default 3 × 3 × 2 = 18 créditos).
 
 Uso:
-    python -m scripts.diag_1816_moneda_series                    # solo base
-    python -m scripts.diag_1816_moneda_series --pedir            # + comparar ars vs mep
+    python -m scripts.diag_1816_moneda_series                    # ¿está en MEP?
+    python -m scripts.diag_1816_moneda_series --pedir            # + ars vs mep
     python -m scripts.diag_1816_moneda_series --pedir AL30 GD30 GD46
 """
 from __future__ import annotations
@@ -64,7 +52,10 @@ def _f(v) -> str:
 
 
 def _paso1() -> list[str]:
-    """Imprime el estado en la base. Devuelve los tickers HARD DOLLAR."""
+    """Imprime el estado en la base. Devuelve los tickers a comparar en el paso 2
+    (los que falten rebajar; si no falta ninguno, todos los hard dollar)."""
+    from core import mercado_1816
+
     print(f"\n{'=' * 78}\n 1) QUÉ HAY GRABADO EN research.mkt_1816_series\n{'=' * 78}\n")
 
     filas = _q("""
@@ -84,23 +75,23 @@ def _paso1() -> list[str]:
         print(f"  {f['moneda']!s:>8} {f['fuente']!s:>8} {f['plazo']!s:>5} "
               f"{str(f['convencion_tna'])[:10]:>10} {f['filas']:>9} {f['tickers']:>8}"
               f"  {f['desde']} → {f['hasta']}")
-    print("\n  Ojo con esta columna: `moneda` es lo que la API DEVOLVIÓ en la\n"
-          "  respuesta, no lo que nosotros pedimos. Si dice `ccl` está confesando\n"
-          "  la conversión; si dice `ars` sigue sin desmentirla — el spec dice que\n"
-          "  con `ars` igual divide por CCL a los que pagan en dólares. Lo que\n"
-          "  cierra la pregunta de verdad es el PASO 2.\n")
+    print("\n  `moneda` es lo que la API DEVOLVIÓ, y es parte de la PK: un mismo\n"
+          "  bono puede tener las dos series. Que aparezca una fila `mep` es la\n"
+          "  señal de que el rebajado corrió; que TODO siga en `ars` significa que\n"
+          "  los bonos en dólares se están leyendo al CCL de 1816. El desglose por\n"
+          "  bono está abajo.\n")
 
     print(f"\n{'=' * 78}\n 2) EL WATCH: quién está afectado y quién no\n{'=' * 78}\n")
     uni = _q("""
         SELECT w.ticker,
                coalesce(i.curva, w.curva, '?')   AS curva,
                i.moneda_denom, i.moneda_pago,
-               count(s.*)                        AS filas
+               s.moneda, count(s.*) AS filas
         FROM research.mkt_1816_watch w
         LEFT JOIN research.mkt_1816_instrumentos i ON i.ticker = w.ticker
         LEFT JOIN research.mkt_1816_series s       ON s.ticker = w.ticker
         WHERE w.activo
-        GROUP BY w.ticker, i.curva, w.curva, i.moneda_denom, i.moneda_pago
+        GROUP BY w.ticker, i.curva, w.curva, i.moneda_denom, i.moneda_pago, s.moneda
         ORDER BY i.moneda_pago NULLS FIRST, curva, w.ticker
     """)
     if not uni:
@@ -108,38 +99,69 @@ def _paso1() -> list[str]:
               "seed).\n     Corré `python -m jobs.mercado_1816_discovery --apply`.\n")
         return []
 
-    print(f"  {'TICKER':<10} {'CURVA':<28} {'DENOM':>6} {'PAGO':>6} {'FILAS':>8}   ¿A QUÉ DÓLAR?")
-    hd: list[str] = []
-    sin_ficha: list[str] = []
+    # Una fila por (ticker, moneda) → se pliega a una por ticker con el desglose.
+    bonos: dict[str, dict] = {}
     for r in uni:
-        pago = (r["moneda_pago"] or "").strip().upper()
-        if not pago:
-            veredicto, sin_ficha_flag = "?? sin ficha en el catálogo", True
-        elif pago in ("USD", "USD_C", "DOL", "U$S"):
-            veredicto, sin_ficha_flag = "⚠ CCL (debería ser MEP)", False
-            hd.append(r["ticker"])
-        else:
-            veredicto, sin_ficha_flag = "ok — paga en pesos", False
-        if sin_ficha_flag:
-            sin_ficha.append(r["ticker"])
-        print(f"  {r['ticker']:<10} {str(r['curva'])[:28]:<28} "
-              f"{r['moneda_denom'] or '—'!s:>6} {r['moneda_pago'] or '—'!s:>6} "
-              f"{r['filas']:>8}   {veredicto}")
+        b = bonos.setdefault(r["ticker"], {**r, "por_moneda": {}})
+        if r["moneda"]:
+            b["por_moneda"][r["moneda"]] = r["filas"]
 
-    print(f"\n  → {len(hd)} de {len(uni)} bonos del watch PAGAN EN DÓLARES: "
-          f"son los afectados.")
-    afectadas = sum(r["filas"] for r in uni
-                    if (r["moneda_pago"] or "").strip().upper() in ("USD", "USD_C", "DOL", "U$S"))
-    print(f"  → {afectadas} filas de serie colgadas de ellos (el tamaño del rebajado).")
+    print(f"  {'TICKER':<10} {'CURVA':<26} {'PAGO':>5} {'OBJETIVO':>9} "
+          f"{'SERIES GUARDADAS':<24} ESTADO")
+    faltan: list[str] = []
+    sin_ficha: list[str] = []
+    listos = 0
+    en_pesos = 0
+    for tk, b in bonos.items():
+        pago = (b["moneda_pago"] or "").strip().upper()
+        objetivo = mercado_1816.moneda_series(b["moneda_pago"])
+        guardadas = b["por_moneda"]
+        detalle = " · ".join(f"{m}:{n}" for m, n in sorted(guardadas.items())) or "—"
+
+        if not pago:
+            estado = "?? sin ficha en el catálogo"
+            sin_ficha.append(tk)
+        elif objetivo == "ars":
+            estado = "ok — paga en pesos"
+            en_pesos += 1
+        elif guardadas.get("mep"):
+            estado = f"✅ MEP ({guardadas['mep']} filas)"
+            listos += 1
+        else:
+            estado = "⚠ FALTA REBAJAR — hoy se lee al CCL"
+            faltan.append(tk)
+
+        print(f"  {tk:<10} {str(b['curva'])[:26]:<26} {pago or '—':>5} "
+              f"{objetivo:>9} {detalle[:24]:<24} {estado}")
+
+    hd = [tk for tk, b in bonos.items()
+          if mercado_1816.moneda_series(b["moneda_pago"]) == "mep"]
+    print(f"\n  → {len(hd)} de {len(bonos)} bonos del watch PAGAN EN DÓLARES "
+          f"(los únicos que pueden estar al CCL).")
+    print(f"  → {listos} {'ya tiene' if listos == 1 else 'ya tienen'} su serie en "
+          f"MEP · {len(faltan)} todavía no.")
+    if faltan:
+        print(f"\n  ⚠ FALTA REBAJAR: {', '.join(faltan)}\n"
+              f"    El comando (fuera de rueda, scopeado a los que pagan en USD):\n"
+              f"      python -m jobs.mercado_1816_series --backfill --moneda mep "
+              f"--desde <hace 1 año> --dry-run\n"
+              f"    y sin --dry-run cuando el presupuesto que imprime cierre.\n")
+    else:
+        print(f"\n  ✅ LOS {len(hd)} ESTÁN EN MEP. La vista ya los lee al dólar de la\n"
+              f"     casa: en el selector de SPREAD y COMPARAR dicen MEP, no CCL.\n"
+              f"     Las filas viejas en `ars` siguen ahí a propósito (son el tramo\n"
+              f"     que la API ya no deja rebajar) y la lectura las ignora.\n")
     if sin_ficha:
         print(f"  → ⚠ {len(sin_ficha)} sin ficha en `mkt_1816_instrumentos` "
               f"({', '.join(sin_ficha[:8])}{'…' if len(sin_ficha) > 8 else ''}):\n"
-              f"     de esos no se puede DERIVAR la moneda. Falta correr\n"
+              f"     de esos no se puede DERIVAR la moneda, y caen en `ars` por\n"
+              f"     default. Falta correr\n"
               f"     `python -m jobs.mercado_1816_discovery --apply --catalogo`.")
-    print("\n  Los dólar-linked son el caso al que NO hay que tocarle nada: están\n"
-          "  denominados en USD pero pagan en pesos, y 1816 no publica `mep` para\n"
-          "  ellos (medido 2026-08-17 con D30O6: devolvió todo None).\n")
-    return hd
+    print(f"  → {en_pesos} {'paga' if en_pesos == 1 else 'pagan'} en pesos: `ars` es "
+          f"lo correcto y no se tocan. Los\n"
+          "     dólar-linked entran acá — están denominados en USD pero pagan en\n"
+          "     pesos, y 1816 no publica `mep` para ellos (D30O6: todo None).\n")
+    return faltan or hd
 
 
 def _paso2(tickers: list[str]) -> int:

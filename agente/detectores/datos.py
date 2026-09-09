@@ -578,24 +578,46 @@ def hd_1816_al_ccl(u: dict) -> list[Hallazgo]:
     # terminan siempre con uno de los dos viejo (REGLA #9).
     from core import mercado_1816
 
+    # ⚠️ **Se junta por (tabla, ticker) ANTES de juzgar, y no es prolijidad.**
+    # `moneda` es parte de la PK de `mkt_1816_series`, así que un hard dollar ya
+    # rebajado tiene LAS DOS series: la vieja en `ars` —que se conserva a
+    # propósito, es el tramo que la API ya no deja rebajar (topea en 1 año)— y la
+    # nueva en `mep`, que es la que la vista lee. Juzgando fila por fila esa
+    # `ars` intencional sería un hallazgo ETERNO: el detector cantaría todos los
+    # días algo que está bien, que es la forma más rápida de que se deje de
+    # mirar el tablero. Lo que está mal es que FALTE la moneda que corresponde,
+    # no que sobre otra.
+    por_bono: dict[tuple[str, str], dict] = {}
+    for f in filas:
+        b = por_bono.setdefault((f["tabla"], f["ticker"]),
+                                {"moneda_pago": None, "monedas": {}})
+        # El `moneda_pago` sale del mismo LEFT JOIN en las tres ramas; si alguna
+        # fila del bono lo trae, vale para el bono.
+        b["moneda_pago"] = b["moneda_pago"] or f.get("moneda_pago")
+        mon = f.get("moneda")
+        b["monedas"][mon] = b["monedas"].get(mon, 0) + int(f.get("filas") or 0)
+
     mal: dict[str, list[dict]] = {}
     sin_ficha: dict[str, set[str]] = {}
-    for f in filas:
-        if not f.get("moneda_pago"):
+    for (tabla, ticker), b in sorted(por_bono.items()):
+        if not b.get("moneda_pago"):
             # Sin ficha en el catálogo no se puede AFIRMAR que esté mal. Se
             # cuenta aparte: es un agujero de catálogo, no un dato al CCL.
-            sin_ficha.setdefault(f["tabla"], set()).add(f["ticker"])
+            sin_ficha.setdefault(tabla, set()).add(ticker)
             continue
-        debe = mercado_1816.moneda_series(f["moneda_pago"])
-        if debe == "mep" and f.get("moneda") != "mep":
-            mal.setdefault(f["tabla"], []).append(f)
+        debe = mercado_1816.moneda_series(b["moneda_pago"])
+        if debe == "mep" and "mep" not in b["monedas"]:
+            mal.setdefault(tabla, []).append(
+                {"tabla": tabla, "ticker": ticker,
+                 "filas": sum(b["monedas"].values()),
+                 "monedas": sorted(str(m) for m in b["monedas"])})
 
     hh = reloj.hhmm()
     out = []
     for tabla, malas in sorted(mal.items()):
         tickers = sorted({m["ticker"] for m in malas})
         filas_mal = sum(int(m.get("filas") or 0) for m in malas)
-        monedas = sorted({str(m.get("moneda")) for m in malas})
+        monedas = sorted({m for x in malas for m in x["monedas"]})
         out.append(Hallazgo(
             sujeto=tabla, regla="al_ccl", severidad="alta",
             nombre=tabla,

@@ -6739,3 +6739,75 @@ de las dos puede volver a leer la fuente de la otra.
 nombran entre sí a propósito —explican el bug que evitan— y un test que grepea
 la prosa castiga justo la documentación que hace falta. Es la trampa que ese
 helper ya documentaba, y en la que caí al escribir este test.
+
+---
+
+### 0.ey UNA HABILIDAD FANTASMA CON LA LUZ VERDE — y los 43 hallazgos que no se ven en ninguna pantalla (2026-09-09)
+
+Dos cosas distintas que aparecieron en la misma pantalla y comparten el modo de
+falla de la REGLA #9: **cuando se rompe, no falla nada**.
+
+#### (A) `licitacion_anunciada` — verde, con fecha, y no existe
+
+El `--estado` del daemon imprimió esto:
+
+```
+agente: catálogo sincronizado — 28 habilidades      ← lo dice el CÓDIGO
+...
+licitacion_anunciada   aviso   ok   0 0 0 0   2026-09-02 03:24:15
+```
+
+**29 filas impresas para 28 habilidades declaradas.** `licitacion_anunciada` se
+había borrado de `agente/catalogo.py`; `sincronizar()` la marcó `activa = false`
+y ahí terminaba todo, porque **nadie leía `activa`**: ni el panel del front, ni
+el mapa, ni `_imprimir_estado()`. Verificado: en todo el frontend la palabra
+aparecía UNA vez, en la declaración del tipo.
+
+Sin ese campo, el color sale de `ultimo_resultado`, que quedó congelado en el
+`ok` de la última corrida real. Resultado: un **punto verde** con el texto «miró
+y guardó lo que vio» y un «02/09» en una lista donde todo lo demás decía hoy.
+No es cosmético: el agente entero existe para que «miré y estaba bien» y «no
+miré» no se dibujen igual, y acá se estaba dibujando «miré y estaba bien» sobre
+algo que **no corre**.
+
+**La fila `activa = false` tiene un motivo real, y se puede comprobar.** Se
+conserva porque los hallazgos históricos la referencian por nombre (`hallazgos.habilidad`
+es `text`, sin FK) y sin ella el HISTORIAL no puede decir de qué habilidad
+hablaba. Pero eso vale **si dejó historia**. `licitacion_anunciada` tenía 0
+hallazgos y 0 acciones: no guardaba historia, inventaba una habilidad.
+
+Entonces, dos comportamientos y ninguno a criterio de nadie:
+
+> **Fuera del código y SIN historia → se BORRA** (`sincronizar()`, con el doble
+> `NOT EXISTS` como condición, no como formalidad).
+> **Fuera del código y CON historia → sobrevive `activa = false` y se dibuja
+> «DADA DE BAJA»**, gris, antes de mirar cualquier resultado.
+
+La baja gana sobre el último resultado en los dos lugares que pintan: `saludDe()`
+en el front (la única función que da color, compartida por la lista y el mapa) y
+`_imprimir_estado()` en `jobs/agente.py`, que además la saca del conteo de «no
+pudieron mirar» — una habilidad que no corre no es una que falló.
+
+#### (B) Lo abierto que no se ve en ninguna pantalla
+
+Del mismo listado salió el otro número. De **50 hallazgos abiertos**, a lo sumo
+7 tienen botón. Los otros **43 son avisos**, y un aviso vive en AHORA, que
+muestra lo de HOY: al día siguiente se va solo de la pantalla sin haberse
+resuelto ni cerrado. Sigue abierto, el detector lo vuelve a confirmar en cada
+pasada, y no lo mira nadie.
+
+⚠️ **Eso todavía es una hipótesis, no una medición.** «43 sin botón» está
+verificado del listado; «cuántos de ésos nacieron hoy» —lo único que decide si
+se ven o no— NO se midió. Por eso lo primero no es una pantalla nueva sino
+`scripts/diag_invisibles.py`, read-only, que contesta cuántos hay, de qué
+habilidades, hace cuántos días y con qué severidad.
+
+**El diag no define «visible»: se lo pregunta a las pantallas.** Llama a
+`vista.ahora()`, `vista.encontro()` y `vista.cronicos()` —las mismas funciones
+que dibujan el modal— y compara por `id`. Un `WHERE` propio sería una CUARTA
+definición de «lo que está abierto» conviviendo con las tres reales, y eso ya
+pasó adentro de este mismo subsistema: `cola.investigables()` ofrecía 60 casos
+mientras la pantalla mostraba 3 y 3, porque tenía su propio criterio.
+
+La decisión de diseño —¿dónde vive un problema real que nadie puede apretar?—
+queda ABIERTA hasta tener el número.

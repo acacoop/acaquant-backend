@@ -214,13 +214,24 @@ def _imprimir_estado() -> None:
           f"{'ABIERT':>6} {'TOTAL':>6} {'VOLV':>5}  ÚLTIMA CORRIDA")
     for f in sorted(filas, key=lambda x: (x["dominio"], x["nombre"])):
         ult = f["ultima_corrida_at"]
+        # ⚠️ **LA BAJA GANA SOBRE EL ÚLTIMO RESULTADO** (§0.ey). Una habilidad
+        # que salió del código conserva su `ok` congelado de la última vez que
+        # corrió de verdad: imprimirlo tal cual la mostraba sana, con una fecha
+        # de hace una semana, en una lista donde todo lo demás decía hoy. Es el
+        # mismo criterio que `saludDe()` en el front — el color no puede salir
+        # de un resultado que ya no se actualiza.
+        de_baja = not f.get("activa", True)
         print(f"{f['nombre']:22} {f['clase']:8} "
-              f"{(f['ultimo_resultado'] or '—'):6} "
+              f"{('BAJA' if de_baja else (f['ultimo_resultado'] or '—')):6} "
               f"{f['corridas_hoy']:>4} {f['hallazgos_abiertos']:>6} "
               f"{f['hallazgos_total']:>6} {f['reincidencias']:>5}  "
               f"{str(ult)[:19] if ult else 'NUNCA'}"
+              + ("  ← fuera del catálogo, NO corre (queda por su historia)"
+                 if de_baja else "")
               + (f"  ⚠ {f['ultimo_error'][:70]}" if f["ultimo_error"] else ""))
-    malas = [f for f in filas if f["ultimo_resultado"] in ("error", "sin_datos")]
+    malas = [f for f in filas
+             if f.get("activa", True)
+             and f["ultimo_resultado"] in ("error", "sin_datos")]
     if malas:
         print(f"\n⚠ {len(malas)} habilidad(es) no pudieron mirar — NO cerraron "
               f"nada, que es lo correcto:")

@@ -487,7 +487,35 @@ def sincronizar() -> dict:
                  __import__("json").dumps(h.umbrales)))
         cur.execute("UPDATE agente.habilidades SET activa = false "
                     "WHERE nombre <> ALL(%s)", (list(HABILIDADES),))
-    return {"ok": True, "habilidades": len(HABILIDADES)}
+        # ⚠️⚠️ **UNA HABILIDAD BORRADA QUE NO DEJÓ NADA NO TIENE POR QUÉ QUEDAR**
+        # (§0.ey). La fila se conserva `activa = false` por un motivo concreto:
+        # sus hallazgos históricos la referencian por nombre y sin ella el
+        # HISTORIAL no puede decir de qué habilidad hablaba. Ese motivo **se
+        # puede comprobar**, y cuando no se cumple —cero hallazgos— la fila no
+        # está guardando historia: está inventando una habilidad.
+        #
+        # `licitacion_anunciada` era eso: se borró del código el 02/09, quedó
+        # con 0 hallazgos, y siguió saliendo en el panel con su punto VERDE y su
+        # «miró 02/09» —el color de «miró y guardó lo que vio»— en una lista
+        # donde todo lo demás decía hoy. Una luz verde sobre algo que no corre,
+        # que es la mentira que este subsistema entero existe para no decir.
+        #
+        # No hay FK: `hallazgos.habilidad` es text. El `NOT EXISTS` es la
+        # condición, no una formalidad — la que SÍ dejó historia sobrevive y se
+        # dibuja como «dada de baja».
+        cur.execute(
+            "DELETE FROM agente.habilidades h "
+            " WHERE h.nombre <> ALL(%s) "
+            "   AND NOT EXISTS (SELECT 1 FROM agente.hallazgos f "
+            "                    WHERE f.habilidad = h.nombre) "
+            "   AND NOT EXISTS (SELECT 1 FROM agente.acciones a "
+            "                    WHERE a.habilidad = h.nombre)",
+            (list(HABILIDADES),))
+        borradas = cur.rowcount or 0
+    if borradas:
+        logger.info("catalogo: %d habilidad(es) fuera del código y sin historia "
+                    "borradas del catálogo", borradas)
+    return {"ok": True, "habilidades": len(HABILIDADES), "borradas": borradas}
 
 
 def estado() -> list[dict]:

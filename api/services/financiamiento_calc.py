@@ -11,7 +11,9 @@ tasa anual. Vive en el panel libre de la vista FINANCIAMIENTO (tab de
     AVAL (SGR) + el instrumento (CHEQUE o PAGARÉ). El backend devuelve los tres
     bloques de la planilla: NETO SIN AVAL, NETO CON AVAL y el CFT con sus dos
     flujos de efectivo. **NADA de esto se persiste**: es un simulador, lo corre
-    cualquiera que entre a la vista y se lo lleva puesto al salir.
+    cualquiera que entre a la vista y se lo lleva puesto al salir. Tiene DOS
+    modos: **SIMPLE** (un cheque, lo de arriba) y **LOTE** (N cheques con el
+    mismo instrumento y el mismo aval, ver sección LOTE más abajo).
   - **DATOS** — la única parte que SÍ persiste: el catálogo de SGRs con su costo
     de aval por instrumento, el arancel de ACA Valores y el derecho de mercado.
     Son los parámetros que la planilla tenía hardcodeados a un costado.
@@ -64,10 +66,44 @@ COSTO FINANCIERO TOTAL (efectiva anual de la operación completa):
 Los flujos de efectivo son la lectura del CFT: entra el neto HOY, sale el
 nominal al vencimiento (hoy + días, calendario corrido).
 
+LOTE (modo de la CALCULADORA para N cheques)
+---------------------------------------------
+El modo LOTE corre la MISMA cuenta de arriba (`calcular_puro`, sin tocar ni
+una fórmula) fila por fila, para N cheques/pagarés que comparten instrumento y
+aval — es la cotización que el comercial le manda al cliente cuando descuenta
+una carpeta entera, no un cheque suelto. Encima de las filas se agregan:
+
+  - **totales**: la suma simple de cada columna en pesos (monto, descuento,
+    aranceles, IVA, a recibir, comisión SGR, neto final).
+  - **plazo_ponderado_dias**: el plazo promedio del lote, ponderado por el
+    monto NOMINAL de cada cheque (no por el neto) — así es como lo pondera la
+    planilla del comercial.
+  - **cft_pct**: el CFT del LOTE completo, con la misma fórmula de arriba pero
+    sobre `Σmonto / Σneto_final` y el plazo ponderado. ⚠️ A diferencia del
+    simulador SIMPLE (donde sin SGR el CFT es null porque el bloque CON AVAL
+    directamente no existe), acá el CFT se calcula SIEMPRE: sin aval el "neto
+    final" de cada fila ES el `a_recibir_cliente`, y el reporte del lote se le
+    manda al cliente igual en una operación directa sin SGR — no tiene sentido
+    dejarlo en blanco solo porque no hay aval.
+  - **flujos**: uno de entrada (hoy, el neto final total) y uno de salida por
+    cada fecha de vencimiento DISTINTA del lote (dos cheques que vencen el
+    mismo día se juntan en un solo flujo, por `−Σmonto` de esa fecha).
+
+⚠️ El Excel que trajo el comercial para este modo usa OTRAS fórmulas para
+comisión SGR (piso de $200) y para el arancel/derecho de ACA (arancel directo
+con piso de 0,25 % sobre base 360, derecho de mercado prorrateado cada 90
+días en vez de por día). **Esas fórmulas NO se adoptan acá** — quedan
+pendientes de una decisión del user; este módulo sigue usando, sin excepción,
+las fórmulas de la sección LAS FÓRMULAS de arriba también para el lote. El
+test del lote lo deja documentado: el "Monto Bruto" y la comisión SGR total sí
+coinciden con el Excel del comercial, pero arancel y derecho de mercado NO
+coinciden a propósito.
+
 VERIFICACIÓN: `tests/unit/test_financiamiento_calc.py` clava los seis números
 del Excel que pasó el user (50.000.000 · 25 % · 127 días · aval 4 %) contra el
-resultado del service. Si tocás una fórmula y ese test no falla, no tocaste lo
-que creías.
+resultado del service, y el caso de LOTE (3 cheques) contra las cuentas
+hechas a mano a partir de esas mismas fórmulas. Si tocás una fórmula y esos
+tests no fallan, no tocaste lo que creías.
 """
 from __future__ import annotations
 
@@ -87,6 +123,12 @@ IVA_PCT = 21.0
 
 # Base de días del año. La planilla usa 365 (no 360) en TODOS los prorrateos.
 BASE_ANUAL = 365
+
+# Tope defensivo del modo LOTE: un lote comercial son 3 a 15 cheques, y el
+# request es matemática pura sin tocar la base, así que esto no protege un
+# costo de query — protege de un payload absurdo (miles de filas) colgando el
+# worker en un loop de Python.
+LOTE_MAX_FILAS = 50
 
 INSTRUMENTOS = ("cheque", "pagare")
 
@@ -455,6 +497,29 @@ def _hoy_art() -> date:
     return (datetime.now(UTC) - timedelta(hours=3)).date()
 
 
+def _resolver_aval(datos: dict, aval: str | None, inst: str) -> tuple[float | None, dict | None]:
+    """Nombre de SGR → (costo vigente para el instrumento, fila del catálogo).
+
+    `(None, None)` si no se eligió aval (estado válido: 'todavía no elegí SGR').
+    `ValueError` si el nombre no está en el catálogo o si está pero no tiene
+    costo cargado para ESE instrumento — mismos mensajes de siempre, porque el
+    front los matchea para mostrar el error en el lugar correcto del form.
+    """
+    aval_nombre = (aval or "").strip() or None
+    if not aval_nombre:
+        return None, None
+    fila = next((a for a in datos["avales"] if a["nombre"] == aval_nombre), None)
+    if fila is None:
+        raise ValueError(f"aval desconocido: {aval_nombre!r}")
+    costo = fila["costo_cheque"] if inst == "cheque" else fila["costo_pagare"]
+    if costo is None:
+        raise ValueError(
+            f"{aval_nombre} no tiene costo cargado para {inst.upper()} — "
+            "completalo en la tab DATOS"
+        )
+    return costo, fila
+
+
 def calcular(
     *,
     monto,
@@ -483,19 +548,8 @@ def calcular(
     arancel_pct = ar["arancel_aca"] or 0.0
     derecho_pct = ar["derecho_mercado"] or 0.0
 
-    costo = None
     aval_nombre = (aval or "").strip() or None
-    fila = None
-    if aval_nombre:
-        fila = next((a for a in datos["avales"] if a["nombre"] == aval_nombre), None)
-        if fila is None:
-            raise ValueError(f"aval desconocido: {aval_nombre!r}")
-        costo = fila["costo_cheque"] if inst == "cheque" else fila["costo_pagare"]
-        if costo is None:
-            raise ValueError(
-                f"{aval_nombre} no tiene costo cargado para {inst.upper()} — "
-                "completalo en la tab DATOS"
-            )
+    costo, fila = _resolver_aval(datos, aval_nombre, inst)
 
     res = calcular_puro(
         monto=m, tasa_pct=t, dias=d,
@@ -515,5 +569,162 @@ def calcular(
         "derecho_mercado_pct": derecho_pct,
         "iva_pct":             IVA_PCT,
         "base_anual":          BASE_ANUAL,
+    }
+    return res
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LOTE — N cheques/pagarés con el mismo instrumento y el mismo aval
+# ──────────────────────────────────────────────────────────────────────────────
+
+def calcular_lote_puro(
+    *,
+    items: list[dict],
+    arancel_aca_pct: float,
+    derecho_mercado_pct: float,
+    costo_aval_pct: float | None,
+    hoy: date | None = None,
+) -> dict:
+    """El lote, fila por fila, reusando `calcular_puro` sin tocar una fórmula.
+
+    `items` ya viene validado (monto > 0, dias > 0) — esa validación fila por
+    fila con el número de fila en el mensaje vive en `calcular_lote`, la
+    entrada del endpoint; acá entran números limpios, igual que `calcular_puro`.
+    """
+    if not items:
+        raise ValueError("el lote no tiene filas")
+    if len(items) > LOTE_MAX_FILAS:
+        raise ValueError(f"el lote no puede tener más de {LOTE_MAX_FILAS} filas")
+
+    d0 = hoy or _hoy_art()
+    filas = []
+    for i, it in enumerate(items):
+        monto = it["monto"]
+        dias = it["dias"]
+        r = calcular_puro(
+            monto=monto, tasa_pct=it["tasa_pct"], dias=dias,
+            arancel_aca_pct=arancel_aca_pct, derecho_mercado_pct=derecho_mercado_pct,
+            costo_aval_pct=costo_aval_pct, hoy=d0,
+        )
+        sin = r["sin_aval"]
+        con = r["con_aval"]
+        filas.append({
+            "n":                  i + 1,
+            "monto":              monto,
+            "tasa_pct":           it["tasa_pct"],
+            "dias":               dias,
+            "vencimiento":        (d0 + timedelta(days=dias)).isoformat(),
+            "tasa_directa_pct":   sin["tasa_directa_pct"],
+            # El interés en $ — lo que la planilla del comercial llama "Monto
+            # Descontado". Ojo con el nombre: NO es lo mismo que la clave
+            # `monto_descontado` de acá abajo, que es el "Monto Bruto".
+            "descuento":          monto - sin["monto_descontado"],
+            # "Monto Bruto" del comercial: el nominal menos el descuento, antes
+            # de restar aranceles y derecho de mercado.
+            "monto_descontado":   sin["monto_descontado"],
+            "arancel_aca":        sin["arancel_aca"],
+            "iva_aranceles":      sin["iva_aranceles"],
+            "derecho_mercado":    sin["derecho_mercado"],
+            "iva_derecho":        sin["iva_derecho"],
+            "a_recibir_cliente":  sin["a_recibir_cliente"],
+            "comision_sgr":       con["comision_sgr"] if con else None,
+            "neto_final":         con["monto_descontado"] if con else sin["a_recibir_cliente"],
+        })
+
+    campos_suma = (
+        "monto", "descuento", "monto_descontado", "arancel_aca", "iva_aranceles",
+        "derecho_mercado", "iva_derecho", "a_recibir_cliente", "neto_final",
+    )
+    totales = {c: sum(f[c] for f in filas) for c in campos_suma}
+    totales["comision_sgr"] = (
+        sum(f["comision_sgr"] for f in filas) if costo_aval_pct is not None else None
+    )
+
+    # Plazo ponderado por NOMINAL (no por neto): así lo pondera la planilla del
+    # comercial (`SUMPRODUCT(dias, monto) / SUM(monto)`).
+    plazo_ponderado = sum(f["dias"] * f["monto"] for f in filas) / totales["monto"]
+
+    # A diferencia del simulador SIMPLE, acá el CFT se calcula SIEMPRE, con o
+    # sin aval: sin SGR el "neto final" de cada fila ES el a_recibir_cliente, y
+    # el reporte del lote se le manda al cliente igual en una operación directa.
+    cft_pct = None
+    if totales["neto_final"] > 0:
+        cft_pct = (
+            (totales["monto"] / totales["neto_final"]) ** (BASE_ANUAL / plazo_ponderado) - 1
+        ) * 100
+
+    # Flujos: entra el neto final total hoy, sale −Σmonto por cada fecha de
+    # vencimiento DISTINTA (dos cheques que vencen el mismo día se juntan).
+    por_fecha: dict[str, float] = {}
+    for f in filas:
+        por_fecha[f["vencimiento"]] = por_fecha.get(f["vencimiento"], 0.0) + f["monto"]
+    flujos = [{"fecha": d0.isoformat(), "importe": totales["neto_final"]}]
+    for fecha in sorted(por_fecha):
+        flujos.append({"fecha": fecha, "importe": -por_fecha[fecha]})
+
+    return {
+        "filas":               filas,
+        "totales":             totales,
+        "plazo_ponderado_dias": plazo_ponderado,
+        "cft_pct":             cft_pct,
+        "flujos":              flujos,
+    }
+
+
+def calcular_lote(*, items, aval: str | None = None, instrumento: str = "cheque") -> dict:
+    """Entrada del endpoint del LOTE: valida cada fila (con el número de fila en
+    el mensaje), resuelve el aval UNA vez para todo el lote y delega en
+    `calcular_lote_puro`. El aval es el mismo para las N filas — es lo que
+    define un "lote": la misma carpeta, la misma SGR."""
+    inst = (instrumento or "cheque").strip().lower()
+    if inst not in INSTRUMENTOS:
+        raise ValueError(f"'instrumento' debe ser uno de: {', '.join(INSTRUMENTOS)}")
+
+    if not isinstance(items, list) or not items:
+        raise ValueError("el lote no tiene filas")
+    if len(items) > LOTE_MAX_FILAS:
+        raise ValueError(f"el lote no puede tener más de {LOTE_MAX_FILAS} filas")
+
+    # Los chequeos de monto/dias se REPITEN acá aunque `calcular_puro` ya los
+    # hace: es a propósito. La pura grita sin saber en qué fila está, y en una
+    # grilla de 12 cheques «'monto' debe ser mayor a 0» no dice cuál corregir.
+    # Acá se valida ANTES para que el mensaje lleve el número de fila.
+    limpios = []
+    for i, it in enumerate(items):
+        n = i + 1
+        try:
+            monto = _num(it.get("monto"), "monto", minimo=0)
+            tasa_pct = _num(it.get("tasa_pct"), "tasa_pct")
+            dias = int(_num(it.get("dias"), "dias"))
+            if monto <= 0:
+                raise ValueError("'monto' debe ser mayor a 0")
+            if dias <= 0:
+                raise ValueError("'dias' debe ser mayor a 0")
+        except ValueError as e:
+            raise ValueError(f"fila {n}: {e}") from e
+        limpios.append({"monto": monto, "tasa_pct": tasa_pct, "dias": dias})
+
+    datos = get_datos()
+    ar = datos["aranceles"]
+    arancel_pct = ar["arancel_aca"] or 0.0
+    derecho_pct = ar["derecho_mercado"] or 0.0
+
+    aval_nombre = (aval or "").strip() or None
+    costo, fila = _resolver_aval(datos, aval_nombre, inst)
+
+    res = calcular_lote_puro(
+        items=limpios, arancel_aca_pct=arancel_pct, derecho_mercado_pct=derecho_pct,
+        costo_aval_pct=costo,
+    )
+    res["params"] = {
+        "instrumento":         inst,
+        "aval":                aval_nombre,
+        "costo_aval_pct":      costo,
+        "nota_aval":           (fila or {}).get("nota") or "",
+        "arancel_aca_pct":     arancel_pct,
+        "derecho_mercado_pct": derecho_pct,
+        "iva_pct":             IVA_PCT,
+        "base_anual":          BASE_ANUAL,
+        "hoy":                 res["flujos"][0]["fecha"],
     }
     return res

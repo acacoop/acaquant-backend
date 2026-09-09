@@ -1097,6 +1097,18 @@ class _CalcIn(BaseModel):
     instrumento: str = "cheque"
 
 
+class _LoteItemIn(BaseModel):
+    monto: float
+    tasa_pct: float
+    dias: int
+
+
+class _LoteIn(BaseModel):
+    items: list[_LoteItemIn]
+    aval: str | None = None
+    instrumento: str = "cheque"
+
+
 @router.get("/financiamiento/datos")
 def financiamiento_datos() -> dict:
     """Parámetros de la calculadora: catálogo de SGRs + arancel ACA + derecho de
@@ -1168,6 +1180,21 @@ def financiamiento_calculadora(payload: _CalcIn = Body(...)) -> dict:
     try:
         return _fin_calc.calcular(
             monto=payload.monto, tasa_pct=payload.tasa_pct, dias=payload.dias,
+            aval=payload.aval, instrumento=payload.instrumento,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/financiamiento/calculadora/lote")
+def financiamiento_calculadora_lote(payload: _LoteIn = Body(...)) -> dict:
+    """Corre la planilla para un LOTE de cheques/pagarés (mismo instrumento y
+    aval): fila por fila + totales + plazo ponderado + CFT del lote + flujos.
+    NO PERSISTE NADA, igual que el simulador simple: el lote vive en el
+    navegador del comercial y solo por el día. Fórmulas: financiamiento_calc."""
+    try:
+        return _fin_calc.calcular_lote(
+            items=[i.model_dump() for i in payload.items],
             aval=payload.aval, instrumento=payload.instrumento,
         )
     except ValueError as e:

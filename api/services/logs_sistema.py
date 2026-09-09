@@ -6,9 +6,18 @@ Esta lectura vivía ADENTRO de `api/routers/manager/logs.py`, o sea que la únic
 forma de mirar los logs era que una persona abriera la pantalla. El agente no
 podía usarla: un service no importa un router (regla de capas), así que la única
 salida habría sido copiar el `subprocess` — y ahí quedan dos formas de leer lo
-mismo que se separan sole el día que una cambia (REGLA #9).
+mismo que se separan solas el día que una cambia (REGLA #9).
 
-Acá está la lectura y el AGRUPADOR; el router y el agente son dos clientes.
+Acá está la lectura y el AGRUPADOR.
+
+⚠️ **HOY NO TIENE NINGÚN CLIENTE, Y ES A PROPÓSITO (2026-09-09).** La pantalla
+MANAGER → OBSERVABILIDAD → DIAGNÓSTICO → LOGS se dio de baja junto con toda la
+tab, y con ella el router `api/routers/manager/logs.py` que era su único
+consumidor. Este módulo NO se borró porque es la mitad ya hecha del detector de
+logs que §0.ac deja explícitamente pendiente: falta calibrar los umbrales contra
+producción (REGLA #2), no falta la lectura. Borrarlo hoy significaría volver a
+escribirlo igual mañana. Si el detector se descarta como idea, ahí sí se borra
+este archivo; mientras tanto, esperar cero imports es lo correcto, no un olvido.
 
 QUÉ AGREGA EL AGRUPADOR, Y POR QUÉ HACE FALTA
 =============================================

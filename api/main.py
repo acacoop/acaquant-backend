@@ -127,8 +127,9 @@ async def lifespan(_app: FastAPI):
     """Arranque/parada de la API: valida la postura de auth y nada más.
 
     Ya no hay tasks de fondo acá: el sampler de recursos del Droplet se eliminó
-    junto con la tab RECURSOS (la salud del sistema vive en OBSERVABILIDAD → SALUD),
-    y el session manager del MCP se fue con el MCP (2026-08-28).
+    junto con la tab RECURSOS, y el session manager del MCP se fue con el MCP
+    (2026-08-28). La salud del sistema NO tiene ya ninguna pantalla propia — toda
+    vive en el AV AGENT (Manager → OBSERVABILIDAD se dio de baja el 2026-09-09).
     """
     _validar_postura_auth()
     # La API también late (core/latido.py, §0.da): así `motor_latido` la mira

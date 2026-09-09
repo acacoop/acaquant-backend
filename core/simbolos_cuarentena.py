@@ -18,8 +18,9 @@ Diseño anti-falso-positivo (NUNCA un delete, siempre reversible):
     purga en memoria del WS igual salva la rueda de hoy.
 
 Todo best-effort: un fallo de Postgres jamás tumba el WS ni frena un motor.
-La tabla se muestra como control en Manager → OBSERVABILIDAD → CONTROLES
-(la causa de fondo suele ser un ticker mal cargado o un bono vencido en el
+La tabla NO tiene pantalla: el control de Manager → OBSERVABILIDAD → CONTROLES
+se dio de baja (2026-08-27) y la tab entera el 2026-09-09. Se la lee desde el AV
+AGENT (la causa de fondo suele ser un ticker mal cargado o un bono vencido en el
 master → corregirlo ahí es el fix definitivo).
 """
 from __future__ import annotations

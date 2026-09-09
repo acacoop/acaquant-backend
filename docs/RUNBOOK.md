@@ -297,8 +297,12 @@ git pull
 python -m scripts.apply_schema        # crea manager.latencia_endpoints
 systemctl restart api.service          # activa el middleware de telemetría
 ```
-- El panel **Manager → OBSERVABILIDAD → LATENCIA** muestra datos tras ~1 min de uso
-  (la tab USO se decomisó — ver arriba).
+- **Ya NO hay panel de latencia.** La tab Manager → OBSERVABILIDAD → LATENCIA se
+  dio de baja el 2026-08-19 y la tab OBSERVABILIDAD entera el 2026-09-09. El
+  middleware y `manager.latencia_endpoints` NO se tocaron: el dato se sigue
+  escribiendo y quien lo lee es el AV AGENT (`api/services/av_agent_latencia.py`),
+  que canta el endpoint peor que SÍ MISMO ayer. `GET /api/manager/latencia` sigue
+  montado y sin consumidor en el front — se lo puede pegar por curl.
 - **Decidir el hallazgo `_to_float("1.500")`** (ver commit 3).
 
 ### Registro (con fecha)

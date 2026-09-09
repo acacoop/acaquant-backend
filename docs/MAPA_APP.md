@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **518 endpoints** montados en `api.main.app`, en **33 routers**.
-- **192 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
+- **514 endpoints** montados en `api.main.app`, en **33 routers**.
+- **192 escriben** (POST/PUT/PATCH/DELETE); 322 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -61,7 +61,7 @@
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/ia` | 1 | 0 | `ia` | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
-| `/api/manager` | 124 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
+| `/api/manager` | 120 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 10 | 5 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
@@ -423,12 +423,11 @@ vacío donde se montaba — se limpió el 2026-08-31.
 | `/mesa-dinero` | **OPERACIONES** · RESULTADOS · ACA VALORES RETORNO TOTAL | `mesaDinero.tab` | |
 | `/aca` | **RESUMEN** · CARTERAS · ACTIVOS · MÉTRICAS · HISTÓRICO | no persistida | Todo habla del período elegido en el selector de la barra (`YYYY-MM`). **Sin polling**: es una foto mensual, no hay nada que se mueva solo |
 | `/back-office` | Senebis · **Tenencia Valorizada** · Títulos en Alquiler · Contabilidad · Tesorería · Títulos / Mercado · Acreencias Clientes · Saldos de Cuentas Comitentes | `backoffice.tab` | ⚠ El orden VISUAL pone Senebis primero pero **el default es la 2ª tab**. Senebis: **Órdenes** · Excel Quantex · Excel MAE. Tesorería: **movimientos** · bancos · cheques · mercados · banco a banco. Alquiler: **Portfolio Alquiler** · Marcas por cuenta |
-| `/manager` | **OBSERVABILIDAD** · VALIDACIONES · TÍTULOS · CLIENTES · CONTRAPARTES · ACA VALORES · **ACA** · AUNESA · OPERACIONES · MESA · DOCUMENTOS · USUARIOS | `manager.tab` + sub-pills | 12 top-level, **38 hojas**; ver 3.4. ⚠ **ACA VALORES** (informe de retorno del FCI ACA R.TOTAL) y **ACA** (config + histórico de la vista `/aca`) son cosas distintas |
+| `/manager` | **VALIDACIONES** · TÍTULOS · CLIENTES · CONTRAPARTES · ACA VALORES · **ACA** · AUNESA · OPERACIONES · MESA · DOCUMENTOS · USUARIOS | `manager.tab` + sub-pills | 11 top-level, **27 hojas** en la tabla de §3.4. **OBSERVABILIDAD se dio de baja el 2026-09-09** (DIAGNÓSTICO y BASE incluidos): la salud del sistema vive 100 % en el AV AGENT. Ver 3.4. ⚠ **ACA VALORES** (informe de retorno del FCI ACA R.TOTAL) y **ACA** (config + histórico de la vista `/aca`) son cosas distintas |
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
 
-- **OBSERVABILIDAD** (`manager.obs.sub.v2`): **DIAGNÓSTICO** · BASE. **Son DOS**, verificado contra `manager-view.tsx` (2026-08-30). El doc listaba cinco: SALUD, LATENCIA e IA ya no se dibujan.
-  - DIAGNÓSTICO (`manager.diag.sub`): **ÁRBOL** · LOGS. RECURSOS (CPU/RAM/disk del Droplet) se ELIMINÓ 2026-08-10 junto con su router y el sampler de fondo: eran métricas crudas que no respondían si el sistema estaba sano.
+- **OBSERVABILIDAD — YA NO EXISTE (2026-09-09).** Se fue la tab entera con sus dos últimas hojas (DIAGNÓSTICO → ÁRBOL · LOGS, y BASE), después de que SALUD, CONTROLES, JOBS, IA, LATENCIA y RECURSOS se hubieran ido de a uno. El argumento es siempre el mismo y esta vez se aplicó al final: **el estado del sistema en dos lugares son dos verdades sin árbitro** (REGLA #9), y gana el que avisa solo. Los motores NO se tocaron — `api/services/diagnostico.py`, `diagnostico_registry.py`, `salud.py` y `logs_sistema.py` siguen enteros y los lee el AV AGENT. Se borraron las PANTALLAS y sus endpoints (`GET /api/manager/diagnostico`, `/db-observabilidad`, `/logs`, `/logs/services`) + `api/services/db_obs.py`. El estado persistido `manager.obs.sub.v2` / `manager.diag.sub` quedó huérfano y es inofensivo; `manager.tab` en `"observabilidad"` cae solo a la primera tab del rol.
 - **VALIDACIONES** (`manager.valid.sub`): **VALIDACIONES** · OPCIONES VTO · DEBUG XIRR · DEBUG TEA.
 - **TÍTULOS**: INSTRUMENTOS (con `manager_instrumentos`) · ASSETS · EMISORES · BREAKEVENS · RENTA VARIABLE (estas 4 requieren el maestro). **El sub-tab BONOS se ELIMINÓ**: alta, edición, baja y control de bonos y ONs los hace hoy EL AV AGENT (`bono_sin_flujo` / `bono_sin_tasa` / `on_faltante` con `alta_bono` / `alta_flujos` / `alta_on`), que escribe por las mismas puertas (`bonos_admin.upsert_bono`, `ons.upsert_on`). Ver §4.2.
 - **CLIENTES** (`manager.cli.subtab`, def `segmentacion`): **SEGMENTACIÓN** · CONTROL AUTO · SIN OPERADOR · FONDEOS (solo con `canBulk`).
@@ -2144,7 +2143,7 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 #### Gates por sub-router
 | Constante | Módulos que habilitan (OR) | Sub-routers |
 |---|---|---|
-| `_MGR` | `manager` | status, latencia, controles, diagnostico, checks, jobs, options, logs, users, roles, grupos, aunesa, valuaciones, operaciones, documentos, mesa, salud |
+| `_MGR` | `manager` | status, latencia, checks, jobs, options, users, roles, grupos, aunesa, valuaciones, operaciones, documentos, mesa |
 | `_CLIENTES` | `manager` ∨ `manager_clientes` | clientes.router, aca_valores, control_automatico |
 | `_CLIENTES_BULK` | `manager` ∨ `manager_clientes_bulk` | clientes.bulk_router |
 | `_TITULOS` | `manager` ∨ `manager_titulos` | assets, bonos (solo `/sin-flujo`), emisores, breakevens, renta_variable |
@@ -2152,17 +2151,9 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 | `_CONTRAPARTES` | `manager` ∨ `manager_contrapartes` | contrapartes |
 | `_AUNESA` | `manager` ∨ `manager_aunesa` | import_tenencia |
 
-#### Tabs (11 top-level, 36 hojas)
+#### Tabs (11 top-level, 27 hojas listadas)
 | Tab / hoja | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **OBS → SALUD** (default) | Un veredicto único + un chequeo por job / dato / control (peor primero; lo verde oculto salvo toggle). Cada fila se despliega con evidencia, diagnóstico IA, detalle crudo (corridas con log · fechas cargadas · anomalías) e historial de transiciones. **La misma fila y el mismo detalle se renderizan en el mini-panel del botón SALUD de la barra inferior** (`salud-chequeo.tsx`, compartido): desde ahí también se despliega y se silencia, sin pasar por Manager | `GET /salud`, `/salud/detalle`, `/salud/diagnostico`, `/salud/historial` | toggle "ver también lo que está bien" | **PUT `/salud/alerta`** (silenciar / reactivar un chequeo) · **POST `/salud/vistos`** (el "entendido" del modal) |
-| **OBS → CONTROLES** | 6 controles de calidad de datos (FORWARDS, RF SIN TASA, CARTERAS, ROFEX, NIVEL 1, CONTRAPARTES) con items activos/resueltos, antigüedad y botón "ir a la tab donde se corrige". Badge `!N` | `GET /controles?resueltos_dias=7` (y `=0` para el badge); `POST /jobs/run` `tipo=controles_datos` + polling | sub-tab por control; toggle activos/resueltos; `resueltos_dias` (0–90) | **"CORRER AHORA"** dispara `jobs.controles_datos`. Auto-ejecuta solo si la última corrida tiene >60 min |
-| **OBS → DIAG → ÁRBOL** | Árbol de salud por VISTA (HOME/OPERAR/MERCADOS/NEGOCIO/BACK OFFICE/PORTFOLIOS) con motores/jobs/APIs, cadencia, "hace", última corrida y badge OK/LENTO/ATRASADO/CRÍTICO/FUERA RUEDA/SIN DATOS. Auto-refresh 10s | `GET /diagnostico` | colapsar/expandir por vista (localStorage) | ninguna |
-| **OBS → DIAG → LOGS** | journalctl de los servicios systemd (motores + `api` + `cloudflared`), o TODOS mezclados cronológicamente | `GET /logs/services`, `GET /logs?servicio=&lines=` | dropdown SERVICIO (incl. `__todos__`), líneas (1–500), botones ALL/WARN/ERROR, buscador client-side, toggle auto-refresh | ninguna |
-| **OBS → JOBS → CATÁLOGO** | TODOS los crons parseados de `deploy/crontab.txt` **en runtime** + último run por módulo; marca SIN REGISTRO a los no instrumentados | `GET /jobs/catalogo` | buscador client-side | ninguna |
-| **OBS → JOBS → HISTORIAL** | Historial crudo de corridas + stats por tipo | `GET /jobs/history`, `/jobs/history/stats` | TIPO, STATUS (`ok`/`partial`/`error`), `desde`/`hasta`, `limit` ≤500 | ninguna |
-| **OBS → BASE** | Espacio/salud de Postgres: total vs límite del plan (`DB_DISK_LIMIT_GB`, def 8 GB), por schema, top tablas con bloat (dead tuples). Refresh 60s | `GET /db-observabilidad` | — | ninguna |
-| **OBS → LATENCIA** | Ranking de endpoints por tiempo total consumido (req × avg) + serie horaria; semáforo <500 ms / 500-1000 / >1s | `GET /latencia?horas=` | ventana 24 h / 7 d / 30 d (`horas` 1–720); `top` 1–200 (**la UI no lo expone**) | ninguna |
 | **VALIDACIONES → VALIDACIONES** | Checks/debug de cálculos: tasa fija en AuM, breakevens paso a paso, debug soberano, debug TEA, TNA futuros DLR, pivot points, títulos sin flujo | `/checks/*` (9 endpoints) + `POST /jobs/run` | selects/inputs de ticker por bloque | **BACKFILL TASAS** (`jobs.backfill_tasas`) |
 | **VALIDACIONES → OPCIONES VTO** | Vencimientos publicados por el motor vs activos (elegidos a mano); flag `auto_pick` si la lista está vacía | `GET`/`PUT /options/expiries` | checkboxes (formato `YYYYMMDD`, len 8) | **PUT** persiste en `options_metadata.config` (merge jsonb; el motor los toma en ~5 min) |
 | **VALIDACIONES → DEBUG XIRR** | Desglose mes a mes del XIRR: flujos individuales, cashflow pegable en Excel, TEA mensual, base 100 | `GET /valuaciones/debug?id_cuenta=` | input `id_cuenta` | ninguna |
@@ -2192,14 +2183,13 @@ handler**, explícitamente para que `scripts/audit_rbac.py` los vea (y los servi
 | **USUARIOS → GRUPOS** | CRUD de grupos de acceso por cuenta (`nombre`, `emails`, `id_cuentas`) + selector con las cuentas reales del último snapshot | `GET /grupos`, `POST`, `PATCH /{id}`, `DELETE /{id}` | buscador de cuenta; dropdown "+ agregar usuario…" | **Crear/editar/eliminar** grupo. **Borrar un grupo devuelve a esos usuarios a ver TODO** |
 
 #### Endpoints — resumen por sub-router
-`status`(1) · `latencia`(1) · `controles`(1) · `diagnostico`(2: `/diagnostico`, `/db-observabilidad`) ·
+`status`(1) · `latencia`(1) ·
 `checks`(9: `/checks/{debug-comercial, tasa-fija, tickers-curvas, debug-soberano, breakevens-debug,
 futuros-dlr, debug-tna-futuros, debug-curva-tea, debug-pivot}`) · `jobs`(5: **`POST /jobs/run`**
 whitelist `{cashflow, bcra, cleanup_curvas, backfill_tasas, controles_datos}`, subprocess con timeout
 360 s, **rate limit `5/hour;20/day`**, estado en dict **in-process**; `/jobs/catalogo`, `/jobs/history`,
 `/jobs/history/stats`, `/jobs/{job_id}` catch-all declarado **después** de los estáticos a propósito) ·
-`options`(2) · `logs`(2, **whitelist estricta** derivada de `unidades_motores()` + `{api, cloudflared}`;
-cualquier otro nombre → 400; cache 2s) · `users`(4) · `roles`(3) · `grupos`(4) · `aunesa`(6) ·
+`options`(2) · `users`(4) · `roles`(3) · `grupos`(4) · `aunesa`(6) ·
 `valuaciones`(2: `/valuaciones/debug`, `/aum`) · `operaciones`(7) · `documentos`(3) · `mesa`(16) ·
 `import_tenencia`(3) · `clientes.router`(4) · `clientes.bulk_router`(3) · `aca_valores`(4) ·
 `control_automatico`(2) · `assets`(5, incluye **`PATCH /assets/{unidad}` DEPRECATED** que delega —
@@ -2226,7 +2216,7 @@ sin reconciliar).
 - **`manager_comercial` aparece en `_MANAGER_BASE` pero YA NO EXISTE** en `MODULES` → `has_access` lo trata fail-closed y **loguea `has_access: módulo desconocido` en CADA request** de un rol sin `manager`. Rama muerta + ruido. El mismo string stale está en 3 docstrings.
 - **Tres listas para el mismo gate de MANAGER, y NO coinciden** (lo dice el comentario del propio código): `header.tsx::MANAGER_MODULES` = 3 módulos; `app/manager/page.tsx::MANAGER_MODULES` y `proxy.ts::PATH_MODULES["/manager"]` = 4 (agregan `manager_titulos`); `manager-view.tsx::TAB_MODULES` es otra. Consecuencia real: **un rol con SOLO `manager_titulos` entra a `/manager` por URL y ve la tab TÍTULOS, pero no ve el link MANAGER en el header**; y un rol con solo `manager_contrapartes`/`manager_aunesa` **recibiría 404 de la página** aunque el backend lo autorice.
 - **`modules === null` es permisivo**: si `getMe()` falla o no hay `API_URL` (dev), `ManagerView` muestra TODAS las tabs. El gate real sigue siendo el backend.
-- **`GET /api/manager/status` está montado pero el frontend no lo consume** (la tab usa `/diagnostico`). Igual `GET /checks/debug-comercial` y `GET /checks/futuros-dlr`: candidatos a poda o de uso vía curl.
+- **`GET /api/manager/status` y `GET /api/manager/latencia` están montados pero el frontend NO los consume** (sus pantallas se dieron de baja; `/diagnostico` y `/logs` se borraron con la tab OBSERVABILIDAD el 2026-09-09). Igual `GET /checks/debug-comercial` y `GET /checks/futuros-dlr`: candidatos a poda o de uso vía curl.
 - **Patrón preview → commit** en casi todas las escrituras masivas. **La excepción es `POST /operaciones/backfill`, que pisa directo sin preview.**
 - **La tab USO fue decomisada** (telemetría de uso de módulos, tabla `manager.uso_modulos` eliminada 2026-08-04); el union de estados la conserva solo para migrar el localStorage viejo.
 - **La pill IA se dio de baja** (2026-08-19) y sus 5 endpoints se borraron (2026-08-28). El gasto y los errores del gateway los vigila ahora el chequeo `ia:gateway` del AV AGENT.
@@ -2506,7 +2496,7 @@ equivalente del tab DEPÓSITOS & EXTRACCIONES es **client-side en React**.
 | **Wrapper maximizable genérico** (botón flotante on-hover, NO desmonta el hijo) | `<Maximizable>` `position: fixed inset-0` | los 5 panes de `/research` y los 4 cuadrantes de RF ARGENTINA |
 | **Preferencias persistidas** | `usePersistedState(key, initial, "session"\|"local")` — `sessionStorage` por default (arranca limpio cada sesión), `localStorage` para preferencias duraderas | tabs (`trading.tab`, `operaciones.tab`, `backoffice.tab`, `manager.*`, `tes.tab`, `senebis.tab`, `mesaDinero.tab`), filtros (`operadores.*`, `referidos.*`, `reuters.*`), columnas (`tes.cols`, `reuters.ocultas` → `"local"`) |
 | **Estado en la URL** (sobrevive F5 y se puede compartir) | `history.replaceState` + `URLSearchParams` | `/aum` (`?tab=`), `/valuaciones` (`?sub=`, `?cuenta=`); deep-links de entrada en `/agro` y `/operar` |
-| **Polling** | `usePoll(endpoint, initial, ms)` — compara el **texto crudo** del payload y NO hace `setData` si no cambió (preserva identidad de referencia); expone `lastAt` y `error` | `/renta-fija` 5s (endpoint consolidado), `/renta-variable` 2s + 5s, `/ons` 10s, `/operar`→MEP 5s/60s, Manager→DIAG 10s, Manager→BASE 60s, Tesorería 20s (= heartbeat), SENEBIS 10s (= heartbeat) |
+| **Polling** | `usePoll(endpoint, initial, ms)` — compara el **texto crudo** del payload y NO hace `setData` si no cambió (preserva identidad de referencia); expone `lastAt` y `error` | `/renta-fija` 5s (endpoint consolidado), `/renta-variable` 2s + 5s, `/ons` 10s, `/operar`→MEP 5s/60s, Tesorería 20s (= heartbeat), SENEBIS 10s (= heartbeat) |
 | **Selector de columnas** | menú con checkboxes + set persistido | Tesorería (`tes.cols`), Reuters (`reuters.ocultas`) |
 | **Selector de cuenta con ◀ / ▶** | `CuentaCombobox` exportado desde `aum-view.tsx` y reusado | `/valuaciones` |
 | **Piezas del INFORME** (pill de tab, panel de cabecera azul, dato de cabecera, `fmt0`/`fmt2`/`fmtPct`) | `components/ui/informe.tsx` | `/aca` y `/valuaciones` — una sola implementación para que los dos informes no se vean (ni redondeen) distinto |
@@ -2748,11 +2738,9 @@ presupuesto, el 2026-08-28 (ver §4.11).
 | `status` | `manager` | GET `/status` (**sin consumidor**) | — |
 | `latencia` | `manager` | GET `/latencia` | — |
 | `controles` | `manager` | GET `/controles` | — |
-| `diagnostico` | `manager` | GET `/diagnostico` · `/db-observabilidad` | — |
 | `checks` | `manager` | GET `/checks/{debug-comercial*, tasa-fija, tickers-curvas, debug-soberano, breakevens-debug, futuros-dlr*, debug-tna-futuros, debug-curva-tea, debug-pivot}` (*sin consumidor) | — |
 | `jobs` | `manager` | **POST `/jobs/run`** ✍ (whitelist de 5 tipos, rate limit 5/h;20/d) · GET `/jobs/catalogo`, `/jobs/history`, `/jobs/history/stats`, `/jobs/{job_id}` | 1 |
 | `options` | `manager` | GET `/options/expiries` · **PUT `/options/expiries`** ✍ | 1 |
-| `logs` | `manager` | GET `/logs/services` · `/logs` | — |
 | `users` | `manager` | GET `/users` · **POST `/users`** ✍ · **PATCH `/users/{email}`** ✍ · **DELETE `/users/{email}`** ✍ | 3 |
 | `roles` | `manager` | GET `/roles` · **PATCH `/roles/{role}`** ✍ · GET `/roles/audit` | 1 |
 | `grupos` | `manager` | GET `/grupos` · **POST** ✍ · **PATCH `/grupos/{id}`** ✍ · **DELETE `/grupos/{id}`** ✍ | 3 |

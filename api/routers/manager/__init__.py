@@ -6,7 +6,7 @@ sólo en `jobs.py` internamente (catch-all `/jobs/{id}` definido después de
 `/jobs/history` y `/jobs/history/stats`).
 
 RBAC por sub-router (gate fino para `asistente_comercial`):
-  - Tabs admin (status/checks/jobs/options/asistente/logs/users/roles/grupos/
+  - Tabs admin (status/checks/jobs/options/asistente/users/roles/grupos/
     aunesa/assets/valuaciones) → `manager` (umbrella, admin-only).
   - `clientes.router` (GETs + PATCH fila a fila)    → `manager_clientes`
   - `clientes.bulk_router` (POST /bulk + /bulk-fondeo) → `manager_clientes_bulk`
@@ -36,7 +36,6 @@ from api.routers.manager import (
     clientes,
     contrapartes,
     control_automatico,
-    diagnostico,
     documentos,
     emisores,
     grupos,
@@ -44,7 +43,6 @@ from api.routers.manager import (
     instrumentos,
     jobs,
     latencia,
-    logs,
     mesa,
     operaciones,
     options,
@@ -85,11 +83,9 @@ router.include_router(aca.router,         dependencies=_ACA)
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
 router.include_router(latencia.router,    dependencies=_MGR)
-router.include_router(diagnostico.router, dependencies=_MGR)
 router.include_router(checks.router,      dependencies=_MGR)
 router.include_router(jobs.router,        dependencies=_MGR)
 router.include_router(options.router,     dependencies=_MGR)
-router.include_router(logs.router,        dependencies=_MGR)
 router.include_router(users.router,       dependencies=_MGR)
 router.include_router(roles.router,       dependencies=_MGR)
 router.include_router(grupos.router,      dependencies=_MGR)

@@ -1,5 +1,12 @@
 """Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
 
+⚠️ **SU ÚNICO CLIENTE ES EL AV AGENT (2026-09-09).** La pantalla que lo dibujaba
+—Manager → OBSERVABILIDAD → DIAGNÓSTICO → ÁRBOL— y su endpoint
+`GET /api/manager/diagnostico` se dieron de baja. El motor NO se tocó: `arbol()`
+es lo que lee el detector `motor_caido` (`agente/detectores/sistema.py`), que
+además saca de la foto la hora contra la que juzga. Tocar la forma que devuelve
+rompe al agente en silencio.
+
 Lee la frescura de cada pieza (motor/api por su colección de salida; job por
 `Manager.JobRuns`), calcula el estado y agrupa en árbol por vista → subgrupo.
 

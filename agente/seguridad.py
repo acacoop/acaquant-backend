@@ -334,9 +334,3 @@ def comparar() -> dict:
             "fecha": hoy.isoformat(), "fecha_previa": ayer.isoformat(),
             "nuevos": nuevos, "desaparecidos": desaparecidos,
             "perdieron_gate": perdieron, "total": len(h)}
-
-
-def _h(regla: str, sujeto: str, severidad: str, motivo: str,
-       evidencia: dict) -> dict:
-    return {"tipo": "permiso_flojo", "ticker": sujeto, "regla": regla,
-            "severidad": severidad, "motivo": motivo, "evidencia": evidencia}

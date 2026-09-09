@@ -133,13 +133,3 @@ def comparar() -> list[dict]:
         })
     out.sort(key=lambda x: -(x["avg_ms"] - x["base_ms"]))
     return out
-
-
-def _h(regla: str, endpoint: str, severidad: str, motivo: str,
-       evidencia: dict) -> dict:
-    """`evidencia` como **dict** (la columna es `jsonb` y el resto del agente la
-    lee como objeto), con los números al lado del texto para poder auditar el
-    aviso sin volver a consultar."""
-    return {"tipo": "latencia", "ticker": endpoint, "regla": regla,
-            "severidad": severidad, "motivo": motivo, "evidencia": evidencia}
-

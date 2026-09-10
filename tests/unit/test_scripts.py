@@ -58,6 +58,9 @@ HERRAMIENTAS: dict[str, str] = {
                              "el agente no se autoevalúa). Sin este número no se puede decidir si "
                              "darle más autonomía.",
     "audit_superficie_http": "inventario de la superficie HTTP por categoría — la contracara de audit_rbac.",
+    "diag_fci_primary":      "qué FCI lista Primary, qué campos trae y si hay histórico (no lo hay): "
+                             "es la medición que decide la fuente del mercado FCI (docs/FCI.md) y "
+                             "la que verifica si la banda low/high es el VCP de ayer.",
     "diag_tea_rechazada":    "¿la celda `tea` vacía es «no supe», «no convergió» o «calculé y "
                              "DESCARTÉ el número»? Recalcula con las mismas funciones del motor. "
                              "Es lo único que dice si un `bono_sin_tasa` puede cerrarse alguna vez.",

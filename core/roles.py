@@ -48,6 +48,9 @@ MODULES: tuple[str, ...] = (
     "derivados",      # /derivados (solo opciones — agro y sintéticos son módulos aparte)
     "agro",           # /agro (pizarra + mejoras precio dispo + datos cámara cereales)
     "sinteticos",     # /sinteticos (long ROFEX + LECAP, short ROFEX + DLK)
+    "fci",            # /fci (FONDOS COMUNES DE INVERSIÓN: VCP y rendimientos — docs/FCI.md).
+                      # Mercado, no negocio: lo tienen los mismos roles que renta-fija.
+                      # NO está en INVITADO_MODULES por default-deny (REGLA #8).
     "renta-variable", # /renta-variable + smart money 13F/Form 4 sobre CEDEARs
     "trading",        # /trading (panel intradía de CEDEARs — 5 sistemas, admin-only)
     # "estrategia" se eliminó el 2026-08-30 junto con la vista /retorno; la
@@ -95,12 +98,12 @@ MODULES: tuple[str, ...] = (
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo (incluye los 3 sub-módulos de manager)
     "trader": (
-        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "home", "renta-fija", "derivados", "agro", "sinteticos", "fci",
         "renta-variable",
         "operaciones", "portfolios", "back-office",
     ),
     "sales":  (
-        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "home", "renta-fija", "derivados", "agro", "sinteticos", "fci",
         "renta-variable",
         "back-office",
     ),
@@ -114,7 +117,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     # nadie decidiera nada. Con el rol aparte, entrar a ACA es un acto explícito
     # del admin en /manager → USUARIOS.
     "empleado_aca": (
-        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "home", "renta-fija", "derivados", "agro", "sinteticos", "fci",
         "renta-variable",
         "back-office",
         "aca",
@@ -124,7 +127,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     # los bulks). Sin `manager` umbrella → no ve las tabs admin (Jobs, Usuarios,
     # Roles, etc.). Sin `manager_clientes_bulk` → no puede ejecutar carga masiva.
     "asistente_comercial": (
-        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "home", "renta-fija", "derivados", "agro", "sinteticos", "fci",
         "renta-variable",
         "operaciones", "portfolios", "back-office",
         "manager_clientes", "manager_instrumentos",

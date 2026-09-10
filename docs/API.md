@@ -665,6 +665,20 @@ Global watchlist + calendar + OHLC.
 
 ---
 
+### 7.13b FCI — Fondos Comunes de Inversión (`/api/fci/*`) · módulo `fci`
+
+Read-only. Universo = fondos de las gerentes con las que opera la mesa (`mercado.fci_gerentes`),
+serie diaria de VCP en `mercado.fci_vcp` (Primary + tenencia + manual). Rendimientos como
+FRACCIONES calculados en la lectura (`docs/FCI.md` §4). Gate `require_module("fci")` a nivel
+router (la mesa sí; el portal invitado no).
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/tabla` | `{fondos:[{fci_id, nombre, gerente, categoria, moneda, tipo_renta, plazo, simbolo_primary, unidad, cafci, origen, en_tenencia, fecha, vcp, fuente, r_1d, r_wtd, r_mtd, r_ytd, r_7d, r_30d, r_90d, r_365d, tna_7d, tna_30d}], categorias, gerentes, monedas, fecha_max, n}`. Cache 120 s. |
+| GET | `/fondo/{fci_id}` | La fila + `serie` (400 días de `{fecha, vcp, fuente}`), `fuentes` (cuántos días aportó cada una) y `asset` (ticker, emisor, clase_activo, fee_admin, codigo_cnv, instrumento) si está linkeado. 404 si no está en el universo. |
+
+---
+
 ### 7.14 Manager (`/api/manager/*`) · adm
 
 Operational tooling. Every route requires the `manager` module (admin only by default). All reads pass through the SQL read pool (`core.postgres.get_pool()`); explicit mutations use the SQL write pool.

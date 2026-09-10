@@ -95,6 +95,7 @@
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
 | min 15,45 · 14-22h · L-V | `jobs.movimientos_propias'` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |
+| 12:20 · L-V | `jobs.fci_universo'` |
 | 20:20 · L-V | `jobs.cedears_bars_1m'` |
 | 03:20 · diario | `jobs.cleanup_retencion'` |
 | cada hora · 14-22h · L-V | `jobs.ops_agregado'` |
@@ -103,6 +104,7 @@
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
 | 12:30 · L-V | `jobs.consolidado_cuentas'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
+| 20:30 · L-V | `jobs.fci_vcp'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 22:30 · L-V | `jobs.ficha_1816'` |

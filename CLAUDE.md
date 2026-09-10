@@ -162,7 +162,7 @@ obligatorio en el mismo commit.
 | EL AV AGENT | `AGENT.md` **[VIVO]** — parte A manda; parte B es diario, no describe el código |
 | Modelo SQL · API HTTP (payloads) | `SQL.md` + `sql/schema.sql` · `API.md` |
 | API EXTERNA para accionistas (`/ext`) | `API_EXTERNA.md` **[VIVO]** — fail-closed, no reusa `verify_api_key` |
-| Renta fija / curvas · Renta variable + feed Reuters | `RENTA_FIJA.md` · `RENTA_VARIABLE.md` **[VIVO]** |
+| Renta fija / curvas · Renta variable + Reuters · FCI | `RENTA_FIJA.md` · `RENTA_VARIABLE.md` · `FCI.md` **[VIVO]** |
 | Vista `/research` | `RESEARCH.md` **[VIVO]** |
 | Derivados · Valuaciones / PnL | `DERIVADOS.md` · `MOTOR_VALUACIONES.md` |
 | Clientes (grupos · segmentación · tablero comercial) | `CLIENTES.md` |

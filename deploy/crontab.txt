@@ -76,6 +76,19 @@
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 /root/TradingAV/deploy/run_job.sh volatilidad_ggal 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal'
 
+# ─── FCI — FONDOS COMUNES DE INVERSIÓN (docs/FCI.md)
+# fci_universo (12:20 UTC = 09:20 ART, L-V, después de discovery_pyrofex): los fondos de
+# Primary (cficode CIO) de las gerentes con las que opera la mesa (mercado.fci_gerentes,
+# sembrada desde contrapartes segmento Fondos + assets.emisor) + los assets FCI de
+# Manager, linkeados por assets.instrumento (lo completa solo cuando el match por
+# nombre es único). Un fondo de otra gerente NO entra.
+# fci_vcp (20:30 UTC = 17:30 ART, L-V, fuera de rueda): el VCP del día de cada fondo —
+# Primary (LA de market data, ~300 requests REST throttleadas) y el precio de la
+# tenencia de Aunesa para los linkeados (bilaterales). Primary no guarda histórico:
+# la serie es esta tabla. Backfill del histórico de tenencia: --backfill-tenencia.
+20 12 * * 1-5 /root/TradingAV/deploy/run_job.sh fci_universo 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.fci_universo'
+30 20 * * 1-5 /root/TradingAV/deploy/run_job.sh fci_vcp 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.fci_vcp'
+
 # ─── Precios acciones daily (post cierre US, 22 UTC = 19 ART, L-V)
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh precios_acciones_daily 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.precios_acciones_daily'
 

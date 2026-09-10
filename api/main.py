@@ -40,6 +40,7 @@ from api.routers import (
     cuentas,
     derivados_agro,
     derivados_sinteticos,
+    fci,
     ia,
     ingest,
     interbanking,
@@ -301,6 +302,7 @@ app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(interbanking.router,       dependencies=_BACK_OFFICE)  # INTERBANKING: extractos de los bancos (solo lectura)
 app.include_router(senebis.router,            dependencies=_BACK_OFFICE)  # SENEBIS: órdenes trader → back office
 app.include_router(scanner.router,            dependencies=_PUBLIC)
+app.include_router(fci.router,                dependencies=_PUBLIC)  # vista FCI (gate módulo `fci` en el router) — docs/FCI.md
 app.include_router(research1816.router,       dependencies=_PUBLIC)  # vista RESEARCH (gate módulo `research` en el router) — docs/RESEARCH.md
 app.include_router(research_bcra.router,      dependencies=_PUBLIC)  # tab BCRA de Research (gate módulo `research` en el router) — docs/RESEARCH.md
 app.include_router(research_fred.router,      dependencies=_PUBLIC)  # tab Datos Internacionales / FRED (gate módulo `research` en el router) — docs/RESEARCH.md

@@ -310,6 +310,8 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # `back-office`. La ESCRITURA de SENEBIS suma la allowlist de la mesa.
     ("/api/back-office", "back-office"),
     ("/api/trading",     "trading"),  # vista TRADING (pivots CEDEAR), admin-only
+    # /api/fci → módulo `fci` (vista FONDOS COMUNES DE INVERSIÓN — docs/FCI.md).
+    ("/api/fci",         "fci"),
     # /api/mm → módulo `mm` (MM Workstation: order book + timesales — en reconstrucción)
     ("/api/mm",          "mm"),
     # /api/ia → módulo `ia` (el briefing + el AV AGENT, docs/AGENT.md). El gate

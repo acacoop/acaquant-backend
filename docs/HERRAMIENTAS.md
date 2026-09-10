@@ -41,8 +41,8 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 | herramienta | qué hace |
 |---|---|
-| `python -m scripts.diag_fci_cafci` | Diag: si los 3 endpoints de CAFCI que usa el Excel responden y con qué shape |
 | `python -m scripts.diag_fci_primary` | Diag: qué FCI lista Primary, qué campos trae y si hay histórico |
+| `python -m scripts.fci_admin` | Gerentes (alias/seguida), estante de un fondo, alta de un bilateral y VCP manual |
 
 ### seguridad
 

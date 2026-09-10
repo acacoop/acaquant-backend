@@ -37,9 +37,9 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **513 endpoints** montados en `api.main.app`, en **33 routers**.
-- **192 escriben** (POST/PUT/PATCH/DELETE); 321 son de solo lectura.
-- **21 módulos** canónicos y **7 roles** en `core/roles.py`.
+- **515 endpoints** montados en `api.main.app`, en **34 routers**.
+- **192 escriben** (POST/PUT/PATCH/DELETE); 323 son de solo lectura.
+- **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
 ### 0.1 Endpoints y gate efectivo, por router
@@ -59,6 +59,7 @@
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
+| `/api/fci` | 2 | 0 | `fci` | `fci` |  |
 | `/api/ia` | 1 | 0 | `ia` | `ia` |  |
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 120 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
@@ -114,6 +115,7 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 | `derivados` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `agro` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `sinteticos` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `fci` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | `renta-variable` | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `trading` | ✓ | · | · | · | · | · | · |
 | `operar` | ✓ | · | · | · | · | · | · |
@@ -138,7 +140,7 @@ No es necesariamente un bug: `ENDPOINT_MODULE_PREFIXES` **no se aplica en runtim
 
 ## 1. ÍNDICE DE VISTAS
 
-**19 vistas navegables** (el App Router tiene exactamente 19 `page.tsx`, y las 19 están en el menú:
+**20 vistas navegables** (el App Router tiene exactamente 20 `page.tsx`, y las 20 están en el menú:
 no hay rutas huérfanas). Los otros 68 archivos de `src/app/api/**/route.ts` son proxies HTTP, no
 páginas.
 
@@ -153,6 +155,7 @@ páginas.
 | 7 | **RENTA FIJA** | `/renta-fija` | `renta-fija` | admin, trader, sales, asistente_comercial, invitado | Pantalla live de renta fija ARS/HD: tablero por curva, chart de curva (live/histórico/fair value), matriz de forwards, breakevens Lecap↔CER vs REM y el modal SIMULAR INVERSIÓN (importe + bono + precio → TIR y cronograma de cobros). |
 | 8 | **RENTA VARIABLE** | `/renta-variable` | `renta-variable` | admin, trader, sales, asistente_comercial, invitado | Panel CEDEARS: tabla de CEDEARs en ARS live (INTRA, 1D, USD real, $ operado) + CCL. Derecha: panel ADR = TradingView del subyacente USD del papel elegido. |
 | 9 | **SINTÉTICOS** | `/sinteticos` | `sinteticos` | admin, trader, sales, asistente_comercial, invitado | Dos tablas de sintéticos con futuro DLR (LONG ROFEX+LONG LECAP / SHORT ROFEX+LONG DLK) y su curva de TNA por plazo. |
+| 9b | **FONDOS (FCI)** | `/fci` | `fci` | admin, trader, sales, empleado_aca, asistente_comercial. **NO invitado** (default-deny) | Mercado de fondos comunes de inversión: SOLO los fondos de las gerentes con las que opera la mesa, con VCP (Primary + tenencia) y rendimientos 1D/WTD/MTD/YTD/7D/30D/90D/365D + TNA, agrupados por estante (T+0 MM, T+1, CER…). Derecha: ficha del fondo (curva del VCP base 100, fuentes, asset de Manager). Doc **[VIVO]**: `docs/FCI.md`. |
 | 10 | **AUM** | `/aum` | `portfolios` | admin, trader, asistente_comercial | Activos bajo administración: evolución del total por cartera, snapshot con drill-down cuenta×asset, sub-vista FCI y comparación de saldos entre dos fechas. |
 | 11 | **CARTERAS** | `/valuaciones` | `portfolios` | admin, trader, asistente_comercial | Performance por cuenta: valor del portfolio, tabla mensual con TWR/TEM/XIRR, posiciones a una fecha, atribución de la variación y PnL cost-basis por título. |
 | 12 | **CONTRAPARTES** | `/contrapartes` | `operaciones` | admin, trader, asistente_comercial | Contra quién operamos: volumen bruto por contraparte, por grupo/segmento y por mes, con drill-down a los boletos de un día. |
@@ -177,7 +180,7 @@ páginas.
 
 ## 2. MATRIZ ROL × MÓDULO
 
-### 2.1 Los 22 módulos canónicos (`core/roles.py::MODULES`)
+### 2.1 Los 23 módulos canónicos (`core/roles.py::MODULES`)
 
 | Módulo | Qué cubre | Enforcement server-side REAL (verificado sobre las 423 rutas) |
 |---|---|---|
@@ -187,6 +190,7 @@ páginas.
 | `agro` | `/agro` | Solo las **5 PATCH** de `/api/derivados/agro/*` (`require_module("agro")` + `require_no_invitado`) |
 | `sinteticos` | `/sinteticos` | **NINGUNO** — `derivados_sinteticos.router` va `_PUBLIC` bajo `/api/derivados` |
 | `renta-variable` | `/renta-variable` | `/api/scanner/*` (5 rutas) |
+| `fci` | `/fci` (FONDOS COMUNES DE INVERSIÓN — `docs/FCI.md`) | `/api/fci/*` (2) — `require_module("fci")` a nivel router. NO en `INVITADO_MODULES` |
 | `trading` | `/trading` | `/api/trading/*` (6) |
 | `operar` | `/operar` + envío de órdenes | `/api/ordenes`, `/api/operativa`, `/api/operar`, `/api/risk` (22) |
 | `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos` | `/api/operaciones`, `/api/cuentas` (46) — **`/mesa-dinero` salió del módulo el 2026-08-11**: allowlist per-usuario |
@@ -344,6 +348,7 @@ ACA                       → /aca               [aca]
 MERCADOS ▼                (grupo, aparece si tiene ≥1 item)
   ├─ Agro                 → /agro              [agro]
   ├─ Derivados            → /derivados         [derivados]
+  ├─ Fondos (FCI)         → /fci               [fci]
   ├─ Renta Fija           → /renta-fija        [renta-fija]
   ├─ Renta Variable       → /renta-variable    [renta-variable]
   └─ Sintéticos           → /sinteticos        [sinteticos]
@@ -382,13 +387,13 @@ propósito, para que el nav y `src/proxy.ts` sigan filtrando con UN solo mecanis
 
 | Rol | Entradas visibles |
 |---|---|
-| `admin` | HOME · OPERAR · TRADING · RESEARCH · **ACA** · MERCADOS (5/5) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
-| `trader` | HOME · MERCADOS (5/5) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, ACA, MANAGER |
-| `sales` | HOME · MERCADOS (5/5) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, ACA, MANAGER |
-| `empleado_aca` | HOME · **ACA** · MERCADOS (5/5) · BACK OFFICE. Es `sales` + la vista ACA, **SOLO LECTURA**. **Sin** NEGOCIO y **sin MANAGER** (por lo tanto tampoco la tab Manager → ACA) |
-| `asistente_comercial` | HOME · MERCADOS (5/5) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH. **ACA y Manager → ACA aparecen si está en la allowlist de escritura de la mesa** — no las da el rol |
+| `admin` | HOME · OPERAR · TRADING · RESEARCH · **ACA** · MERCADOS (6/6) · NEGOCIO (7/7) · BACK OFFICE · MANAGER |
+| `trader` | HOME · MERCADOS (6/6) · NEGOCIO (7/7) · BACK OFFICE. **Sin** OPERAR, TRADING, RESEARCH, ACA, MANAGER |
+| `sales` | HOME · MERCADOS (6/6) · BACK OFFICE. **Sin** NEGOCIO, OPERAR, TRADING, RESEARCH, ACA, MANAGER |
+| `empleado_aca` | HOME · **ACA** · MERCADOS (6/6) · BACK OFFICE. Es `sales` + la vista ACA, **SOLO LECTURA**. **Sin** NEGOCIO y **sin MANAGER** (por lo tanto tampoco la tab Manager → ACA) |
+| `asistente_comercial` | HOME · MERCADOS (6/6) · NEGOCIO (7/7) · BACK OFFICE · MANAGER (entra por `manager_clientes`). **Sin** OPERAR, TRADING, RESEARCH. **ACA y Manager → ACA aparecen si está en la allowlist de escritura de la mesa** — no las da el rol |
 | `back_office` | HOME · BACK OFFICE. Nada más |
-| `invitado` (www) | HOME · AGRO · DERIVADOS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — los 5 items de MERCADOS **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
+| `invitado` (www) | HOME · AGRO · DERIVADOS · RENTA FIJA · RENTA VARIABLE · RESEARCH · SINTÉTICOS — 5 de los 6 items de MERCADOS (**sin FONDOS (FCI)**: default-deny) **aplanados como links top-level** (sin dropdown), todo en MAYÚSCULA y ordenado A→Z con HOME primero (ver abajo) |
 
 Módulos que **no generan entrada de menú**: `ia` (habilita el ✦ IA y el briefing del footer),
 y todos los `manager_*` salvo su efecto sobre el link MANAGER. (El módulo `asistente`
@@ -414,6 +419,7 @@ vacío donde se montaba — se limpió el 2026-08-31.
 | `/renta-fija` | *sin tabs de vista* (grid 2×2) | — | Sub-tabs por panel: RF (TASA FIJA/CER/HARD DOLAR/DOLAR LINKED/LIBRO), CURVAS (LIVE/HISTÓRICO/FAIR VALUE), FORWARDS (LIVE/GRÁFICO/Z-SCORE), BREAKEVENS (LIVE/HISTÓRICO). En la barra de tabs, el botón **SIMULAR INVERSIÓN** abre un MODAL (no una pantalla): importe + bono + precio editable → TIR/TEA + cronograma de cobros escalado |
 | `/renta-variable` | *sin tabs de vista* | — | ninguna: un solo panel CEDEARS (tabla) y la derecha vacía (refactor en curso) |
 | `/sinteticos` | *sin tabs* | — | 2 tablas + 2 charts |
+| `/fci` | *sin tabs de vista* (50/50) | `fci.categoria` · `fci.moneda` · `fci.gerentes` · `fci.ventanas` · `fci.soloConVcp` (session) | Izq: pills de ESTANTE (TODOS + cada categoría) · ARS/USD · GERENTE (multi) · CALENDARIO (1D WTD MTD YTD) / CORRIDAS (7D 30D 90D 365D) · CON VCP · buscador. Der: ficha con rango 1M/3M/YTD/1A del VCP |
 | `/aum` | **TOTAL** · FCI · ANÁLISIS DE DINERO | en la URL (`?tab=`) | |
 | `/valuaciones` | **RESUMEN** · ACTIVOS · MÉTRICAS · EVOLUCIÓN · PNL TÍTULOS (arriba) · **TOTALES** (barra INFERIOR) | en la URL (`?sub=`, `?cuenta=`) | Las 3 primeras son UN componente y UN fetch (`/vista`): cambiar de tab no vuelve a consultar. **TOTALES y AJUSTES viven en la barra de estado de abajo**, al lado de BRIEFING/AV AGENT, y solo con la vista abierta. TOTALES **ignora** el selector de cuenta; tiene 2 modos internos (POR TÍTULO / POR CUENTA) |
 | `/operaciones` | **OPERACIONES** · ARANCELES · AGRO · DÓLAR FUTURO · POSICIONES Y DIFERENCIAS · DEPÓSITOS & EXTRACCIONES | `operaciones.tab` (keep-alive) | |
@@ -2436,6 +2442,44 @@ desde otra fuente del sistema: el histórico tenía series que traían el mensua
 **ACUMULADO**, que encadena los mensuales tipeados — deriva de lo cargado, no importa un dato.
 `aca.series.fuente`/`escala` quedan como columnas VESTIGIALES (nadie las lee; `apply_schema` las
 normaliza a `'manual'`). Congelado por test. Ver `docs/ACA.md` §5.
+
+---
+
+## 4.13 FONDOS COMUNES DE INVERSIÓN (FCI)
+
+> Doc dedicado **[VIVO]**: `docs/FCI.md` (modelo, convención de rendimientos, jobs, decisiones
+> y changelog). Acá va la superficie.
+
+### Vista: FONDOS (FCI) (`/fci`)
+- **Módulo RBAC**: `fci` (2026-09-10). Gate real `require_module("fci")` a nivel router
+  (`api/routers/fci.py`); el router se monta `_PUBLIC` en `api/main.py` como research1816. Lo tienen
+  admin, trader, sales, empleado_aca y asistente_comercial. **NO `invitado`** (REGLA #8; congelado
+  por `tests/unit/test_fci.py`).
+- **Universo**: SOLO fondos de las gerentes con las que opera la mesa (`mercado.fci_gerentes`,
+  sembrada desde contrapartes segmento Fondos + `assets.emisor`). Es un filtro del backend, no de la
+  pantalla.
+- **Archivos front**: `src/app/fci/page.tsx` (SSR de `/api/fci/tabla`), `fci-view.tsx` (shell 50/50 +
+  filtros + fetch de la ficha), `fci-table.tsx` (tabla agrupada por estante, ranking adentro),
+  `fci-ficha.tsx` (datos · rendimientos · curva VCP · fuentes), `lib/types-fci.ts`.
+- **Proxy**: `/api/fci/[...path]` (GET-only, `apiFetch` → propaga identidad). `src/proxy.ts` pre-gatea
+  `/fci` y `/api/fci` con `fci`.
+- **Layout**: 50/50. **Poll de 5 min** a `GET /api/fci/tabla` (el VCP es diario); la ficha se pide al
+  elegir (`GET /api/fci/fondo/{id}`, techo 15 s).
+
+| Panel | Qué muestra | Endpoints | Filtros | Escrituras |
+|---|---|---|---|---|
+| **FONDOS** (izq) | Una fila por fondo: FONDO (marca USD · ● = la ALyC lo tiene · BIL = no está en Primary), GERENTE, T+n, VCP, las ventanas del toggle (1D WTD MTD YTD ó 7D 30D 90D 365D) + **TNA 30D**. Agrupada por **estante** (`categoria`) con ranking adentro (default 30D desc). Header: «VCP al dd/mm/yy» (o SIN ACTUALIZAR) | `GET /api/fci/tabla` | ESTANTE · ARS/USD · GERENTE (multi) · CALENDARIO/CORRIDAS · CON VCP (esconde los que aún no tienen serie) · buscador | ninguna |
+| **FICHA** (der) | Datos (gerente, estante, moneda, T+n, tipo de renta, símbolo Primary, VCP con fecha y fuente, asset de Manager: emisor, clase activo, fee, CNV), los 8 rendimientos con TNA 7D/30D, **curva del VCP base 100** (1M/3M/YTD/1A) con la fuente de cada punto y cuántos días aportó cada fuente | `GET /api/fci/fondo/{fci_id}` | Rango del gráfico | ninguna |
+
+**Qué NO hace la vista:** no calcula (rendimientos del backend, `docs/FCI.md` §4); no edita el universo
+(gerentes, alias, estantes, altas manuales y VCP manual van por `scripts/fci_admin`; la pantalla en
+Manager está pendiente); no convierte monedas.
+
+#### Endpoints — `fci.py` (`/api/fci`, módulo `fci`)
+| Método | Path | Qué hace | Params | Escribe |
+|---|---|---|---|---|
+| GET | `/tabla` | Fondos del universo con VCP, rendimientos (fracciones) y catálogos de filtros. Cache 120 s | — | no |
+| GET | `/fondo/{fci_id}` | Ficha: la fila + serie 400 d con fuente + asset linkeado. 404 si no está en el universo | `fci_id` | no |
 
 ---
 

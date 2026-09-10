@@ -2564,6 +2564,56 @@ CREATE INDEX IF NOT EXISTS ix_dts_ticker_fecha
     ON mercado.day_trading_stats (ticker, fecha DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- FCI — FONDOS COMUNES DE INVERSIÓN (vista /fci — docs/FCI.md)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Tres tablas. El OBJETO (`fci`: una clase de fondo, venga de donde venga), la
+-- lista de GERENTES con las que opera la mesa (`fci_gerentes`: es el filtro duro
+-- del universo — un fondo de una gerente que no está acá NO existe para la vista)
+-- y la SERIE de VCP (`fci_vcp`), que la construimos nosotros porque Primary no
+-- guarda histórico (medido 2026-09-10: trade history vacío en los 776 CIO).
+--
+-- Fuentes del objeto: Primary (`simbolo_primary`, todo el supermercado) y el
+-- catálogo de Manager (`unidad` = portafolio.assets, lo que la ALyC tiene, incluye
+-- bilaterales). Las dos convergen en la MISMA fila vía `assets.instrumento`, que
+-- pasa a llevar el símbolo Primary del fondo (lo completa `jobs/fci_universo` por
+-- nombre normalizado SOLO cuando el match es único; nunca pisa lo cargado).
+CREATE TABLE IF NOT EXISTS mercado.fci_gerentes (
+    gerente        text PRIMARY KEY,         -- el nombre de la MESA: 'SCHRODER', 'TORONTO', 'IAM' (= assets.emisor / contrapartes)
+    alias          text[] NOT NULL DEFAULT '{}',  -- cómo empieza el nombre del fondo en Primary: {'Toronto Trust'}, {'MAF','Mariva'}
+    seguida        boolean NOT NULL DEFAULT true,
+    origen         text,                     -- 'contrapartes' | 'assets' | 'manual'
+    actualizado_en timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS mercado.fci (
+    fci_id           serial PRIMARY KEY,
+    nombre           text NOT NULL,          -- "Adcap Cobertura - Clase A"
+    nombre_norm      text NOT NULL,          -- clave de match (core/fci_match.normalizar)
+    gerente          text,                   -- FK lógica a fci_gerentes.gerente
+    simbolo_primary  text UNIQUE,            -- 'ADBAICA AR' / ' IEB Retorno Total - Clase D' (tal cual Primary, con su espacio)
+    primary_id       text,                   -- securityId de Primary
+    unidad           text UNIQUE,            -- portafolio.assets.unidad cuando la ALyC lo tiene
+    cafci            text,                   -- 'CAFCI1216-3368' (del asset)
+    moneda           text,                   -- 'ARS' | 'USD'
+    tipo_renta       text,                   -- Mercado de Dinero · Renta Fija · Renta Mixta · … (underlying de Primary)
+    plazo            integer,                -- días de liquidación: settlType 1→0, 2→1, 3→2, 4→3
+    categoria        text,                   -- el estante del informe (T+0 MONEY MARKET, T+1, CER…). La mesa manda; el job solo sugiere donde está vacío
+    origen           text NOT NULL,          -- 'primary' | 'asset' | 'manual' (quién creó la fila)
+    activo           boolean NOT NULL DEFAULT true,  -- false = Primary dejó de listarlo y no hay asset (no se borra: la serie lo referencia)
+    actualizado_en   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_fci_gerente ON mercado.fci (gerente);
+CREATE INDEX IF NOT EXISTS ix_fci_norm    ON mercado.fci (nombre_norm);
+-- La serie. `fuente` con prioridad declarada: primary > tenencia > manual (la
+-- escritura la respeta: una fuente más débil no pisa una más fuerte).
+CREATE TABLE IF NOT EXISTS mercado.fci_vcp (
+    fci_id integer NOT NULL,
+    fecha  date NOT NULL,
+    vcp    numeric NOT NULL,
+    fuente text NOT NULL,                    -- 'primary' | 'tenencia' | 'manual'
+    PRIMARY KEY (fci_id, fecha)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- MACRO — series económicas (BCRA / argentina_datos / REM)
 -- ─────────────────────────────────────────────────────────────────────────────
 

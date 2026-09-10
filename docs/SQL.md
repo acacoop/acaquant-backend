@@ -47,7 +47,7 @@ tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 
 | Schema | Tablas |
 |---|---|
-| `mercado` | curvas, market_snapshot, snapshots_cierre, snapshots_cierre_hist, canje_cierre, timesales, dias_habiles, forwards_zscore, fit_params, fair_value_residuos, ons_ignoradas, futuros_dlr_snapshot, caucion_snapshot, options_data, options_data_hist, options_snapshot, options_metadata, options_vr, cedears, cedears_snapshot, adr_snapshot, precios_acciones, cedears_time_sales, day_trading_stats, agro_snapshot, agro_opciones_snapshot, agro_pizarra, camara_cereales, volumen_mercado_agro, snapshots_sinteticos, mercado_hist, rubros, adhoc_subscriptions |
+| `mercado` | curvas, market_snapshot, snapshots_cierre, snapshots_cierre_hist, canje_cierre, timesales, dias_habiles, forwards_zscore, fit_params, fair_value_residuos, ons_ignoradas, futuros_dlr_snapshot, caucion_snapshot, options_data, options_data_hist, options_snapshot, options_metadata, options_vr, cedears, cedears_snapshot, adr_snapshot, precios_acciones, cedears_time_sales, day_trading_stats, agro_snapshot, agro_opciones_snapshot, agro_pizarra, camara_cereales, volumen_mercado_agro, snapshots_sinteticos, mercado_hist, rubros, adhoc_subscriptions, fci_gerentes, fci, fci_vcp |
 | `macro` | series_macro, uva, rem |
 | `valuaciones` | consolidado, pnl_totales_cache, portfolio_snapshot, dolar, dolar_snapshot, dolar_oficial_live |
 | `portafolio` | tenencia, assets, backfill_log |
@@ -132,6 +132,11 @@ jsonb pisaría al otro motor.
   `motor_cedears`/`adr_live` y el job `precios_acciones_daily` escriben SQL-native;
   scanner/day_trading/pivot_points leen SQL.
 - **Opciones** (GGAL): `mercado.options_{data, data_hist, snapshot, metadata, vr}`.
+- **FCI** (vista `/fci`, `docs/FCI.md`): `mercado.fci_gerentes` (las gerentes de la mesa, filtro
+  duro del universo), `mercado.fci` (el fondo: símbolo Primary y/o unidad de assets; `categoria` la
+  decide la mesa) y `mercado.fci_vcp` (la SERIE diaria de VCP, grano `(fci_id, fecha)`, `fuente`
+  primary > tenencia > manual). Primary no guarda histórico: la serie la escribe `jobs.fci_vcp`.
+  Los rendimientos se calculan en la lectura (`api/services/fci_sql.py`).
 
 #### OPERACIONES / NEGOCIO
 - `operaciones.operaciones` — fuente de la vista MOVIMIENTOS (`/api/operaciones/ops/*`)

@@ -67,6 +67,25 @@ de tocar la vista más usada de la app.
 | 25 | Filtro de **EMISOR por nombre** en la tab CURVAS (§25) | sí | ✅ **hecho** (2026-09-04) |
 | 26 | FICHA DEL BONO: ficha + cronograma a la izquierda, el flujo en UN gráfico de doble eje a la derecha (§26) | sí | ✅ **hecho** (2026-09-09) |
 
+### Paso 27 (2026-09-10) — TIPO excluyente y la renta usa el alto del gráfico
+
+Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
+
+1. **El filtro de TIPO pasa a ser EXCLUYENTE.** Las pills SOBERANO / PROVINCIAL /
+   CORPORATIVO / BCRA se sumaban (se podía mirar soberanos y corporativos a la
+   vez) y "apagar el último" no hacía nada. Ahora tocar un tipo deja **solo
+   ese**; tocar el que ya está, nada. La cadena `TIPO → EMISOR → TEA` no cambió:
+   el estado sigue siendo un array de una posición para no tocar los `includes`
+   de abajo, y al cambiar de tipo se siguen soltando los emisores por nombre que
+   el tipo nuevo ya no muestra.
+2. **La escala del flujo "no se ajustaba".** El techo del eje de la renta era
+   `cupón máximo × 2,2`: los cupones vivían en el tercio de abajo y dos tercios
+   del gráfico quedaban vacíos, que es lo que la mesa veía como una escala rara
+   (en un soberano con cupones de 0,50 el eje llegaba a 1,60). Pasa a
+   `× 1,25` redondeado a número lindo: la línea usa casi todo el alto y sigue
+   quedando aire para el número sobre el punto más alto. El capital (barras,
+   eje izquierdo) no cambió.
+
 ### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, el flujo a la derecha
 
 Segundo cambio de LAYOUT del mismo modal, cero cálculo: no se tocó un endpoint,
@@ -96,10 +115,9 @@ derecha queda entera para el flujo, a toda la altura del modal.
   comparables) — **nadie compara la altura de una línea contra la de una barra**,
   y el cupón se lee por su NÚMERO, no midiéndolo contra su escala. Cada eje va
   del color de su serie, el mismo criterio del gráfico de ALTA DE CUENTAS.
-- **El eje de la renta tiene techo fijo** (`≈ cupón máximo × 2,2`, redondeado a
-  un número lindo): manda los cupones al tercio de abajo, así no le pelean la
-  altura a las barras, y deja las marcas en 1,50 / 3,00 / 4,50 en vez de
-  3,78 / 2,85. Las barras van **finas y al 50% de opacidad**: macizas y anchas
+- **El eje de la renta tiene techo fijo** (`≈ cupón máximo × 1,25`, redondeado
+  a un número lindo; hasta el paso 27 era `× 2,2`): deja las marcas en números
+  redondos y un 25 % de aire para el número sobre el punto más alto. Las barras van **finas y al 50% de opacidad**: macizas y anchas
   el gráfico es un paredón donde no se lee ni la línea ni sus números.
 - **Los números del cupón aparecen si ENTRAN**, medido en píxeles por pago
   (`ResizeObserver` sobre la caja del gráfico, umbral 46 px), no contando pagos:

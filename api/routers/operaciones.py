@@ -2,11 +2,12 @@
 (movimientos) y NegocioMovimientos (vista de negocio del día)."""
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from api.auth import get_user_email, require_control_comercial, require_no_invitado
 from api.cache import cached
+from api.services import aranceles_export as _ar_export
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
@@ -407,6 +408,40 @@ def ops_aranceles(
                                   cuenta=cuenta, instrumento=instrumento, sel_dim=sel_dim,
                                   segmento=segmento, dim=dim, serie_full=serie_full,
                                   scope=scope, operador=operador)
+
+
+@router.get("/ops/aranceles/export")
+def ops_aranceles_export(
+    moneda: str = Query("ARS"),
+    desde: str = Query(..., description="YYYY-MM-DD"),
+    hasta: str = Query(..., description="YYYY-MM-DD"),
+    cuenta: str | None = Query(None, description="Cross-filter: denominación seleccionada"),
+    instrumento: str | None = Query(None, description="Cross-filter: instrumento seleccionado"),
+    sel_dim: str | None = Query(None, description="Cross-filter: valor seleccionado de la dim izquierda"),
+    segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    operador: str | None = Query(None, description="Filtra madre por operador (operador_email)"),
+    dim: str = Query("nivel3", description="Dimensión de la selección `sel_dim`: nivel3 | operacion | mercado | operador"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+) -> Response:
+    """Descarga el .xlsx de ARANCELES con los MISMOS filtros que `/ops/aranceles`:
+    hoja CONSOLIDADO (las 4 dimensiones de la tabla izquierda) + POR CLIENTE +
+    POR INSTRUMENTO, con el rango elegido como celdas de fecha. Sin cache: se
+    genera a pedido (6 GROUP BY date-bounded, mismos índices que la vista)."""
+    if moneda not in _OPS_MONEDAS:
+        raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    try:
+        contenido, nombre = _ar_export.export_xlsx(
+            moneda=moneda, desde=desde, hasta=hasta, cuenta=cuenta, instrumento=instrumento,
+            sel_dim=sel_dim, segmento=segmento, dim=dim, scope=scope, operador=operador)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:  # openpyxl no instalado en el venv
+        raise HTTPException(status_code=501, detail=str(e)) from e
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @router.get("/ops/cuentas-list")

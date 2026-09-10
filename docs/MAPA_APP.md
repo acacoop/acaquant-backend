@@ -780,7 +780,7 @@ promovieron a módulos propios (`agro`, `sinteticos`) pero **las URLs del backen
 
 ### Vista: DERIVADOS — OPCIONES (`/derivados`)
 - **Módulo RBAC**: `derivados` | **Roles**: admin, trader, sales, asistente_comercial, invitado.
-- **Archivos front**: `derivados-shell.tsx` (wrapper vacío), `derivados-view.tsx` (la vista real), `opciones-table-compact.tsx`, `estrategias-tabla.tsx`, `payoff-chart.tsx`, `escenarios-tabla.tsx`, `costo-historico-chart.tsx`, `opcion-historico-chart.tsx`, `griegas-historico-chart.tsx`, `src/lib/estrategias.ts` (templates + cálculo client-side).
+- **Archivos front**: `derivados-shell.tsx` (wrapper vacío), `derivados-view.tsx` (la vista real), `opciones-table-compact.tsx`, `estrategias-tabla.tsx`, `payoff-chart.tsx`, `escenarios-tabla.tsx`, `costo-historico-chart.tsx`, `opcion-historico-chart.tsx`, `griegas-historico-chart.tsx`, `periodo-filter.tsx`, `src/lib/estrategias.ts` (templates + cálculo client-side).
 - **Router**: no tiene propio — usa `cotizaciones.py` (bloque Opciones) y `analitica.py` (`POST /estrategia-historico`). Services: `opciones_sql.py` (lectura), `opciones.py` (escritura de tasa + helpers de costo).
 - **Propósito**: chain de opciones de **GGAL** (único subyacente cableado: el panel se titula "OPCIONES GGAL").
 
@@ -789,17 +789,21 @@ promovieron a módulos propios (`agro`, `sinteticos`) pero **las URLs del backen
 | Izq. **CALL** | Chain de calls a página completa: STRIKE, LAST, INTRA, 1D, SPREAD PUNTAS, IV, DELTA, GAMMA, THETA, VEGA, VOL (`ev` en pesos sin abreviar; ordenada por `ev` desc) | `GET /api/cotizaciones/opciones` (poll 30s) | filtro CALL/PUT/ESTRAT. | — |
 | Izq. **PUT** | Ídem puts | mismo | mismo | — |
 | Izq. **ESTRAT.** | Estrategias generadas client-side desde `STRATEGY_TEMPLATES`, con costo neto, comisión y patas | mismo (calcula sobre `docs`) | selector **categoría** (7: Spread Alcista, Spread Bajista, Cono/Cuna, Ratio, Backspread, Cóndor de Hierro, Venta de Vol) + selector **strike** (de `liquidStrikes`, def ATM) | — |
-| Der. sup. (contrato) **COSTO HIST.** | Serie intradía del contrato clickeado, con LIVE. 2º eje con spot GGAL local/ADR | `GET /historico/opciones`, `GET /vr-ggal` | implícito (lo seleccionado) | — |
-| Der. sup. (estrategia) **PAYOFF** | Curva de payoff (cálculo client-side) | ninguno | — | — |
-| Der. sup. (estrategia) **ESCENARIOS** | Tabla spot × tiempo con la tasa `meta.tasa` | ninguno | — | — |
-| Der. inf. (contrato) **GRIEGAS** | Evolución diaria de griegas del contrato clickeado | `GET /griegas/opciones` | — | — |
-| Der. inf. (estrategia) **COSTO HISTÓRICO** | Costo de la estrategia en buckets de 15 min. 2º eje con spot GGAL local/ADR | `POST /api/analitica/estrategia-historico`, `GET /vr-ggal` | implícito (lo seleccionado) | — |
+| Der. sup. (CALL/PUT) **COSTO HIST.** | Serie intradía del contrato activo, con LIVE. 2º eje con spot GGAL local/ADR | `GET /historico/opciones`, `GET /vr-ggal` | período **HOY · WTD · MTD · TODO** (corte en hora local; reemplazó al brush) + SPOT ARS/ADR | — |
+| Der. sup. (ESTRAT.) **PAYOFF** | Curva de payoff (cálculo client-side) | ninguno | — | — |
+| Der. sup. (ESTRAT.) **ESCENARIOS** | Tabla spot × tiempo con la tasa `meta.tasa` | ninguno | — | — |
+| Der. inf. (CALL/PUT) **GRIEGAS** | Evolución diaria de griegas del contrato activo | `GET /griegas/opciones` | griega (Δ Γ V Θ IV) + período **WTD · MTD · TODO** | — |
+| Der. inf. (ESTRAT.) **COSTO HISTÓRICO** | Costo de la estrategia en buckets de 15 min. 2º eje con spot GGAL local/ADR | `POST /api/analitica/estrategia-historico`, `GET /vr-ggal` | período **HOY · WTD · MTD · TODO** + SPOT ARS/ADR | — |
 | Header (KPIs) | SPOT, VR GGAL (40r), VR ADR, **TASA R**, ÚLT. ACT | `GET /opciones/meta` (vía proxy `/api/opciones-meta`) | — | **PUT tasa risk-free — SOLO admin** (para el resto es texto read-only) |
 
-Selección **mutuamente excluyente**: o hay estrategia activa o contrato individual, nunca las dos.
-Al primer render arranca con la estrategia ATM. La columna izquierda es SOLO la chain (ocupa todo el
-alto); la derecha cambia según lo seleccionado. El **post-trade LAB se eliminó** (era cálculo
-Black-Scholes client-side, nunca tuvo endpoint): su lugar lo ocupa el costo histórico.
+La columna izquierda es SOLO la chain (ocupa todo el alto). **La columna derecha sigue a la tab de
+la tabla**: en CALL/PUT (default) muestra el contrato activo; en ESTRAT. muestra la estrategia
+seleccionada (default ATM). El contrato activo es el clickeado o, hasta que se clickee uno, el
+**CALL más operado del día** (se fija una vez con la primera chain, no salta si cambia el ranking).
+Las dos selecciones son independientes y persisten al cambiar de tab. El **post-trade LAB se
+eliminó** (era cálculo Black-Scholes client-side, nunca tuvo endpoint): su lugar lo ocupa el costo
+histórico. Los tres charts históricos usan un filtro de período (`periodo-filter.tsx`) en vez del
+brush de recharts.
 
 | Método | Path | Qué hace | Params | Escribe |
 |---|---|---|---|---|

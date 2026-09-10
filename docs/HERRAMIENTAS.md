@@ -10,7 +10,7 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 <!-- AUTOGEN:START — generado por scripts.gen_herramientas, no editar a mano -->
 
-*5 herramientas en 3 categorías.*
+*13 herramientas en 5 categorías.*
 
 ### Performance / profiling
 
@@ -25,6 +25,24 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 |---|---|
 | `python -m scripts.gen_herramientas` | Regenera docs/HERRAMIENTAS.md (catálogo de herramientas) desde los docstrings. |
 | `python -m scripts.gen_sistema` | Regenera deploy/SISTEMA.md (plano de servicios/crons) desde systemd + crontab. |
+
+### diag
+
+| herramienta | qué hace |
+|---|---|
+| `python -m scripts.diag_1816_grafias` | Primero el catálogo (gratis), después la API (cuesta). |
+| `python -m scripts.diag_1816_moneda_series` | Primero la base (gratis), después la API (cuesta créditos). |
+| `python -m scripts.diag_ctas_ops` | Una sola pasada, un solo mes, cero escrituras. |
+| `python -m scripts.diag_desglose_texto` | Cero escrituras. Corre sobre las fechas que hay en la base. |
+| `python -m scripts.diag_duales_pata_fija` | Sigue la cadena hasta el punto exacto donde se corta. |
+| `python -m scripts.diag_saldo_cierre` | Cero escrituras. Corre sobre las fechas que hay en la base. |
+
+### fci
+
+| herramienta | qué hace |
+|---|---|
+| `python -m scripts.diag_fci_cafci` | Diag: si los 3 endpoints de CAFCI que usa el Excel responden y con qué shape |
+| `python -m scripts.diag_fci_primary` | Diag: qué FCI lista Primary, qué campos trae y si hay histórico |
 
 ### seguridad
 

@@ -369,7 +369,7 @@ mano daría CERO en soberanos y CER) y las conversiones TEM/TNA de `quant.tasas`
   (`renta-fija-live.tsx`) → modal `simular-inversion-modal.tsx`. El universo del
   selector son los tickers de `curvas-vista` (dedupe por `ticker_corto`).
   Izquierda: resultado al precio simulado + la compra + ficha. Derecha: flujo de
-  fondos apilado (amortización/interés) + cronograma, escalados al importe.
+  fondos (desde el paso 27, el MISMO gráfico de la ficha: `flujo-fondos-chart.tsx`) + cronograma, escalados al importe.
   Fetch con debounce de 400 ms; los importes con `NumeroInput` (es-AR).
 - **En la misma entrega se dio de baja la vista ESTRATEGIA (`/retorno`)**:
   COMPARAR INVERSIÓN y DESCOMPOSICIÓN se borraron (endpoints, services, front),

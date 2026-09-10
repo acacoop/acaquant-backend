@@ -13,7 +13,7 @@ fue dropeada. Este módulo conserva SOLO lo que NO es lectura Mongo:
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from hashlib import sha1
 
 
@@ -131,7 +131,10 @@ def estrategia_desde_buckets(
 
         uniq_k = sorted(set(used_k))
         out.append({
-            "ts":      ts.replace(tzinfo=UTC).isoformat() if ts.tzinfo is None else ts.isoformat(),
+            # `ts` es naive en hora ARGENTINA (así escribe el motor `options_data.ts`):
+            # se emite SIN zona para que el front lo lea como hora local, igual que
+            # /historico/opciones. Etiquetarlo como UTC lo corría 3 h en pantalla.
+            "ts":      ts.isoformat(),
             "costo":   round(neto * 100, 2),
             "atm":     atm,
             "spot":    round(spot, 2),

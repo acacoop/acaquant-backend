@@ -67,6 +67,12 @@ Endpoints verificados en `api/routers/cotizaciones.py` (289–339) y
 > fila por contrato y día con high/low/last/ev/griegas/spot): los dos endpoints de histórico
 > suman un punto de cierre (17:00) por día a los ticks de hoy, sin duplicar los días que sí
 > tienen intradía.
+>
+> **Convención horaria:** `options_data.ts` es naive en hora ARGENTINA (así lo escribe el
+> motor). Los dos endpoints de histórico emiten los timestamps SIN zona y el front los lee como
+> hora local. Etiquetarlos como UTC (lo hacía `estrategia_desde_buckets`) corre 3 h la
+> pantalla. El eje X de esos charts es "de sesión" (`lib/eje-sesion.ts`): cada día de rueda
+> ocupa el mismo ancho y el punto se ubica por su hora entre 11:00 y 17:00.
 
 **Verificado: `opciones.py` lee SQL vía `core.postgres.get_pool()`.**
 

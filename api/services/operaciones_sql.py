@@ -710,6 +710,78 @@ def _op_pred(sel: str) -> tuple[str, dict]:
 # `operador` queda afuera a propósito: no es una columna, se resuelve por subquery
 # a comitentes (`_op_pred`). Lo que no esté acá cae a nivel_3 (el default).
 _ARANCEL_DIM_COL = {"nivel3": "nivel_3", "operacion": "operacion", "mercado": "mercado"}
+# Las CUATRO dimensiones del selector, en el orden en que las muestra la vista
+# (`operador` último: es la única que no es columna). El export a Excel las
+# recorre todas para la hoja CONSOLIDADO.
+ARANCEL_DIMS: tuple[tuple[str, str], ...] = (
+    ("nivel3", "NIVEL 3"), ("operacion", "OPERACIÓN"), ("mercado", "MERCADO"),
+    ("operador", "OPERADOR"),
+)
+
+
+def _arancel_base(segmento: str | None, scope: tuple[str, ...] | None,
+                  operador: str | None) -> tuple[str, dict]:
+    """WHERE madre de ARANCELES: cierres con arancel incluidos (caución), segmento,
+    scope de cuentas y el filtro madre por operador (subquery a comitentes), que
+    scopea TODO (serie + tablas) a las cuentas de ese operador."""
+    base, bp = _ops_where(segmento=segmento, scope=scope, arancel=True)
+    if operador:
+        base = (f"{base} AND id_cuenta IN "
+                f"(SELECT id_cuenta FROM comitentes WHERE operador_email = %(f_op)s)")
+        bp["f_op"] = operador
+    return base, bp
+
+
+def _arancel_dim_pred(dim: str, sel_dim: str | None) -> tuple[str | None, dict]:
+    """Cross-filter por el valor elegido en la tabla izquierda (según su dimensión)."""
+    if not sel_dim:
+        return None, {}
+    if dim == "operador":
+        return _op_pred(sel_dim)
+    return f"{_ARANCEL_DIM_COL.get(dim, 'nivel_3')} = %(f_dim)s", {"f_dim": sel_dim}
+
+
+def _arancel_where(date_w: str, tp: dict, *subs: tuple[str | None, dict]) -> tuple[str, dict]:
+    conds = [date_w]
+    p = dict(tp)
+    for frag, fp in subs:
+        if frag:
+            conds.append(frag)
+            p.update(fp)
+    return " AND ".join(conds), p
+
+
+def _arancel_tabla(where: str, p: dict, aexpr: str, group_expr: str, key: str) -> list[dict]:
+    """Σ arancel + boletos agrupado por una columna, solo grupos con arancel > 0,
+    de mayor a menor. `key` es el nombre con el que sale la clave en cada fila."""
+    return [
+        {key: r[key], "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(
+            f"SELECT COALESCE({group_expr}, '(sin)') AS {key}, {aexpr} AS ar, "
+            f"count(*) AS n FROM operaciones WHERE {where} "
+            f"GROUP BY {group_expr} HAVING {aexpr} > 0 ORDER BY ar DESC", p,
+        )
+    ]
+
+
+def _arancel_por_operador(where: str, p: dict, aexpr: str) -> list[dict]:
+    """Igual que _arancel_tabla pero por OPERADOR: se agrupa por cuenta en SQL y se
+    resuelve el operador con el mapa cacheado (no es columna de `operaciones`)."""
+    det = _operador_map()
+    acc: dict[str, dict] = {}
+    for r in _q(
+        f"SELECT id_cuenta, {aexpr} AS ar, count(*) AS n FROM operaciones "
+        f"WHERE {where} GROUP BY id_cuenta", p,
+    ):
+        op = det.get(str(r["id_cuenta"]), "(sin operador)")
+        a = acc.setdefault(op, {"ar": 0.0, "n": 0})
+        a["ar"] += _f(r["ar"])
+        a["n"] += r["n"]
+    return sorted(
+        ({"clave": k, "arancel": round(v["ar"], 2), "n": v["n"]}
+         for k, v in acc.items() if v["ar"] > 0),
+        key=lambda x: x["arancel"], reverse=True,
+    )
 
 
 def ops_aranceles(
@@ -719,13 +791,7 @@ def ops_aranceles(
     scope: tuple[str, ...] | None = None, operador: str | None = None,
 ) -> dict:
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
-    base, bp = _ops_where(segmento=segmento, scope=scope, arancel=True)
-    # Filtro madre por operador: scopea TODO (serie + tablas) a las cuentas de ese
-    # operador (subquery a comitentes). Se mete en `base` → aplica uniforme.
-    if operador:
-        base = (f"{base} AND id_cuenta IN "
-                f"(SELECT id_cuenta FROM comitentes WHERE operador_email = %(f_op)s)")
-        bp["f_op"] = operador
+    base, bp = _arancel_base(segmento, scope, operador)
 
     # SERIE (histórica, ventana ~18m salvo serie_full). En vivo, sin rollup.
     sp = dict(bp)
@@ -750,67 +816,65 @@ def ops_aranceles(
     date_w = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     m_cuenta = ("denominacion = %(f_cuenta)s", {"f_cuenta": cuenta}) if cuenta else (None, {})
     m_instr = ("instrumento = %(f_instr)s", {"f_instr": instrumento}) if instrumento else (None, {})
-    if sel_dim and dim == "operador":
-        m_dim = _op_pred(sel_dim)
-    elif sel_dim and dim in _ARANCEL_DIM_COL:
-        m_dim = (f"{_ARANCEL_DIM_COL[dim]} = %(f_dim)s", {"f_dim": sel_dim})
-    elif sel_dim:
-        m_dim = ("nivel_3 = %(f_dim)s", {"f_dim": sel_dim})
-    else:
-        m_dim = (None, {})
-
-    def _tabla(group_expr: str, key: str, *subs: tuple[str | None, dict]) -> list[dict]:
-        conds = [date_w]
-        p = dict(tp)
-        for frag, fp in subs:
-            if frag:
-                conds.append(frag)
-                p.update(fp)
-        where = " AND ".join(conds)
-        return [
-            {key: r[key], "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
-            for r in _q(
-                f"SELECT COALESCE({group_expr}, '(sin)') AS {key}, {aexpr} AS ar, "
-                f"count(*) AS n FROM operaciones WHERE {where} "
-                f"GROUP BY {group_expr} HAVING {aexpr} > 0 ORDER BY ar DESC", p,
-            )
-        ]
+    m_dim = _arancel_dim_pred(dim, sel_dim)
 
     # IZQUIERDA (por_dim): filtrada por cuenta + instrumento (no por sí misma).
+    w_dim, p_dim = _arancel_where(date_w, tp, m_cuenta, m_instr)
     if dim == "operador":
-        det = _operador_map()
-        conds = [date_w]
-        p = dict(tp)
-        for frag, fp in (m_cuenta, m_instr):
-            if frag:
-                conds.append(frag)
-                p.update(fp)
-        acc: dict[str, dict] = {}
-        for r in _q(
-            f"SELECT id_cuenta, {aexpr} AS ar, count(*) AS n FROM operaciones "
-            f"WHERE {' AND '.join(conds)} GROUP BY id_cuenta", p,
-        ):
-            op = det.get(str(r["id_cuenta"]), "(sin operador)")
-            a = acc.setdefault(op, {"ar": 0.0, "n": 0})
-            a["ar"] += _f(r["ar"])
-            a["n"] += r["n"]
-        por_dim = sorted(
-            ({"clave": k, "arancel": round(v["ar"], 2), "n": v["n"]}
-             for k, v in acc.items() if v["ar"] > 0),
-            key=lambda x: x["arancel"], reverse=True,
-        )
+        por_dim = _arancel_por_operador(w_dim, p_dim, aexpr)
     else:
-        field = _ARANCEL_DIM_COL.get(dim, "nivel_3")
-        por_dim = _tabla(field, "clave", m_cuenta, m_instr)
+        por_dim = _arancel_tabla(w_dim, p_dim, aexpr, _ARANCEL_DIM_COL.get(dim, "nivel_3"), "clave")
 
-    por_cuenta = _tabla("denominacion", "denominacion", m_dim, m_instr)
-    por_instrumento = _tabla("instrumento", "instrumento", m_dim, m_cuenta)
+    por_cuenta = _arancel_tabla(*_arancel_where(date_w, tp, m_dim, m_instr), aexpr,
+                                "denominacion", "denominacion")
+    por_instrumento = _arancel_tabla(*_arancel_where(date_w, tp, m_dim, m_cuenta), aexpr,
+                                     "instrumento", "instrumento")
 
     return {
         "moneda": moneda, "desde": desde, "hasta": hasta, "agg": agg, "dim": dim,
         "serie": serie, "por_dim": por_dim, "por_cuenta": por_cuenta,
         "por_instrumento": por_instrumento,
         "total": round(sum(r["arancel"] for r in por_dim), 2),
+    }
+
+
+def ops_aranceles_export(
+    moneda: str = "ARS", desde: str = "", hasta: str = "",
+    cuenta: str | None = None, instrumento: str | None = None, sel_dim: str | None = None,
+    segmento: str | None = None, dim: str = "nivel3",
+    scope: tuple[str, ...] | None = None, operador: str | None = None,
+) -> dict:
+    """Datos del EXPORT A EXCEL de ARANCELES (`api/services/aranceles_export.py`).
+
+    Misma base y mismos filtros que `ops_aranceles`, con una diferencia a propósito:
+    en pantalla cada tabla ignora SU propia selección (para poder des-seleccionar),
+    acá **todos los filtros aplican a todas las tablas** — el archivo es una foto
+    de lo filtrado y los tres bloques tienen que cerrar contra el mismo total.
+    Devuelve `bloques` = las CUATRO dimensiones del selector (la hoja CONSOLIDADO
+    muestra todas, no solo la elegida), más `por_cuenta` y `por_instrumento`."""
+    base, bp = _arancel_base(segmento, scope, operador)
+    aexpr = _arancel_expr(moneda)
+    tp = {**bp, "desde": desde, "hasta": hasta}
+    date_w = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
+    m_cuenta = ("denominacion = %(f_cuenta)s", {"f_cuenta": cuenta}) if cuenta else (None, {})
+    m_instr = ("instrumento = %(f_instr)s", {"f_instr": instrumento}) if instrumento else (None, {})
+    m_dim = _arancel_dim_pred(dim, sel_dim)
+    where, p = _arancel_where(date_w, tp, m_cuenta, m_instr, m_dim)
+
+    bloques = []
+    for d, titulo in ARANCEL_DIMS:
+        if d == "operador":
+            filas = _arancel_por_operador(where, p, aexpr)
+        else:
+            filas = _arancel_tabla(where, p, aexpr, _ARANCEL_DIM_COL[d], "clave")
+        bloques.append({"dim": d, "titulo": titulo, "filas": filas})
+    return {
+        "moneda": moneda, "desde": desde, "hasta": hasta, "dim": dim,
+        "filtros": {"segmento": segmento, "operador": operador, "sel_dim": sel_dim,
+                    "cuenta": cuenta, "instrumento": instrumento},
+        "bloques": bloques,
+        "por_cuenta": _arancel_tabla(where, p, aexpr, "denominacion", "denominacion"),
+        "por_instrumento": _arancel_tabla(where, p, aexpr, "instrumento", "instrumento"),
     }
 
 

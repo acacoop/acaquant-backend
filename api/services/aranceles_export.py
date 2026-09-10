@@ -39,7 +39,7 @@ _FMT_PCT = "0.0%"
 _FMT_TEXTO = "@"
 
 # Etiquetas de la cabecera de filtros (en el orden en que aparecen en la vista).
-_DIM_LABEL = dict(_ops_sql._ARANCEL_DIMS)
+_DIM_LABEL = dict(_ops_sql.ARANCEL_DIMS)
 
 
 def _parse_fecha(s: str, nombre: str) -> date:
@@ -134,14 +134,21 @@ def _anchos(ws, primera: int = 34) -> None:
         ws.column_dimensions[letra].width = ancho
 
 
-def armar_xlsx(data: dict) -> bytes:
-    """dict de `ops_aranceles_export` → bytes del .xlsx (3 hojas)."""
+def _workbook_cls():
+    """Import lazy de openpyxl: sin la lib la API sigue viva (REGLA #1) y el
+    endpoint contesta 501 accionable. Se chequea ANTES de consultar la base."""
     try:
         from openpyxl import Workbook
-    except ImportError as e:  # lazy: sin openpyxl la API sigue viva (REGLA #1)
+    except ImportError as e:
         raise RuntimeError(
             "openpyxl no está instalado — correr `pip install -r requirements.txt` "
             "en el venv del Droplet") from e
+    return Workbook
+
+
+def armar_xlsx(data: dict) -> bytes:
+    """dict de `ops_aranceles_export` → bytes del .xlsx (3 hojas)."""
+    Workbook = _workbook_cls()
     desde = _parse_fecha(data["desde"], "desde")
     hasta = _parse_fecha(data["hasta"], "hasta")
     moneda = data["moneda"]
@@ -183,6 +190,7 @@ def export_xlsx(
 ) -> tuple[bytes, str]:
     """Devuelve (bytes del .xlsx, nombre de archivo). Valida las fechas ANTES de
     consultar (un rango inválido es 400, no una query rota)."""
+    _workbook_cls()   # sin openpyxl no hay archivo: fallar antes de las 6 queries
     d, h = _parse_fecha(desde, "desde"), _parse_fecha(hasta, "hasta")
     if d > h:
         d, h = h, d   # misma normalización que hace la vista

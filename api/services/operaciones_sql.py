@@ -713,7 +713,7 @@ _ARANCEL_DIM_COL = {"nivel3": "nivel_3", "operacion": "operacion", "mercado": "m
 # Las CUATRO dimensiones del selector, en el orden en que las muestra la vista
 # (`operador` último: es la única que no es columna). El export a Excel las
 # recorre todas para la hoja CONSOLIDADO.
-_ARANCEL_DIMS: tuple[tuple[str, str], ...] = (
+ARANCEL_DIMS: tuple[tuple[str, str], ...] = (
     ("nivel3", "NIVEL 3"), ("operacion", "OPERACIÓN"), ("mercado", "MERCADO"),
     ("operador", "OPERADOR"),
 )
@@ -862,7 +862,7 @@ def ops_aranceles_export(
     where, p = _arancel_where(date_w, tp, m_cuenta, m_instr, m_dim)
 
     bloques = []
-    for d, titulo in _ARANCEL_DIMS:
+    for d, titulo in ARANCEL_DIMS:
         if d == "operador":
             filas = _arancel_por_operador(where, p, aexpr)
         else:

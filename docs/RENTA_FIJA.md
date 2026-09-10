@@ -78,13 +78,16 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    el estado sigue siendo un array de una posición para no tocar los `includes`
    de abajo, y al cambiar de tipo se siguen soltando los emisores por nombre que
    el tipo nuevo ya no muestra.
-2. **La escala del flujo "no se ajustaba".** El techo del eje de la renta era
-   `cupón máximo × 2,2`: los cupones vivían en el tercio de abajo y dos tercios
-   del gráfico quedaban vacíos, que es lo que la mesa veía como una escala rara
-   (en un soberano con cupones de 0,50 el eje llegaba a 1,60). Pasa a
-   `× 1,25` redondeado a número lindo: la línea usa casi todo el alto y sigue
-   quedando aire para el número sobre el punto más alto. El capital (barras,
-   eje izquierdo) no cambió.
+2. **El flujo vuelve a UNA sola escala.** El eje derecho propio de la renta
+   (paso 26) dejaba la línea de cupones a una altura que no significaba nada:
+   con el techo en `× 2,2` vivía en el tercio de abajo con dos tercios vacíos;
+   con `× 1,25` (primer intento de hoy) quedaba a 3/4 del alto y un cupón de
+   182 parecía casi tan grande que una amortización de 9.625. La mesa lo dijo
+   dos veces, con las dos alturas: «no tiene lógica». La lógica es que la
+   altura sea el monto: las dos series van contra el MISMO eje, en un bullet
+   el cupón queda bajo porque ES chico, y el monto se lee en el número sobre
+   cada punto. Las dos FORMAS (barra / punto) siguen, que es lo que deja ver
+   un cupón de 0,5 al pie de una barra de 100.
 3. **SIMULAR INVERSIÓN dibuja el flujo IGUAL que la ficha.** Tenía dos gráficos
    de barras apilados (capital arriba, renta abajo); la mesa pidió el mismo
    gráfico de la ficha. El dibujo se extrajo a **`flujo-fondos-chart.tsx`** y lo
@@ -123,9 +126,8 @@ derecha queda entera para el flujo, a toda la altura del modal.
   comparables) — **nadie compara la altura de una línea contra la de una barra**,
   y el cupón se lee por su NÚMERO, no midiéndolo contra su escala. Cada eje va
   del color de su serie, el mismo criterio del gráfico de ALTA DE CUENTAS.
-- **El eje de la renta tiene techo fijo** (`≈ cupón máximo × 1,25`, redondeado
-  a un número lindo; hasta el paso 27 era `× 2,2`): deja las marcas en números
-  redondos y un 25 % de aire para el número sobre el punto más alto. Las barras van **finas y al 50% de opacidad**: macizas y anchas
+- ~~**El eje de la renta tiene techo fijo**~~ — **superado en el paso 27**: el
+  eje derecho se fue y las dos series van contra la misma escala. Las barras van **finas y al 50% de opacidad**: macizas y anchas
   el gráfico es un paredón donde no se lee ni la línea ni sus números.
 - **Los números del cupón aparecen si ENTRAN**, medido en píxeles por pago
   (`ResizeObserver` sobre la caja del gráfico, umbral 46 px), no contando pagos:

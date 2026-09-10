@@ -214,10 +214,11 @@ def simular_inversion(
 def estrategia_historico(
     req: _EstrategiaHistoricoReq = Body(...),
 ):
-    """Serie intradía de costo de una estrategia de opciones.
+    """Serie de costo de una estrategia de opciones.
 
-    Lee Opciones.Data (tick-level del OPEX en curso), agrupa en buckets de
-    N minutos, reproduce en cada bucket el cálculo de costo del frontend:
+    Lee los ticks de hoy (mercado.options_data, que se purga de noche) y suma un
+    cierre por día de los últimos 21 (mercado.options_data_hist). Agrupa en
+    buckets de N minutos y reproduce en cada bucket el cálculo de costo del frontend:
     construye la chain por strike, detecta el ATM del bucket (strike líquido
     más cercano al spot), aplica los offsets de cada pata del template, y
     suma precios (buy=offer, sell=bid, fallback last) × qty × 100.

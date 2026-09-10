@@ -789,11 +789,11 @@ promovieron a módulos propios (`agro`, `sinteticos`) pero **las URLs del backen
 | Izq. **CALL** | Chain de calls a página completa: STRIKE, LAST, INTRA, 1D, SPREAD PUNTAS, IV, DELTA, GAMMA, THETA, VEGA, VOL (`ev` en pesos sin abreviar; ordenada por `ev` desc) | `GET /api/cotizaciones/opciones` (poll 30s) | filtro CALL/PUT/ESTRAT. | — |
 | Izq. **PUT** | Ídem puts | mismo | mismo | — |
 | Izq. **ESTRAT.** | Estrategias generadas client-side desde `STRATEGY_TEMPLATES`, con costo neto, comisión y patas | mismo (calcula sobre `docs`) | selector **categoría** (7: Spread Alcista, Spread Bajista, Cono/Cuna, Ratio, Backspread, Cóndor de Hierro, Venta de Vol) + selector **strike** (de `liquidStrikes`, def ATM) | — |
-| Der. sup. (CALL/PUT) **COSTO HIST.** | Serie intradía del contrato activo, con LIVE. 2º eje con spot GGAL local/ADR | `GET /historico/opciones`, `GET /vr-ggal` | período **HOY · WTD · MTD · TODO** (corte en hora local; reemplazó al brush) + SPOT ARS/ADR | — |
+| Der. sup. (CALL/PUT) **COSTO HIST.** | Ticks intradía de hoy + cierre diario de los días previos del contrato activo, con LIVE. 2º eje con spot GGAL local/ADR | `GET /historico/opciones`, `GET /vr-ggal` | período **HOY · WTD · MTD · TODO** (corte en hora local; reemplazó al brush) + SPOT ARS/ADR | — |
 | Der. sup. (ESTRAT.) **PAYOFF** | Curva de payoff (cálculo client-side) | ninguno | — | — |
 | Der. sup. (ESTRAT.) **ESCENARIOS** | Tabla spot × tiempo con la tasa `meta.tasa` | ninguno | — | — |
 | Der. inf. (CALL/PUT) **GRIEGAS** | Evolución diaria de griegas del contrato activo | `GET /griegas/opciones` | griega (Δ Γ V Θ IV) + período **WTD · MTD · TODO** | — |
-| Der. inf. (ESTRAT.) **COSTO HISTÓRICO** | Costo de la estrategia en buckets de 15 min. 2º eje con spot GGAL local/ADR | `POST /api/analitica/estrategia-historico`, `GET /vr-ggal` | período **HOY · WTD · MTD · TODO** + SPOT ARS/ADR | — |
+| Der. inf. (ESTRAT.) **COSTO HISTÓRICO** | Costo de la estrategia: buckets de 15 min hoy + un cierre por día (21 días), recalculado con la chain de cada día. 2º eje con spot GGAL local/ADR | `POST /api/analitica/estrategia-historico`, `GET /vr-ggal` | período **HOY · WTD · MTD · TODO** + SPOT ARS/ADR | — |
 | Header (KPIs) | SPOT, VR GGAL (40r), VR ADR, **TASA R**, ÚLT. ACT | `GET /opciones/meta` (vía proxy `/api/opciones-meta`) | — | **PUT tasa risk-free — SOLO admin** (para el resto es texto read-only) |
 
 La columna izquierda es SOLO la chain (ocupa todo el alto). **La columna derecha sigue a la tab de

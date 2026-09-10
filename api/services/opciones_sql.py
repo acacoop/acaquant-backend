@@ -18,7 +18,7 @@ SQL-only (decomiso Mongo).
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from psycopg.rows import dict_row
 
@@ -88,18 +88,97 @@ def get_opciones_meta() -> dict:
 _HIST_FIELDS = ("last_timestamp", "bid", "offer", "last", "spot", "strike",
                 "tipo", "iv", "delta", "gamma", "vega", "theta")
 
+# Hora (naive, misma convención que `options_data.ts`) a la que se ubica el punto de
+# CIERRE diario que sale de `options_data_hist`: 17:00 = fin de rueda BYMA.
+_HORA_CIERRE = time(17, 0)
+# Cuántos días para atrás mira el costo histórico de una ESTRATEGIA. El de un contrato
+# no tiene tope: es la vida del contrato (1 fila/día), igual que sus griegas.
+_DIAS_HIST_ESTRATEGIA = 21
+
+
+def _opero_ese_dia(d: dict) -> bool:
+    """Un cierre diario vale si el contrato OPERÓ ese día. `ev` (efectivo del día) es la
+    señal; si el rollup no lo trae (filas viejas), alcanza con last > 0."""
+    ev = d.get("ev")
+    if ev is not None:
+        return float(ev) > 0
+    return float(d.get("last") or 0) > 0
+
+
+def filas_diarias_contrato(
+    hist: list[tuple[str, str, dict]], dias_excluidos: set[date],
+) -> list[dict]:
+    """Convierte filas de `options_data_hist` (fecha 'YYYY-MM-DD', symbol, data) en filas
+    con el MISMO shape que `get_historico_opciones` (un "tick" a las 17:00 del día), salteando
+    los días que ya tienen ticks intradía y los días en que el contrato no operó.
+    Pura: la testea tests/unit/test_opciones_hist_diario.py."""
+    out: list[dict] = []
+    for fecha_str, symbol, data in hist:
+        d = data or {}
+        fecha = date.fromisoformat(fecha_str)
+        if fecha in dias_excluidos or not _opero_ese_dia(d):
+            continue
+        row = {"instrumento": symbol, "timestamp": datetime.combine(fecha, _HORA_CIERRE)}
+        row.update({f: d.get(f) for f in _HIST_FIELDS})
+        out.append(row)
+    return out
+
+
+def buckets_diarios_estrategia(
+    hist: list[tuple[str, str, dict]], dias_excluidos: set[date],
+) -> dict[datetime, list[dict]]:
+    """Arma buckets {17:00 del día: [docs de la chain de ese día]} desde `options_data_hist`,
+    con el shape que consume `opciones.estrategia_desde_buckets`. El rollup no guarda bid/offer:
+    se ponen IGUALES a `last`, que es exactamente lo que ese pricing hace como fallback
+    (buy→offer, sell→bid, si no last) y lo que hace contar al strike como líquido. Solo entran
+    los contratos que operaron ese día. Pura: testeada junto con `filas_diarias_contrato`."""
+    buckets: dict[datetime, list[dict]] = {}
+    for fecha_str, symbol, data in hist:
+        d = data or {}
+        fecha = date.fromisoformat(fecha_str)
+        if fecha in dias_excluidos or not _opero_ese_dia(d):
+            continue
+        last = d.get("last")
+        buckets.setdefault(datetime.combine(fecha, _HORA_CIERRE), []).append({
+            "symbol": symbol,
+            "bid":    last,
+            "offer":  last,
+            "last":   last,
+            "strike": d.get("strike"),
+            "tipo":   d.get("tipo"),
+            "spot":   d.get("spot"),
+        })
+    return buckets
+
+
+def _leer_hist(where_sql: str, params: tuple) -> list[tuple[str, str, dict]]:
+    """Filas crudas de `options_data_hist` (fecha, symbol, data), asc por fecha."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT fecha, symbol, data FROM mercado.options_data_hist {where_sql} "
+            "ORDER BY fecha, symbol",
+            params,
+        )
+        return [(r["fecha"], r["symbol"], r["data"]) for r in cur.fetchall()]
+
 
 @cached(ttl=30)
 def get_historico_opciones(
     instrumento: str | None = None,
     tipo: str | None = None,
 ) -> list:
-    """Serie intradía de opciones (mercado.options_data), 1 punto por bucket de 15 min
-    (el ÚLTIMO tick de cada franja por símbolo). Espejo de `opciones.get_historico_opciones`.
+    """Histórico de un contrato: ticks intradía de HOY (mercado.options_data, 1 punto por
+    bucket de 15 min = el ÚLTIMO tick de cada franja) + un punto de CIERRE por cada día
+    anterior en que operó (mercado.options_data_hist, el rollup diario), a las 17:00.
+
+    Por qué las dos fuentes: `archive_options_data` purga `options_data` todas las noches y
+    deja solo la rueda vigente, así que el intradía nunca tiene más de 1-2 días. El
+    cierre diario es la misma fila que alimenta el chart de griegas. Un día con ticks
+    intradía NO se duplica con su cierre. El cierre diario solo se suma cuando se pide
+    un `instrumento` (con solo `tipo` sería toda la chain × toda la historia).
 
     `instrumento` acepta forma corta o completa (substring ILIKE). El corte de 21 días
-    es nominal: archive_options_data deja la tabla con solo la rueda vigente, pero se
-    mantiene por paridad con el path Mongo.
+    del intradía es nominal (ver arriba).
 
     Bucket por epoch//900 → `DISTINCT ON (symbol, bucket) ... ORDER BY ts DESC` toma el
     tick más reciente de cada franja (== $last del pipeline Mongo). Salida desc por ts.
@@ -133,6 +212,10 @@ def get_historico_opciones(
             row = {"instrumento": r["symbol"], "timestamp": r["ts"]}
             row.update({f: r[f] for f in _HIST_FIELDS})
             out.append(row)
+    if instrumento:
+        dias_intradia = {r["timestamp"].date() for r in out}
+        hist = _leer_hist("WHERE symbol ILIKE %s", (f"%{instrumento}%",))
+        out.extend(filas_diarias_contrato(hist, dias_intradia))
     # Mongo devuelve desc por timestamp (el cliente lo revierte). DISTINCT ON ordena por
     # (symbol, bucket) → re-ordenar en Python para igualar el contrato.
     out.sort(key=lambda x: x["timestamp"], reverse=True)
@@ -228,6 +311,25 @@ def _estrategia_historico_cached(
                 "tipo":   d.get("tipo"),
                 "spot":   d.get("spot"),
             })
+
+    # Días anteriores: un bucket de CIERRE por día desde el rollup diario (misma razón que
+    # en get_historico_opciones: el intradía se purga de noche). La estrategia se
+    # reconstruye con la chain de CADA día (ATM y offsets de ese día). Ventana: 21 días,
+    # o desde `desde` si vino.
+    if desde_iso:
+        fecha_desde = params[0].date()
+    else:
+        # Sin `desde`: 21 días para atrás desde `hasta` (si vino) o desde hoy.
+        fin = params[-1].date() if hasta_iso else date.today()
+        fecha_desde = fin - timedelta(days=_DIAS_HIST_ESTRATEGIA)
+    hist_where = ["fecha >= %s"]
+    hist_params: list = [fecha_desde.isoformat()]
+    if hasta_iso:
+        hist_where.append("fecha < %s")
+        hist_params.append(params[-1].date().isoformat())
+    dias_intradia = {k.date() for k in buckets}
+    hist = _leer_hist("WHERE " + " AND ".join(hist_where), tuple(hist_params))
+    buckets.update(buckets_diarios_estrategia(hist, dias_intradia))
     return estrategia_desde_buckets(buckets, legs)
 
 

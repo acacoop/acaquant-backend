@@ -45,8 +45,8 @@ los motores/jobs escriben SQL-native vía `core.pg_mirror`.
 | **Estrategias** (tabla variantes) | **No** — cálculo local sobre la cadena | — | — |
 | **Payoff** (P&L vs precio) | **No** — Black-Scholes en el browser | — | — |
 | **Escenarios** | **No** — local | — | — |
-| **Costo histórico (estrategia)** | Sí (on-demand) | `POST /api/analitica/estrategia-historico` (+ `vr-ggal`) | `opciones.py::estrategia_historico` |
-| **Histórico de un contrato** | Sí (on-demand) | `GET /api/cotizaciones/historico/opciones` (+ `vr-ggal`) | `opciones.py::get_historico_opciones` |
+| **Costo histórico (estrategia)** | Sí (on-demand) | `POST /api/analitica/estrategia-historico` (+ `vr-ggal`) | `opciones_sql.py::estrategia_historico` — ticks de hoy (`options_data`) + un cierre por día de los últimos 21 (`options_data_hist`) |
+| **Histórico de un contrato** | Sí (on-demand) | `GET /api/cotizaciones/historico/opciones` (+ `vr-ggal`) | `opciones_sql.py::get_historico_opciones` — ticks de hoy (`options_data`) + un cierre por día de la vida del contrato (`options_data_hist`) |
 | **Griegas histórico** | Sí (on-demand) | `GET /api/cotizaciones/griegas/opciones` | `opciones.py::get_griegas_historico` |
 | **Spot GGAL diario** (2º eje charts) | Sí | `GET /api/cotizaciones/vr-ggal` | `opciones.py::get_vr_ggal_serie` |
 
@@ -60,6 +60,13 @@ Endpoints verificados en `api/routers/cotizaciones.py` (289–339) y
 ---
 
 ### 3. Tablas SQL (schema `mercado`) — quién las lee y quién las llena
+
+> **Trampa que costó una tarde:** `options_data` (ticks) la purga `archive_options_data` todas
+> las noches (20:50 UTC) y deja SOLO la rueda vigente. Ningún histórico intradía tiene más de
+> 1-2 días. Los días anteriores salen de `options_data_hist` (rollup de `options_rollup`, una
+> fila por contrato y día con high/low/last/ev/griegas/spot): los dos endpoints de histórico
+> suman un punto de cierre (17:00) por día a los ticks de hoy, sin duplicar los días que sí
+> tienen intradía.
 
 **Verificado: `opciones.py` lee SQL vía `core.postgres.get_pool()`.**
 

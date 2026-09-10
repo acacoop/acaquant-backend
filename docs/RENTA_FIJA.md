@@ -85,6 +85,14 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    `× 1,25` redondeado a número lindo: la línea usa casi todo el alto y sigue
    quedando aire para el número sobre el punto más alto. El capital (barras,
    eje izquierdo) no cambió.
+3. **SIMULAR INVERSIÓN dibuja el flujo IGUAL que la ficha.** Tenía dos gráficos
+   de barras apilados (capital arriba, renta abajo); la mesa pidió el mismo
+   gráfico de la ficha. El dibujo se extrajo a **`flujo-fondos-chart.tsx`** y lo
+   montan los dos modales: la ficha por 100 VN (3 decimales), el simulador en
+   MONTOS escalados al importe (0 decimales, ejes en notación compacta) y con el
+   mismo pie: pagos futuros · próximo pago · último pago · total a cobrar. Un
+   solo componente para que no vuelvan a separarse (era el caso: el mismo flujo
+   con dos dibujos distintos a dos clicks de distancia).
 
 ### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, el flujo a la derecha
 

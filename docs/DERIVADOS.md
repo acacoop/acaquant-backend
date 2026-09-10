@@ -24,10 +24,10 @@
 
 📋 **Qué es la vista:** `/derivados` (`DerivadosShell` → `DerivadosView`) = la mesa
 de **opciones financieras de GGAL**: cadena call/put, estrategias, payoff,
-escenarios, costo histórico, griegas y un "post-trade lab".
+escenarios, costo histórico y griegas.
 
 📋 **De dónde sale todo:** el schema SQL **`mercado`** (5 tablas de opciones).
-Buena parte de la vista (payoff, escenarios, estrategias, lab) se calcula
+Buena parte de la vista (payoff, escenarios, estrategias) se calcula
 **en el navegador** con Black-Scholes — sin pegar al backend.
 
 📋 **Estado SQL (lo importante):** **DERIVADOS está 100% en SQL** (migración
@@ -45,7 +45,6 @@ los motores/jobs escriben SQL-native vía `core.pg_mirror`.
 | **Estrategias** (tabla variantes) | **No** — cálculo local sobre la cadena | — | — |
 | **Payoff** (P&L vs precio) | **No** — Black-Scholes en el browser | — | — |
 | **Escenarios** | **No** — local | — | — |
-| **Post-Trade Lab** | **No** — local | — | — |
 | **Costo histórico (estrategia)** | Sí (on-demand) | `POST /api/analitica/estrategia-historico` (+ `vr-ggal`) | `opciones.py::estrategia_historico` |
 | **Histórico de un contrato** | Sí (on-demand) | `GET /api/cotizaciones/historico/opciones` (+ `vr-ggal`) | `opciones.py::get_historico_opciones` |
 | **Griegas histórico** | Sí (on-demand) | `GET /api/cotizaciones/griegas/opciones` | `opciones.py::get_griegas_historico` |
@@ -54,7 +53,7 @@ los motores/jobs escriben SQL-native vía `core.pg_mirror`.
 Endpoints verificados en `api/routers/cotizaciones.py` (289–339) y
 `api/routers/analitica.py` (249). 
 
-> **Dato clave:** ~la mitad de la vista (payoff/escenarios/estrategias/lab) es
+> **Dato clave:** ~la mitad de la vista (payoff/escenarios/estrategias) es
 > **cálculo Black-Scholes client-side**. El backend solo sirve: cadena viva,
 > históricos, griegas, meta y spot.
 
@@ -141,7 +140,7 @@ Front: cadena poll 30s; el resto on-demand (al seleccionar contrato/estrategia).
   `derivados-view.tsx`, `opciones-table-compact.tsx`, `estrategias-tabla.tsx`,
   `payoff-chart.tsx`, `escenarios-tabla.tsx`, `costo-historico-chart.tsx`,
   `opcion-historico-chart.tsx`, `griegas-historico-chart.tsx`,
-  `post-trade-lab.tsx`, `lib/estrategias.ts` (Black-Scholes client-side).
+  `lib/estrategias.ts` (Black-Scholes client-side).
 - **Routers:** `api/routers/cotizaciones.py` (289–339), `api/routers/analitica.py` (249).
 - **Service:** `api/services/opciones.py`. Conexión SQL: `core.postgres.get_pool()`.
 - **Motor:** `engines/options.py` (`OptionsEngine`).

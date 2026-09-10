@@ -106,6 +106,15 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    y la mesa no entendía qué era eso. Ahora sin texto no lista nada; con
    texto busca por TICKER, primero los que empiezan así y después los que lo
    contienen, tope 12, Enter elige el primero.
+6. **El modal de la ficha mide lo que mide su contenido.** Tenía alto fijo
+   (`h-[88vh]`): una Lecap con un solo pago dejaba media pantalla en negro.
+   Ahora el alto es el del contenido con tope en 88 vh, y recién a partir de
+   ahí se achica y scrollea la tabla. La trampa que hay que saber: dentro de
+   un contenedor de alto automático, `flex-1` (base 0) hace que el cuerpo
+   mida CERO; va `flex-[0_1_auto]` (base = contenido, puede achicarse, no se
+   estira) en el cuerpo y en la grilla, y `flex-[1_1_auto]` en la tabla.
+   Medido en Chromium con una réplica de la estructura: 1 fila → 183 px,
+   6 → 308 px, 60 → tope 794 px con scroll.
 
 ### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, el flujo a la derecha
 

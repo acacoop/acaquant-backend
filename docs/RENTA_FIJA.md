@@ -78,16 +78,16 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    el estado sigue siendo un array de una posición para no tocar los `includes`
    de abajo, y al cambiar de tipo se siguen soltando los emisores por nombre que
    el tipo nuevo ya no muestra.
-2. **El flujo vuelve a UNA sola escala.** El eje derecho propio de la renta
-   (paso 26) dejaba la línea de cupones a una altura que no significaba nada:
-   con el techo en `× 2,2` vivía en el tercio de abajo con dos tercios vacíos;
-   con `× 1,25` (primer intento de hoy) quedaba a 3/4 del alto y un cupón de
-   182 parecía casi tan grande que una amortización de 9.625. La mesa lo dijo
-   dos veces, con las dos alturas: «no tiene lógica». La lógica es que la
-   altura sea el monto: las dos series van contra el MISMO eje, en un bullet
-   el cupón queda bajo porque ES chico, y el monto se lee en el número sobre
-   cada punto. Las dos FORMAS (barra / punto) siguen, que es lo que deja ver
-   un cupón de 0,5 al pie de una barra de 100.
+2. **El techo del eje de la renta pasa a ≈ 2× el cupón más grande** (el
+   cupón más alto queda a MITAD del gráfico). Historia del día, para no
+   repetirla: con `× 2,2` la línea vivía en el tercio de abajo con dos tercios
+   vacíos («no se ajusta»); con `× 1,25` quedaba a 3/4 del alto, pegada a la
+   amortización, y un cupón de 182 «parecía» igual de grande que una
+   amortización de 9.625 («queda tan arriba, no tiene lógica»); y **la escala
+   única se probó y se revirtió el mismo día**: con 38 cupones de 6 contra una
+   amortización de 1.104 la línea quedaba plana en el cero, exactamente lo que
+   el paso 26 había descartado. El eje doble con dos FORMAS sigue siendo el
+   diseño; lo único que se calibró es a qué altura vive el cupón.
 3. **SIMULAR INVERSIÓN dibuja el flujo IGUAL que la ficha.** Tenía dos gráficos
    de barras apilados (capital arriba, renta abajo); la mesa pidió el mismo
    gráfico de la ficha. El dibujo se extrajo a **`flujo-fondos-chart.tsx`** y lo
@@ -104,6 +104,11 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    nominal (+ CER emisión / pago final cuando aplican). El cronograma pasa a
    `flex-1`: se estira hasta el piso de la columna en vez de quedarse en su
    alto natural. Las patas de un dual siguen visibles en la tira de tasas.
+5. **El selector de bono del simulador sugiere SOLO al tipear.** Abría la
+   lista entera (221 tickers en orden cronológico) con solo enfocar el campo,
+   y la mesa no entendía qué era eso. Ahora sin texto no lista nada; con
+   texto busca por TICKER, primero los que empiezan así y después los que lo
+   contienen, tope 12, Enter elige el primero.
 
 ### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, el flujo a la derecha
 
@@ -134,9 +139,11 @@ derecha queda entera para el flujo, a toda la altura del modal.
   comparables) — **nadie compara la altura de una línea contra la de una barra**,
   y el cupón se lee por su NÚMERO, no midiéndolo contra su escala. Cada eje va
   del color de su serie, el mismo criterio del gráfico de ALTA DE CUENTAS.
-- ~~**El eje de la renta tiene techo fijo**~~ — **superado en el paso 27**: el
-  eje derecho se fue y las dos series van contra la misma escala. Las barras van **finas y al 50% de opacidad**: macizas y anchas
-  el gráfico es un paredón donde no se lee ni la línea ni sus números.
+- **El eje de la renta tiene techo fijo** (`≈ cupón máximo × 2`, redondeado a
+  un número lindo; calibrado en el paso 27): el cupón más alto queda a mitad
+  del gráfico y las marcas en números redondos. Las barras van **finas y al
+  50% de opacidad**: macizas y anchas el gráfico es un paredón donde no se lee
+  ni la línea ni sus números.
 - **Los números del cupón aparecen si ENTRAN**, medido en píxeles por pago
   (`ResizeObserver` sobre la caja del gráfico, umbral 46 px), no contando pagos:
   los mismos 8 pagos entran holgados en el modal y se pisan en un teléfono.

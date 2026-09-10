@@ -137,3 +137,12 @@ def test_fci_es_modulo_de_la_mesa_y_no_del_invitado():
 def test_prefijo_api_fci_mapea_al_modulo_fci():
     assert get_module_for_path("/api/fci/tabla") == "fci"
     assert get_module_for_path("/api/fci/fondo/7") == "fci"
+
+
+def test_alias_compartido_se_detecta_y_el_desempate_es_reproducible():
+    alias = {"TORONTO": ["Toronto Trust"], "BACS": ["Toronto Trust"], "IAM": []}
+    assert fci_match.alias_compartidos(alias) == {"toronto trust": ["BACS", "TORONTO"]}
+    # empate de longitud → gana la gerente alfabéticamente menor, siempre la misma
+    assert fci_match.gerente_de("Toronto Trust Ahorro - Clase B", alias) == "BACS"
+    assert fci_match.gerente_de("Toronto Trust Ahorro - Clase B", dict(reversed(list(alias.items())))) == "BACS"
+    assert fci_match.alias_compartidos({"IAM": ["IAM"], "MAX": ["Max"]}) == {}

@@ -64,14 +64,30 @@ def gerente_de(nombre: str, alias_por_gerente: dict[str, list[str]]) -> str | No
     n = normalizar(nombre)
     if not n:
         return None
+    # Empate de longitud (el mismo alias cargado en dos gerentes) → gana la de
+    # nombre alfabéticamente menor: reproducible corrida a corrida, y el job
+    # avisa del alias compartido (`alias_compartidos`) para que la mesa lo resuelva.
     mejor: tuple[int, str] | None = None
-    for gerente, aliases in alias_por_gerente.items():
-        for a in [gerente, *aliases]:
+    for gerente in sorted(alias_por_gerente):
+        for a in [gerente, *alias_por_gerente[gerente]]:
             an = normalizar(a)
             if an and (n == an or n.startswith(an + " ")):
                 if mejor is None or len(an) > mejor[0]:
                     mejor = (len(an), gerente)
     return mejor[1] if mejor else None
+
+
+def alias_compartidos(alias_por_gerente: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Alias (normalizados) que aparecen en MÁS de una gerente → `{alias: [gerentes]}`.
+    Un fondo que empiece así se asigna de forma reproducible pero arbitraria: es
+    la mesa la que tiene que decidir a quién pertenece."""
+    donde: dict[str, set[str]] = {}
+    for g, aliases in alias_por_gerente.items():
+        for a in [g, *aliases]:
+            an = normalizar(a)
+            if an:
+                donde.setdefault(an, set()).add(g)
+    return {a: sorted(gs) for a, gs in donde.items() if len(gs) > 1}
 
 
 def sugerir_categoria(tipo_renta: str | None, plazo: int | None, moneda: str | None) -> str | None:

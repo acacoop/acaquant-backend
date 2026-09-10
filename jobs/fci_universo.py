@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 import pyRofex
 
 from core.fci_match import (
+    alias_compartidos,
     gerente_de,
     nombre_desde_primary,
     normalizar,
@@ -61,6 +62,9 @@ _MIN_CIO = 200   # debajo de esto la foto de Primary es anómala → no se desac
 
 # Alias que el nombre del fondo NO dice solo (marca ≠ sociedad). Se siembran una
 # vez al crear la gerente; después son de la mesa (scripts/fci_admin gerente).
+# Un alias vive en UNA sola gerente: si la mesa nombra a la misma sociedad de dos
+# formas (TORONTO y BACS), el alias se carga a mano en una y el job avisa si queda
+# compartido (`alias_compartidos`).
 _ALIAS_CONOCIDOS: dict[str, list[str]] = {
     "TORONTO":  ["Toronto Trust"],
     "MARIVA":   ["MAF", "Mariva"],
@@ -70,11 +74,7 @@ _ALIAS_CONOCIDOS: dict[str, list[str]] = {
     "MAX":      ["Max"],
     "STONEX":   ["StoneX", "Gainvest"],
     "MEGAQM":   ["MegaQM", "Megainver", "Quinquela"],
-    "MEGA QM":  ["MegaQM", "Megainver", "Quinquela"],
-    "PATAGONIA": ["Lombard", "Patagonia"],
     "LOMBARD":  ["Lombard"],
-    "BACS":     ["Toronto Trust", "BACS"],
-    "INVESTIS": ["Compass", "Vinci Compass"],
     "COMPASS":  ["Compass", "Vinci Compass"],
     "CREDICOOP": ["1810"],
 }
@@ -95,7 +95,7 @@ def _asegurar_gerentes(cur, dry: bool) -> tuple[int, dict[str, list[str]]]:
                 "WHERE segmento = 'Fondos' AND contraparte IS NOT NULL AND btrim(contraparte) <> ''")
     de_cp = {r[0] for r in cur.fetchall()}
     cur.execute("SELECT DISTINCT upper(btrim(emisor)) FROM portafolio.assets "
-                "WHERE cartera IN ('FCI', 'CARTERA FCI') AND emisor IS NOT NULL "
+                "WHERE cartera IN ('FCI', 'CARTERA FCI') AND COALESCE(vigente, true) AND emisor IS NOT NULL "
                 "AND btrim(emisor) <> '' AND upper(btrim(emisor)) NOT IN ('NO APLICA', 'N/A', '-')")
     de_assets = {r[0] for r in cur.fetchall()}
     cur.execute("SELECT gerente FROM mercado.fci_gerentes")
@@ -108,7 +108,7 @@ def _asegurar_gerentes(cur, dry: bool) -> tuple[int, dict[str, list[str]]]:
                         "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                         (g, alias, "contrapartes" if g in de_cp else "assets"))
         nuevas += 1
-    cur.execute("SELECT gerente, alias FROM mercado.fci_gerentes WHERE seguida")
+    cur.execute("SELECT gerente, alias FROM mercado.fci_gerentes WHERE seguida ORDER BY gerente")
     seguidas = {g: list(a or []) for g, a in cur.fetchall()}
     if dry:   # en dry las nuevas no están en la base: se agregan al mapa en memoria
         for g in (de_cp | de_assets) - existentes:
@@ -176,13 +176,13 @@ def _primary(cur, seguidas: dict[str, list[str]], dry: bool, jr: JobRunLogger) -
 
 def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: JobRunLogger) -> None:
     cur.execute("SELECT unidad, ticker, emisor, instrumento, cafci FROM portafolio.assets "
-                "WHERE cartera IN ('FCI', 'CARTERA FCI') AND COALESCE(vigente, true)")
+                "WHERE cartera IN ('FCI', 'CARTERA FCI') AND COALESCE(vigente, true) ORDER BY unidad")
     assets = cur.fetchall()
     por_norm: dict[str, list[dict]] = {}
     for f in primary["filas"]:
         por_norm.setdefault(f["nombre_norm"], []).append(f)
     now = datetime.now(UTC)
-    linkeados = nuevos_link = bilaterales = ambiguos = fuera = 0
+    linkeados = nuevos_link = bilaterales = ambiguos = fuera = conflictos = 0
     for unidad, ticker, emisor, instrumento, cafci in assets:
         gerente = (emisor or "").strip().upper() or None
         if gerente and gerente not in seguidas:
@@ -219,9 +219,16 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
             # pasa a la fila Primary (sin pisar lo que ya tenga) y la vieja se borra.
             cur.execute("SELECT fci_id FROM mercado.fci WHERE simbolo_primary = %s", (sym,))
             destino = cur.fetchone()[0]
-            cur.execute("SELECT fci_id FROM mercado.fci WHERE unidad = %s AND fci_id <> %s",
+            cur.execute("SELECT fci_id, simbolo_primary FROM mercado.fci WHERE unidad = %s AND fci_id <> %s",
                         (unidad, destino))
             vieja = cur.fetchone()
+            if vieja and vieja[1]:
+                # La unidad ya está linkeada a OTRO fondo de Primary: dos assets con
+                # el mismo símbolo, o un símbolo mal cargado. No se borra nada a
+                # ciegas (REGLA #9): se avisa y la mesa lo resuelve en Manager.
+                conflictos += 1
+                jr.log(f"   conflicto: {unidad[:60]} ya linkeada a {vieja[1]!r}; no se mueve a {sym!r}")
+                continue
             if vieja:
                 cur.execute("INSERT INTO mercado.fci_vcp (fci_id, fecha, vcp, fuente) "
                             "SELECT %s, fecha, vcp, fuente FROM mercado.fci_vcp WHERE fci_id = %s "
@@ -248,6 +255,7 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
     jr.set_stat("assets_instrumento_completado", nuevos_link)
     jr.set_stat("assets_sin_primary", bilaterales)
     jr.set_stat("assets_ambiguos", ambiguos)
+    jr.set_stat("assets_conflicto_simbolo", conflictos)
     jr.set_stat("assets_gerente_no_seguida", fuera)
 
 
@@ -276,6 +284,10 @@ def main() -> int:
         nuevas, seguidas = _asegurar_gerentes(cur, a.dry)
         jr.set_stat("gerentes_nuevas", nuevas)
         jr.set_stat("gerentes_seguidas", len(seguidas))
+        compartidos = alias_compartidos(seguidas)
+        jr.set_stat("alias_compartidos", len(compartidos))
+        for al, gs in compartidos.items():
+            jr.log(f"   ⚠️ alias '{al}' en {gs}: gana {gs[0]} — resolver con scripts/fci_admin gerente")
         if not seguidas:
             jr.error("no hay gerentes seguidas: cargar contrapartes (segmento Fondos) o assets FCI con emisor")
             return 1

@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **514 endpoints** montados en `api.main.app`, en **33 routers**.
-- **192 escriben** (POST/PUT/PATCH/DELETE); 322 son de solo lectura.
+- **512 endpoints** montados en `api.main.app`, en **33 routers**.
+- **192 escriben** (POST/PUT/PATCH/DELETE); 320 son de solo lectura.
 - **21 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -76,7 +76,7 @@
 | `/api/research-fred` | 2 | 0 | `research` | — |  |
 | `/api/research1816` | 10 | 0 | `research` | — |  |
 | `/api/risk` | 5 | 0 | `operar` | `operar` |  |
-| `/api/scanner` | 7 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
+| `/api/scanner` | 5 | 0 | `renta-variable` · 2 rutas con gate extra | — |  |
 | `/api/titulos` | 2 | 0 | — | `portfolios` | ⚠️ |
 | `/api/trading` | 6 | 0 | `trading` | `trading` |  |
 | `/api/valuaciones` | 8 | 0 | `portfolios` · 8 rutas con gate extra | — |  |
@@ -186,7 +186,7 @@ páginas.
 | `derivados` | `/derivados` (opciones) | **NINGUNO** — los GET de `/api/derivados/*` son `_PUBLIC` |
 | `agro` | `/agro` | Solo las **5 PATCH** de `/api/derivados/agro/*` (`require_module("agro")` + `require_no_invitado`) |
 | `sinteticos` | `/sinteticos` | **NINGUNO** — `derivados_sinteticos.router` va `_PUBLIC` bajo `/api/derivados` |
-| `renta-variable` | `/renta-variable` | `/api/scanner/*` (9 rutas) |
+| `renta-variable` | `/renta-variable` | `/api/scanner/*` (5 rutas) |
 | `trading` | `/trading` | `/api/trading/*` (6) |
 | `operar` | `/operar` + envío de órdenes | `/api/ordenes`, `/api/operativa`, `/api/operar`, `/api/risk` (22) |
 | `operaciones` | `/operaciones`, `/operadores`, `/contrapartes`, `/referidos` | `/api/operaciones`, `/api/cuentas` (46) — **`/mesa-dinero` salió del módulo el 2026-08-11**: allowlist per-usuario |
@@ -670,7 +670,7 @@ Fase 3, 2026-06-22) · `mercado.market_snapshot` (live de `motor_curvas`/`motor_
 ### Vista: SCANNER DE CEDEARS (ruta frontend: `/renta-variable`)
 - **Módulo RBAC**: `renta-variable` (gate propio del router: `dependencies=[Depends(require_module("renta-variable"))]`; en `main.py` va con `_PUBLIC`). | **Roles**: admin, trader, sales, asistente_comercial, invitado. NO `back_office`.
 - **Archivos front**: `scanner-view.tsx` → `cedears-scanner-table.tsx`. **Proxy Next `/api/scanner/[...path]` es solo GET** → cero escrituras posibles desde la vista.
-- **Refactor 2026-09-10 (pasos 1 y 2):** la vista son DOS paneles 50/50: **CEDEARS** (izquierda, la tabla en ARS) y **ADR** (derecha, TradingView del **subyacente en USD** del papel elegido — `underlying` de la fila, YPFD→YPF; es el ADR y no el CEDEAR a propósito). Sin click, el chart arranca con el primer papel del orden por defecto (INTRA desc). Se fueron el switch CEDEAR/ADR, las columnas RUBRO / SPREAD / VWAP, el panel MÉTRICAS entero (PULSO · PIVOTS/VOL · RETORNOS) y el panel CHART & RETORNOS (`metricas-panel.tsx` y `ticker-chart-panel.tsx` borrados). Los endpoints por ticker (`/pivot`, `/quant`, `/returns`) siguen vivos en el backend **sin consumidor**; `pivot-points-panel.tsx` y `retornos-chart.tsx` quedan en el repo sin importador **a propósito** (se van a reusar en otro lado, decisión del user).
+- **Refactor 2026-09-10 (pasos 1 y 2):** la vista son DOS paneles 50/50: **CEDEARS** (izquierda, la tabla en ARS) y **ADR** (derecha, TradingView del **subyacente en USD** del papel elegido — `underlying` de la fila, YPFD→YPF; es el ADR y no el CEDEAR a propósito). Sin click, el chart arranca con el primer papel del orden por defecto (INTRA desc). Se fueron el switch CEDEAR/ADR, las columnas RUBRO / SPREAD / VWAP, el panel MÉTRICAS entero (PULSO · PIVOTS/VOL · RETORNOS) y el panel CHART & RETORNOS (`metricas-panel.tsx` y `ticker-chart-panel.tsx` borrados). **Paso 3 (mismo día):** `/returns` y `/quant` se **borraron** del backend (con `retornos-chart.tsx`, la tab VOL & BETA y el test) — nadie los consumía y Research ya tiene los retornos posta (Reuters). `/pivot` sobrevive porque lo consume la ventana **PIVOTS** de TRADING → MONITOR (`pivot-points-panel.tsx`, ver esa tab). Y `/cedears` dejó de mandar `adr_*`, `rubro` y `es_ia`: ningún consumidor los leía (front, `monitor_sql`, `trading_pivots`) y con ellos se fue una lectura de `precios_acciones` para todo el universo + otra de `adr_snapshot` en cada hit de un poll de 2 s.
 
 | Tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
@@ -680,13 +680,9 @@ Fase 3, 2026-06-22) · `mercado.market_snapshot` (live de `motor_curvas`/`motor_
 #### Endpoints — `scanner.py` (`/api/scanner`, gate `renta-variable`; además en `GUEST_PATH_PREFIXES`)
 | Método | Path | Qué hace | Params | Escribe |
 |---|---|---|---|---|
-| GET | `/cedears` | Master + snapshot live joineado: `ticker_corto, nombre, underlying, ratio_cedear, sector, rubro, es_ia, industria, region, pais, last, open, high, low, close, bid, offer, vwap, volume, total_money, spread_pct, intraday_pct, vs_1d_pct, vs_1d_usd_pct, adr_*` (`@cached ttl=2`) | — | No |
+| GET | `/cedears` | Master + snapshot live joineado: `ticker_corto, nombre, underlying, ratio_cedear, last, open, high, low, close, bid, offer, spread, spread_pct, vwap, volume, total_money, intraday_pct, vs_1d_pct, vs_1d_usd_pct, updated_at` (`@cached ttl=2`). **Sin `adr_*` / `rubro` / `es_ia` desde 2026-09-10** | — | No |
 | GET | `/ccl` | CCL live + var 1D. Cae al último cierre si el snapshot tiene >60s (`ttl=5`) | — | No |
-| GET | `/cedears/trades` | Tape intradía del CEDEAR, hora ARGENTINA naive. **SIN CONSUMIDOR en el front** | `ticker` (req), `limite` (def 200) | No |
-| GET | `/cedears/intraday` | Serie por minuto desde el tape de hoy. **SIN CONSUMIDOR en el front** | `ticker` (req) | No |
-| GET | `/returns/{ticker}` | Retornos diarios aritméticos del subyacente USD (`ttl=60`) | path | No |
-| GET | `/quant/{ticker}` | `beta/alpha/corr` vs SPY y QQQ, `vol.d30/d60`, `zscore.d30/d60`, `n_observations` (ventana 60) (`ttl=60`) | path | No |
-| GET | `/pivot/{ticker}` | Pivots en 4 timeframes; el `last` se pisa con el live del ADR (`last_source: live\|eod`) (`ttl=60`) | path (resuelve `ticker_corto → underlying`, ej. YPFD→YPF) | No |
+| GET | `/pivot/{ticker}` | Pivots del **ADR en USD** en 4 timeframes (`precios_acciones`); el `last` se pisa con el live del ADR (`last_source: live\|eod`) (`ttl=60`). Consumidor: la ventana **PIVOTS** de TRADING → MONITOR. NO es `/api/trading/pivots` (CEDEAR en ARS) | path (resuelve `ticker_corto → underlying`, ej. YPFD→YPF) | No |
 | GET | `/day-trading` | **ADMIN-ONLY**. Ranking intradía para scalping: vueltas zigzag ≥ objetivo, rango del día, posición en el rango, momentum 15', vs VWAP, spread, flujo comprador, minutos sin operar, costumbre (~20 ruedas) e `idea {lado, motivo}` (`ttl=15`). **SIN CONSUMIDOR en el front** | `objetivo` % (def 0.5, clamp 0.1–5) | No |
 | GET | `/companeros/{ticker}` | **ADMIN-ONLY**. Correlación diaria: top `n` que acompañan y top `n` que van al revés (`ttl=300`). **SIN CONSUMIDOR en el front** | path, `n` (def 6, 1–15) | No |
 
@@ -697,13 +693,13 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 `mercado.cedears` (master, `activo IS TRUE`) · `mercado.cedears_snapshot` (`engines/motor_cedears.py`,
 ~1s, L-V 13:20–20:05 UTC) · `mercado.cedears_time_sales` (se VACÍA al cierre:
 `jobs/cleanup_cedears_timesales.py` 23:50 UTC) · `mercado.adr_snapshot` (`jobs/adr_live.py` cada 15') ·
-`mercado.precios_acciones` (`jobs/precios_acciones_daily.py` 22 UTC — base de returns/quant/pivots/anchors)
+`mercado.precios_acciones` (`jobs/precios_acciones_daily.py` 22 UTC — base de `/pivot`)
 · `mercado.day_trading_stats` (`jobs/day_trading_stats.py` 20:06 UTC) · CCL vía `core.dolar_sql`
 (**SIN VERIFICAR** los nombres exactos de tabla) · correlaciones de `/companeros` vía
 `rv_motor.get_correlation_matrix()` (252 ruedas).
 
 #### Notas / rarezas
-- **4 endpoints del scanner no tienen consumidor en el frontend**: `/cedears/trades`, `/cedears/intraday` (el tape de TRADING usa los gemelos `/api/trading/*` que además resuelven bonos) y los dos admin-only `/day-trading` y `/companeros` — la vista `/trade-lab` que los alimentaba **no existe** en el checkout (solo quedan comentarios que la mencionan). Backend vivo, UI muerta.
+- **2 endpoints del scanner no tienen consumidor en el frontend**: los admin-only `/day-trading` y `/companeros` — la vista `/trade-lab` que los alimentaba **no existe** en el checkout (solo quedan comentarios que la mencionan). Backend vivo, UI muerta.
 - `vs_1d_usd_pct = ((1+vs_1d/100)/(1+ccl_1d/100)−1)×100` — descuenta la devaluación implícita del CCL.
 - Timestamps del tape en **hora argentina naive a propósito** (bug 2026-07-14: se emitían naive-UTC y el tape mostraba +3h).
 - `es_ia` no es columna: es el filtro "A.I" del PULSO.
@@ -736,7 +732,7 @@ rechaza siempre al portal invitado. No es delegable desde el panel.
 | **RADAR → VOLUMENES ACCIONES** | Top 30 por **CASH** (`total_money`, no nominal), con barra proporcional al líder y Σ cash del universo | `/api/scanner/cedears` (2s) | Ninguno (top 30 fijo) | Ninguna |
 | **RADAR → PIVOTES** | De TODO el universo, los que tienen el `last` pegado a un nivel (PP/R1..R3/S1..S3): Ticker, Last, Nivel, Precio, Dist ↑/↓ % y **$ Operado** (cash del día — un papel pegado a un pivote no sirve si no lo opera nadie). El cash lo manda el backend en la MISMA fila (`cash` = `total_money`, el mismo campo que ranquea VOLUMENES): el front no cruza nada, si leyeran fuentes distintas el mismo papel podría mostrar dos números | `GET /api/trading/pivot-radar` (2s) | **Umbral 0.05 % / 0.1 % / 0.2 % (def) / 0.5 %** — filtra en el cliente, NO re-pega | Ninguna |
 | **PIVOTS** → charts LIVE 1 y 2 (mitad derecha) | Dos charts idénticos: precio intradía por minuto (área) con líneas de los 7 pivots + VWAP; si hay override, las líneas siguen la edición. Cada uno tiene **✕** para liberarlo (el próximo activo elegido entra ahí) | `GET /api/trading/intraday?ticker` | Zoom/pan; auto-reencuadre si el usuario no interactuó | Ninguna |
-| **MONITOR** (tab nueva 2026-09-04) | Volumen operado **por precio**. Filtro madre **RENTA FIJA / RENTA VARIABLE** (nunca se mezclan: cambian universo, unidades y ventanas). Izquierda 20 % el universo de la clase; derecha 50/50: precio del tape arriba (con VWAP y último) y abajo el histograma de nominales por precio, con **POC** (más operado), **VAL** (piso del 70 %) y **VAH** (techo del 70 %), cada uno como KPI propio y nombrado — en el gráfico son siglas sueltas. El volumen **no se parte por lado** | `GET /api/trading/monitor/universo?clase=`, `GET /api/trading/monitor?clase&ticker&ventana&buckets` | **Clase** (rv def) · **curva** en renta fija (TASA FIJA/CER/TAMAR/…, def TODAS; el catálogo y el conteo los manda el backend, y un dual aparece en las DOS) · **ventana** (rv: HOY/5R/20R · rf: HOY/3R/5R; **abre en la más larga — 20R en rv, 5R en rf**, y el default lo declara el BACKEND en `POR_DEFECTO`, no el front) · buscador del rail · buckets 8-60 (def 26) | Ninguna |
+| **MONITOR** (tab nueva 2026-09-04) | Volumen operado **por precio**. Filtro madre **RENTA FIJA / RENTA VARIABLE** (nunca se mezclan: cambian universo, unidades y ventanas). Izquierda 20 % el universo de la clase; derecha 50/50: precio del tape arriba (con VWAP y último) y abajo el histograma de nominales por precio, con **POC** (más operado), **VAL** (piso del 70 %) y **VAH** (techo del 70 %), cada uno como KPI propio y nombrado — en el gráfico son siglas sueltas. El volumen **no se parte por lado** | `GET /api/trading/monitor/universo?clase=`, `GET /api/trading/monitor?clase&ticker&ventana&buckets` | **Clase** (rv def) · **curva** en renta fija (TASA FIJA/CER/TAMAR/…, def TODAS; el catálogo y el conteo los manda el backend, y un dual aparece en las DOS) · **ventana** (rv: HOY/5R/20R · rf: HOY/3R/5R; **abre en la más larga — 20R en rv, 5R en rf**, y el default lo declara el BACKEND en `POR_DEFECTO`, no el front) · buscador del rail · buckets 8-60 (def 26) · **botón PIVOTS** (solo renta variable, 2026-09-10): abre una `VentanaFlotante` con `pivot-points-panel.tsx` = máximo / mínimo / cierre del período previo + R3…S3 con distancia al last, en DIARIO / SEMANAL / MENSUAL / ANUAL, del **ADR en USD** (`GET /api/scanner/pivot/{ticker}`, gate `renta-variable`, poll 60 s). Es el panel que tenía `/renta-variable`; NO toca los pivots en ARS de la tab PIVOTS | Ninguna |
 | **INTRADAY** | Monitor FIFO del día: se sube el **CSV de boletos** (export ROFEX/Aunesa, **latin-1**) y consolida por (cuenta, especie): posición neta, precio ponderado, PnL realizado/no realizado, intereses+IVA, costo en book, detalle por posición y simulador en drawer | `POST /api/operaciones/intraday/{analizar,recalcular,marks}` (**módulo `operaciones`, NO `trading`**) | **Selector de cuenta**; **tilde por especie**; **tilde por trade individual** (re-FIFO en backend); **override manual de mark**; **multiplicador de contrato** (1 acción/CEDEAR, 100 derivado); simulador con escalones ±0.25/0.5/0.75/1/1.25/1.5/2 % | POSTs de cálculo **efímeros: NO persisten en DB**. Todo vive en sessionStorage/localStorage (`intraday_fifo_v2`, `intraday_excl_v1`, `trd-fx-intraday-posiciones-v1`) |
 
 #### Endpoints
@@ -2595,9 +2591,9 @@ GET `/listar-curva` · `/serie-macro` · `/clasificar-nivel` ·
 ### `titulos.py` — `/api/titulos`, `_PUBLIC`
 GET `/assets` · GET `/flujos` — **2, ninguno escribe**
 
-### `scanner.py` — `/api/scanner`, módulo `renta-variable` (9)
-GET `/cedears` · `/ccl` · `/cedears/trades` · `/cedears/intraday` · `/returns/{ticker}` ·
-`/quant/{ticker}` · `/pivot/{ticker}` · `/day-trading` **(admin)** · `/companeros/{ticker}` **(admin)**
+### `scanner.py` — `/api/scanner`, módulo `renta-variable` (5)
+GET `/cedears` · `/ccl` · `/pivot/{ticker}` · `/day-trading` **(admin)** · `/companeros/{ticker}` **(admin)**
+(`/returns` y `/quant` se borraron el 2026-09-10)
 — **ninguno escribe**
 
 ### `trading.py` — `/api/trading`, módulo `trading` (6)

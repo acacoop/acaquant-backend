@@ -191,11 +191,8 @@ def chk_scanner():
     if not tk:
         return _s("sin ticker_corto activo en mercado.cedears")
     # @cached → SIEMPRE kwargs (el wrapper es wrapper(**kwargs); posicional revienta).
-    rets = scanner_sql.get_ticker_returns(ticker=tk)
-    quant = scanner_sql.get_quant_stats(ticker=tk)
     pivots = scanner_sql.get_pivot_points(ticker=tk)
-    return _p(f"universo={_n(universo)} {tk}: returns={_n(rets.get('returns', []))} "
-              f"beta_spy={quant.get('beta', {}).get('spy')} pivot_last={pivots.get('last')}")
+    return _p(f"universo={_n(universo)} {tk}: pivot_last={pivots.get('last')}")
 
 
 def chk_scanner_live():

@@ -22,11 +22,11 @@
 
 ### 1. Resumen ejecutivo
 
-📋 **Qué es la vista:** `/renta-variable` (`RentaVariableShell` → `ScannerView`):
-tabla scanner de CEDEARs (live BYMA + ADR), Time & Sales intradía, métricas por
-sector ("Pulso"), Pivot Points, Vol/Beta, charts y un módulo de day-trading
-(costumbre de vueltas). **Gate:** `require_module("renta-variable")` (admin +
-trader + sales). Verificado en `api/routers/scanner.py:16-18`.
+📋 **Qué es la vista:** `/renta-variable` (`ScannerView`, desde 2026-09-10):
+panel **CEDEARS** (tabla live BYMA en ARS) + panel **ADR** (TradingView del
+subyacente en USD del papel elegido). Los pivots del ADR viven en la ventana
+PIVOTS de TRADING → MONITOR. **Gate:** `require_module("renta-variable")`
+(admin + trader + sales + asistente_comercial + invitado).
 
 📋 **De dónde sale todo:** SQL (Postgres/Supabase). Tablas del schema `mercado`
 (6) + el CCL del schema `valuaciones`. Conexión vía `core.postgres.get_pool()`.
@@ -45,14 +45,12 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 
 | Bloque | Endpoint backend | Poll | Service |
 |---|---|---|---|
-| **Tabla CEDEARs** (live BYMA + ADR EOD) | `GET /api/scanner/cedears` | 2s | `scanner.py::get_cedears_scanner` |
+| **Tabla CEDEARs** (live BYMA, ARS) | `GET /api/scanner/cedears` | 2s | `scanner_sql.py::get_cedears_scanner` — **sin `adr_*`/`rubro`/`es_ia` desde 2026-09-10** |
 | **CCL** (header) | `GET /api/scanner/ccl` | 5s | `scanner.py::get_ccl_live` |
 | ~~Time & Sales intradía~~ · ~~Chart intradía (live)~~ | **NO EXISTEN.** `/api/scanner/cedears/{trades,intraday}` se dieron de baja; el único endpoint de CEDEARs del scanner es `GET /api/scanner/cedears`, que es lo que consume el front (verificado 2026-08-31 contra `api/routers/scanner.py` y `src/`) | — | — |
-| **Pivot Points** (USD del subyacente) | `GET /api/scanner/pivot/{ticker}` | 60s | `scanner.py::get_pivot_points` |
-| **Vol / Beta** (lazy) | `GET /api/scanner/quant/{ticker}` | on-demand | `scanner.py::get_quant_stats` |
-| **Retornos diarios** (histograma, lazy) | `GET /api/scanner/returns/{ticker}` | on-demand | `scanner.py::get_ticker_returns` |
-| **Pulso por sector** | — (cálculo client-side sobre la tabla) | — | — |
-| **Chart histórico** | TradingView (widget externo) | — | — |
+| **Pivot Points** (USD del subyacente) — hoy en TRADING → MONITOR, ventana PIVOTS | `GET /api/scanner/pivot/{ticker}` | 60s | `scanner_sql.py::get_pivot_points` |
+| ~~Vol / Beta~~ · ~~Retornos diarios~~ · ~~Pulso por rubro~~ | **BORRADOS 2026-09-10** (`/quant`, `/returns` y el cálculo client-side del Pulso) | — | — |
+| **Chart ADR** | TradingView (widget externo, `tradingview-chart.tsx`) | — | — |
 | **Day-trading** (costumbre/vueltas) | `GET /api/scanner/day-trading`, `/companeros/{t}` | — | `day_trading.py` |
 | **Mesa de Estrategia** — solo queda la CORRELACIÓN | — (sin HTTP desde 2026-07-13). `get_trade_analysis`/`get_book_analysis` se borraron con el MCP el 2026-08-28; `get_correlation_matrix` sobrevive porque la usa `day_trading` para `/companeros` | — | `rv_motor.py` |
 
@@ -65,7 +63,7 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 | **cedears** | `mercado` | Maestro categórico (ticker, underlying, sector, ratio) | scanner, day_trading, rv_motor | seed/manual (master) |
 | **cedears_snapshot** | `mercado` | Estado live por CEDEAR (precio/book/vol, ~1s) | scanner, day_trading | **`engines/motor_cedears.py`** (SQL-native cada 1s — `motor_cedears.py:122,296`) |
 | **cedears_time_sales** | `mercado` | Trades intradía (tape) — se vacía al cierre | scanner, day_trading | `engines/motor_cedears.py` (`motor_cedears.py:126,312`) |
-| **precios_acciones** | `mercado` | Cierres EOD del subyacente US (+ SPY/QQQ) | scanner (returns/quant/pivot), rv_motor | **`jobs/precios_acciones_daily.py`** (post-cierre US, Yahoo) |
+| **precios_acciones** | `mercado` | Cierres EOD del subyacente US (+ SPY/QQQ) | scanner (`/pivot`), rv_motor, ficha Reuters | **`jobs/precios_acciones_daily.py`** (post-cierre US, Yahoo) |
 | **adr_snapshot** | `mercado` | ADR live (cada ~15 min en hs US) | scanner (pivot, adr) | `jobs/adr_live.py` (Finnhub) ⚠️ *job a confirmar* |
 | **day_trading_stats** | `mercado` | "Costumbre" de vueltas (~20 ruedas) | day_trading | `jobs/day_trading_stats.py` ⚠️ *a confirmar* |
 | **cedears_ohlc_daily** | `mercado` | OHLC diario ARS del CEDEAR (ventana 60 ruedas) + `atr` (ATR-20 en ARS) | pivots ARS de `/trading` | `jobs/cedears_ohlc_daily.py` (post-cierre 20:15, calcula el ATR) |
@@ -114,7 +112,7 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 |---|---|
 | `get_cedears_scanner` | 2s |
 | `get_ccl_live` | 5s |
-| `get_ticker_returns` / `get_quant_stats` / `get_pivot_points` | 60s |
+| `get_pivot_points` | 60s |
 | `get_day_trading` | 15s; `_costumbre` 600s; `get_companeros` / correlaciones 300s |
 
 Motor escribe `mercado.cedears_snapshot` cada 1s → cache 2s del scanner balancea frescura.
@@ -137,8 +135,8 @@ Motor escribe `mercado.cedears_snapshot` cada 1s → cache 2s del scanner balanc
 
 - **Frontend:** `acaquant-web/src/app/renta-variable/page.tsx` +
   `scanner-view.tsx`, `cedears-scanner-table.tsx`, `tradingview-chart.tsx`
-  (compartido con HOME), `lib/types-scanner.ts`. `pivot-points-panel.tsx` y
-  `retornos-chart.tsx` están sin importador a propósito (ver changelog).
+  (compartido con HOME), `lib/types-scanner.ts`. `pivot-points-panel.tsx` lo
+  monta `monitor-view.tsx` (TRADING → MONITOR, ventana PIVOTS).
 - **Router:** `api/routers/scanner.py`.
 - **Services:** `scanner.py`, `day_trading.py`, `rv_motor.py` (+ `scanner_sql`).
 - **Motor:** `engines/motor_cedears.py` (escribe SQL-native vía `core.pg_mirror`).
@@ -339,6 +337,42 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
   Los componentes `metricas-panel.tsx`, `pivot-points-panel.tsx`,
   `retornos-chart.tsx` y `ticker-chart-panel.tsx` quedaron en el repo sin
   importador por el mismo motivo; si el lado derecho no los recupera, se borran.
+
+- **2026-09-10 — REFACTOR, paso 3: los pivots del ADR vuelven como ventana
+  en TRADING → MONITOR; retornos, vol/beta y las columnas ADR del scanner se
+  borran.**
+
+  **PIVOTS.** En MONITOR (solo RENTA VAR.) hay un botón `PIVOTS` al lado de
+  `APROX.` que abre una `VentanaFlotante` (la misma del LIBRO de renta fija:
+  encima del chart, sin taparlo, arrastrable) con `pivot-points-panel.tsx`:
+  máximo / mínimo / cierre del período previo + R3…S3 con distancia al last,
+  en DIARIO / SEMANAL / MENSUAL / ANUAL. Es el panel que tenía
+  `/renta-variable`, sin la tab VOL & BETA, y ahora pollea por `usePoll` (60 s,
+  con techo) en vez de un `setInterval` propio. ⚠️ **Son los pivots del ADR en
+  USD** (`GET /api/scanner/pivot/{ticker}` → `precios_acciones`): el título de
+  la ventana lo dice (`ADR · USD del subyacente`) porque el chart de al lado
+  está en pesos. **No se tocó nada de los pivots en ARS de Trading**
+  (`trading_pivots.py`, `/api/trading/pivots`, cards, radar PIVOTES): son otro
+  service sobre otra tabla y conviven. Decisión del user: «todo lo de pivots
+  que sea calculado o consumido desde Trading no se toca».
+
+  **Se borró** (verificado sin consumidor en los dos repos): `GET /returns` y
+  `GET /quant` con `get_ticker_returns` / `get_quant_stats` / `_serie_closes`,
+  `tests/unit/test_scanner_returns.py`, las dos líneas del `healthcheck_sql`,
+  `retornos-chart.tsx` y los tipos `TickerReturns` / `QuantStats`. Research ya
+  tiene los retornos posta (Reuters). `quant/rolling_stats.py` se queda: lo
+  usa la matriz de correlación de `/companeros`.
+
+  **El scanner adelgazó.** `GET /api/scanner/cedears` dejó de mandar `adr_*`
+  (last, 1D, WTD, 7D, 15R, MTD, YTD, dollar_vol), `rubro`, `es_ia`, `sector`,
+  `industria`, `region` y `pais`. Verificado: fuera de los paneles ya borrados
+  nadie los leía — `monitor_sql` y `trading_pivots` usan solo last, VWAP y
+  `total_money`. Con ellos se fueron `_adr_metrics_para_todos` y
+  `_eod_anchors_por_underlying`: una lectura de `precios_acciones` para todo el
+  universo (cacheada 15') y una de `adr_snapshot` en cada hit de un poll de
+  2 s. `get_universo` (el rail del MONITOR) sigue trayendo `rubro`/`es_ia`.
+  Efecto colateral: `jobs/adr_live.py` (Finnhub, 15') queda con dos lectores,
+  el `last` de `/pivot` y el alta de CEDEARs del agente. Sigue justificado.
 
 - **2026-09-10 — REFACTOR, paso 2: la derecha es el ADR en TradingView, y el
   buscador sube a la barra del título.**

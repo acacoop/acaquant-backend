@@ -31,11 +31,12 @@ def cedears_scanner():
 
     Returns:
         list[dict] con shape:
-            ticker_corto, underlying, ratio_cedear,
-            sector, industria, region, pais,
-            last, open, high, low, close,
-            intraday_pct, vs_1d_pct, vs_1d_usd_pct,
-            updated_at
+            ticker_corto, nombre, underlying, ratio_cedear,
+            last, open, high, low, close, bid, offer, spread, spread_pct,
+            vwap, volume, total_money,
+            intraday_pct, vs_1d_pct, vs_1d_usd_pct, updated_at
+        (2026-09-10: sin `adr_*`, `rubro` ni `es_ia` — nadie los consumía y
+        viajaban cada 2 s en todas las pestañas de la mesa)
     """
     return svc_sql.get_cedears_scanner()
 
@@ -50,47 +51,16 @@ def ccl_live():
     return svc.get_ccl_live()
 
 
-@router.get("/returns/{ticker}")
-def returns(ticker: str):
-    """Retornos diarios del subyacente USD desde `mercado.precios_acciones`.
-
-    Returns:
-        {
-          ticker,
-          returns: [r1, r2, ...],              # aritméticos diarios (histograma)
-          serie:   [{fecha, ret_pct}, ...],    # los MISMOS, con su fecha (gráfico)
-          last_return: float | None,
-          last_fecha: str | None,
-        }
-    """
-    return svc_sql.get_ticker_returns(ticker=ticker)
-
-
-@router.get("/quant/{ticker}")
-def quant_stats(ticker: str):
-    """Stats rolling (beta/alpha/corr vs SPY y QQQ + vol realizada 30d/60d)
-    sobre el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones.
-
-    Returns:
-        {
-          ticker, last, n_observations,
-          beta:  {spy, qqq},
-          alpha: {spy, qqq},   # anualizada
-          corr:  {spy, qqq},
-          vol:   {d30, d60},
-        }
-    """
-    return svc_sql.get_quant_stats(ticker=ticker)
-
-
 @router.get("/pivot/{ticker}")
 def pivot_points(ticker: str):
     """4 timeframes de pivot points (diario/semanal/mensual/anual) sobre
-    el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones, que
-    alimenta el cron jobs.precios_acciones_daily.
+    el subyacente USD del CEDEAR. Lee de mercado.precios_acciones, que
+    alimenta el cron jobs.precios_acciones_daily. Lo consume la ventana
+    PIVOTS de TRADING → MONITOR (acaquant-web `pivot-points-panel.tsx`).
 
     El `ticker` que llega del frontend es ticker_corto (BYMA). Se
     resuelve el underlying antes de queryar la serie (caso YPFD → YPF).
+    NO confundir con `/api/trading/pivots` (pivots del CEDEAR en ARS).
     """
     return svc_sql.get_pivot_points(ticker=ticker)
 

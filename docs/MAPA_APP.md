@@ -149,7 +149,7 @@ páginas.
 | 3 | **TRADING** | `/trading` | `trading` | **solo admin** | Escritorio intradía: pivots Floor Trader por activo, radares (movers/volumen/pivotes/contexto), order book, charts live + zonas del ADR, volumen operado por precio (MONITOR) y monitor FIFO del día. **Read-only: no escribe nada.** |
 | 4 | **RESEARCH** | `/research` | `research` | admin, invitado | Laboratorio de research: spreads/series 1816, análisis de sensibilidad precio×TIR (ex vista ESTRATEGIA), reportes escritos (mails + PDFs), BCRA, FRED y el tablero/screener de renta variable internacional (feed Reuters/Eikon). |
 | 5 | **AGRO** | `/agro` | `agro` | admin, trader, sales, asistente_comercial, invitado (sin tab DATOS) | Mesa de agro: pases TRIGO/MAÍZ/SOJA vs futuros MATBA, cobertura del productor (ON/Pagaré/Sintético), mejoras de precio disponible, opciones agro con simulador y tablero CBOT. |
-| 6 | **DERIVADOS** | `/derivados` | `derivados` | admin, trader, sales, asistente_comercial, invitado | Chain de opciones de GGAL con griegas, armado de estrategias multi-pata, payoff, escenarios y post-trade lab. |
+| 6 | **DERIVADOS** | `/derivados` | `derivados` | admin, trader, sales, asistente_comercial, invitado | Chain de opciones de GGAL con griegas, armado de estrategias multi-pata, payoff, escenarios y costo histórico. |
 | 7 | **RENTA FIJA** | `/renta-fija` | `renta-fija` | admin, trader, sales, asistente_comercial, invitado | Pantalla live de renta fija ARS/HD: tablero por curva, chart de curva (live/histórico/fair value), matriz de forwards, breakevens Lecap↔CER vs REM y el modal SIMULAR INVERSIÓN (importe + bono + precio → TIR y cronograma de cobros). |
 | 8 | **RENTA VARIABLE** | `/renta-variable` | `renta-variable` | admin, trader, sales, asistente_comercial, invitado | Panel CEDEARS: tabla de CEDEARs en ARS live (INTRA, 1D, USD real, $ operado) + CCL. Derecha: panel ADR = TradingView del subyacente USD del papel elegido. |
 | 9 | **SINTÉTICOS** | `/sinteticos` | `sinteticos` | admin, trader, sales, asistente_comercial, invitado | Dos tablas de sintéticos con futuro DLR (LONG ROFEX+LONG LECAP / SHORT ROFEX+LONG DLK) y su curva de TNA por plazo. |
@@ -410,7 +410,7 @@ vacío donde se montaba — se limpió el 2026-08-31.
 | `/trading` | **PIVOTS** · MONITOR · INTRADAY | `trading.tab` (keep-alive) | Radar interno: UNA tabla con **MOVERS ±4%** · VOLUMENES ACCIONES · PIVOTES (refactor 2026-09-01) |
 | `/research` | **RENTA FIJA ARGENTINA** · ANÁLISIS SENSIBILIDAD · REPORTES FINANCIEROS · BCRA · DATOS INTERNACIONALES · RENTA VARIABLE INTERNACIONAL | no persistida (keep-alive) | RV Internacional tiene sub-vista propia persistida: **COTIZACIONES** · FUNDAMENTALS, + FICHA de empresa |
 | `/agro` | **Mercado** · Mejoras Precio Dispo · Chicago · Datos | deep-link `?tab=` | **Datos oculta al invitado** (y si quedó seleccionada, se fuerza a Mercado) |
-| `/derivados` | *sin tabs de vista* | — | Tabs dentro de paneles: **CALL** · PUT · ESTRAT.; y PAYOFF · ESCENARIOS · LAB |
+| `/derivados` | *sin tabs de vista* | — | Tabs dentro de paneles: **CALL** · PUT · ESTRAT.; y PAYOFF · ESCENARIOS |
 | `/renta-fija` | *sin tabs de vista* (grid 2×2) | — | Sub-tabs por panel: RF (TASA FIJA/CER/HARD DOLAR/DOLAR LINKED/LIBRO), CURVAS (LIVE/HISTÓRICO/FAIR VALUE), FORWARDS (LIVE/GRÁFICO/Z-SCORE), BREAKEVENS (LIVE/HISTÓRICO). En la barra de tabs, el botón **SIMULAR INVERSIÓN** abre un MODAL (no una pantalla): importe + bono + precio editable → TIR/TEA + cronograma de cobros escalado |
 | `/renta-variable` | *sin tabs de vista* | — | ninguna: un solo panel CEDEARS (tabla) y la derecha vacía (refactor en curso) |
 | `/sinteticos` | *sin tabs* | — | 2 tablas + 2 charts |
@@ -780,24 +780,26 @@ promovieron a módulos propios (`agro`, `sinteticos`) pero **las URLs del backen
 
 ### Vista: DERIVADOS — OPCIONES (`/derivados`)
 - **Módulo RBAC**: `derivados` | **Roles**: admin, trader, sales, asistente_comercial, invitado.
-- **Archivos front**: `derivados-shell.tsx` (wrapper vacío), `derivados-view.tsx` (448 líneas, la vista real), `opciones-table-compact.tsx`, `estrategias-tabla.tsx`, `payoff-chart.tsx`, `escenarios-tabla.tsx`, `post-trade-lab.tsx`, `costo-historico-chart.tsx`, `opcion-historico-chart.tsx`, `griegas-historico-chart.tsx`, `src/lib/estrategias.ts` (templates + cálculo client-side).
+- **Archivos front**: `derivados-shell.tsx` (wrapper vacío), `derivados-view.tsx` (la vista real), `opciones-table-compact.tsx`, `estrategias-tabla.tsx`, `payoff-chart.tsx`, `escenarios-tabla.tsx`, `costo-historico-chart.tsx`, `opcion-historico-chart.tsx`, `griegas-historico-chart.tsx`, `src/lib/estrategias.ts` (templates + cálculo client-side).
 - **Router**: no tiene propio — usa `cotizaciones.py` (bloque Opciones) y `analitica.py` (`POST /estrategia-historico`). Services: `opciones_sql.py` (lectura), `opciones.py` (escritura de tasa + helpers de costo).
 - **Propósito**: chain de opciones de **GGAL** (único subyacente cableado: el panel se titula "OPCIONES GGAL").
 
 | Panel → tab | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| Izq. sup. **CALL** | Chain de calls: STRIKE, LAST, INTRA, 1D, SPREAD PUNTAS, IV, DELTA, GAMMA, THETA, VEGA, VOL (ordenada por `ev` desc) | `GET /api/cotizaciones/opciones` (poll 30s) | filtro CALL/PUT/ESTRAT. | — |
-| Izq. sup. **PUT** | Ídem puts | mismo | mismo | — |
-| Izq. sup. **ESTRAT.** | Estrategias generadas client-side desde `STRATEGY_TEMPLATES`, con costo neto, comisión y patas | mismo (calcula sobre `docs`) | selector **categoría** (7: Spread Alcista, Spread Bajista, Cono/Cuna, Ratio, Backspread, Cóndor de Hierro, Venta de Vol) + selector **strike** (de `liquidStrikes`, def ATM) | — |
-| Izq. inf. **COSTO HISTÓRICO** | Con contrato: serie intradía del contrato. Con estrategia: costo en buckets de 15 min. 2º eje con spot GGAL local/ADR | `GET /historico/opciones`, `POST /api/analitica/estrategia-historico`, `GET /vr-ggal` | implícito (lo seleccionado) | — |
-| Der. sup. **PAYOFF** | Curva de payoff (cálculo client-side) | ninguno | — | — |
-| Der. sup. **ESCENARIOS** | Tabla spot × tiempo con la tasa `meta.tasa` | ninguno | — | — |
-| Der. sup. **LAB** | Post-trade lab: entry sugerido, patas editables (lado/cantidad), vencimiento. Modo `singleLeg` con contrato individual | ninguno | — | — |
-| Der. inf. **GRIEGAS** | Evolución diaria de griegas del contrato clickeado | `GET /griegas/opciones` | — | — |
+| Izq. **CALL** | Chain de calls a página completa: STRIKE, LAST, INTRA, 1D, SPREAD PUNTAS, IV, DELTA, GAMMA, THETA, VEGA, VOL (`ev` en pesos sin abreviar; ordenada por `ev` desc) | `GET /api/cotizaciones/opciones` (poll 30s) | filtro CALL/PUT/ESTRAT. | — |
+| Izq. **PUT** | Ídem puts | mismo | mismo | — |
+| Izq. **ESTRAT.** | Estrategias generadas client-side desde `STRATEGY_TEMPLATES`, con costo neto, comisión y patas | mismo (calcula sobre `docs`) | selector **categoría** (7: Spread Alcista, Spread Bajista, Cono/Cuna, Ratio, Backspread, Cóndor de Hierro, Venta de Vol) + selector **strike** (de `liquidStrikes`, def ATM) | — |
+| Der. sup. (contrato) **COSTO HIST.** | Serie intradía del contrato clickeado, con LIVE. 2º eje con spot GGAL local/ADR | `GET /historico/opciones`, `GET /vr-ggal` | implícito (lo seleccionado) | — |
+| Der. sup. (estrategia) **PAYOFF** | Curva de payoff (cálculo client-side) | ninguno | — | — |
+| Der. sup. (estrategia) **ESCENARIOS** | Tabla spot × tiempo con la tasa `meta.tasa` | ninguno | — | — |
+| Der. inf. (contrato) **GRIEGAS** | Evolución diaria de griegas del contrato clickeado | `GET /griegas/opciones` | — | — |
+| Der. inf. (estrategia) **COSTO HISTÓRICO** | Costo de la estrategia en buckets de 15 min. 2º eje con spot GGAL local/ADR | `POST /api/analitica/estrategia-historico`, `GET /vr-ggal` | implícito (lo seleccionado) | — |
 | Header (KPIs) | SPOT, VR GGAL (40r), VR ADR, **TASA R**, ÚLT. ACT | `GET /opciones/meta` (vía proxy `/api/opciones-meta`) | — | **PUT tasa risk-free — SOLO admin** (para el resto es texto read-only) |
 
 Selección **mutuamente excluyente**: o hay estrategia activa o contrato individual, nunca las dos.
-Al primer render arranca con la estrategia ATM.
+Al primer render arranca con la estrategia ATM. La columna izquierda es SOLO la chain (ocupa todo el
+alto); la derecha cambia según lo seleccionado. El **post-trade LAB se eliminó** (era cálculo
+Black-Scholes client-side, nunca tuvo endpoint): su lugar lo ocupa el costo histórico.
 
 | Método | Path | Qué hace | Params | Escribe |
 |---|---|---|---|---|

@@ -136,9 +136,9 @@ Motor escribe `mercado.cedears_snapshot` cada 1s → cache 2s del scanner balanc
 ### 8. Archivos fuente
 
 - **Frontend:** `acaquant-web/src/app/renta-variable/page.tsx` +
-  `scanner-view.tsx`, `cedears-scanner-table.tsx`, `lib/types-scanner.ts`
-  (desde 2026-09-10; ver changelog — los paneles de métricas y chart están
-  sin importador hasta que se decida el lado derecho).
+  `scanner-view.tsx`, `cedears-scanner-table.tsx`, `tradingview-chart.tsx`
+  (compartido con HOME), `lib/types-scanner.ts`. `pivot-points-panel.tsx` y
+  `retornos-chart.tsx` están sin importador a propósito (ver changelog).
 - **Router:** `api/routers/scanner.py`.
 - **Services:** `scanner.py`, `day_trading.py`, `rv_motor.py` (+ `scanner_sql`).
 - **Motor:** `engines/motor_cedears.py` (escribe SQL-native vía `core.pg_mirror`).
@@ -339,6 +339,28 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
   Los componentes `metricas-panel.tsx`, `pivot-points-panel.tsx`,
   `retornos-chart.tsx` y `ticker-chart-panel.tsx` quedaron en el repo sin
   importador por el mismo motivo; si el lado derecho no los recupera, se borran.
+
+- **2026-09-10 — REFACTOR, paso 2: la derecha es el ADR en TradingView, y el
+  buscador sube a la barra del título.**
+
+  El user descartó una ficha del día y un chart intradía propio: la derecha
+  es un panel **ADR** con el TradingView Advanced Chart del **subyacente en
+  USD** del papel elegido en la tabla (el `underlying` de la fila, YPFD → YPF;
+  fallback al `ticker_corto`). Es el ADR y no el CEDEAR a propósito: la
+  historia limpia es la del papel en dólares, el CEDEAR en pesos es eso por el
+  CCL. Sin click, arranca con el primer papel del orden por defecto (INTRA
+  desc) para que el panel nunca esté vacío. Se reusa `tradingview-chart.tsx`,
+  el componente genérico de la watchlist de HOME; la copia que vivía adentro
+  de `ticker-chart-panel.tsx` se borró junto con ese archivo y con
+  `metricas-panel.tsx` (el Pulso). **`pivot-points-panel.tsx` y
+  `retornos-chart.tsx` NO se borran**: el user los va a reusar en otro lado.
+  Límite conocido: el widget gratuito muestra NYSE/NASDAQ con delay — sirve
+  para la historia, el precio de ahora está en la tabla.
+
+  En el mismo paso el buscador y el KPI de CCL pasaron a la MISMA fila que el
+  título `CEDEARS (N)` (`actions` / `rightActions` del `Panel`), así la tabla
+  arranca justo debajo del encabezado; la tabla acepta el buscador como prop
+  controlado y solo dibuja el suyo en el radar de `/trading`.
 
 - **2026-09-04 — el alta de un CEDEAR es una habilidad del AV AGENT, y el
   motor ya no pide reinicio.**

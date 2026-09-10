@@ -205,6 +205,12 @@ def simular(ticker: str, importe: float, precio: float | None = None) -> dict:
             "monto_por_100": round(monto, 6),
         })
 
+    # ACUMULADO: lo cobrado hasta cada pago inclusive (la tabla CUÁNDO COBRO lo
+    # muestra al lado del total; el front no suma nada).
+    acum = 0.0
+    for f in flujos_out:
+        acum += f["monto"]
+        f["acumulado"] = round(acum, 2)
     total_a_cobrar = round(sum(f["monto"] for f in flujos_out), 2)
 
     # ── Ganancia directa: importe y cobros pueden estar en monedas distintas ──

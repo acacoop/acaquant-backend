@@ -67,7 +67,7 @@ de tocar la vista más usada de la app.
 | 25 | Filtro de **EMISOR por nombre** en la tab CURVAS (§25) | sí | ✅ **hecho** (2026-09-04) |
 | 26 | FICHA DEL BONO: ficha + cronograma a la izquierda, el flujo en UN gráfico de doble eje a la derecha (§26) | sí | ✅ **hecho** (2026-09-09) |
 
-### Paso 27 (2026-09-10) — TIPO excluyente y la renta usa el alto del gráfico
+### Paso 27 (2026-09-10) — TIPO excluyente, la ficha se achica y el flujo pasa a ser la tabla con ACUMULADO
 
 Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
 
@@ -78,32 +78,29 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    el estado sigue siendo un array de una posición para no tocar los `includes`
    de abajo, y al cambiar de tipo se siguen soltando los emisores por nombre que
    el tipo nuevo ya no muestra.
-2. **El techo del eje de la renta pasa a ≈ 2× el cupón más grande** (el
-   cupón más alto queda a MITAD del gráfico). Historia del día, para no
-   repetirla: con `× 2,2` la línea vivía en el tercio de abajo con dos tercios
-   vacíos («no se ajusta»); con `× 1,25` quedaba a 3/4 del alto, pegada a la
-   amortización, y un cupón de 182 «parecía» igual de grande que una
-   amortización de 9.625 («queda tan arriba, no tiene lógica»); y **la escala
-   única se probó y se revirtió el mismo día**: con 38 cupones de 6 contra una
-   amortización de 1.104 la línea quedaba plana en el cero, exactamente lo que
-   el paso 26 había descartado. El eje doble con dos FORMAS sigue siendo el
-   diseño; lo único que se calibró es a qué altura vive el cupón.
-3. **SIMULAR INVERSIÓN dibuja el flujo IGUAL que la ficha.** Tenía dos gráficos
-   de barras apilados (capital arriba, renta abajo); la mesa pidió el mismo
-   gráfico de la ficha. El dibujo se extrajo a **`flujo-fondos-chart.tsx`** y lo
-   montan los dos modales: la ficha por 100 VN (3 decimales), el simulador en
-   MONTOS escalados al importe (0 decimales, ejes en notación compacta) y con el
-   mismo pie: pagos futuros · próximo pago · último pago · total a cobrar. Un
-   solo componente para que no vuelvan a separarse (era el caso: el mismo flujo
-   con dos dibujos distintos a dos clicks de distancia).
-4. **La FICHA del bono se achica y el CRONOGRAMA gana ese alto.** Se van
-   SÍMBOLO (mostraba el símbolo de mercado `MERV - XMEV - AO29D - 24hs`, que no
-   es el ticker —ese ya está en el título— sino un dato de Primary), TIPO
-   EMISOR (repetía a TIPO y al filtro de la tabla), AJUSTE y CUPÓN ANUAL.
-   Quedan emisor, industria, tipo, moneda, ley, emisión, vencimiento y valor
-   nominal (+ CER emisión / pago final cuando aplican). El cronograma pasa a
-   `flex-1`: se estira hasta el piso de la columna en vez de quedarse en su
-   alto natural. Las patas de un dual siguen visibles en la tira de tasas.
+2. **El gráfico del flujo SE VA, en la ficha y en el simulador.** Se probó
+   todo en un día y ninguna versión se leía: eje doble con el cupón al tercio
+   («no se ajusta»), al 76 % («queda tan arriba, no tiene lógica»), a la mitad
+   (los números del cupón dejaban de entrar con 26 pagos, y la escala derecha
+   —1,20 / 1,05 / 0,70 / 0,35— no se entendía), y escala única (38 cupones de
+   6 contra una amortización de 1.104: línea plana en el cero). Decisión de
+   la mesa: **la tabla y listo**, con lo que se va cobrando. `flujo-fondos-
+   chart.tsx` se borró.
+3. **La tabla del cronograma gana la columna ACUMULADO** = lo cobrado hasta
+   ese pago inclusive. **La suma la hace el backend** (`bono_detalle.py` sobre
+   los pagos FUTUROS —los vencidos van en `null`—, `simular_inversion.py` en
+   montos escalados al importe): el front no suma nada. En la FICHA la tabla
+   ocupa toda la columna derecha, con el toggle SOLO FUTUROS, la nota del CER
+   y el pie (pagos futuros · próximo · último · total a cobrar); la ficha
+   queda sola a la izquierda. En SIMULAR INVERSIÓN, CUÁNDO COBRO pasa a la
+   derecha, a toda la altura, con la misma columna.
+4. **La FICHA del bono se achica.** Se van SÍMBOLO (mostraba el símbolo de
+   mercado `MERV - XMEV - AO29D - 24hs`, que no es el ticker —ese ya está en
+   el título— sino un dato de Primary), TIPO EMISOR y TIPO (repetían al filtro
+   de la tabla y a la LEY), AJUSTE y CUPÓN ANUAL. Quedan emisor, industria,
+   moneda, ley, emisión, vencimiento y valor nominal (+ CER emisión / pago
+   final cuando aplican). Las patas de un dual siguen visibles en la tira de
+   tasas.
 5. **El selector de bono del simulador sugiere SOLO al tipear.** Abría la
    lista entera (221 tickers en orden cronológico) con solo enfocar el campo,
    y la mesa no entendía qué era eso. Ahora sin texto no lista nada; con
@@ -129,6 +126,10 @@ derecha queda entera para el flujo, a toda la altura del modal.
   se achica cuando no entran los dos es el cronograma, que ya se lee scrolleando;
   la ficha no, porque recortarla esconde justo el dato que se vino a buscar
   (tope: 60% de la columna, por el CER con todas sus filas opcionales).
+> ⚠️ **Superado por el paso 27**: el gráfico del flujo se sacó del modal y la
+> columna derecha es la tabla del cronograma con ACUMULADO. Lo de abajo queda
+> como registro de lo que se intentó y por qué no alcanzó.
+
 - **El flujo vuelve a UN gráfico, con dos ejes y dos FORMAS.** Los dos paneles
   apilados del paso 24 resolvían la escala pero partían en dos algo que es un
   solo cronograma, y quedaban chatos. Ahora es un gráfico: el **capital en
@@ -139,11 +140,8 @@ derecha queda entera para el flujo, a toda la altura del modal.
   comparables) — **nadie compara la altura de una línea contra la de una barra**,
   y el cupón se lee por su NÚMERO, no midiéndolo contra su escala. Cada eje va
   del color de su serie, el mismo criterio del gráfico de ALTA DE CUENTAS.
-- **El eje de la renta tiene techo fijo** (`≈ cupón máximo × 2`, redondeado a
-  un número lindo; calibrado en el paso 27): el cupón más alto queda a mitad
-  del gráfico y las marcas en números redondos. Las barras van **finas y al
-  50% de opacidad**: macizas y anchas el gráfico es un paredón donde no se lee
-  ni la línea ni sus números.
+- **El eje de la renta tenía techo fijo** (`≈ cupón máximo × 2,2`): el cupón
+  en el tercio de abajo. Las barras iban **finas y al 50% de opacidad**.
 - **Los números del cupón aparecen si ENTRAN**, medido en píxeles por pago
   (`ResizeObserver` sobre la caja del gráfico, umbral 46 px), no contando pagos:
   los mismos 8 pagos entran holgados en el modal y se pisan en un teléfono.
@@ -386,7 +384,7 @@ mano daría CERO en soberanos y CER) y las conversiones TEM/TNA de `quant.tasas`
   (`renta-fija-live.tsx`) → modal `simular-inversion-modal.tsx`. El universo del
   selector son los tickers de `curvas-vista` (dedupe por `ticker_corto`).
   Izquierda: resultado al precio simulado + la compra + ficha. Derecha: flujo de
-  fondos (desde el paso 27, el MISMO gráfico de la ficha: `flujo-fondos-chart.tsx`) + cronograma, escalados al importe.
+  fondos (desde el paso 27 ya no hay gráfico: es la tabla CUÁNDO COBRO con ACUMULADO) + cronograma, escalados al importe.
   Fetch con debounce de 400 ms; los importes con `NumeroInput` (es-AR).
 - **En la misma entrega se dio de baja la vista ESTRATEGIA (`/retorno`)**:
   COMPARAR INVERSIÓN y DESCOMPOSICIÓN se borraron (endpoints, services, front),

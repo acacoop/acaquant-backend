@@ -145,6 +145,16 @@ def cronograma(doc: dict) -> tuple[str, list[dict]]:
             })
 
     out.sort(key=lambda x: x["fecha"])
+    # ACUMULADO: lo que se lleva cobrado sumando los pagos FUTUROS en orden
+    # (la compra es hoy; lo ya pagado no se cobra y va en None). Se calcula acá
+    # y no en el front —REGLA de acaquant-web: el front no suma nada.
+    acum = 0.0
+    for f in out:
+        if f["futuro"]:
+            acum += f["monto"]
+            f["acumulado"] = round(acum, 6)
+        else:
+            f["acumulado"] = None
     return rama, out
 
 

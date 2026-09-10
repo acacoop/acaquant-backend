@@ -136,9 +136,9 @@ Motor escribe `mercado.cedears_snapshot` cada 1s → cache 2s del scanner balanc
 ### 8. Archivos fuente
 
 - **Frontend:** `acaquant-web/src/app/renta-variable/page.tsx` +
-  `renta-variable-shell.tsx`, `scanner-view.tsx`, `cedears-scanner-table.tsx`,
-  `cedears-timesales-panel.tsx`, `metricas-panel.tsx`, `pivot-points-panel.tsx`,
-  `ticker-chart-panel.tsx`, `lib/types-scanner.ts`.
+  `scanner-view.tsx`, `cedears-scanner-table.tsx`, `lib/types-scanner.ts`
+  (desde 2026-09-10; ver changelog — los paneles de métricas y chart están
+  sin importador hasta que se decida el lado derecho).
 - **Router:** `api/routers/scanner.py`.
 - **Services:** `scanner.py`, `day_trading.py`, `rv_motor.py` (+ `scanner_sql`).
 - **Motor:** `engines/motor_cedears.py` (escribe SQL-native vía `core.pg_mirror`).
@@ -307,6 +307,38 @@ insumo del copiloto. **IMPLEMENTADO 2026-07-24 (v1)** — ver changelog.
 - Workspace abierto y logueado (Desktop Session; sin la app no hay datos).
 
 ### 8. Changelog
+
+- **2026-09-10 — REFACTOR de la vista, paso 1: queda el panel CEDEARS y la
+  derecha se vacía.**
+
+  La mesa dijo que la vista era un desastre, y el relevamiento lo confirmó: cuatro
+  niveles de tabs en un cuarto de pantalla (MÉTRICAS → PIVOTS/VOL → ZONAS →
+  SEMANAL), los retornos diarios dibujados dos veces con dos librerías contra el
+  mismo endpoint, el Pulso agregando en el navegador, y una tabla que mezclaba dos
+  mundos (ARS live y USD EOD de Finnhub) con un switch. Se rehace por partes y
+  primero se cierra el lado izquierdo.
+
+  Qué quedó: un panel **CEDEARS** (izquierda, 50 %) con la tabla en ARS —
+  TICKER · NOMBRE · LAST · INTRA · 1D · USD · **$ OPERADO** — buscador y CCL.
+  `$ OPERADO` es `total_money` (TRADE_EFFECTIVE_VOLUME), el mismo dato y el mismo
+  formato que ranquea VOLUMENES en `/trading`: reemplaza al VOL nominal, que no
+  compara plata entre un papel de $10 y uno de $500. Ordena como cualquier
+  columna. **La derecha está vacía a propósito**: lo que va ahí se decide en el
+  próximo paso.
+
+  Qué se fue del front: el switch CEDEAR/ADR (con sus columnas 7D/15R/MTD/YTD y
+  el cyan hardcodeado), las columnas RUBRO / SPREAD / VWAP, el panel MÉTRICAS
+  entero (PULSO por rubro, PIVOTS/VOL, RETORNOS) y CHART & RETORNOS (TradingView
+  + histograma). Los props `soloCedear` y `hideRubro` de la tabla ya no existen:
+  la tabla es SOLO CEDEAR y no tiene rubro. El radar de `/trading` (modo
+  `compact`) conserva exactamente sus columnas: VOL nominal, VWAP y SPREAD.
+
+  Qué NO cambió: el backend. `/api/scanner/cedears` sigue mandando los `adr_*`
+  y `rubro`/`es_ia` (los usa `/trading` y los va a usar el lado derecho), y
+  `/pivot`, `/quant` y `/returns` quedan vivos sin consumidor hasta esa decisión.
+  Los componentes `metricas-panel.tsx`, `pivot-points-panel.tsx`,
+  `retornos-chart.tsx` y `ticker-chart-panel.tsx` quedaron en el repo sin
+  importador por el mismo motivo; si el lado derecho no los recupera, se borran.
 
 - **2026-09-04 — el alta de un CEDEAR es una habilidad del AV AGENT, y el
   motor ya no pide reinicio.**

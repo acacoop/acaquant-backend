@@ -96,6 +96,14 @@ Dos pedidos de la mesa sobre la tab CURVAS, los dos en el front:
    mismo pie: pagos futuros · próximo pago · último pago · total a cobrar. Un
    solo componente para que no vuelvan a separarse (era el caso: el mismo flujo
    con dos dibujos distintos a dos clicks de distancia).
+4. **La FICHA del bono se achica y el CRONOGRAMA gana ese alto.** Se van
+   SÍMBOLO (mostraba el símbolo de mercado `MERV - XMEV - AO29D - 24hs`, que no
+   es el ticker —ese ya está en el título— sino un dato de Primary), TIPO
+   EMISOR (repetía a TIPO y al filtro de la tabla), AJUSTE y CUPÓN ANUAL.
+   Quedan emisor, industria, tipo, moneda, ley, emisión, vencimiento y valor
+   nominal (+ CER emisión / pago final cuando aplican). El cronograma pasa a
+   `flex-1`: se estira hasta el piso de la columna en vez de quedarse en su
+   alto natural. Las patas de un dual siguen visibles en la tira de tasas.
 
 ### Paso 26 (2026-09-09) — la FICHA DEL BONO se reagrupa: texto a la izquierda, el flujo a la derecha
 

@@ -19,8 +19,9 @@ sello de ALTA (`ingestado_en`), y sus jobs son incrementales por watermark — s
 el BCRA no publicó un día nuevo, mandan CERO filas y el sello no se mueve. El
 job está perfecto y la tabla figura «atrasada» todas las mañanas.
 
-El dato que separa las tres YA EXISTE y el detector no lo mira: `manager.job_runs`
-(lo escribe `JobRunLogger` en cada corrida, con su `status` y sus `stats`).
+El dato que separa las tres es `manager.job_runs` (lo escribe `JobRunLogger` en
+cada corrida). Desde §0.fb el detector lo mira solo (`sistema._planilla`); este
+diag lo muestra crudo para discutir un veredicto.
 
 Y dos preguntas más que una persona hace delante de la tarjeta y el detector
 tampoco: **¿el día sin dato era hábil?** (`mercado.dias_habiles` contra los

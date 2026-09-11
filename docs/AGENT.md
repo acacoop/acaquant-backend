@@ -6667,6 +6667,9 @@ El orden correcto de preguntas, que hoy `tabla_quieta` no hace:
 3. corrió y trajo: ¿escribió? → recién ahí, tabla quieta = escritura rota
 ```
 
+> Resuelto en §0.fb (2026-09-11): el detector hace el cruce solo, para toda tabla
+> con job de reloj.
+
 `scripts/diag_tabla_quieta.py` hace ese cruce a mano —para cada tabla con
 hallazgo abierto: la clase de su sello, el ritmo declarado, el veredicto, y las
 últimas corridas reales del job con su `status` y sus `stats`— y es lo que hay
@@ -6960,3 +6963,47 @@ mundo se declara):**
 `ultimo_vivo` desaparece de la evidencia: ya no hay veredicto sin dato vivo.
 El desfase de la hora del barrido contra los jobs de cierre queda como está:
 con la foto fuera del veredicto, no decide nada.
+
+---
+
+### 0.fb LA PLANILLA ANTES QUE LA TARJETA — `tabla_quieta` mira las corridas del job, para todas (2026-09-11)
+
+Cerrado §0.fa, el user: *«no quiero soluciones pensadas en tablas puntuales,
+quiero soluciones generales que sirvan para toda tabla_quieta»*. La lista de
+crónicos seguía llena de `tabla_quieta` con otra causa: `research.bcra_series`
+(8 episodios), `research.fred_observations` (11), `bancos.sync_log` (12) — el
+caso de §0.ew: sello de ALTA, job incremental, la fuente no publicó, el job
+corrió perfecto y la tarjeta manda «relanzar».
+
+**Lo que se descartó, y por qué.** La primera idea fue un CONTRATO: que todo
+job anote «filas escritas» con un nombre único, contado en la puerta de
+escritura (`core/pg_mirror`) sin tocar cada job. **Medido**: 27 de los jobs
+escriben con `cursor.execute` directo, por fuera de `pg_mirror` —justo los de
+estas tablas (`eikon_cierres`, `mercado_1816_series`, `fred_research`,
+`bcra_research`, `mayor_sync`)—, así que un contador en la puerta no sería
+general, y uno por job es lo que el user no quiere. Los `stats` de hoy son
+25 nombres distintos para lo mismo (`escritos`, `filas`, `upserted`, `docs`…).
+
+**Lo que sí es general y ya existe**: `manager.job_runs` tiene, para todo job
+con `JobRunLogger` (todos menos 7), CUÁNDO corrió y CÓMO terminó. Con eso se
+separan las tres causas sin declarar nada por tabla:
+
+| La planilla dice | `tabla_quieta` hace |
+|---|---|
+| no hay corridas (motor, o job sin logger) | canta como siempre (`sin_escribir`) |
+| la última corrida no es `ok` | **calla**: «no corrió» / «falló» lo canta `salud` para todo el crontab (REGLA #9: un hecho, un lugar) |
+| corrió `ok` después del último dato, menos de N veces | **calla**: la fuente no publicó; relanzar no cambia nada |
+| corrió `ok` N veces seguidas y la tabla no avanzó | `corre_ok_sin_avanzar`: o la fuente lleva días muda, o escribe y la columna no se mueve; el `que_hacer` dice cómo separarlas |
+
+N = `corridas_ok_sin_avanzar` (4, en el catálogo; editable por base). «Después
+del último dato» se mide con `started_at` y contra el día CERRADO cuando la
+columna es fecha de negocio: la corrida que escribió el dato termina segundos
+después del sello que dejó y contaría como posterior sin serlo.
+
+**Lo que queda afuera, dicho**: un job que corre `ok` y escribe cero para
+siempre (watermark roto) se ve recién a las N corridas, como
+`corre_ok_sin_avanzar`, no antes; y una tabla sin job de reloj sigue igual que
+ayer. El «sello de escritura universal» —leer `pg_stat_user_tables.n_tup_ins/upd`
+por pasada para saber cuándo se ESCRIBIÓ cada tabla, sin depender de columnas—
+resolvería también la cota de fecha de negocio (§0.em) y queda propuesto, no
+hecho.

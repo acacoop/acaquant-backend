@@ -5736,3 +5736,96 @@ def test_el_barrido_olvida_las_tablas_que_murieron():
     # Y el detector ya no lleva `ultimo_vivo`: no hay veredicto sin dato vivo.
     assert "ultimo_vivo" not in _codigo(sistema.tabla_quieta)
     assert "NoMirado(" in _codigo(sistema.tabla_quieta)
+
+
+# ── tabla_quieta: la planilla del job antes que la tarjeta (§0.fb) ─────────
+
+def _corrida(started, status="ok"):
+    from datetime import timedelta
+    return {"started_at": started, "finished_at": started + timedelta(seconds=40),
+            "status": status, "stats": {}}
+
+
+def test_la_corrida_que_escribio_el_dato_no_cuenta_como_posterior(monkeypatch):
+    """§0.fb. Tabla de fecha de NEGOCIO: el dato del jueves 10 lo escribe la
+    corrida del jueves 17:15. Esa corrida arrancó ANTES de que el día 10
+    cerrara (viernes 00:00), así que no es «posterior al último dato». Con
+    `finished_at` en vez de `started_at` una tabla de sello contaría siempre
+    una corrida de más."""
+    from datetime import datetime
+
+    from agente import fuentes
+    jue = datetime(2026, 9, 10, 20, 15, tzinfo=UTC)
+    vie = datetime(2026, 9, 11, 20, 15, tzinfo=UTC)
+    monkeypatch.setattr(fuentes, "corridas", lambda tipo, n: [_corrida(vie), _corrida(jue)])
+    cierre_del_10 = datetime(2026, 9, 11, 0, 0, tzinfo=UTC)
+    v, pl = sistema._planilla("jobs.cedears_ohlc_daily", cierre_del_10, umbral=1)
+    assert v == sistema.ESCALAR and pl["corridas_ok"] == 1
+
+
+def test_un_motor_no_tiene_planilla():
+    """Un motor (`engines.x`) no anota corridas: se canta como siempre."""
+    from datetime import datetime
+    v, _ = sistema._planilla("engines.valores", datetime(2026, 9, 11, tzinfo=UTC), 4)
+    assert v == sistema.SIN_PLANILLA
+
+
+def _quieta_con_planilla(monkeypatch, corridas, umbral=4):
+    """Una tabla diaria atrasada de verdad (último dato hace 5 días, leído en
+    VIVO) con la planilla que se le dé al job que la escribe."""
+    from datetime import datetime, timedelta
+
+    from agente import fuentes
+    from core import escribe
+    ahora = datetime(2026, 9, 11, 12, 19, tzinfo=UTC)
+    monkeypatch.setattr(fuentes, "corridas", lambda tipo, n: corridas)
+    monkeypatch.setattr(escribe, "que_relanzar", lambda t: "jobs.fred_research")
+    monkeypatch.setattr(escribe, "la_dispara", lambda t: "reloj")
+    monkeypatch.setattr(catalogo, "umbrales_de", lambda n: {"corridas_ok_sin_avanzar": umbral})
+    viejo = ahora - timedelta(days=5)
+    perfiles = [{"schema": "research", "tabla": "fred_observations", "ultimo_dato": viejo,
+                 "col_fecha": "ingestado_en"}]
+    out = _tabla_quieta_con(monkeypatch, perfiles, vivo={0: viejo}, fallidas={})
+    return out
+
+
+def test_sin_planilla_se_canta_como_siempre(monkeypatch):
+    out = _quieta_con_planilla(monkeypatch, corridas=[])
+    assert [h.regla for h in out] == ["sin_escribir"]
+
+
+def test_si_el_job_fallo_lo_canta_salud_y_tabla_quieta_calla(monkeypatch):
+    """§0.fb / REGLA #9: «el job falló» es UN hecho y lo canta `salud` para todo
+    el crontab. Dos tarjetas por la misma caída es cómo se deja de leer una."""
+    from datetime import datetime
+    hoy = datetime(2026, 9, 11, 9, 0, tzinfo=UTC)
+    out = _quieta_con_planilla(monkeypatch, corridas=[_corrida(hoy, "error")])
+    assert out == []
+
+
+def test_si_el_job_corrio_ok_pocas_veces_la_fuente_no_publico_y_se_calla(monkeypatch):
+    """§0.fb. El BCRA no publicó un día nuevo: el job corrió ok, trajo cero, la
+    tabla no avanzó. No hay nada roto y «relanzar el job» no cambia nada."""
+    from datetime import datetime, timedelta
+    hoy = datetime(2026, 9, 11, 9, 0, tzinfo=UTC)
+    out = _quieta_con_planilla(monkeypatch, corridas=[
+        _corrida(hoy - timedelta(days=i)) for i in range(3)])
+    assert out == []
+
+
+def test_si_el_job_corrio_ok_muchas_veces_y_la_tabla_no_avanza_se_escala(monkeypatch):
+    """§0.fb. Cuatro corridas ok seguidas sin que la tabla avance ya no es «la
+    fuente no publicó hoy»: o la fuente lleva días muda, o el job escribe y la
+    columna no se mueve. Regla propia, y el `que_hacer` nombra cómo separarlas."""
+    from datetime import datetime, timedelta
+    hoy = datetime(2026, 9, 11, 9, 0, tzinfo=UTC)
+    out = _quieta_con_planilla(monkeypatch, corridas=[
+        _corrida(hoy - timedelta(days=i)) for i in range(4)])
+    assert [h.regla for h in out] == ["corre_ok_sin_avanzar"]
+    h = out[0]
+    assert h.evidencia["corridas_ok"] == 4 and "jobs.fred_research" in h.que_hacer
+    assert "python -m jobs.fred_research" in h.que_hacer
+
+
+def test_el_umbral_de_la_planilla_esta_declarado_en_el_catalogo():
+    assert catalogo.HABILIDADES["tabla_quieta"].umbrales["corridas_ok_sin_avanzar"] >= 2

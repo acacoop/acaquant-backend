@@ -14,6 +14,7 @@ lo decide el motor**, una sola vez, para todos.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from agente import reloj
 from agente.tipos import Hallazgo, NoMirado, SinDatos
@@ -566,6 +567,72 @@ def _perfil_vencido(tablas, *, tope_h: int = PERFIL_VENCE_H) -> bool:
     return max(medidos) < datetime.now(UTC) - timedelta(hours=tope_h)
 
 
+# ── tabla_quieta: la planilla del job (§0.fb) ──────────────────────────────
+#
+# «No escribió» tiene tres causas que se atienden al revés una de otra y en la
+# tarjeta se veían idénticas (§0.ew): el job NO CORRIÓ (es el cron), corrió y
+# FALLÓ (es el código), o corrió BIEN y no había nada nuevo (es la fuente, y no
+# hay nada roto). El detector miraba sólo la tabla y mandaba «relanzar el job»
+# en los tres — y en el tercero relanzar no cambia nada, porque el job ya
+# corrió bien: `research.bcra_series` salía 8 veces por mes con el job perfecto.
+#
+# El dato que separa las tres ya existía —`manager.job_runs`, lo que anota cada
+# corrida— y es GENERAL: vale para toda tabla con un job de reloj, sin declarar
+# nada por tabla. Las dos primeras causas ya las canta `salud` para TODO el
+# crontab (`api/services/salud.evaluar`: «no corrió después de su horario» /
+# «corrió y salió mal»); repetirlas acá sería el mismo hecho en dos lugares
+# (REGLA #9). Acá queda lo que sólo esta habilidad puede ver: el job corre bien
+# y la tabla igual no avanza.
+CALLAR, ESCALAR, SIN_PLANILLA = "callar", "escalar", "sin_planilla"
+
+
+def _tipo_de_job(job: str) -> str:
+    """`jobs.x` → el `tipo` con el que `JobRunLogger` anota sus corridas.
+    Vacío si no es un job (un motor no lleva planilla)."""
+    if not job.startswith("jobs."):
+        return ""
+    from api.services.jobs_catalogo import _tipo_de
+    return _tipo_de(job)
+
+
+def _planilla(job: str, ult_efectivo: datetime, umbral: int) -> tuple[str, dict]:
+    """Qué dice la planilla del job sobre una tabla atrasada.
+
+        SIN_PLANILLA  no hay corridas anotadas → se canta como siempre
+        CALLAR        la última corrida no es `ok` (lo canta `salud`), o corrió
+                      `ok` después del último dato menos de `umbral` veces
+                      (la fuente no publicó: no hay nada roto todavía)
+        ESCALAR       corrió `ok` `umbral` o más veces seguidas después del
+                      último dato y la tabla no avanzó
+
+    «Después del último dato» se mide con `started_at`: la corrida que ESCRIBIÓ
+    el dato termina segundos después del sello que dejó, y con `finished_at`
+    contaría como una corrida posterior sin serlo.
+    """
+    from agente import fuentes
+    tipo = _tipo_de_job(job)
+    if not tipo:
+        return SIN_PLANILLA, {}
+    corridas = fuentes.corridas(tipo, max(umbral, 1) + 2)
+    if not corridas:
+        return SIN_PLANILLA, {}
+    ultima = corridas[0]
+    if ultima.get("status") != "ok":
+        return CALLAR, {"motivo": f"la última corrida terminó {ultima.get('status')}: "
+                                  "lo canta salud"}
+    oks = 0
+    for c in corridas:
+        arranco = c.get("started_at")
+        if c.get("status") != "ok" or not arranco or arranco <= ult_efectivo:
+            break
+        oks += 1
+    if oks >= umbral:
+        return ESCALAR, {"corridas_ok": oks, "tipo": tipo,
+                         "desde": corridas[oks - 1]["started_at"].isoformat()}
+    return CALLAR, {"motivo": f"corrió ok {oks} vez/veces después del último dato: "
+                              "la fuente no publicó"}
+
+
 def tabla_quieta(u: dict) -> list[Hallazgo]:
     """Tablas que dejaron de escribir cuando deberían estar escribiendo.
 
@@ -680,6 +747,30 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
         # quieta porque no pasó nada, no porque algo esté roto, y no hay nada
         # que relanzar. `no_se` NO se saltea: ante la duda se sigue exigiendo.
         if escribe.la_dispara(nombre) == escribe.EVENTO:
+            continue
+        # ⚠️ **LA PLANILLA ANTES QUE LA TARJETA** (§0.fb, ver `_planilla`).
+        job = escribe.que_relanzar(nombre) or ""
+        ult = datetime.fromisoformat(str(f["ultimo_dato"]))
+        ult_efectivo = ult + timedelta(days=1) if f.get("fecha_de_negocio") else ult
+        veredicto, pl = _planilla(job, ult_efectivo, int(u.get("corridas_ok_sin_avanzar", 4)))
+        if veredicto == CALLAR:
+            continue
+        if veredicto == ESCALAR:
+            out.append(Hallazgo(
+                sujeto=nombre, regla="corre_ok_sin_avanzar", severidad="media",
+                problema=(f"{job} corrió ok {pl['corridas_ok']} veces desde el último "
+                          f"dato y {p['col_fecha']} no avanzó · {f['motivo']}"),
+                detalle=(f"{p['col_fecha']} = {f['ultimo_dato']} · corridas ok desde "
+                         f"{pl['desde']} · {p['filas']:,} filas"),
+                que_hacer=(f"Correr a mano `python -m {job}` y mirar cuántas filas "
+                           f"escribe: si escribe cero, la fuente no publica desde "
+                           f"{ult:%d/%m}; si escribe y {p['col_fecha']} no avanza, "
+                           "la escritura está fallando."),
+                evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
+                           "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
+                           "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
+                           "corridas_ok": pl["corridas_ok"], "job": job,
+                           "la_escribe": escribe.quien_escribe(nombre)}))
             continue
         out.append(Hallazgo(
             sujeto=nombre, regla="sin_escribir",

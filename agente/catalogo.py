@@ -238,11 +238,16 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         correr=sistema.motor_latido,
         umbrales={"tolerancia_s": 90, "gracia_arranque_s": 120, "feed_mudo_min": 10}),
 
+    # ⚠️ Antes de cantar mira la PLANILLA del job que la escribe (§0.fb): si el
+    # job no corrió o falló lo canta `salud` y acá se calla; si corrió `ok`
+    # después del último dato, la tabla no está rota — la fuente no publicó — y
+    # se calla hasta que eso pase `corridas_ok_sin_avanzar` veces seguidas.
     Habilidad(
         nombre="tabla_quieta", tipo="detector", dominio="SISTEMA",
-        que_mira="tablas que dejaron de escribir — la cadencia se MIDE, no se declara",
+        que_mira="tablas que dejaron de escribir sin que su job lo explique — la cadencia se MIDE",
         cada_segundos=30 * _M, ventana="siempre",
-        correr=sistema.tabla_quieta),
+        correr=sistema.tabla_quieta,
+        umbrales={"corridas_ok_sin_avanzar": 4}),
 
     # La FOTO de Primary es lo que filtra el WS y el alta; la refresca un cron
     # (12:15 UTC L-V) y esto canta si un día no corrió. Sin arreglo a propósito:

@@ -83,6 +83,24 @@ _ALIAS_CONOCIDOS: dict[str, list[str]] = {
 }
 
 
+# La moneda de un fondo que NO está en Primary sale de su clase de activo (el
+# vocabulario de assets ya la lleva adentro) o, si no tiene clase, de la moneda
+# con que Aunesa lo valúa en la tenencia. Sin esto un bilateral queda sin moneda
+# y el filtro ARS/USD de la vista lo esconde (bug 2026-09-11: Schroder = 0 filas).
+_MONEDA_POR_CLASE = {"MM ARS": "ARS", "ARS T1": "ARS", "RENTA VARIABLE": "ARS",
+                     "MM USD": "USD", "HD T1": "USD"}
+
+
+def _monedas_tenencia(cur, unidades: list[str]) -> dict[str, str]:
+    """unidad → moneda de la ÚLTIMA tenencia (últimos 45 días, sobre el índice (fecha, unidad))."""
+    if not unidades:
+        return {}
+    cur.execute("SELECT DISTINCT ON (unidad) unidad, upper(moneda) FROM portafolio.tenencia "
+                "WHERE fecha >= CURRENT_DATE - 45 AND unidad = ANY(%s) AND moneda IS NOT NULL "
+                "ORDER BY unidad, fecha DESC", (unidades,))
+    return {u: m for u, m in cur.fetchall() if m in ("ARS", "USD")}
+
+
 def _sym(inst: dict) -> str | None:
     s = inst.get("symbol")
     if isinstance(s, str) and s:
@@ -185,11 +203,13 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
     for f in primary["filas"]:
         por_norm.setdefault(f["nombre_norm"], []).append(f)
     now = datetime.now(UTC)
+    monedas = _monedas_tenencia(cur, [a[0] for a in assets])
     linkeados = nuevos_link = bilaterales = ambiguos = fuera = conflictos = 0
     for unidad, ticker, emisor, instrumento, cafci, clase_activo in assets:
         clase = (clase_activo or "").strip().upper() or None
         if clase in ("NO APLICA", "N/A", "-"):
             clase = None
+        moneda = _MONEDA_POR_CLASE.get(clase or "") or monedas.get(unidad)
         gerente = (emisor or "").strip().upper() or None
         if gerente and gerente not in seguidas:
             gerente_seg = gerente_de(ticker or unidad, seguidas)
@@ -251,13 +271,14 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
             # bilateral (o símbolo que Primary hoy no lista): fila propia por unidad
             cur.execute(
                 "INSERT INTO mercado.fci (nombre, nombre_norm, gerente, simbolo_primary, unidad, cafci,"
-                " categoria, origen, activo, actualizado_en) "
-                "VALUES (%s, %s, %s, NULL, %s, %s, %s, 'asset', true, %s) "
+                " categoria, moneda, origen, activo, actualizado_en) "
+                "VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, 'asset', true, %s) "
                 "ON CONFLICT (unidad) DO UPDATE SET nombre = EXCLUDED.nombre,"
                 " nombre_norm = EXCLUDED.nombre_norm, gerente = COALESCE(EXCLUDED.gerente, mercado.fci.gerente),"
                 " cafci = EXCLUDED.cafci, categoria = COALESCE(EXCLUDED.categoria, mercado.fci.categoria),"
+                " moneda = COALESCE(EXCLUDED.moneda, mercado.fci.moneda),"
                 " activo = true, actualizado_en = EXCLUDED.actualizado_en",
-                (nombre, norm, gerente, unidad, cafci, clase, now))
+                (nombre, norm, gerente, unidad, cafci, clase, moneda, now))
             bilaterales += 1
     jr.set_stat("assets_fci", len(assets))
     jr.set_stat("assets_linkeados_primary", linkeados)

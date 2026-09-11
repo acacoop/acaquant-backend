@@ -727,7 +727,8 @@ class CompletarFicha(Arreglo):
                 # siempre. Lo que corre a pedido lee la copia persistida.
                 filas = cartera.proponer(filas, fuentes.master(),
                                          fuentes.universo_1816_local(),
-                                         det.valores_usados("cartera"))
+                                         det.valores_usados("cartera"),
+                                         cedears=fuentes.cedears_master())
                 propuestas = sum(1 for f in filas if f.get("propuesto"))
             except Exception as e:
                 logger.warning("completar_ficha: sin propuestas de cartera (%s)", e)
@@ -777,6 +778,9 @@ class CompletarFicha(Arreglo):
             # podrían ver universos distintos: el agente escribiría solo una
             # cartera que la pantalla nunca ofreció, y nadie podría explicar de
             # dónde salió (REGLA #9). Un universo, un criterio.
+            # Sin `cedears`: ese master es EVIDENCIA PARA LA NOTA y no propone
+            # nada, así que el ejecutor no lo necesita (y es una consulta menos
+            # en cada pasada del daemon).
             return cartera.deterministas(
                 cartera.proponer(det.faltantes(c), fuentes.master(),
                                  fuentes.universo_1816_local(),

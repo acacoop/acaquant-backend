@@ -68,6 +68,20 @@ PRODUCTO = {"SOJ": "SOJA", "SOY": "SOJA", "MAI": "MAIZ", "CRN": "MAIZ",
             "TRI": "TRIGO", "DLR": "DOLAR"}
 _DOLAR = "DOLAR"
 
+# ⚠️⚠️ **LOS PREFIJOS DE AGRO SE DECLARAN UNA VEZ** (§0.fi).
+#
+# `jobs/assets_autofill` tenía su propia tupla con TRES —`MAI.`, `SOJ.`, `TRI.`—
+# y este dict tiene SEIS. El resultado se veía en pantalla: `[CRN.CME/ABR27]` era
+# «FUTUROS DE MAIZ» para la regla de la CLASE y **no era un derivado** para la
+# regla de la CARTERA, así que se quedaba sin cartera — y sin cartera tampoco
+# podía recibir clase, porque las cinco reglas de la clase arrancan mirando la
+# cartera. El mismo hecho en dos lugares, ninguno arbitrando, y nada falla: es
+# la REGLA #9(B).
+#
+# El dólar queda AFUERA a propósito: no es agro, y su forma OTC ya la reconoce
+# la otra mitad de esa regla (`"OTC" in unidad`).
+PREFIJOS_AGRO = tuple(sorted(f"{p}." for p, v in PRODUCTO.items() if v != _DOLAR))
+
 # Carteras que SON la clase: copia directa, comparación upper/strip.
 CARTERA_COPIA = {"RENTA VARIABLE": "RENTA VARIABLE", "HD": "HD", "DL": "DL"}
 

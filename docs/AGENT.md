@@ -7433,3 +7433,55 @@ paciencia depende de quién espera*. El mismo código censa perfecto en el daemo
 —por eso `sin_cartera` tiene 24 escrituras de `av-agent`— y es inalcanzable para
 una persona. **El agente podía hacer el arreglo y una persona no, y la única
 diferencia eran 30 segundos.**
+
+---
+
+### 0.fi `CRN` ERA MAÍZ EN UN ARCHIVO Y NADA EN EL OTRO — y el guion no decía nada (2026-09-11)
+
+Con el botón de CARTERA ya abriendo (§0.fh), el user vio sus cuatro filas con la
+columna vacía: *«no entiendo por qué no sugiere una cartera»*. Y no podía
+entenderlo: la fila mostraba **un guion y nada más**.
+
+**El bug: TRES listas de prefijos de agro para la misma pregunta.**
+
+| Dónde | Cuántos | Qué contesta de verdad |
+|---|---:|---|
+| `api/services/derivados_agro.DISPO_LABELS` | 3 | qué contratos LOCALES tienen pizarra DISPO (`TRI.ROS.P/DISPO`…) |
+| `jobs/assets_autofill._PREFIJOS_AGRO` | 3 | *(copiada de la de arriba, y congelada así por un test)* |
+| `core.clase_activo.PRODUCTO` | 6 | qué producto es cada prefijo — **incluye los de CME: `CRN` → MAIZ, `SOY` → SOJA** |
+
+Resultado en pantalla: `[CRN.CME/ABR27]` era **«FUTUROS DE MAIZ» para la regla de
+la CLASE y no era un derivado para la regla de la CARTERA**. Se quedaba sin
+cartera; y sin cartera tampoco podía recibir clase, porque las cinco reglas de
+la clase arrancan mirando la cartera. Un futuro de maíz invisible para las dos
+mitades del mismo sistema, cada una coherente consigo misma, sin que nada falle.
+
+**El test que lo congelaba era el problema.** Exigía
+`_PREFIJOS_AGRO == DISPO_LABELS`, o sea ataba «qué es un contrato de agro» a
+«qué contrato tiene pizarra local». Chicago no tiene pizarra local y sigue
+siendo agro. Se corrigió el test, no se rompió: ahora la lista sale de
+`PRODUCTO` (una sola, `PREFIJOS_AGRO`, sin el dólar — que no es agro y cuya
+forma OTC ya la reconoce la otra mitad de la regla) y lo que se exige es la
+**contención**: todo contrato con pizarra DISPO tiene que ser agro. La lista
+puede ser más ancha, nunca más angosta.
+
+**Y la nota, ahora también en `cartera.py`.** Es el mismo invariante de §0.fg en
+el otro campo: una fila sin propuesta dice por qué, y las razones se atienden
+distinto —
+
+- «está en `mercado.curvas` pero sus EJES no dan cartera (moneda «», ajuste «»):
+  completá los ejes del bono y sale sola»
+- «1816 lo pone en la curva «X», que no traduce a ejes conocidos»
+- «**es un CEDEAR** (está en `mercado.cedears`): ninguna regla dice con qué
+  cartera los sigue la mesa» ← el master de CEDEARs entra como EVIDENCIA de la
+  nota y no propone nada: saber que un título es un CEDEAR no dice con qué
+  cartera lo sigue la mesa (eso es criterio), pero convierte «no sé qué es esto»
+  en «sé qué es y no sé cómo lo llaman ustedes», que es una pregunta que alguien
+  puede contestar.
+- «ninguna regla del job lo reconoce y no está ni en `mercado.curvas` ni en el
+  catálogo de 1816»
+
+**Lo que queda abierto y es criterio de la mesa**: si un CEDEAR va a cartera
+`RENTA VARIABLE`, eso es una regla de una línea (`mercado.cedears` ya está
+leído) y completa `CAT`, `GEV` y lo que venga. Nadie lo declaró todavía, así que
+no se inventó.

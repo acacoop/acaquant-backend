@@ -1310,23 +1310,84 @@ def test_si_el_agente_esta_vivo_lo_contesta_un_solo_lugar():
 
 
 def test_los_prefijos_de_agro_no_son_una_segunda_lista():
-    """`_PREFIJOS_AGRO` tiene que decir lo mismo que el sistema ya usa.
+    """**No hay una lista de prefijos de agro en `assets_autofill`**: sale de
+    `core.clase_activo.PRODUCTO`, que es donde el sistema declara qué producto
+    es cada prefijo de contrato.
 
-    Los contratos de agro están declarados en
-    `api/services/derivados_agro.DISPO_LABELS` (`TRI.ROS.P/DISPO`, etc.) y de
-    ahí salen los tres prefijos. Escribirlos otra vez en `assets_autofill` es la
-    REGLA #9 de manual: dos listas para la misma pregunta, cada una coherente
-    consigo misma, y el día que se agregue un commodity a una y no a la otra
-    nada falla — simplemente un futuro deja de recibir su cartera.
+    ⚠️ **Este test se CORRIGIÓ, no se rompió** (§0.fi). Antes exigía
+    `_PREFIJOS_AGRO == DISPO_LABELS`, y esa igualdad era la que tenía el bug:
+    `derivados_agro.DISPO_LABELS` contesta **otra pregunta** —qué contratos
+    LOCALES tienen pizarra DISPO (Rosario: `TRI.ROS.P/DISPO`…)— y de ahí salían
+    TRES prefijos, mientras `PRODUCTO` ya declaraba SEIS porque conoce los de
+    CME (`CRN` → MAIZ, `SOY` → SOJA). Resultado en pantalla: `[CRN.CME/ABR27]`
+    era «FUTUROS DE MAIZ» para la regla de la CLASE y **no era un derivado** para
+    la regla de la CARTERA — y sin cartera tampoco podía recibir clase, porque
+    las cinco reglas de la clase arrancan mirando la cartera.
+
+    Lo que sí tiene que valer es la CONTENCIÓN: todo contrato con pizarra DISPO
+    es agro. La lista de agro puede ser más ancha (Chicago no tiene pizarra
+    local), pero nunca más angosta.
     """
     from api.services.derivados_agro import DISPO_LABELS
+    from core.clase_activo import PREFIJOS_AGRO, PRODUCTO
     from jobs.assets_autofill import _PREFIJOS_AGRO
 
+    assert _PREFIJOS_AGRO is PREFIJOS_AGRO, (
+        "el job volvió a tener su propia lista: el mismo hecho en dos lugares "
+        "no falla, sólo deja un futuro sin cartera (REGLA #9)")
+
     # `MAI.ROS.P/DISPO` → `MAI.`
-    de_agro = {v.split(".", 1)[0] + "." for v in DISPO_LABELS.values()}
-    assert set(_PREFIJOS_AGRO) == de_agro, (
-        f"assets_autofill dice {sorted(_PREFIJOS_AGRO)} y derivados_agro "
-        f"{sorted(de_agro)}")
+    con_pizarra = {v.split(".", 1)[0] + "." for v in DISPO_LABELS.values()}
+    assert con_pizarra <= set(PREFIJOS_AGRO), (
+        f"hay un contrato con pizarra DISPO que no se reconoce como agro: "
+        f"{sorted(con_pizarra - set(PREFIJOS_AGRO))}")
+
+    # Y el dólar NO es agro, aunque `PRODUCTO` lo conozca: su forma OTC la
+    # reconoce la otra mitad de la regla (`"OTC" in unidad`).
+    assert "DLR." not in PREFIJOS_AGRO and "DLR" in PRODUCTO
+
+
+def test_toda_fila_sin_cartera_dice_POR_QUE():
+    """⚠️⚠️ Mismo invariante que en `clase.py` (§0.fi), en el otro campo.
+
+    El user, mirando las cuatro filas de CARTERA: *«no entiendo por qué no
+    sugiere una cartera»* — y no podía entenderlo, porque la fila mostraba un
+    guion y nada más. Las razones son cuatro y se atienden distinto: una es un
+    bug (el prefijo `CRN.` que no estaba), otra es completar los ejes de un
+    bono, otra es que el título es un CEDEAR y la mesa no declaró con qué
+    cartera los sigue, y otra es que no hay nada de dónde derivarlo.
+    """
+    from agente import cartera
+
+    base = {"clase_activo": "", "emisor": "", "cartera": ""}
+    # El caso que estaba roto: un futuro de maíz de CHICAGO. `PRODUCTO` sabía
+    # que `CRN` es maíz y la lista del job no.
+    chicago = {**base, "unidad": "[CRN.CME/ABR27]", "ticker": "CRN.CME/ABR27"}
+    cedear = {**base, "unidad": "[8012] CAT", "ticker": "CAT"}
+    sin_ejes = {**base, "unidad": "[1] X", "ticker": "XBONO"}
+    en_1816 = {**base, "unidad": "[2] Y", "ticker": "YBONO"}
+    huerfano = {**base, "unidad": "[3] Z", "ticker": "ZZZ"}
+
+    master = [{"ticker_corto": "XBONO", "moneda_eje": "", "ajuste": ""}]
+    univ = {"instrumentos": {"YBONO": {"_curva": "Una curva que 1816 inventó"}}}
+
+    r = cartera.proponer([chicago, cedear, sin_ejes, en_1816, huerfano],
+                         master, univ, usadas=["DERIVADOS", "ARS", "HD"],
+                         cedears=[{"ticker_corto": "CAT"}])
+    notas = {f["unidad"]: f["nota"] for f in r}
+
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("DERIVADOS", cartera.REGLA), (
+        "un futuro de maíz de CME tiene que recibir cartera DERIVADOS: la regla "
+        "de la clase ya sabía que `CRN` es maíz")
+    assert r[0]["nota"] == ""
+    for f in r[1:]:
+        assert f["propuesto"] == "" and f["nota"], (
+            f"«{f['unidad']}» quedó sin propuesta Y SIN MOTIVO: en pantalla es "
+            "un guion pelado")
+    assert "CEDEAR" in notas["[8012] CAT"]
+    assert "EJES" in notas["[1] X"] and "completá" in notas["[1] X"]
+    assert "1816" in notas["[2] Y"]
+    assert "ninguna regla" in notas["[3] Z"]
 
 
 def test_no_queda_ni_un_hilo_del_auto_control_viejo():

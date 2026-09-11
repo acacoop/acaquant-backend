@@ -83,8 +83,19 @@ def _indice_1816(universo_1816: dict | None) -> dict[str, dict]:
     return out
 
 
+def _tickers_cedears(cedears: list[dict] | None) -> set[str]:
+    """`{ticker_corto.upper()}` del master de CEDEARs (`fuentes.cedears_master`).
+    No propone nada: es **evidencia para la nota**. Saber que un título es un
+    CEDEAR no dice con qué cartera lo sigue la mesa —eso es criterio, no
+    derivación—, pero convierte «no sé qué es esto» en «sé qué es y no sé cómo
+    lo llaman ustedes», que es una pregunta que alguien puede contestar."""
+    return {(c.get("ticker_corto") or "").strip().upper()
+            for c in (cedears or []) if (c.get("ticker_corto") or "").strip()}
+
+
 def proponer(filas: list[dict], master: list[dict] | None,
-             universo_1816: dict | None, usadas: list[str]) -> list[dict]:
+             universo_1816: dict | None, usadas: list[str],
+             cedears: list[dict] | None = None) -> list[dict]:
     """Cada fila con `propuesto`, `fuente` y `nota`. **PURA** salvo el import
     lazy de las reglas del job. `master` es `agente.fuentes.master()`.
 
@@ -93,10 +104,15 @@ def proponer(filas: list[dict], master: list[dict] | None,
     throttle entre cada una y esto corre cuando alguien abre una pantalla, con
     30 s de proxy del otro lado (§0.fh). Los dos tienen la misma forma, así que
     esta función no sabe cuál le pasaron: mira `_curva` y nada más.
+
+    ⚠️⚠️ **UNA FILA SIN PROPUESTA SIEMPRE DICE POR QUÉ** (§0.fi), igual que en
+    `agente/clase.py`: un guion pelado hace que «no hay regla para esto»
+    (correcto) y «la regla no encontró su fuente» (un bug) se lean igual.
     """
-    fin, fci, otc, tk_regla = _reglas_job()
+    fin_, fci, otc, tk_regla = _reglas_job()
     indice_master = _indice_master(master)
     indice_1816 = _indice_1816(universo_1816)
+    tickers_cedear = _tickers_cedears(cedears)
     out = []
     for f in filas:
         fila = {**f, "propuesto": "", "fuente": "", "nota": ""}
@@ -105,23 +121,46 @@ def proponer(filas: list[dict], master: list[dict] | None,
         if not ticker and tk_regla is not None:
             ticker = str((tk_regla(f) or {}).get("ticker") or "").strip().upper()
 
-        if fin is not None:
-            for regla in (fin, fci, otc):
+        if fin_ is not None:
+            for regla in (fin_, fci, otc):
                 if (v := (regla(f) or {}).get("cartera")):
                     fila["propuesto"], fila["fuente"] = v, REGLA
                     break
 
-        if not fila["propuesto"]:
-            doc = indice_master.get(ticker)
-            if doc and (v := de_ejes(doc.get("moneda_eje") or "", doc.get("ajuste") or "")):
+        doc = indice_master.get(ticker)
+        if not fila["propuesto"] and doc:
+            if (v := de_ejes(doc.get("moneda_eje") or "", doc.get("ajuste") or "")):
                 fila["propuesto"], fila["fuente"] = v, CURVA
 
+        inst = indice_1816.get(ticker)
+        ejes_1816 = desde_1816(inst.get("_curva")) if inst is not None else None
+        if not fila["propuesto"] and ejes_1816 is not None:
+            if (v := de_ejes(ejes_1816.moneda, ejes_1816.ajuste)):
+                fila["propuesto"], fila["fuente"] = v, MIL816
+
+        # ── POR QUÉ NO, cuando no hay propuesta. Las razones se atienden
+        #    distinto: una es cargar un valor, otra es completar los ejes de un
+        #    bono, otra es que no hay regla y lo tiene que decidir la mesa.
         if not fila["propuesto"]:
-            inst = indice_1816.get(ticker)
-            if inst is not None:
-                ejes = desde_1816(inst.get("_curva"))
-                if ejes is not None and (v := de_ejes(ejes.moneda, ejes.ajuste)):
-                    fila["propuesto"], fila["fuente"] = v, MIL816
+            if fin_ is None:
+                fila["nota"] = ("no pude leer las reglas del job "
+                                "(`jobs/assets_autofill`) en esta corrida")
+            elif doc is not None:
+                fila["nota"] = (
+                    f"está en mercado.curvas pero sus EJES no dan cartera "
+                    f"(moneda «{(doc.get('moneda_eje') or '').strip() or '—'}», "
+                    f"ajuste «{(doc.get('ajuste') or '').strip() or '—'}»): "
+                    "completá los ejes del bono y sale sola")
+            elif inst is not None:
+                fila["nota"] = (
+                    f"1816 lo pone en la curva «{inst.get('_curva') or '—'}», "
+                    "que no traduce a ejes conocidos")
+            elif ticker and ticker in tickers_cedear:
+                fila["nota"] = ("es un CEDEAR (está en mercado.cedears): ninguna "
+                                "regla dice con qué cartera los sigue la mesa")
+            else:
+                fila["nota"] = ("ninguna regla del job lo reconoce y no está ni "
+                                "en mercado.curvas ni en el catálogo de 1816")
 
         # ⚠️ **LA LISTA CERRADA**, mismo invariante que `clase.py`/`emisor.py`,
         # tolerante a grafía (`en_lista_cerrada`).

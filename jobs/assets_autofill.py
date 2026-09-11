@@ -104,6 +104,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from core.cafci import es_fci_unidad, extract_cafci, nombre_fci
+from core.clase_activo import PREFIJOS_AGRO
 from core.job_runs import JobRunLogger
 from core.postgres import get_pool
 
@@ -511,7 +512,10 @@ EMISOR_OTROS = "OTROS"
 # `MAI.MIN/JUL27` empiezan con `MAI.`, pero un ticker que casualmente arranque
 # con esas tres letras y NO tenga el punto no es un futuro. El punto es parte
 # del nombre del contrato, así que se exige.
-_PREFIJOS_AGRO = ("MAI.", "SOJ.", "TRI.")
+# La lista VIVE EN `core/clase_activo` (§0.fi): la regla de la clase y la de la
+# cartera tienen que reconocer los MISMOS contratos, y con dos tuplas una tenía
+# tres prefijos y la otra seis.
+_PREFIJOS_AGRO = PREFIJOS_AGRO
 
 
 def _regla_emisor_derivados(row: dict) -> dict[str, str]:

@@ -795,14 +795,23 @@ def _ultimo_dato_vivo(perfiles_: list[dict]) -> tuple[dict[int, object], dict[in
                        "leo tabla por tabla", str(e).splitlines()[0][:200])
     leidas: dict[int, object] = {}
     fallidas: dict[int, str] = {}
-    for i, p in con_col:
-        try:
-            with get_pool().connection() as conn, conn.cursor() as cur:
-                cur.execute(f'SELECT max("{p["col_fecha"]}") '
-                            f'FROM "{p["schema"]}"."{p["tabla"]}"')
-                leidas[i] = cur.fetchone()[0]
-        except Exception as e:
-            fallidas[i] = str(e).splitlines()[0][:200]
+    try:
+        with get_pool().connection() as conn:
+            for i, p in con_col:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(f'SELECT max("{p["col_fecha"]}") '
+                                    f'FROM "{p["schema"]}"."{p["tabla"]}"')
+                        leidas[i] = cur.fetchone()[0]
+                except Exception as e:
+                    fallidas[i] = str(e).splitlines()[0][:200]
+                    # Una query que falla deja la transacción abortada: sin
+                    # esto, la siguiente tabla falla por la anterior.
+                    conn.rollback()
+    except Exception as e:
+        # Ni una conexión: ninguna leída, todas con el mismo motivo.
+        motivo = str(e).splitlines()[0][:200]
+        fallidas = {i: motivo for i, _ in con_col if i not in leidas}
     if fallidas:
         logger.warning("contexto: no pude leer el último dato en vivo de %d tabla(s): %s",
                        len(fallidas),

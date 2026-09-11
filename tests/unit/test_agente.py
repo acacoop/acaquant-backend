@@ -5722,7 +5722,9 @@ def test_no_mirado_no_crea_ni_cierra_y_queda_dicho(monkeypatch):
     assert creados == [real]
     assert ("mercado.a", "sin_escribir") in vistos_cerrar
     assert r["no_mirados"] == 1 and r["resultado"] == tipos.OK
-    assert any("no pude mirar 1: mercado.a" in (k.get("error") or "") for k in sellos)
+    # UNA sola vez: sellar dos veces suma `corridas_hoy` dos veces.
+    assert len(sellos) == 1
+    assert "no pude mirar 1: mercado.a" in sellos[0]["error"]
 
 
 def test_el_barrido_olvida_las_tablas_que_murieron():

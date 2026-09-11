@@ -22,6 +22,13 @@ job está perfecto y la tabla figura «atrasada» todas las mañanas.
 El dato que separa las tres YA EXISTE y el detector no lo mira: `manager.job_runs`
 (lo escribe `JobRunLogger` en cada corrida, con su `status` y sus `stats`).
 
+Y dos preguntas más que una persona hace delante de la tarjeta y el detector
+tampoco: **¿el día sin dato era hábil?** (`mercado.dias_habiles` contra los
+días que sí tienen dato — un feriado entre semana no lo descuenta nadie) y
+**¿las otras veces que cantó, qué día y a qué hora fue?** (`agente.hallazgos`:
+si el «crónico 4× en 30 d» cae siempre un lunes o después de un feriado, es el
+calendario, no el job).
+
     python -m scripts.diag_tabla_quieta                 # las que el agente tiene abiertas
     python -m scripts.diag_tabla_quieta --tabla bancos.sync_log
     python -m scripts.diag_tabla_quieta --corridas 12   # cuántas corridas mostrar
@@ -101,6 +108,48 @@ def _corridas(job: str, n: int) -> list[tuple]:
         " ORDER BY started_at DESC LIMIT %s", (tipo, n))
 
 
+def _calendario(tabla: str, col: str, dias: int = 10) -> None:
+    """Día por día: ¿fue hábil según `mercado.dias_habiles`? ¿tiene dato en
+    `col`? La fila que dice «hábil SIN dato» es la única que acusa al job."""
+    from datetime import UTC, datetime, timedelta
+    hoy = datetime.now(UTC).date()
+    desde = hoy - timedelta(days=dias)
+    habiles = {r[0] for r in _filas(
+        "SELECT fecha FROM mercado.dias_habiles WHERE fecha BETWEEN %s AND %s",
+        (desde, hoy))}
+    try:
+        con_dato = {r[0] for r in _filas(
+            f'SELECT DISTINCT "{col}"::date FROM {tabla} WHERE "{col}" >= %s', (desde,))}
+    except Exception as e:
+        print(f"    ⚠ no pude listar los días con dato: {str(e).splitlines()[0][:120]}")
+        return
+    print(f"\n  CALENDARIO (últimos {dias} días · hábil según mercado.dias_habiles):")
+    if not habiles:
+        print("    ⚠ mercado.dias_habiles no tiene filas en la ventana: no sé qué día fue hábil")
+    for i in range(dias, -1, -1):
+        d = desde + timedelta(days=dias - i)
+        es_habil = ("sí" if d in habiles else "no") if habiles else "?"
+        marca = "   ← hábil SIN dato" if d in habiles and d not in con_dato else ""
+        print(f"    {d:%a %d/%m}  hábil={es_habil:<2}  dato={'sí' if d in con_dato else 'NO'}{marca}")
+
+
+def _historial(tabla: str, dias: int = 30) -> None:
+    """Cada vez que `tabla_quieta` cantó esta tabla: cuándo apareció (día de la
+    semana incluido), cuánto duró, cómo se cerró y si alguien lo leyó."""
+    from core.tz import hora_ar
+    filas = _filas(
+        "SELECT id, detectado_at, veces, estado, cerrado_at, cerrado_como, leido_por "
+        "  FROM agente.hallazgos "
+        " WHERE habilidad = 'tabla_quieta' AND sujeto = %s "
+        "   AND detectado_at >= now() - make_interval(days => %s) "
+        " ORDER BY detectado_at DESC", (tabla, dias))
+    print(f"\n  HISTORIAL ({len(filas)} vez/veces en {dias} días · hora ART):")
+    for hid, det, veces, estado, cer, como, quien in filas:
+        duro = f"duró {(cer - det).total_seconds() / 3600:.1f} h" if cer else "ABIERTO"
+        print(f"    #{hid} {hora_ar(det)} ({det:%a}) · ×{veces} · {estado:<9} · {duro} · "
+              f"cierre={como or '—'} · leído={'por ' + quien if quien else 'no'}")
+
+
 def _una(tabla: str, n_corridas: int) -> None:
     from agente import tablas
     from core import escribe
@@ -136,6 +185,12 @@ def _una(tabla: str, n_corridas: int) -> None:
     f = tablas.frescura(p, declarado=declarado)
     print(f"  último dato     : {ult}")
     print(f"  VEREDICTO       : {f['estado'].upper()} — {f['motivo']}")
+    if f.get("atraso_s") is not None and f.get("tope_s"):
+        print(f"  atraso / tope   : {f['atraso_s'] / 3600:.2f} h / {f['tope_s'] / 3600:.2f} h"
+              + (" · fecha de NEGOCIO: es una cota" if f.get("fecha_de_negocio") else ""))
+    if col:
+        _calendario(tabla, col)
+    _historial(tabla)
 
     # ── LA MITAD QUE EL DETECTOR NO MIRA ────────────────────────────────────
     if not job:

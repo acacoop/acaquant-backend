@@ -63,6 +63,37 @@ echo "════════════════════════�
 # ── 1. Código ───────────────────────────────────────────────────────────────
 echo
 echo "▶ 1/4  git pull"
+
+# ⚠️⚠️ **UN DEPLOY PARADO FUERA DE `main` CANTA OK Y NO TRAE NADA.**
+#
+# Pasó: el server había quedado en `claude/inspiring-cray-sbo0m7`. El `git pull`
+# andaba —traía ESA rama—, el service reiniciaba, el smoke daba verde y el script
+# imprimía «DEPLOY OK». Pero el código de `main` no llegaba NUNCA, y del otro lado
+# la pantalla mostraba el campo nuevo vacío. Cada mitad coherente, nada falla, y
+# se lee como «el cambio no funcionó» en vez de «el server está en otra rama».
+#
+# Se CORTA en vez de avisar: el que corre el deploy quiere el código de main en
+# prod, y seguir sería deployar otra cosa con su bendición. El mensaje dice el
+# comando exacto, y no vuelve a main solo — esa rama puede tener trabajo que no
+# está mergeado, y sacarlo de prod es una decisión, no un efecto secundario.
+RAMA="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+if [ "$RAMA" != "main" ]; then
+    echo "   rama actual: $RAMA"
+    echo
+    echo "❌ FALLÓ: el server NO está en main (está en '$RAMA')"
+    echo "   Un pull acá trae ESA rama: el deploy diría OK y el código de main"
+    echo "   no llegaría nunca."
+    echo
+    echo "   1) Mirá si esa rama tiene trabajo que main no tenga:"
+    echo "        git log --oneline origin/main..$RAMA"
+    echo "   2) Si no tiene nada (o ya se mergeó), volvé a main:"
+    echo "        git checkout main && git pull --ff-only && bash deploy/deploy.sh"
+    exit 1
+fi
+
+UPSTREAM="$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || echo '?')"
+[ "$UPSTREAM" = "origin/main" ] || echo "   ⚠ main sigue a '$UPSTREAM' (se esperaba origin/main)"
+
 ANTES="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 git pull --ff-only || morir "git pull (¿hay cambios locales sin commitear en el server?)"
 DESPUES="$(git rev-parse --short HEAD)"

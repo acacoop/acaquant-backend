@@ -1169,7 +1169,16 @@ a los 20' lo vieron **cuatro pasadas seguidas**. Eso ya no es un parpadeo.
 
 Vacío es el default y es una declaración: esa habilidad no dispara nada. El
 permiso se da **caso por caso** — *«no con todo, con casos que vayamos
-eligiendo»*. Hoy hay UNO.
+eligiendo»*.
+
+> ⚠️⚠️ **HOY HAY CERO, y es a propósito (§0.ff).** `proveedor_caido` era la
+> única y se apagó el 2026-09-11 por decisión del user: el investigador se había
+> conectado a producción antes de que existiera un trabajo esperándolo. **El
+> sistema no gasta un token de modelo sin que alguien apriete.** El mecanismo
+> entero —triage, cola, presupuesto, traza, el botón manual de la tab LAB— sigue
+> en pie; lo único que no ocurre es el disparo solo. La línea de arriba es
+> literalmente lo que hay que restituir para encenderlo, y el motivo de los 20
+> minutos quedó escrito al lado, en `agente/catalogo.py`.
 
 ⚠️ **El TIPO de investigación no se declara acá.** Ya vive en
 `lab.langgraph.investigaciones.DE_LA_HABILIDAD`, que es quien sabe qué sabe
@@ -7198,3 +7207,41 @@ ACCIÓN puede reincidir) y no se toca. `repetible` tampoco cambió de dueño —
 `alta_on` y `alta_cedear` son familias y lo declaran `False`, lo que solo
 afecta la reinsistencia del ejecutor a 24 h; queda anotado como pregunta, no
 como arreglo, porque cambiarlo cambia lo que el agente hace solo.
+
+### 0.ff EL INVESTIGADOR DEJA DE DISPARAR SOLO — una máquina buena sin un trabajo (2026-09-11)
+
+No es un bug: es una decisión del user, y el motivo es de método.
+
+Repasando qué consume tokens sin que nadie apriete, el conteo dio esto: de las
+**30 habilidades del catálogo, UNA** declaraba `investigar` (`proveedor_caido ·
+no_responde`, espera 20'). Y de los **cuatro** tipos de investigación del lab,
+uno es `libre` — *«una pregunta suelta, **sin método declarado**»*. El user:
+*«todo esto de agentes lo hice por hacer, no pensé (…) con casos de uso que la
+verdad tampoco eran reales»*.
+
+O sea: **el investigador se conectó a producción antes de que existiera un
+trabajo esperándolo del otro lado.** Es la regla que ya está escrita arriba de
+`core/ai.py` —*«¿QUIÉN MIRA SU SALIDA?»*, aprendida cuando murieron el copiloto,
+el MCP y el destilado del research— aplicada a una feature que había entrado por
+otra puerta y se la salteó.
+
+**Qué cambia**: nada del mecanismo. Se saca la línea `investigar` de
+`proveedor_caido` y con eso **el sistema deja de gastar un solo token de modelo
+sin que una persona apriete algo**. Siguen en pie el triage, la cola, el
+presupuesto, la traza, el botón «investigar» del modal y sus 13 habilidades
+mapeadas. Encenderlo de nuevo es restituir una línea, y el número de los 20
+minutos quedó documentado al lado, en `agente/catalogo.py`.
+
+**Lo que NO se hizo, y se dice**: no se borró el lab, no se corrió
+`scripts/eval_investigador.py` y por lo tanto **no hay número sobre si el
+investigador acierta**. Esa medición está pendiente y es la que decide el futuro
+del subsistema — apagar el disparo automático es reversible y barato; borrar
+2.520 líneas con el user cansado y sin el dato, no.
+
+⚠️ **Un test se corrigió, no se rompió.** `test_no_se_investiga_lo_que_se_acaba_
+de_caer` tenía un `assert declaradas` —«el triage no tiene ninguna regla
+declarada»— que confundía un HECHO de ese momento con un invariante: habría
+puesto CI en rojo por una decisión legítima y reversible. Lo que el test sí
+garantiza —que ninguna regla pueda dispararse antes de los 300 s— se comprueba
+donde de verdad importa, en el dataclass que lo impide, y eso vale sobre cero
+reglas igual que sobre diez.

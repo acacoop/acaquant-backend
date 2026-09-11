@@ -3904,10 +3904,19 @@ def test_no_se_investiga_lo_que_se_acaba_de_caer():
     """
     from agente import triage
 
-    # Toda regla declarada tiene una espera, y el dataclass la exige.
-    declaradas = triage._declaradas()
-    assert declaradas, "el triage no tiene ninguna regla declarada"
-    for hab, regla, seg in declaradas:
+    # ⚠️ **CERO REGLAS DECLARADAS ES UN ESTADO VÁLIDO, y desde el 2026-09-11 es
+    # el estado real**: ninguna habilidad declara `investigar`, o sea que el
+    # sistema no gasta un token de modelo sin que alguien apriete. Acá decía
+    # `assert declaradas` —«el triage no tiene ninguna regla declarada»—, y eso
+    # confundía un HECHO de ese momento con un invariante: convertía en un test
+    # rojo una decisión que es del user y es reversible (ver el comentario de
+    # `proveedor_caido` en `agente/catalogo.py`).
+    #
+    # Lo que este test sí tiene que garantizar no cambió: que NINGUNA regla
+    # pueda dispararse antes de su piso. Eso vale sobre las que haya, sean cero
+    # o sean diez, y las dos comprobaciones de abajo lo prueban donde de verdad
+    # importa — en el dataclass, que es quien lo impide.
+    for hab, regla, seg in triage._declaradas():
         assert seg >= 300, f"«{hab}/{regla}» dispara a los {seg}s"
 
     # Y el piso no depende de que alguien se acuerde: no se puede construir.

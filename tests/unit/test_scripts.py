@@ -68,6 +68,11 @@ HERRAMIENTAS: dict[str, str] = {
                              "`tabla_quieta` con las corridas reales de `manager.job_runs`. Es la "
                              "pregunta que la tarjeta del agente NO contesta, y las tres causas se "
                              "atienden al revés (AGENT.md §0.ew).",
+    "diag_informe_semaforo": "¿por qué ACTIVAS + ENFRIÁNDOSE del Informe da 0? Distingue las "
+                             "TRES causas, que se atienden al revés: el Droplet sirve código "
+                             "viejo · el backend devuelve el número y lo viejo es el front · "
+                             "las dos queries del semáforo cuentan distinto. Sin esto, un cero "
+                             "en pantalla no dice cuál de las tres es.",
     "check_proxies_next":    "cruza los routers del backend contra los proxies de Next: un handler que falta "
                              "deja el panel vacío EN SILENCIO. Tiene --strict; debería estar en CI.",
     "diag_entorno":          "instalado vs. pineado en requirements.txt. Un drift acá no falla: cambia el "

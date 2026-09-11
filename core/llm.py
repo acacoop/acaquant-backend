@@ -31,6 +31,7 @@ Variables de entorno (se leen SOLO acá):
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -132,7 +133,12 @@ def _reasoning_openai(thinking: str) -> str:
 @dataclass
 class RespuestaLLM:
     """Lo que devuelve una llamada. Si algo falló, `ok` es False y el motivo
-    está en `error` — nunca se levanta una excepción."""
+    está en `error` — nunca se levanta una excepción.
+
+    ⚠️ El modelo contesta UNA de dos cosas, nunca las dos:
+      · `texto`   → terminó, esto es la respuesta.
+      · `pedidos` → no terminó: quiere que le corras una o más herramientas.
+    """
     ok: bool
     texto: str | None = None
     razonamiento: str | None = None   # lo que "pensó", si el proveedor lo muestra
@@ -143,13 +149,37 @@ class RespuestaLLM:
     latencia_ms: int | None = None
     error: str | None = None
 
+    # Las herramientas que el modelo PIDIÓ. Una lista de:
+    #   {"id", "nombre", "argumentos": dict|None, "argumentos_crudos": str}
+    # `argumentos` viene en None si el modelo mandó un JSON que no se pudo
+    # leer — pasa, y hay que poder contestarle "no te entendí" en vez de
+    # explotar.
+    pedidos: list[dict] | None = None
+
+    # El mensaje del modelo tal como vino, sin tocar. Sirve para UNA cosa: hay
+    # que volver a mandárselo en la vuelta siguiente, y tiene que ir IDÉNTICO.
+    # Si lo rearmáramos a mano, un espacio de más en los argumentos y el
+    # proveedor rechaza la conversación entera.
+    mensaje: dict | None = None
+
 
 def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict],
-                max_tokens: int, thinking: str | None) -> dict:
+                max_tokens: int, thinking: str | None,
+                herramientas: list[dict] | None = None) -> dict:
     """Arma el pedido en el idioma del proveedor. Los dos hablan parecido pero
     no igual, y esta función es la que traduce."""
     body: dict = {"model": modelo_id, "messages": mensajes,
                   cfg["max_tokens_param"]: max_tokens}
+    # ── SU ROL EN EL CICLO: acá es donde se le OFRECEN las herramientas ──
+    #
+    # El modelo no ejecuta nada. Lo único que recibe es una LISTA con el
+    # nombre, para qué sirve y qué argumentos toma cada función. Con eso decide
+    # si quiere alguna, y si quiere, contesta pidiéndola por nombre.
+    #
+    # Los dos proveedores usan el mismo formato acá (deepseek copia el de
+    # openai), así que por ahora no hace falta traducir nada.
+    if herramientas:
+        body["tools"] = herramientas
     if cfg["dialecto"] == "openai":
         # Que openai NO guarde la conversación de su lado. Va siempre, sin
         # depender de que el interruptor de la cuenta esté bien puesto.
@@ -174,6 +204,37 @@ def _usage_cache(usage: dict) -> tuple[int | None, int | None]:
     return hit, miss
 
 
+def _leer_pedidos(msg: dict) -> list[dict] | None:
+    """Traduce las herramientas que pidió el modelo a algo cómodo de usar.
+
+    ── SU ROL EN EL CICLO: es la MITAD DE IDA de la vuelta 2 ──
+
+    Cuando el modelo quiere una herramienta no contesta texto: manda una lista
+    con qué función quiere y con qué argumentos. Los argumentos vienen como un
+    STRING con JSON adentro, no como un diccionario, así que hay que leerlos.
+
+    Si ese JSON viene roto —pasa— no se rompe nada: `argumentos` queda en None
+    y el que llama puede contestarle al modelo "no te entendí, mandalo de
+    nuevo" en vez de cortar la conversación.
+    """
+    crudos = msg.get("tool_calls")
+    if not crudos:
+        return None
+    pedidos = []
+    for c in crudos:
+        fn = c.get("function") or {}
+        texto_args = fn.get("arguments") or "{}"
+        try:
+            args = json.loads(texto_args)
+            if not isinstance(args, dict):
+                args = None
+        except Exception:
+            args = None
+        pedidos.append({"id": c.get("id"), "nombre": fn.get("name"),
+                        "argumentos": args, "argumentos_crudos": texto_args})
+    return pedidos or None
+
+
 def chat(
     mensajes: list[dict],
     *,
@@ -183,6 +244,7 @@ def chat(
     thinking: str | None = None,
     reintentos: int = 0,
     proveedor: str | None = None,
+    herramientas: list[dict] | None = None,
 ) -> RespuestaLLM:
     """Una llamada al modelo. Es lo único que hace este archivo.
 
@@ -191,6 +253,10 @@ def chat(
     - `reintentos`: sólo sirve para fallas pasajeras (se cortó la red, el
       proveedor devolvió un error suyo). Si el pedido está mal armado o la
       clave es inválida NO se reintenta: volver a mandar lo mismo da lo mismo.
+    - `herramientas`: la lista de funciones que el modelo PUEDE pedir. Si le
+      pasás alguna, puede contestar `pedidos` en vez de `texto` — ver
+      `RespuestaLLM`. Si no le pasás ninguna, contesta texto y listo, que es
+      como funcionaba hasta hoy.
 
     NUNCA levanta una excepción. Si algo falla, devuelve ok=False y el motivo.
     """
@@ -209,7 +275,8 @@ def chat(
 
     url = _base_url(cfg) + "/chat/completions"
     body = _armar_body(cfg, modelo_id=modelo, mensajes=mensajes,
-                       max_tokens=max_tokens, thinking=thinking)
+                       max_tokens=max_tokens, thinking=thinking,
+                       herramientas=herramientas)
 
     t0 = time.perf_counter()
     ultimo_error: str | None = None
@@ -242,7 +309,11 @@ def chat(
         cache_hit, cache_miss = _usage_cache(usage)
         return RespuestaLLM(
             ok=True,
+            # Ojo: cuando pide herramientas, `content` viene vacío. Eso NO es
+            # un error — es el modelo diciendo "todavía no terminé".
             texto=(msg.get("content") or "").strip() or None,
+            pedidos=_leer_pedidos(msg),
+            mensaje=msg,
             razonamiento=(msg.get("reasoning_content") or "").strip() or None,
             tokens_in=usage.get("prompt_tokens"),
             tokens_out=usage.get("completion_tokens"),

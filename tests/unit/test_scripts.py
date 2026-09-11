@@ -64,6 +64,11 @@ HERRAMIENTAS: dict[str, str] = {
     "diag_tea_rechazada":    "¿la celda `tea` vacía es «no supe», «no convergió» o «calculé y "
                              "DESCARTÉ el número»? Recalcula con las mismas funciones del motor. "
                              "Es lo único que dice si un `bono_sin_tasa` puede cerrarse alguna vez.",
+    "diag_clase_activo":     "¿por qué el listado de `clase_activo` no propone nada? Parte los "
+                             "faltantes por CAUSA con la MISMA cadena que la pantalla: se propone · "
+                             "la regla sabe y el valor no está en la lista cerrada · ninguna regla "
+                             "aplica (y ahí, cuál de las cinco razones). Hoy las cuatro se ven "
+                             "iguales en pantalla —un guion— y son trabajos distintos.",
     "diag_tabla_quieta":     "¿el job no corrió, o corrió y no escribió? Cruza el veredicto de "
                              "`tabla_quieta` con las corridas reales de `manager.job_runs`. Es la "
                              "pregunta que la tarjeta del agente NO contesta, y las tres causas se "

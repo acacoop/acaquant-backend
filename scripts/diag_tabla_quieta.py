@@ -138,21 +138,31 @@ def _historial(tabla: str, dias: int = 30) -> None:
     semana incluido), cuánto duró, cómo se cerró y si alguien lo leyó."""
     from core.tz import hora_ar
     filas = _filas(
-        "SELECT id, detectado_at, veces, estado, cerrado_at, cerrado_como, leido_por "
+        "SELECT id, detectado_at, veces, estado, cerrado_at, cerrado_como, leido_por, "
+        "       evidencia "
         "  FROM agente.hallazgos "
         " WHERE habilidad = 'tabla_quieta' AND sujeto = %s "
         "   AND detectado_at >= now() - make_interval(days => %s) "
         " ORDER BY detectado_at DESC", (tabla, dias))
     print(f"\n  HISTORIAL ({len(filas)} vez/veces en {dias} días · hora ART):")
-    for hid, det, veces, estado, cer, como, quien in filas:
+    for hid, det, veces, estado, cer, como, quien, ev in filas:
         duro = f"duró {(cer - det).total_seconds() / 3600:.1f} h" if cer else "ABIERTO"
         print(f"    #{hid} {hora_ar(det)} ({det:%a}) · ×{veces} · {estado:<9} · {duro} · "
               f"cierre={como or '—'} · leído={'por ' + quien if quien else 'no'}")
+        ev = ev or {}
+        # ⚠️ `ultimo_vivo=False` = la lectura en vivo FALLÓ y se juzgó con la
+        # foto del barrido. Es la diferencia entre «la tabla no escribió» y
+        # «el agente no pudo mirar la tabla».
+        at, tp = ev.get("atraso_s"), ev.get("tope_s")
+        print(f"          evidencia: ultimo_vivo={ev.get('ultimo_vivo')} · "
+              f"ultimo_dato={ev.get('ultimo_dato')} · "
+              + (f"atraso/tope={at / 3600:.2f}/{tp / 3600:.2f} h" if at and tp else "sin atraso"))
 
 
 def _una(tabla: str, n_corridas: int) -> None:
     from agente import tablas
     from core import escribe
+    from core.tz import hora_ar
 
     _titulo(tabla)
     p = _perfil(tabla)
@@ -179,11 +189,14 @@ def _una(tabla: str, n_corridas: int) -> None:
     else:
         print("  ritmo DECLARADO : — no hay: el veredicto sale del MEDIDO —")
 
+    foto = dict(p)
     ult = _ultimo_dato(tabla, col) if col else None
     if ult is not None:
         p = {**p, "ultimo_dato": ult}
     f = tablas.frescura(p, declarado=declarado)
-    print(f"  último dato     : {ult}")
+    print(f"  último dato VIVO: {ult}   (max({col}) leído ahora)")
+    print(f"  último dato FOTO: {foto.get('ultimo_dato')}   (barrido del "
+          f"{hora_ar(foto.get('medido_at'))} ART)")
     print(f"  VEREDICTO       : {f['estado'].upper()} — {f['motivo']}")
     if f.get("atraso_s") is not None and f.get("tope_s"):
         print(f"  atraso / tope   : {f['atraso_s'] / 3600:.2f} h / {f['tope_s'] / 3600:.2f} h"
@@ -214,11 +227,34 @@ def _una(tabla: str, n_corridas: int) -> None:
           "o la escritura falla.\n      Los `stats` de arriba dicen cuál de las dos.")
 
 
+def _lectura_viva() -> None:
+    """Reproduce el paso del detector que lee `max(col)` de TODAS las tablas con
+    ritmo en UN viaje (`tablas._ultimo_dato_vivo`) y mide cuánto tarda. El pool
+    corta a los 15 s (`statement_timeout`); si esa lectura se pasa, el detector
+    se queda SIN dato vivo para todas y juzga con la foto del barrido."""
+    import time
+
+    from agente import tablas
+    _titulo("LA LECTURA EN VIVO — como la hace el detector, todas las tablas de un viaje")
+    con_ritmo = tablas.perfiles(solo_con_ritmo=True)
+    t0 = time.perf_counter()
+    vivo = tablas._ultimo_dato_vivo(con_ritmo)
+    seg = time.perf_counter() - t0
+    print(f"  tablas con ritmo : {len(con_ritmo)}")
+    print(f"  tardó            : {seg:.2f} s   (tope del pool: 15 s)")
+    print(f"  devolvió         : {len(vivo)} lecturas"
+          + ("   ⚠ NINGUNA: falló → el detector juzga con la FOTO" if not vivo else ""))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tabla", default="", help="una sola (`schema.tabla`)")
     ap.add_argument("--corridas", type=int, default=CORRIDAS)
+    ap.add_argument("--vivo", action="store_true",
+                    help="además, medir la lectura en vivo de todas las tablas")
     a = ap.parse_args()
+    if a.vivo:
+        _lectura_viva()
 
     tablas_ = [a.tabla] if a.tabla else _abiertas()
     if not tablas_:

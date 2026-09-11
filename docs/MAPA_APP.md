@@ -48,13 +48,13 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
+| `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
 | `/api/agente` | 19 | 10 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
 | `/api/back-office` | 67 | 39 | `back-office` · 34 rutas con gate extra | `back-office` |  |
-| `/api/back-office/interbanking` | 27 | 18 | `back-office` · 23 rutas con gate extra | `back-office` |  |
+| `/api/back-office/interbanking` | 27 | 18 | `back-office` | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -64,13 +64,13 @@
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 120 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 10 | 5 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 58 | 9 | `operaciones` · 25 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 12 rutas con gate extra | `portfolios` |  |
 | `/api/pulso` | 1 | 1 | —`require_no_invitado` | — |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |

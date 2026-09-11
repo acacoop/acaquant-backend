@@ -348,7 +348,10 @@ def test_a_encontro_solo_entra_lo_que_tiene_arreglo():
     solo lectura — un aviso con forma de trabajo."""
     sql = (RAIZ / "sql" / "schema.sql").read_text()
     i = sql.index("CREATE OR REPLACE VIEW agente.v_encontro")
-    assert "arreglo <> ''" in sql[i:i + 1200]
+    # Hasta el fin de la sentencia, no N caracteres: la ventana fija de 1200 se
+    # quedó corta el día que la vista sumó una columna y el test falló por el
+    # recorte, no por la regla que cuida.
+    assert "arreglo <> ''" in sql[i:sql.index(";", i)]
 
 
 def test_leido_no_es_resuelto():
@@ -5177,6 +5180,56 @@ def test_el_arreglo_que_puede_probarse_solo_refresca_su_tarjeta():
         "detector puede contestar YA — y decí por qué en el código.")
     # `rehacer_job` es el que NO puede: su respuesta tarda ocho minutos.
     assert not arreglos.ARREGLOS["rehacer_job"].confirma_ya
+
+
+def test_esperando_al_detector_se_mide_contra_la_hora_del_arreglo():
+    """⚠️⚠️ **«APLICADO · ESPERANDO QUE EL DETECTOR CONFIRME» SOBRE ALGO QUE EL
+    DETECTOR YA CONTESTÓ.**
+
+    El bug (§0.fe). `en_curso` significa «se aplicó el arreglo y falta que
+    el detector confirme», y la tarjeta de ENCONTRÓ lo dibujaba como ESPERA a
+    secas. Cuando el sujeto es una FAMILIA —`ficha_incompleta` sobre CARTERA,
+    CLASE_ACTIVO— el detector vuelve cada hora, **lo sigue viendo porque quedan
+    otros títulos**, y el estado no se mueve nunca: el cartel decía «esperando»
+    desde el 27/8 al lado de un «confirmado» de hace diez minutos, y el botón
+    que había que apretar salía GRIS.
+
+    No hay nada que esperar: hay cola de trabajo. La espera se **mide** —el
+    detector miró después de la escritura, o no— y para eso hace falta la HORA
+    del arreglo. Sin ella el estado es ambiguo y la pantalla tiene que suponer.
+
+    Es el mismo malentendido que HISTORIAL arregló el 2026-08-28 (*«¿confirmación
+    de qué?? si yo ya lo apliqué»*), en la pantalla donde nadie lo había mirado.
+    """
+    from agente import arreglos, vista
+
+    sql = (RAIZ / "sql" / "schema.sql").read_text()
+    assert "arreglo_aplicado_at timestamptz" in sql
+    i = sql.index("CREATE OR REPLACE VIEW agente.v_encontro")
+    v = sql[i:i + 3000]
+    # El veredicto vive en la VISTA: una copia en cada pantalla se
+    # desincroniza sin que nada falle (invariante 11 + REGLA #9).
+    assert "AS espera_al_detector" in v
+    assert "f.visto_ultima_vez <= f.arreglo_aplicado_at" in v
+    # NULL (se aplicó antes de que existiera la columna) NO es espera: esas
+    # filas son viejas y el detector ya volvió seguro.
+    assert "f.arreglo_aplicado_at IS NOT NULL" in v
+
+    src = inspect.getsource(arreglos.aplicar)
+    # La hora va en el MISMO UPDATE que el estado. En dos UPDATEs habría un
+    # instante con `en_curso` y sin hora, que se lee como «no sé».
+    assert "arreglo_aplicado_at = now()" in src
+    assert src.index("arreglo_aplicado_at = now()") < src.index("correr_una")
+    # Y el aviso no puede prometer una pasada que ya ocurrió: la pantalla lo
+    # muestra ANTES que el detalle, y tapaba «5 completado(s) · quedan 374».
+    assert "r.inmediato or a.confirma_ya" in src
+
+    # Lo que decide el botón viaja resuelto: `pide_datos` (el click abre el
+    # listado, no escribe) y `repetible` (volver a aplicarlo es lo normal).
+    assert all("pide_datos" in c and "repetible" in c
+               for c in arreglos.catalogo())
+    vsrc = inspect.getsource(vista.encontro)
+    assert "arreglo_pide_datos" in vsrc and "arreglo_repetible" in vsrc
 
 
 # ═══════════════════════════════════════════════════════════════════════════

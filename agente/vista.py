@@ -191,8 +191,19 @@ def encontro() -> dict:
                             _filas("SELECT * FROM agente.v_encontro")])
     cat = {a["id"]: a for a in arr.catalogo()}
     for f in filas:
-        f["arreglo_titulo"] = (cat.get(f["arreglo"]) or {}).get("titulo", "")
-        f["arreglo_donde"] = (cat.get(f["arreglo"]) or {}).get("donde", "")
+        a = cat.get(f["arreglo"]) or {}
+        f["arreglo_titulo"] = a.get("titulo", "")
+        f["arreglo_donde"] = a.get("donde", "")
+        # ⚠️ **LAS DOS COSAS QUE DECIDEN EL BOTÓN, RESUELTAS ACÁ.**
+        #   · `pide_datos` → el botón no escribe: ABRE EL LISTADO. Apretarlo sin
+        #     un valor cargado devolvía «no se cargó ningún valor», así que era
+        #     un botón que no podía funcionar nunca.
+        #   · `repetible`  → el sujeto es una FAMILIA y volver a aplicarlo es lo
+        #     normal (un título nuevo llega con la ficha vacía siempre).
+        # Van resueltas del backend porque el navegador no deriva (invariante
+        # 11): una lista de ids en el front se desincroniza de esta sin fallar.
+        f["arreglo_pide_datos"] = bool(a.get("pide_datos"))
+        f["arreglo_repetible"] = bool(a.get("repetible"))
     por_habilidad: dict[str, int] = {}
     for f in filas:
         por_habilidad[f["habilidad"]] = por_habilidad.get(f["habilidad"], 0) + 1

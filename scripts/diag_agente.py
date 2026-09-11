@@ -169,6 +169,53 @@ def main() -> int:
             print(f"  #{r[0]} [{r[4]}] {r[1]}/{r[3]} · {r[2]} · ×{r[5]} · "
                   f"{str(r[6])[:16]}\n      {str(r[7])[:150]}")
 
+    # ── 3.a LO QUE ESTÁ «EN CURSO» ─────────────────────────────────────────
+    #
+    # ⚠️ **«ESPERANDO QUE EL DETECTOR CONFIRME» ES LA FRASE QUE MÁS SE MALINTERPRETA**
+    # (2026-09-11). `en_curso` dice que el arreglo se aplicó; lo que la pantalla
+    # necesita saber es si el detector YA volvió a mirar. Para un hallazgo de
+    # FAMILIA —un campo de la ficha— vuelve cada hora, lo sigue viendo porque
+    # quedan otros títulos, y el estado no se mueve nunca: no hay espera, hay
+    # cola de trabajo.
+    #
+    # El veredicto NO se recalcula acá: sale de `agente.v_encontro`
+    # (`espera_al_detector`), que es la misma fuente que dibuja la tarjeta. Dos
+    # definiciones del mismo criterio es la REGLA #9 esperando a divergir.
+    _titulo("LO QUE ESTÁ «EN CURSO» — se aplicó el arreglo y el aviso sigue abierto")
+    encurso = _filas(
+        "SELECT id, habilidad, sujeto, regla, detectado_at, visto_ultima_vez, "
+        "       arreglo_aplicado_at, espera_al_detector, problema, arreglo "
+        "  FROM agente.v_encontro WHERE estado = 'en_curso' "
+        "   AND (%s = '' OR habilidad = %s) "
+        " ORDER BY detectado_at", (a.habilidad, a.habilidad))
+    if not encurso:
+        print("  — nada en curso")
+    else:
+        # QUIÉN lo apretó y cuántas escrituras dejó: una fila que dice
+        # «aplicado» sin decir si fue una persona o el ejecutor (§0.ef) no
+        # alcanza para saber por qué quedó así.
+        quienes: dict[int, tuple[int, str, object]] = {}
+        for hid, n, por, ult in _filas(
+                "SELECT hallazgo_id, count(*), string_agg(DISTINCT por, ', '), "
+                "       max(at) FROM agente.acciones "
+                " WHERE hallazgo_id = ANY(%s) AND ok GROUP BY hallazgo_id",
+                ([r[0] for r in encurso],)):
+            quienes[hid] = (n, por or "?", ult)
+        print(f"  {len(encurso)} hallazgo(s)\n")
+        for (hid, hab, suj, reg, det, visto, apl, espera, prob, arr) in encurso:
+            n, por, ult = quienes.get(hid, (0, "— (no hay línea en el libro)", None))
+            print(f"  #{hid} {hab}/{reg} · {suj}")
+            print(f"      {str(prob)[:110]}")
+            print(f"      arreglo «{arr}» · {n} escritura(s) ok · por {por}")
+            print(f"      aplicado: {str(apl or ult or '—')[:19]}   "
+                  f"detector miró: {str(visto)[:19]}   "
+                  f"abierto desde: {str(det)[:19]}")
+            print("      → " + (
+                "ESPERA DE VERDAD: el detector no volvió a mirar desde la "
+                "escritura" if espera else
+                "NO ESPERA NADA: el detector ya volvió y lo sigue encontrando "
+                "— queda trabajo, no confirmación"))
+
     # ── 3.b LA TASA DE RESPALDO ────────────────────────────────────────────
     #
     # El círculo completo de `bono_sin_tasa`: qué bonos operan sin que el motor

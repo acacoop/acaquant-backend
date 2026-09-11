@@ -1153,9 +1153,14 @@ ARREGLOS: dict[str, Arreglo] = {
 
 
 def catalogo() -> list[dict]:
+    # `repetible` viaja porque la pantalla NO puede deducirlo: el sujeto de
+    # `completar_ficha` es un CAMPO entero y aplicarlo de nuevo es lo normal,
+    # mientras que `pedir_pata` sobre un símbolo ya no tiene nada que hacer. Sin
+    # el dato, el navegador necesitaría una lista de ids que nadie mantiene
+    # igual a esta (REGLA #9).
     return [{"id": a.id, "titulo": a.titulo, "donde": a.donde,
              "campo": a.campo, "inmediato": a.inmediato,
-             "pide_datos": a.pide_datos}
+             "pide_datos": a.pide_datos, "repetible": a.repetible}
             for a in ARREGLOS.values()]
 
 
@@ -1219,8 +1224,15 @@ def aplicar(hallazgo_id: int, *, por: str = "",
         return {"ok": False, "error": r.detalle, "pasos": r.pasos}
 
     with get_pool().connection() as conn, conn.cursor() as cur:
+        # ⚠️ **LA HORA VA JUNTO CON EL ESTADO, en el mismo UPDATE.** Es lo
+        # único que después distingue «estoy esperando al detector» de «el
+        # detector ya volvió y lo sigue viendo»: `v_encontro` la compara contra
+        # `visto_ultima_vez`. Sin ella, un hallazgo de FAMILIA (un campo de la
+        # ficha) mostraba «esperando que el detector confirme» para siempre —
+        # el detector contestaba cada hora y nadie podía saberlo. (§0.fe)
         cur.execute("UPDATE agente.hallazgos SET estado = %s, "
-                    "  arreglo_aplicado = %s WHERE id = %s",
+                    "  arreglo_aplicado = %s, arreglo_aplicado_at = now() "
+                    "WHERE id = %s",
                     (tipos.EN_CURSO, a.id, hallazgo_id))
 
     # ⚠️ **EL DETECTOR VUELVE A MIRAR AHORA, si su arreglo declaró que puede.**
@@ -1244,9 +1256,14 @@ def aplicar(hallazgo_id: int, *, por: str = "",
             logger.warning("arreglos: %s escribió, pero no pude refrescar %s",
                            a.id, h["habilidad"], exc_info=True)
 
+    # ⚠️ **EL AVISO NO PUEDE PROMETER UNA PASADA QUE YA PASÓ.** La pantalla
+    # muestra `aviso` ANTES que `detalle`, así que un arreglo con `confirma_ya`
+    # —que acaba de correr su detector tres líneas arriba— tapaba «5
+    # completado(s) · quedan 374», que es la única frase que contesta «¿y ahora
+    # qué queda?», con una promesa sobre el futuro que además era falsa.
     return {"ok": True, "detalle": r.detalle, "estado": tipos.EN_CURSO,
             "inmediato": r.inmediato, "pasos": r.pasos,
-            "aviso": ("" if r.inmediato else
+            "aviso": ("" if r.inmediato or a.confirma_ya else
                       "aplicado — el efecto lo confirma el detector en su "
                       "próxima pasada")}
 

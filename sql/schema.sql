@@ -5120,6 +5120,19 @@ ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_at timestamptz;
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_rechazo text NOT NULL DEFAULT '';
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_intentos smallint NOT NULL DEFAULT 0;
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_traza bigint;
+
+-- ⚠️⚠️ **CUÁNDO SE APLICÓ EL ARREGLO — sin esto, «esperando» no se puede
+-- distinguir de «ya contestó».** `arreglo_aplicado` guarda QUÉ se apretó, y el
+-- hallazgo queda `en_curso` hasta que el detector deje de verlo. Pero cuando el
+-- sujeto es una FAMILIA (un campo de la ficha, la oferta de ONs) el detector
+-- vuelve, lo SIGUE viendo —quedan otros títulos— y el estado no se mueve nunca:
+-- la pantalla decía «aplicado · esperando que el detector confirme» durante
+-- semanas sobre algo que el detector ya había contestado. Con la hora, la
+-- espera se mide en vez de suponerse: la escribe `arreglos.aplicar` en el mismo
+-- UPDATE que pone `en_curso`, y `v_encontro` la compara contra
+-- `visto_ultima_vez`. NULL = se aplicó antes de que existiera la columna, o
+-- sea hace mucho: ahí el detector ya volvió seguro. Historia: `AGENT.md` §0.fe.
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS arreglo_aplicado_at timestamptz;
 -- Los pendientes de redactar: abiertos, SIN arreglo (un aviso), sin texto y
 -- con intentos de sobra. Parcial y chico — lo consulta el daemon en cada pasada.
 CREATE INDEX IF NOT EXISTS hallazgos_sin_texto_ia
@@ -5378,7 +5391,20 @@ DROP VIEW IF EXISTS agente.v_encontro;
 CREATE OR REPLACE VIEW agente.v_encontro AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
-       f.visto_ultima_vez, f.veces, f.estado, hab.dominio
+       f.visto_ultima_vez, f.veces, f.estado, hab.dominio,
+       f.arreglo_aplicado_at,
+       -- ⚠️⚠️ **¿DE VERDAD ESTÁ ESPERANDO? SE MIDE ACÁ, UNA VEZ.**
+       -- `en_curso` significa «se aplicó y falta que el detector confirme», y
+       -- la pantalla lo dibujaba como ESPERA a secas. Para una familia —un
+       -- campo de la ficha con 170 títulos sin cargar— el detector ya volvió,
+       -- lo vio igual y va a seguir viéndolo hasta que la cola llegue a cero:
+       -- no hay nada que esperar, hay trabajo. Se distingue con el dato:
+       -- **si el detector miró DESPUÉS de la escritura, la espera terminó.**
+       -- El navegador no puede comparar las dos fechas (invariante 11), así que
+       -- el veredicto sale de la vista y no de una copia en cada pantalla.
+       (f.estado = 'en_curso'
+        AND f.arreglo_aplicado_at IS NOT NULL
+        AND f.visto_ultima_vez <= f.arreglo_aplicado_at) AS espera_al_detector
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
  WHERE f.estado IN ('nuevo','en_curso','reincidio')

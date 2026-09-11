@@ -250,7 +250,7 @@ Cinco, y cada uno se atiende distinto:
 | Estado | Significa |
 |---|---|
 | `nuevo` | apareció y nadie lo miró |
-| `en_curso` | se apretó el arreglo y falta la respuesta (el mercado, un job) |
+| `en_curso` | se aplicó el arreglo y el aviso sigue abierto. ⚠️ **No significa «esperando»**: eso se mide con `arreglo_aplicado_at` contra `visto_ultima_vez` (§0.fe) — para un hallazgo de FAMILIA el detector ya volvió y lo sigue viendo, porque queda cola |
 | `resuelto` | ya no está — **siempre con `cerrado_como`: acción, ausencia o caducidad** (§6.8) |
 | `ignorado` | una persona dijo "no me interesa" — reversible |
 | `reincidio` | estaba resuelto por acción y volvió — **sigue ABIERTO**: se actualiza, se cierra y se muestra igual que `nuevo` (§0.cy) |
@@ -435,6 +435,15 @@ La base no puede expresar «el previo tiene que estar cerrado como `accion`» si
 un trigger, así que **la guarda vive en la única función que inserta**
 (`registro._ver`) y la sostiene un test. Es el mismo criterio que la puerta
 única de escritura: donde la base no puede, el código tiene UN solo lugar.
+
+**`arreglo_aplicado_at` existe porque un ESTADO no puede decir «esperando».**
+`en_curso` es el mismo valor para «se aplicó hace diez segundos y el detector no
+volvió» y para «se aplicó hace dos semanas, el detector vuelve cada hora y lo
+sigue viendo porque la cola no llegó a cero». Son dos cosas opuestas —una es
+paciencia, la otra es trabajo— y sin la hora la pantalla tiene que suponer: decía
+«esperando que el detector confirme» al lado de un «confirmado» de hace diez
+minutos (§0.fe). La compara `v_encontro` en `espera_al_detector`, una sola vez,
+porque el navegador no deriva (invariante 11).
 
 **`dias_aguanto` es una columna generada**: se calcula de sus dos insumos y no
 puede contradecirlos. Es lo contrario de un acumulado que se deriva en la
@@ -7065,7 +7074,6 @@ escritores y no en `sql/schema.sql` — la crea en runtime
 a esto y no lo rompe nada; queda anotado porque un test que exija «toda tabla del
 mapa está en el schema» fallaría por ella, y el que se escribió prueba la guarda
 en vez de esa afirmación más fuerte y falsa.
-
 ### 0.fd LA TABLA QUE NO SABÍA CUÁNDO LA ESCRIBIERON — `mkt_1816_watch` y el sello que faltaba (2026-09-11)
 
 La tarjeta, con el cruce de §0.fb ya puesto: *«`jobs.mercado_1816_discovery`
@@ -7115,3 +7123,78 @@ imprecisa, o la API devuelve vacío para la ventana re-pedida. **Es un hecho de
 prod y no se resuelve leyendo**: se mide con `scripts/diag_tabla_quieta.py`
 —`max(ingestado_en)` contra las últimas corridas del job— antes de tocar nada
 de esas dos.
+
+---
+
+### 0.fe «ESPERANDO QUE EL DETECTOR CONFIRME» SOBRE ALGO QUE EL DETECTOR YA CONTESTÓ (2026-09-11)
+
+El user, mirando ENCONTRÓ: *«grisado lo de completar ficha… no entiendo
+realmente cómo funciona lo de APLICADO · ESPERANDO QUE EL DETECTOR CONFIRME,
+qué es lo que tiene que esperar, cuánto hay que esperar»*. Tres filas de
+`ficha_incompleta`, las tres con «confirmado 11/9 02:22 p.m.»:
+
+| Fila | Estado | Botón |
+|---|---|---|
+| CARTERA · 4 títulos · desde 9/9 | `en_curso` → «esperando que el detector confirme» | **gris** |
+| EMISOR · 2 títulos · desde 11/9 | `nuevo` | apretable |
+| CLASE_ACTIVO · 170 títulos · desde 27/8 | `en_curso` → «esperando que el detector confirme» | **gris** |
+
+**No había nada que esperar, y el cartel no era el único problema: el botón
+gris era el que hacía falta apretar.**
+
+**Qué pasaba, en orden.** `ficha_incompleta` declara `automatico` para
+`sin_cartera` y `sin_clase_activo` (§0.ei, §0.ej) y NO para `sin_emisor`. El
+ejecutor (§0.ef) aplica lo determinístico solo, entra por la misma puerta
+(`arreglos.aplicar`), y esa puerta deja el hallazgo **`en_curso`** — que es
+correcto: la escritura no prueba que el problema se fue, eso lo dice el
+detector. Pero el sujeto de `completar_ficha` es un CAMPO ENTERO: el detector
+vuelve (cada hora, y encima en el acto por `confirma_ya`, §0.ee), ve que
+**quedan otros** títulos, y `registro._ver` lo mantiene abierto. `en_curso` no
+se mueve nunca. Por eso las dos filas con regla automática estaban en gris y la
+del emisor no: **el que trabaja solo es el que se bloqueaba la mano.**
+
+Y el ciclo no era «esperar N minutos»: es una CONDICIÓN —que el campo llegue a
+cero faltantes— que para una cola recurrente (§0.ek) puede no cumplirse nunca.
+
+**La causa de fondo: un ESTADO no puede contestar una pregunta sobre el
+TIEMPO.** `en_curso` vale lo mismo para «se aplicó hace diez segundos y el
+detector no volvió» que para «se aplicó hace dos semanas y el detector contestó
+340 veces». Son opuestos: uno es paciencia, el otro es trabajo. Es el mismo
+malentendido que HISTORIAL ya había arreglado el 2026-08-28 (*«¿confirmación de
+qué?? si yo ya lo apliqué»*) con `estado_hoy`, en la única pantalla que nadie
+había mirado.
+
+**Qué se cambió.**
+
+1. **`agente.hallazgos.arreglo_aplicado_at`** — la hora, en el MISMO `UPDATE`
+   que pone `en_curso`. En dos UPDATEs habría un instante con estado y sin
+   hora, que se lee como «no sé».
+2. **`v_encontro` resuelve `espera_al_detector`**: `en_curso` Y hay hora Y
+   `visto_ultima_vez <= arreglo_aplicado_at`. Una sola definición, en la misma
+   vista que dibuja la tarjeta (el navegador no compara fechas — invariante
+   11). NULL no es espera: esas filas se aplicaron antes de la columna, o sea
+   hace mucho.
+3. **El cartel dice cuál de las dos cosas es**: «esperando que el detector
+   confirme» solo mientras la espera exista; si no, «aplicado {hora} · el
+   detector ya volvió y sigue abierto», en gris apagado.
+4. **El botón dejó de ser decorativo.** Un arreglo con `pide_datos` NO escribe
+   desde ese botón —la escritura sale del listado— así que apretarlo devolvía
+   «no se cargó ningún valor»: era un botón que no podía funcionar nunca. Ahora
+   el click ABRE EL LISTADO (`arreglo_pide_datos` viaja resuelto del backend) y
+   el gris se reserva para lo único que lo justifica: que el efecto todavía no
+   se pueda medir (relanzar dos veces un job de ocho minutos).
+5. **El aviso de `aplicar` no promete una pasada que ya ocurrió.** La pantalla
+   muestra `aviso` antes que `detalle`, así que «aplicado — el efecto lo
+   confirma el detector en su próxima pasada» tapaba «5 completado(s) · quedan
+   374», que es la única frase que contesta «¿y ahora qué queda?». Con
+   `confirma_ya` el aviso ya no viaja.
+6. **`diag_agente` tiene sección «LO QUE ESTÁ EN CURSO»**: por hallazgo, quién
+   aplicó (persona o el ejecutor), cuántas escrituras dejó, cuándo se aplicó,
+   cuándo miró el detector, y el veredicto leído de la vista — no recalculado.
+
+**Lo que NO se cambió, y por qué.** El estado sigue siendo `en_curso` y el
+cierre sigue siendo del detector: eso es el invariante 4 (solo lo cerrado POR
+ACCIÓN puede reincidir) y no se toca. `repetible` tampoco cambió de dueño —
+`alta_on` y `alta_cedear` son familias y lo declaran `False`, lo que solo
+afecta la reinsistencia del ejecutor a 24 h; queda anotado como pregunta, no
+como arreglo, porque cambiarlo cambia lo que el agente hace solo.

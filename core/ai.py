@@ -91,6 +91,26 @@ _TAREAS: dict[str, dict] = {
     # escribe un dato en un campo por el que se agrupa plata.
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
                       "thinking": "disabled"},
+
+    # La mira: una persona con rol admin, en pantalla, mientras conversa.
+    #
+    # ⚠️ ES LA PRIMERA TAREA DISTINTA A TODAS LAS DE ARRIBA, en tres cosas:
+    #
+    #  · `proveedor: openai` — las otras cuatro usan el default (deepseek).
+    #  · `datos: negocio`    — ve tenencias, vencimientos y plata de la casa.
+    #                          Es la primera que enciende de verdad el ruteo de
+    #                          `_ruteo_seguro()`: si alguien la ruteara a un
+    #                          proveedor que entrena, el gateway la NIEGA.
+    #  · es CONVERSACIONAL   — no entra por `completar()` sino por `conversar()`,
+    #                          porque una conversación es una lista de mensajes
+    #                          que crece y puede pedir herramientas.
+    #
+    # "pro" y no "flash": tiene que elegir entre varias herramientas y cruzar
+    # datos de dos mundos (lo que tenemos y lo que hay en el mercado). Elegir
+    # mal la herramienta es contestar con seguridad sobre otra cosa.
+    "asistente": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
+                  "thinking": "disabled", "proveedor": "openai",
+                  "datos": "negocio"},
 }
 
 # Si alguien pide una tarea que no está en la tabla, corre igual con esto (y
@@ -345,9 +365,55 @@ def completar_con_traza(
         return None, None
 
 
-def _completar(
-    tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
-) -> tuple[str | None, int | None]:
+def conversar(
+    tarea: str,
+    *,
+    mensajes: list[dict],
+    herramientas: list[dict] | None = None,
+    usuario: str | None = None,
+    detalle: str | None = None,
+) -> tuple[llm.RespuestaLLM | None, int | None]:
+    """UNA vuelta de conversación con el modelo. Devuelve (respuesta, id de traza).
+
+    ── SU ROL EN EL CICLO: es la puerta por la que pasa CADA vuelta ──
+
+    El ciclo del asistente llama a esto varias veces por pregunta: una para que
+    el modelo decida qué herramienta quiere, otra para que redacte con lo que
+    volvió, y así hasta que conteste texto. Esta función no sabe nada de ese
+    ciclo — hace una vuelta, la anota, y vuelve.
+
+    Qué revisa antes de dejar salir la llamada, en este orden:
+      1. ¿hay clave del proveedor que le toca a la tarea?
+      2. ¿el ruteo es seguro? (una tarea de negocio no sale a un proveedor
+         que entrena con lo que le mandamos)
+      3. ¿queda presupuesto de hoy?
+
+    ⚠️ EL PRESUPUESTO SE MIRA EN CADA VUELTA, no una vez por pregunta. Una
+    conversación con herramientas son varias llamadas, y si el techo se toca a
+    la mitad, la próxima vuelta no sale. Es lo que evita que una conversación
+    que se va de mano gaste sin freno.
+
+    Devuelve `(None, …)` si el gateway se negó (1, 2 o 3). Si la llamada salió,
+    devuelve la respuesta aunque el proveedor haya fallado — ahí `ok` es False
+    y el motivo está adentro. NUNCA levanta una excepción.
+    """
+    try:
+        return _conversar(tarea, mensajes=mensajes, herramientas=herramientas,
+                          usuario=usuario, detalle=detalle)
+    except Exception as e:
+        # Cinturón: el contrato es no propagar JAMÁS una excepción.
+        logger.warning("core.ai: fallo inesperado en %s: %s: %s", tarea, type(e).__name__, e)
+        return None, None
+
+
+def _conversar(
+    tarea: str,
+    *,
+    mensajes: list[dict],
+    herramientas: list[dict] | None,
+    usuario: str | None,
+    detalle: str | None,
+) -> tuple[llm.RespuestaLLM | None, int | None]:
     cfg = _config(tarea)
     # Sin clave o con ruteo inseguro no se traza: sería ruido, no un gasto.
     if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
@@ -358,27 +424,45 @@ def _completar(
     if motivo:
         # Esto SÍ se traza aunque no haya llamada: que el presupuesto haya
         # frenado algo es justo lo que hay que poder ver después.
-        _trazar(tarea, modelo, usuario, None, None, None, False,
-                f"presupuesto diario agotado ({motivo})", detalle=detalle)
-        return None, None
+        traza_id = _trazar(tarea, modelo, usuario, None, None, None, False,
+                           f"presupuesto diario agotado ({motivo})", detalle=detalle)
+        return None, traza_id
 
-    r = llm.chat(
-        [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        modelo=modelo, max_tokens=cfg["max_tokens"], timeout_s=cfg["timeout_s"],
-        thinking=cfg.get("thinking", "disabled"), reintentos=1,
-        proveedor=_proveedor(cfg),
-    )
+    r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
+                 timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),
+                 reintentos=1, proveedor=_proveedor(cfg), herramientas=herramientas)
+
     if not r.ok:
         logger.warning("core.ai %s → %s", tarea, r.error)
-        _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
-                r.error, detalle=detalle)
-        return None, None
+        traza_id = _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
+                           r.error, detalle=detalle)
+        return r, traza_id
 
+    # Una vuelta que pide herramientas no trae texto, y eso NO es una respuesta
+    # vacía: es el modelo diciendo "todavía no terminé". Por eso la traza se
+    # marca ok si vino texto O si vino un pedido.
     texto = r.texto or ""
+    hubo_algo = bool(texto) or bool(r.pedidos)
     traza_id = _trazar(tarea, modelo, usuario, r.tokens_in, r.tokens_out,
-                       r.latencia_ms, bool(texto),
-                       None if texto else "respuesta vacía",
+                       r.latencia_ms, hubo_algo,
+                       None if hubo_algo else "respuesta vacía",
                        detalle=detalle, respuesta=texto or None,
                        razonamiento=r.razonamiento,
                        cache_hit=r.cache_hit, cache_miss=r.cache_miss)
-    return (texto or None), traza_id
+    return r, traza_id
+
+
+def _completar(
+    tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
+) -> tuple[str | None, int | None]:
+    """Una pregunta suelta ES la conversación más corta que existe: dos
+    mensajes y ninguna herramienta. Por eso pasa por la misma puerta."""
+    r, traza_id = _conversar(
+        tarea,
+        mensajes=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}],
+        herramientas=None, usuario=usuario, detalle=detalle,
+    )
+    if r is None or not r.ok:
+        return None, None
+    return (r.texto or None), traza_id

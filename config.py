@@ -38,6 +38,18 @@ INTERBANKING_TOKEN_URL = os.getenv(
 INTERBANKING_AUTH_STYLE = os.getenv("INTERBANKING_AUTH_STYLE", "basic")  # basic | post
 INTERBANKING_SCOPE = os.getenv("INTERBANKING_SCOPE", "info-financiera")
 
+# --- BYMA CUSTODIA (CVSA — Caja de Valores) ---
+# OAuth2 client_credentials contra api.byma.com.ar/oauth/token/. El token dura
+# 24hs. Las credenciales las genera el Portal de Desarrolladores de BYMA al
+# elegir la aplicación ("¿Cómo obtener un token de acceso?"): NO se sacan de
+# otro lado ni se transcriben a mano — el client_id arranca con '0oa' (cero, no
+# letra O) y esa confusión cuesta un 401 idéntico al de una credencial inválida.
+BYMA_CLIENT_ID = os.getenv("BYMA_CLIENT_ID", "")
+BYMA_CLIENT_SECRET = os.getenv("BYMA_CLIENT_SECRET", "")
+# Nuestro código de participante en CVSA. Es obligatorio en TODOS los métodos de
+# Custody Securities; sin esto no contesta ninguno.
+BYMA_PARTICIPANT_CODE = os.getenv("BYMA_PARTICIPANT_CODE", "74")
+
 # --- POSTRADE (A3 Mercados / Argentina Clearing — anywhereportfolio) ---
 # Usuario y contraseña que asigna ACyRSA. NO hay client_id ni secret: la API
 # entrega un token de 24hs a cambio de esas dos cosas (ver docs/POSTRADE.md).

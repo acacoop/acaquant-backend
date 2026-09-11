@@ -80,6 +80,12 @@ PROVEEDORES: dict[str, Proveedor] = {
     "postrade": Proveedor(
         "POSTRADE", "postrade",
         "posiciones, garantías y márgenes de AP5. Lo de ayer queda"),
+    # BYMA/CVSA (custodia). Es la fuente REGISTRAL de la tenencia: lo que la
+    # Caja dice que tenemos. Si se cae no para nada de la operación — el
+    # control contra Aunesa es lo que queda sin hacer.
+    "byma_custodia": Proveedor(
+        "BYMA CUSTODIA", "api.byma.com.ar",
+        "el control de tenencia contra la Caja. La tenencia de Aunesa sigue"),
 }
 
 # No se escribe más seguido que esto por proveedor y por proceso. Un daemon

@@ -5357,6 +5357,45 @@ def test_una_columna_date_nunca_es_un_sello_de_escritura():
     assert _elegir_col(["actualizado_at"], [])[0] == "actualizado_at"
 
 
+def test_el_watch_de_1816_tiene_un_SELLO_DE_ESCRITURA_y_no_solo_el_de_ALTA():
+    """§0.fd — `research.mkt_1816_watch` es una lista de MEMBRESÍA que el job
+    upsertea entera todos los días, y su única columna temporal era
+    `agregado_en`: la fecha en que ESE ticker entró al universo, que el
+    `ON CONFLICT DO UPDATE` no toca porque significa otra cosa.
+
+    `tabla_quieta` la elegía por descarte —no había otra— y leía «no escribe
+    hace 8 días · corrió 6 veces ok y no avanzó» con el job perfecto: lo único
+    que no se movía era el alta, porque no se licitó ningún bono nuevo.
+
+    ⚠️ **Clasificar `agregado_en` como sello de ALTA no habría arreglado nada**,
+    y por eso el arreglo es la columna y no una lista: siendo la ÚNICA columna
+    temporal, `_elegir_col` la elige igual (paso 4). Lo que faltaba era algo que
+    dijera CUÁNDO SE ESCRIBIÓ, y la tabla hermana `mkt_1816_instrumentos` —tres
+    líneas arriba, en la misma función— ya lo tenía.
+    """
+    from agente.tablas import _elegir_col
+
+    ts = ["timestamptz", "timestamptz"]
+    # El sello de escritura gana, esté donde esté en el DDL.
+    assert _elegir_col(["agregado_en", "actualizado_en"], ts)[0] == "actualizado_en"
+    assert _elegir_col(["actualizado_en", "agregado_en"], ts)[0] == "actualizado_en"
+    # Y sola, `agregado_en` se sigue eligiendo: no hay con qué más medir. Es la
+    # prueba de que el arreglo tenía que ser la columna.
+    assert _elegir_col(["agregado_en"], ["timestamptz"])[0] == "agregado_en"
+
+    # La columna existe en el schema Y el job la pisa: las dos mitades, porque
+    # cualquiera de las dos sola deja la tabla midiendo lo de antes.
+    ddl = (RAIZ / "sql" / "schema.sql").read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS actualizado_en" in ddl, (
+        "sin el ALTER, una base que ya tiene la tabla no recibe la columna: "
+        "`apply_schema` no recrea lo que existe")
+    job = (RAIZ / "jobs" / "mercado_1816_discovery.py").read_text(encoding="utf-8")
+    watch = job[job.index("INSERT INTO research.mkt_1816_watch"):]
+    assert "actualizado_en=now()" in watch[:600], (
+        "el upsert del watch no sella la escritura: la columna existiría "
+        "congelada en su DEFAULT y el detector volvería a medir el alta")
+
+
 def test_el_aviso_falso_del_mayor_no_vuelve_a_salir():
     """Los dos bugs juntos, con los números REALES del aviso del 08/09.
 

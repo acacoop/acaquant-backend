@@ -185,9 +185,19 @@ def _upsert(matches: list[dict]) -> None:
                  inst.get("monedaPago"), inst.get("emisorNombre"), True),
             )
             cur.execute(
+                # ⚠️ **`actualizado_en=now()` NO ES COSMÉTICO.** Sin él la tabla
+                # no tenía NINGÚN sello de escritura: su única columna temporal
+                # era `agregado_en`, que el `DO UPDATE` no toca porque significa
+                # otra cosa (cuándo entró ESE ticker al universo). `tabla_quieta`
+                # la elegía por descarte y leía «no escribe hace 8 días» con el
+                # job corriendo ok todos los días — lo único que no se movía era
+                # el alta, porque no se licitó nada. Doc: `AGENT.md` §0.fd.
+                # La hermana `mkt_1816_instrumentos`, tres líneas arriba, ya lo
+                # hacía: acá faltaba la columna, no la idea.
                 "INSERT INTO research.mkt_1816_watch (ticker,curva,curva_id,activo) "
                 "VALUES (%s,%s,%s,true) ON CONFLICT (ticker) DO UPDATE SET "
-                "curva=EXCLUDED.curva, curva_id=EXCLUDED.curva_id, activo=true",
+                "curva=EXCLUDED.curva, curva_id=EXCLUDED.curva_id, activo=true, "
+                "actualizado_en=now()",
                 (tk, inst.get("curva"), inst.get("_curva_id")),
             )
 

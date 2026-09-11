@@ -3133,8 +3133,19 @@ CREATE TABLE IF NOT EXISTS research.mkt_1816_watch (
     curva_id    int,
     activo      boolean NOT NULL DEFAULT true,
     orden       int,
-    agregado_en timestamptz NOT NULL DEFAULT now()
+    -- ⚠️ `agregado_en` es la fecha de ALTA de ESE ticker: el upsert diario NO la
+    -- toca (su DEFAULT sólo corre en el INSERT). Que no se mueva significa «hace
+    -- N días que no entra un bono nuevo», que es lo normal. No sirve para medir
+    -- frescura, y era la ÚNICA columna temporal que tenía la tabla: `tabla_quieta`
+    -- la elegía por descarte y cantaba con el job perfecto (§0.fc → §0.fd).
+    agregado_en timestamptz NOT NULL DEFAULT now(),
+    -- El sello de ESCRITURA, que la tabla hermana `mkt_1816_instrumentos` ya
+    -- tenía y a ésta se le había olvidado. El upsert lo pisa en cada corrida.
+    actualizado_en timestamptz NOT NULL DEFAULT now()
 );
+-- Para las bases que ya tienen la tabla sin la columna (apply_schema no recrea).
+ALTER TABLE research.mkt_1816_watch
+    ADD COLUMN IF NOT EXISTS actualizado_en timestamptz NOT NULL DEFAULT now();
 
 -- Catálogo de instrumentos (denominación, ISIN, vencimientos) de /instrumentos.
 CREATE TABLE IF NOT EXISTS research.mkt_1816_instrumentos (

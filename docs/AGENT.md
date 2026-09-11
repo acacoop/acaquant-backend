@@ -7065,3 +7065,53 @@ escritores y no en `sql/schema.sql` — la crea en runtime
 a esto y no lo rompe nada; queda anotado porque un test que exija «toda tabla del
 mapa está en el schema» fallaría por ella, y el que se escribió prueba la guarda
 en vez de esa afirmación más fuerte y falsa.
+
+### 0.fd LA TABLA QUE NO SABÍA CUÁNDO LA ESCRIBIERON — `mkt_1816_watch` y el sello que faltaba (2026-09-11)
+
+La tarjeta, con el cruce de §0.fb ya puesto: *«`jobs.mercado_1816_discovery`
+corrió 6 veces desde el último dato (6 ok) y `agregado_en` no avanzó · no escribe
+hace 8,2 días y su cron dice cada 1,0 días como mucho»*. El job estaba perfecto.
+
+`research.mkt_1816_watch` es una lista de **MEMBRESÍA** —qué 82 tickers se le
+piden a 1816 todos los días—, y su única columna temporal era `agregado_en`, que
+el upsert diario **no toca**: su `DEFAULT now()` sólo corre en el `INSERT`, así
+que guarda **cuándo entró ESE ticker al universo**. Ocho días sin moverse
+significa «hace ocho días que no se licita un bono nuevo», que es un dato normal.
+El detector la elegía por descarte —no había otra columna— y leía una fecha de
+alta como si fuera un sello de escritura.
+
+**La prueba de que era un olvido y no un diseño**: la tabla hermana
+`mkt_1816_instrumentos`, escrita **en la misma función tres líneas más arriba**,
+ya cierra su `DO UPDATE` con `actualizado_en=now()`. Al watch le faltaba la
+columna, no la idea.
+
+**El arreglo NO es clasificar `agregado_en` como sello de ALTA**, y esto es lo
+que hay que entender antes de repetirlo en otra tabla: `tablas._SELLO_ALTA` sólo
+baja la PRIORIDAD al elegir columna (`_elegir_col`, paso 4). Siendo la única
+temporal, se elegía igual — y peor: dejar la tabla sin ninguna columna medible la
+volvería invisible, que es el cambio malo de siempre (un aviso falso se ve; una
+tabla que nunca avisa, no). Se agrega `actualizado_en` al DDL (con su `ALTER …
+ADD COLUMN IF NOT EXISTS`, porque `apply_schema` no recrea lo que existe) y el
+upsert lo pisa. **No silencia: enciende** — desde ahora la tabla se monitorea de
+verdad, y si el job muere el aviso sale con motivo.
+
+#### Medido contra las otras tres de §0.ew, porque el arreglo NO se copia
+
+| tabla | cómo escribe | ¿el job deja sello al correr ok? | ¿aplica esto? |
+|---|---|---|---|
+| `research.mkt_1816_watch` | upsert de las 82 filas, todos los días | **no** — no había columna | ✅ exacto |
+| `research.bcra_series` | upsert con ventana de 7 días hacia atrás (`_VENTANA_INCREMENTAL_D`) | ya hace `ingestado_en = now()` en su `DO UPDATE` | ❌ ya lo tiene |
+| `research.fred_observations` | upsert con colchón por frecuencia | ídem | ❌ ya lo tiene |
+| `ia.research` | append puro, `ON CONFLICT (message_id) DO NOTHING` | **no, y no se puede**: sin mail nuevo no se escribe NINGUNA fila | ❌ no hay qué sellar |
+
+⚠️ **Y queda una contradicción abierta, dicha y no resuelta.** §0.ew afirma que
+en `bcra_series` y `fred_observations` *«si el BCRA/FRED no publicó un día nuevo,
+mandan CERO filas y el sello no se mueve»*. **El código de hoy dice lo
+contrario**: los dos re-piden una ventana hacia atrás, esos puntos existen, el
+upsert corre y `ingestado_en = now()` se mueve en cada corrida ok. Y la ventana
+no es posterior a la entrada: `_VENTANA_INCREMENTAL_D` entró a las 15:19 del
+2026-09-08 y §0.ew a las 20:08 del mismo día. O la afirmación del diario quedó
+imprecisa, o la API devuelve vacío para la ventana re-pedida. **Es un hecho de
+prod y no se resuelve leyendo**: se mide con `scripts/diag_tabla_quieta.py`
+—`max(ingestado_en)` contra las últimas corridas del job— antes de tocar nada
+de esas dos.

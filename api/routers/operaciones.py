@@ -915,7 +915,12 @@ def comercial_informe_segmento(
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
-    corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional."""
+    corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional.
+
+    Cada segmento trae además las CUATRO lecturas que dibuja el gráfico Q1:
+    `ctas_ops` / `ctas_ops_ano` (VENTANA: operó dentro del mes / del año) y
+    `n_activas` / `n_enfriandose` (SEMÁFORO: días desde la ÚLTIMA op, la misma
+    definición de ANÁLISIS COMERCIAL). Son preguntas distintas y por eso conviven."""
     return _com_sql.informe_cuentas_por_segmento(
         hasta=hasta, operador=operador, fecha=fecha, desde=desde,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
@@ -960,10 +965,12 @@ def comercial_informe_segmento_detalle(
     referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     division: list[str] | None = Query(None, description="filtro madre division (multi)"),
 ) -> dict:
-    """Detalle de un segmento (Q4 dinámica): los clientes del scope con su arancel y
-    con `opero_mes` (el flag del filtro SOLO OPERATIVAS). `segmento='todos'` → todos
-    los segmentos (vista por defecto). `operador` opcional. `nivel_1` lo fija
-    `segmento`; el resto de los niveles + referido scopean.
+    """Detalle de un segmento (Q4 dinámica): los clientes del scope con su arancel,
+    con `opero_mes`/`opero_ano` (los flags de los filtros por VENTANA) y con
+    `estado`/`dias_sin_operar` (el SEMÁFORO: ACTIVA / ENFRIANDOSE, o `null` fuera de
+    esa ventana — el Informe no scanea el histórico, así que no dice DORMIDA ni NUEVA).
+    `segmento='todos'` → todos los segmentos (vista por defecto). `operador` opcional.
+    `nivel_1` lo fija `segmento`; el resto de los niveles + referido scopean.
 
     Los BOLETOS ya no viajan acá: se miran por cliente y a pedido, en
     `/comercial/informe-cliente-ops`."""
@@ -979,14 +986,17 @@ def comercial_informe_cliente_ops(
     id_cuenta: str = Query(..., description="cuenta a abrir"),
     moneda: str = Query("ARS", description="ARS | USD"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
-    ventana: str = Query("mes", pattern="^(mes|ano)$",
-                         description="mes = mes calendario del HASTA · ano = 1/1 → HASTA"),
+    ventana: str = Query("mes", pattern="^(mes|ano|reciente)$",
+                         description="mes = mes calendario del HASTA · ano = 1/1 → HASTA · "
+                                     "reciente = últimos DIAS_DORMIDA días (ventana del semáforo)"),
 ) -> dict:
-    """Los boletos de UN cliente en el MES o en el AÑO del corte — modal de Q4.
+    """Los boletos de UN cliente en el MES, en el AÑO o en la ventana del SEMÁFORO — modal de Q4.
 
     Nunca el período `[Desde, Hasta]`: entra CUALQUIER boleto no anulado, y la ventana
     tiene que ser la MISMA con la que el filtro de la tabla dejó pasar esa fila, o una
-    cuenta marcada como operativa se abre vacía.
+    cuenta marcada como operativa se abre vacía. Por eso existe `reciente`: una fila
+    que entró por ACTIVA / ENFRIÁNDOSE se define por su ÚLTIMA op, que puede ser de
+    hace dos meses — y hasta del año pasado si el corte es de enero.
     """
     return _com_sql.informe_cliente_operaciones(
         id_cuenta=id_cuenta, moneda=moneda, fecha=fecha, ventana=ventana)

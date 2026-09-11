@@ -102,3 +102,76 @@ def test_operativas_por_segmento_cuenta_lo_mismo_que_el_ranking():
     assert "_act_where('o')" in codigo
     assert "FROM operaciones o" in codigo
     assert "negocio_movimientos" not in codigo
+
+
+# ── SEMÁFORO (ACTIVA / ENFRIÁNDOSE) en el INFORME: una sola definición ───────
+#
+# El Informe pasó a mostrar ACTIVAS y ENFRIÁNDOSE, que hasta ahora solo vivían en
+# ANÁLISIS COMERCIAL. Es el caso exacto de la REGLA #9: el mismo dato en dos
+# pantallas. Si cada una trae su propio umbral o reimplementa la clasificación, las
+# dos siguen andando y cuentan cuentas distintas — nada falla, y el que mira no
+# tiene cómo saber cuál creer. Estos tests congelan que haya UN solo umbral y UNA
+# sola función que clasifica.
+
+def test_los_umbrales_del_semaforo_viven_en_un_solo_lugar():
+    """`analisis_comercial` y `detalle_ultima_op` no pueden traer su propio 45/90:
+    tienen que tomar las constantes del módulo, las mismas que usa el Informe."""
+    import inspect
+
+    from api.services import comercial_sql as cs
+
+    assert (cs.DIAS_ACTIVA, cs.DIAS_DORMIDA) == (45, 90)
+    for fn in (cs.analisis_comercial, cs.detalle_ultima_op):
+        firma = inspect.signature(fn)
+        assert firma.parameters["dias_activa"].default is cs.DIAS_ACTIVA, fn.__name__
+        assert firma.parameters["dias_dormida"].default is cs.DIAS_DORMIDA, fn.__name__
+
+
+def test_activas_por_segmento_usa_la_ventana_del_semaforo_y_el_mismo_predicado():
+    """El conteo por segmento de Q1 mira la ÚLTIMA op (no una ventana de calendario),
+    con el MISMO predicado de boleto que DÍAS SIN OPERAR, y se acota a la ventana del
+    semáforo: sin ese piso sería un scan histórico de la tabla de boletos."""
+    import inspect
+
+    from api.services import comercial_sql as cs
+
+    seg = inspect.getsource(cs.informe_cuentas_por_segmento)
+    _, ancla, resto = seg.partition("    w_est = ")
+    assert ancla, "desapareció el predicado de activas/enfriándose por segmento"
+    codigo = "\n".join(ln for ln in (ancla + resto).splitlines()
+                       if not ln.lstrip().startswith("#"))
+    assert "_act_where('o')" in codigo
+    assert "max(o.concertacion)" in codigo          # la ÚLTIMA op, no un count
+    assert "%(dorm_ini)s" in codigo                 # piso = corte − DIAS_DORMIDA
+    assert "%(act)s" in codigo                      # corte = DIAS_ACTIVA
+    assert "negocio_movimientos" not in codigo
+    # El umbral entra por parámetro desde la constante, no escrito en el SQL.
+    assert "dorm_ini = corte - timedelta(days=DIAS_DORMIDA)" in seg
+    assert '"act": DIAS_ACTIVA' in seg
+
+
+def test_el_detalle_clasifica_con_estado_comercial_y_no_reimplementa_el_umbral():
+    """Q4 tiene que llamar a `estado_comercial` (la función PURA que ya usa la tabla
+    ESTADO COMERCIAL). Un `if dias <= 45` escrito acá sería la segunda definición."""
+    import inspect
+
+    from api.services import comercial_sql as cs
+
+    src = inspect.getsource(cs.informe_segmento_detalle)
+    assert "estado_comercial(dias, True, DIAS_ACTIVA, DIAS_DORMIDA)" in src
+    # Fuera de la ventana no inventa DORMIDA/NUEVA: el Informe no scanea el histórico.
+    assert "if dias > DIAS_DORMIDA:" in src
+    assert '"DORMIDA"' not in src and '"NUEVA"' not in src
+
+
+def test_el_detalle_scanea_hasta_cubrir_la_ventana_del_semaforo():
+    """El piso del scan es min(1 de enero, corte − DIAS_DORMIDA). Con el piso viejo
+    (1 de enero a secas) y un corte de enero, una cuenta cuya última op fue en
+    diciembre queda ENFRIÁNDOSE, el filtro la cuenta y la tabla no la muestra."""
+    import inspect
+
+    from api.services import comercial_sql as cs
+
+    src = inspect.getsource(cs.informe_segmento_detalle)
+    assert 'pa["scan_ini"] = min(pa["ano_ini"], corte - timedelta(days=DIAS_DORMIDA))' in src
+    assert "concertacion >= %(scan_ini)s" in src

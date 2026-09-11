@@ -61,6 +61,16 @@ SIN_CLASIFICAR_DIVISION = "__sin_clasificar__"
 # cada uno lo escribiera aparte, el modal podría contradecir a la tabla.
 _ULT_OP_WHERE = "anulado_en IS NULL"
 
+# Umbrales del SEMÁFORO COMERCIAL, en días desde la última operación que cuenta:
+# ACTIVA (≤ DIAS_ACTIVA) · ENFRIANDOSE (hasta DIAS_DORMIDA) · DORMIDA (más allá).
+# Viven acá y no como default de cada función porque ahora los leen DOS pantallas:
+# ANÁLISIS COMERCIAL (una fila por cliente) y el INFORME (el conteo por segmento de
+# Q1 + el filtro de Q4). Si cada una trajera su propio número las dos seguirían
+# andando y contarían cuentas distintas, sin que nada falle — el modo de falla de
+# la REGLA #9. La clasificación en sí la hace SIEMPRE `estado_comercial()` (puro).
+DIAS_ACTIVA = 45
+DIAS_DORMIDA = 90
+
 
 def _act_where(alias: str = "") -> str:
     """`_ULT_OP_WHERE` aliasable (`o.anulado_en IS NULL`). Es la MISMA definición de
@@ -475,7 +485,7 @@ def operador_comercial(*, operador, moneda: str = "ARS", nivel_1=None,
     }
 
 
-def analisis_comercial(*, operador, dias_activa: int = 45, dias_dormida: int = 90,
+def analisis_comercial(*, operador, dias_activa: int = DIAS_ACTIVA, dias_dormida: int = DIAS_DORMIDA,
                        moneda: str = "ARS", nivel_1=None,
                        nivel_3=None, referido=None,
                        fecha: str | None = None, desde: str | None = None,
@@ -601,7 +611,7 @@ def _item_boleto(r: dict, *, corte: date, ult) -> dict:
 
 
 def detalle_ultima_op(*, id_cuenta: str, fecha: str | None = None,
-                      dias_activa: int = 45, dias_dormida: int = 90,
+                      dias_activa: int = DIAS_ACTIVA, dias_dormida: int = DIAS_DORMIDA,
                       limite: int = 25) -> dict:
     """Auditoría de una fila de ESTADO COMERCIAL: qué boleto fija DÍAS SIN OPERAR.
 
@@ -747,10 +757,51 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
         f"AND c.estado = 'Activa' WHERE {w_op} "
         f"GROUP BY COALESCE(c.nivel_1, '(sin segmentar)')", p2)}
+    # ── ACTIVAS / ENFRIÁNDOSE por segmento — el semáforo de ANÁLISIS COMERCIAL ──
+    #
+    # Es OTRA pregunta que `ctas_ops`, no un sinónimo, y por eso conviven en el mismo
+    # gráfico: CTAS OPS mira una VENTANA (¿operó dentro de este mes?) y el semáforo
+    # mira la ÚLTIMA op (¿cuánto hace que no aparece?). Una cuenta que operó el 2 de
+    # agosto y nada más sigue ACTIVA todo septiembre y NO es operativa de septiembre.
+    #
+    # Misma definición que la tabla ESTADO COMERCIAL: días entre el corte y la última
+    # op que cuenta (`_act_where` = cualquier boleto no anulado). Por eso alcanza con
+    # scanear [corte − DIAS_DORMIDA, corte]: todo lo que cae adentro es ACTIVA o
+    # ENFRIANDOSE, y lo de afuera es DORMIDA/NUEVA — que esta pantalla no muestra
+    # (esas dos viven en Análisis Comercial, que sí scanea el histórico completo).
+    #
+    # Scope IDÉNTICO al de `ctas_ops` (mismo JOIN, mismos filtros madre, sin filtro de
+    # `fecha_alta_legajo`): las barras de un mismo gráfico tienen que compartir universo.
+    dorm_ini = corte - timedelta(days=DIAS_DORMIDA)
+    p3: dict = {"dorm_ini": dorm_ini, "corte": corte, "act": DIAS_ACTIVA}
+    w_est = (f"{_act_where('o')} "
+             f"AND o.concertacion >= %(dorm_ini)s AND o.concertacion <= %(corte)s")
+    if operador:
+        w_est += " AND c.operador_email = %(op)s"
+        p3["op"] = operador
+    w_est = _append_niveles(w_est, p3, "c", nivel_1, nivel_2, nivel_3, nivel_4, nivel_5,
+                            referido, division)
+    # La última op por cuenta primero (CTE) y recién después el conteo por segmento:
+    # clasificar antes de agrupar contaría la cuenta una vez por boleto.
+    est_map = {r["segmento"]: r for r in _q(
+        f"WITH ult AS ("
+        f"  SELECT o.id_cuenta, COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
+        f"         max(o.concertacion) AS ult "
+        f"  FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
+        f"  AND c.estado = 'Activa' WHERE {w_est} "
+        f"  GROUP BY o.id_cuenta, COALESCE(c.nivel_1, '(sin segmentar)')) "
+        f"SELECT segmento, "
+        f"  count(*) FILTER (WHERE (%(corte)s::date - ult) <= %(act)s) AS n_activas, "
+        f"  count(*) FILTER (WHERE (%(corte)s::date - ult) > %(act)s) AS n_enfriandose "
+        f"FROM ult GROUP BY segmento", p3)}
+
     for s in segmentos:
         r = ops_map.get(s["segmento"])
         s["ctas_ops"] = int((r or {}).get("n_mes") or 0)
         s["ctas_ops_ano"] = int((r or {}).get("n_ano") or 0)
+        e = est_map.get(s["segmento"])
+        s["n_activas"] = int((e or {}).get("n_activas") or 0)
+        s["n_enfriandose"] = int((e or {}).get("n_enfriandose") or 0)
 
     fa = _q("SELECT min(fecha_alta_legajo) AS f FROM comitentes "
             "WHERE fecha_alta_legajo IS NOT NULL")[0]["f"]
@@ -761,6 +812,11 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         "total": sum(s["n"] for s in segmentos),
         "total_ctas_ops": sum(s["ctas_ops"] for s in segmentos),
         "total_ctas_ops_ano": sum(s["ctas_ops_ano"] for s in segmentos),
+        "total_activas": sum(s["n_activas"] for s in segmentos),
+        "total_enfriandose": sum(s["n_enfriandose"] for s in segmentos),
+        # Los umbrales viajan para que el front pueda ROTULAR las barras con el
+        # número real ("≤ 45 días") en vez de repetirlo hardcodeado de su lado.
+        "dias_activa": DIAS_ACTIVA, "dias_dormida": DIAS_DORMIDA,
         "ano": anio,
         "segmentos": segmentos,
     }
@@ -956,7 +1012,11 @@ def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
     Dos decisiones que tienen que quedar dichas:
 
     1. **La ventana la elige quien abre** (`ventana`): `mes` = el mes calendario del
-       HASTA · `ano` = del 1 de enero al HASTA. Nunca el período `[Desde, Hasta]`.
+       HASTA · `ano` = del 1 de enero al HASTA · `reciente` = los últimos
+       `DIAS_DORMIDA` días hasta el HASTA, la ventana del SEMÁFORO (es la que abre una
+       fila filtrada por ACTIVA / ENFRIÁNDOSE: su última op puede ser de hace dos
+       meses y del año pasado, y con `mes` o `ano` el modal saldría vacío).
+       Nunca el período `[Desde, Hasta]`.
 
        Tiene que ser la MISMA con la que el filtro de la tabla dejó pasar esa fila.
        Ya pasó al revés y por eso está parametrizado: el modal estaba clavado al mes,
@@ -979,8 +1039,10 @@ def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
 
     idc = str(id_cuenta)
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
-    es_ano = str(ventana) == "ano"
-    ini = date(corte.year, 1, 1) if es_ano else corte.replace(day=1)
+    win = str(ventana) if str(ventana) in ("mes", "ano", "reciente") else "mes"
+    ini = (date(corte.year, 1, 1) if win == "ano"
+           else corte - timedelta(days=DIAS_DORMIDA) if win == "reciente"
+           else corte.replace(day=1))
     factor = _factor_usd(moneda)
     p: dict = {"idc": idc, "ini": ini, "fin": corte}
 
@@ -1027,7 +1089,7 @@ def informe_cliente_operaciones(*, id_cuenta: str, moneda: str = "ARS",
         "id_cuenta": idc, "denominacion": cab.get("denominacion") or "—",
         "operador_nombre": cab.get("operador_nombre"), "nivel_1": cab.get("nivel_1"),
         "mes": f"{corte.year:04d}-{corte.month:02d}", "ano": corte.year,
-        "ventana": "ano" if es_ano else "mes",
+        "ventana": win, "dias_dormida": DIAS_DORMIDA,
         "desde": ini.isoformat(), "hasta": corte.isoformat(),
         "n_boletos": len(ops), "volumen": _cv(vol, factor), "arancel": _cv(ar, factor),
         "operaciones": ops,
@@ -1102,7 +1164,9 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     ids = list(detalle)
     if not ids:
         return {"segmento": segmento or "todos", "n_clientes": 0,
-                "n_operativas": 0, "n_operativas_ano": 0, "clientes": []}
+                "n_operativas": 0, "n_operativas_ano": 0,
+                "n_activas": 0, "n_enfriandose": 0,
+                "dias_activa": DIAS_ACTIVA, "dias_dormida": DIAS_DORMIDA, "clientes": []}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
     ub = ""                                    # tope superior = HASTA (aplica a todo)
@@ -1123,16 +1187,43 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     # exactamente las cuentas que ese número cuenta, o la pantalla se contradice.
     # Viaja como FLAG por fila y no como una lista aparte: así el front filtra sin
     # pedir de nuevo y no puede quedar desfasado del dato que ya dibujó.
-    # DOS ventanas: el MES del corte y el AÑO hasta el corte. El mes está contenido en
-    # el año → se scanea el año una vez y el mes sale por FILTER.
+    # TRES preguntas en UNA pasada: el MES del corte, el AÑO hasta el corte y la
+    # ÚLTIMA op (de la que sale el semáforo ACTIVA / ENFRIÁNDOSE, el mismo de ANÁLISIS
+    # COMERCIAL). Todas salen del mismo scan: se pide el rango más ancho una sola vez
+    # y las ventanas más chicas salen por FILTER / bool_or.
+    #
+    # ⚠️ El piso NO es el 1 de enero: es el MÍNIMO entre el 1 de enero y el inicio de
+    # la ventana del semáforo (corte − DIAS_DORMIDA). Con un corte de enero, una cuenta
+    # cuya última op fue en diciembre está ENFRIÁNDOSE y con el piso viejo no habría
+    # entrado nunca a la lista — el filtro contaría cuentas que la tabla no muestra.
     pa["ano_ini"] = date(corte.year, 1, 1)
+    pa["scan_ini"] = min(pa["ano_ini"], corte - timedelta(days=DIAS_DORMIDA))
     op_win = {r["id_cuenta"]: r for r in _q(
-        f"SELECT id_cuenta, bool_or(concertacion >= %(mes_ini)s) AS en_mes "
+        f"SELECT id_cuenta, max(concertacion) AS ult, "
+        f"bool_or(concertacion >= %(mes_ini)s) AS en_mes, "
+        f"bool_or(concertacion >= %(ano_ini)s) AS en_ano "
         f"FROM operaciones "
-        f"WHERE id_cuenta = ANY(%(ids)s) AND concertacion >= %(ano_ini)s{ub} "
+        f"WHERE id_cuenta = ANY(%(ids)s) AND concertacion >= %(scan_ini)s{ub} "
         f"AND {_ULT_OP_WHERE} GROUP BY id_cuenta", pa)}
-    operativas_ano = set(op_win)
+    operativas_ano = {i for i, r in op_win.items() if r["en_ano"]}
     operativas = {i for i, r in op_win.items() if r["en_mes"]}
+
+    def _semaforo(idc: str) -> tuple[str | None, int | None]:
+        """(estado, días sin operar) de una cuenta — solo DENTRO de la ventana del
+        semáforo. Fuera de ella devuelve (None, None) a propósito: el Informe no
+        scanea el histórico completo, así que no puede distinguir DORMIDA de NUEVA y
+        no va a inventar la diferencia. Esas dos las contesta Análisis Comercial.
+
+        La clasificación la hace `estado_comercial()`, la MISMA función pura que usa
+        la tabla ESTADO COMERCIAL: acá no se reimplementa el umbral."""
+        r = op_win.get(idc)
+        ult = r["ult"] if r else None
+        if ult is None:
+            return None, None
+        dias = (corte - ult).days
+        if dias > DIAS_DORMIDA:
+            return None, None
+        return estado_comercial(dias, True, DIAS_ACTIVA, DIAS_DORMIDA), dias
 
     clientes = []
     for r in _q(f"SELECT id_cuenta, "
@@ -1142,12 +1233,14 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                 f"AND anulado_en IS NULL "
                 f"AND etapa IS DISTINCT FROM 'solicitud'{ub}{lo} GROUP BY id_cuenta", pa):
         idc = r["id_cuenta"]
+        est, dias = _semaforo(idc)
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
             "arancel_total": _cv(_f(r["ar_total"]), factor),
             "arancel_mes": _cv(_f(r["ar_mes"]), factor),
             "opero_mes": idc in operativas,
             "opero_ano": idc in operativas_ano,
+            "estado": est, "dias_sin_operar": dias,
         })
     # Las que OPERARON y no dejaron un peso de arancel en la ventana. Entran igual,
     # con el arancel en cero.
@@ -1158,12 +1251,19 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     # de la misma pregunta que no coinciden es un bug aunque ninguno esté mal
     # calculado: el que mira no tiene cómo saber cuál creer. Y son justo las filas
     # más interesantes de la tabla — operó y no facturó.
+    #
+    # La misma razón trae a las cuentas del SEMÁFORO que no facturaron ni operaron en
+    # el año (última op en diciembre, corte en enero): si el filtro ENFRIÁNDOSE cuenta
+    # una cuenta, la tabla la tiene que poder mostrar.
     vistos = {c["id_cuenta"] for c in clientes}
-    for idc in sorted(operativas_ano - vistos):
+    con_semaforo = {i for i in op_win if _semaforo(i)[0] is not None}
+    for idc in sorted((operativas_ano | con_semaforo) - vistos):
+        est, dias = _semaforo(idc)
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
             "arancel_total": 0.0, "arancel_mes": 0.0,
-            "opero_mes": idc in operativas, "opero_ano": True,
+            "opero_mes": idc in operativas, "opero_ano": idc in operativas_ano,
+            "estado": est, "dias_sin_operar": dias,
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
@@ -1180,4 +1280,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
             "n_operativas": sum(1 for c in clientes if c["opero_mes"]),
             "n_operativas_ano": sum(1 for c in clientes if c["opero_ano"]),
+            "n_activas": sum(1 for c in clientes if c["estado"] == "ACTIVA"),
+            "n_enfriandose": sum(1 for c in clientes if c["estado"] == "ENFRIANDOSE"),
+            "dias_activa": DIAS_ACTIVA, "dias_dormida": DIAS_DORMIDA,
             "clientes": clientes}

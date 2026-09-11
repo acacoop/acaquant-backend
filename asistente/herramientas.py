@@ -49,8 +49,14 @@ def bonos_que_vencen(dias: int) -> dict:
     solo las posiciones que suman al AuM. La fecha de esa foto viene en la
     respuesta (`foto_del`): si es de hace varios días, decilo al contestar.
 
-    Un bono cuyo vencimiento no está cargado NO aparece — se informa aparte en
-    `sin_vencimiento_cargado` para que no se lea como "no vence nada".
+    Un bono cuyo vencimiento no está cargado NO aparece en la lista — se
+    informa aparte en `sin_vencimiento_cargado`, para que no se lea como "no
+    vence nada". Esa lista trae SOLO bonos: el efectivo, las acciones y los
+    ETFs de la cartera no están ahí, porque no les falta un dato — no tienen
+    vencimiento por lo que son.
+
+    Si un bono viene con `moneda: "SIN DATO en la tenencia"`, decilo al dar su
+    valuación. Un número de plata sin moneda no se puede comparar con otro.
 
     Args:
         dias: cuántos días para adelante mirar. Entre 1 y 730.
@@ -115,9 +121,21 @@ def bonos_que_vencen(dias: int) -> dict:
          GROUP BY a.ticker, c.fecha_vencimiento, t.moneda
          ORDER BY c.fecha_vencimiento, a.ticker
     """
-    # Lo que hay en esas cuentas y NO tiene vencimiento cargado. Va aparte y se
-    # informa: sin esto, un bono con la ficha incompleta desaparece de la
+    # Los BONOS de esas cuentas que no tienen el vencimiento cargado. Va aparte
+    # y se informa: sin esto, un bono con la ficha incompleta desaparece de la
     # respuesta y se lee como "ese no vence".
+    #
+    # ⚠️⚠️ **EL JOIN ES INNER Y ESA ES LA CORRECCIÓN.** Con `LEFT JOIN` entraba
+    # acá TODO lo que no matcheara contra el catálogo de renta fija: en la
+    # primera corrida real devolvió ARS, USD y USDC (efectivo), MSFT y RKLB
+    # (acciones) e IBIT y ETHA (ETFs). El modelo lo repitió tal cual —«sin
+    # vencimiento cargado: ARS, ETHA, IBIT…»— y eso es falso: no les falta el
+    # dato, es que no son bonos.
+    #
+    # `mercado.curvas` ES el catálogo de renta fija (su columna `tipo` es
+    # Bono / Lecap / Boncap / Soberano / ON). Estar ahí adentro es la
+    # definición de "es un bono", así que el INNER JOIN alcanza y no hace falta
+    # una lista de clases de activo que alguien tenga que mantener.
     sql_sin = f"""
         WITH foto AS (
             SELECT max(fecha) AS f FROM portafolio.tenencia t
@@ -127,7 +145,7 @@ def bonos_que_vencen(dias: int) -> dict:
           FROM portafolio.tenencia t
           JOIN foto ON t.fecha = foto.f
           JOIN portafolio.assets a ON a.unidad = t.unidad
-          LEFT JOIN mercado.curvas c ON c.ticker = a.ticker
+          JOIN mercado.curvas c ON c.ticker = a.ticker
          WHERE t.aum = 'si'
            AND {permitido.FILTRO_SQL}
            AND a.ticker IS NOT NULL
@@ -158,7 +176,11 @@ def bonos_que_vencen(dias: int) -> dict:
             "dias_para_vencer": (vto - hoy).days if vto else None,
             "nominales": float(f["nominales"]) if f["nominales"] is not None else None,
             "valuacion": float(f["valuacion"]) if f["valuacion"] is not None else None,
-            "moneda": f["moneda"],
+            # ⚠️ Una moneda vacía NO se manda como null: se dice. En la
+            # primera corrida real varias filas de tenencia vienen sin moneda,
+            # y con un null el modelo simplemente omitía el dato — o sea que
+            # mostraba un número de plata sin decir de qué moneda era.
+            "moneda": f["moneda"] or "SIN DATO en la tenencia",
             "cuentas": int(f["cuentas"]),
         })
 

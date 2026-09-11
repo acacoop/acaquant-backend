@@ -112,3 +112,45 @@ def test_el_resultado_dice_QUE_cuentas_miro():
     from asistente.herramientas import bonos_que_vencen
     doc = bonos_que_vencen.__doc__ or ""
     assert "cuentas habilitadas" in doc and "cuentas_miradas" in doc
+
+
+# ── LO QUE SALIÓ MAL EN LA PRIMERA CORRIDA REAL (2026-09-11) ────────────────
+
+
+def test_la_lista_de_SIN_VENCIMIENTO_trae_solo_bonos():
+    """⚠️ El bug: con `LEFT JOIN` contra el catálogo de renta fija, la lista de
+    «bonos sin vencimiento cargado» se llenaba con todo lo que no matcheara.
+
+    En la primera corrida real devolvió ARS, USD y USDC (efectivo), MSFT y RKLB
+    (acciones) e IBIT y ETHA (ETFs). Y el modelo lo repitió: «sin vencimiento
+    cargado: ARS, ETHA, IBIT…». Eso es FALSO — no les falta el dato, es que no
+    son bonos. Y es la peor clase de error: no falla, contesta.
+
+    `mercado.curvas` ES el catálogo de renta fija, así que estar adentro es la
+    definición de «es un bono». Con INNER JOIN el problema no puede volver, y
+    no hace falta una lista de clases de activo que alguien mantenga al día.
+    """
+    sin_vto = [s for s in _consultas(FUENTE) if "fecha_vencimiento IS NULL" in s]
+    assert sin_vto, "no encontré la consulta de los que no tienen vencimiento"
+    for sql in sin_vto:
+        assert "LEFT JOIN mercado.curvas" not in sql, (
+            "vuelve el LEFT JOIN: el efectivo y las acciones se van a colar en "
+            "la lista de bonos con la ficha incompleta")
+        assert re.search(r"\bJOIN\s+mercado\.curvas\b", sql), (
+            "la consulta tiene que cruzar contra el catálogo de renta fija")
+
+
+def test_un_numero_de_plata_nunca_viaja_sin_su_moneda():
+    """Varias filas de `portafolio.tenencia` vienen con `moneda` en null. Con un
+    null el modelo simplemente omitía el dato y mostraba la valuación sola —
+    un número de plata que no se puede comparar con ningún otro.
+
+    Es la misma regla que la fecha de la foto y las cuentas miradas: **la
+    unidad viaja con el dato**. Si no se sabe, se dice que no se sabe.
+    """
+    assert 'f["moneda"] or "SIN DATO' in FUENTE, (
+        "la moneda vacía tiene que decirse, no mandarse como null")
+    from asistente.herramientas import bonos_que_vencen
+    doc = bonos_que_vencen.__doc__ or ""
+    assert "SIN DATO en la tenencia" in doc, (
+        "el modelo tiene que saber qué hacer cuando la moneda no está")

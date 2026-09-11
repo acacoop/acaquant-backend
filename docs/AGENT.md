@@ -137,7 +137,7 @@ problema más grave del agente viejo.**
 | `activa` | guardado — se puede apagar sin tocar código |
 | `ultima_corrida_at` | **guardado** |
 | `ultimo_resultado` | **guardado** — `ok` · `sin_datos` · `error` |
-| `ultimo_error` | guardado |
+| `ultimo_error` | guardado — con la corrida en `ok` lleva lo que la habilidad **no pudo mirar** (`tipos.NoMirado`, §0.fa): «no pude mirar 1: mercado.x (relation does not exist)» |
 | `corridas_hoy` | guardado |
 | `hallazgos_total` | derivado de `hallazgos` |
 | `ultimo_hallazgo_at` | derivado de `hallazgos` |
@@ -1320,7 +1320,10 @@ habilidades, editable sin deploy.
 
 ## 8. Invariantes — lo que no se puede romper
 
-1. **Una habilidad que no corrió no cierra nada.** Nunca.
+1. **Una habilidad que no corrió no cierra nada.** Nunca. **Y de a uno**
+   (§0.fa): un detector que no pudo mirar UN sujeto lo devuelve como
+   `tipos.NoMirado`, y ese sujeto no se crea ni se cierra — la corrida sigue
+   `ok` para los demás. Nunca se juzga con una foto vieja «diciéndolo».
 2. **Un hallazgo sin `que_hacer` no se guarda.** Si no se puede decir qué hacer,
    la regla está mal pensada.
 3. **Todo lo que se muestra lleva fecha y hora.**
@@ -6664,6 +6667,9 @@ El orden correcto de preguntas, que hoy `tabla_quieta` no hace:
 3. corrió y trajo: ¿escribió? → recién ahí, tabla quieta = escritura rota
 ```
 
+> Resuelto en §0.fb (2026-09-11): el detector hace el cruce solo, para toda tabla
+> con job de reloj.
+
 `scripts/diag_tabla_quieta.py` hace ese cruce a mano —para cada tabla con
 hallazgo abierto: la clase de su sello, el ritmo declarado, el veredicto, y las
 últimas corridas reales del job con su `status` y sus `stats`— y es lo que hay
@@ -6905,3 +6911,99 @@ BOPREALes, 9 Bonares, 6 Globales). El backfill se corrió el 2026-09-09 con
 filas viejas en `ars` no se borran: son el único registro del tramo que la API
 ya no deja rebajar (topea en 1 año) y la lectura las ignora. Detalle del lado de
 Research en `docs/RESEARCH.md` §A.4.7b.
+
+---
+
+### 0.fa DIEZ TABLAS «NO ESCRIBEN HACE 1,5 DÍAS» Y TODAS ESCRIBÍAN — la memoria que no olvidaba y el viaje todo-o-nada (2026-09-11)
+
+El user, con AHORA abierto un viernes a las 09:19: diez tablas de cierre
+(`cedears_ohlc_daily`, `eikon_cierres`, `fair_value_residuos`, `bonos_ohlc_daily`,
+`snapshots_cierre_hist`, …) marcadas `tabla_quieta` con «no escribe hace 1,5
+días y su cron dice cada 1,0 días», todas «crónico, 4-5× en 30 d». *«El mercado
+cierra a las 17. No entiendo qué toma para decir que no escribe hace X días si
+en realidad sí escribe. Es el mismo patrón que pasa con casi todas.»*
+
+**Medido con `scripts/diag_tabla_quieta --tabla mercado.cedears_ohlc_daily --vivo`:**
+
+- El job corrió las ocho últimas veces, `ok`, 17:15 ART, con cedears escritos.
+  A las 10:01 `max(fecha)` decía **10/09**. El agente a las 09:19 decía 09/09.
+- **La lectura en vivo fallaba en TODAS las pasadas, en 0,03 s**: `relation
+  "estrategia.resultados" does not exist`. Una tabla borrada de la base que
+  `manager.tabla_perfil` seguía recordando — el barrido hace upsert y **nunca
+  borraba** — y como la lectura viva era UNA query `UNION ALL` para las 72,
+  un nombre muerto la tumbaba entera. `journalctl` mostró el warning ocho
+  veces entre las 08:52 y las 12:49.
+- Sin dato vivo, el detector caía a la FOTO «y lo decía» (`ultimo_vivo: false`
+  en la evidencia). La foto se saca al cerrar la rueda, **17:15, el mismo
+  minuto en que corren los jobs de cierre**: siempre dice «ayer». Ayer +
+  36 h de tope = **hoy a las 09:00**. Por eso las cuatro veces cayeron a las
+  09:19/09:20: la primera pasada después de las 09:00.
+- Y el «crónico 4×» eran **tres bugs distintos del detector**, ninguno del
+  job: 28/08 la fecha de negocio (§0.em), 31/08 el finde a medias
+  (`_segundos_de_finde`), 05/09 y 11/09 esto.
+
+**Qué se cambió (código, no IA — el user lo discutió y tiene razón: «no sería
+mejor que no pase nunca el NO PUDE MIRAR?». Lo nuestro se previene; lo del
+mundo se declara):**
+
+1. **El barrido olvida** (`tablas.barrer`): lo que ya no está en el catálogo se
+   borra del perfil. Una memoria que nunca olvida es un bug.
+2. **La lectura viva no es todo o nada** (`tablas._ultimo_dato_vivo`): si el
+   viaje único falla, se lee tabla por tabla y devuelve `(leídas, fallidas)`.
+   72 viajes sólo en las pasadas en que algo está roto.
+3. **Sin dato vivo no se juzga** (`sistema.tabla_quieta`): la foto dice qué
+   tablas hay y cada cuánto escriben; el atraso se mide contra la tabla ahora
+   o no se mide. Si no se pudo leer ninguna → `SinDatos`. Si no se pudo leer
+   una → **`tipos.NoMirado`**, que es nuevo: viaja mezclado con los
+   `Hallazgo`, `registro.guardar` lo separa, cuenta como visto para el cierre
+   por ausencia (lo que esa tabla tuviera abierto sigue abierto) y como nada
+   para el resto. La corrida queda `ok` y `ultimo_error` dice «no pude mirar
+   1: …», que es lo que HABILIDADES muestra. Es el invariante 1 de a uno.
+
+`ultimo_vivo` desaparece de la evidencia: ya no hay veredicto sin dato vivo.
+El desfase de la hora del barrido contra los jobs de cierre queda como está:
+con la foto fuera del veredicto, no decide nada.
+
+---
+
+### 0.fb LA PLANILLA ANTES QUE LA TARJETA — `tabla_quieta` mira las corridas del job, para todas (2026-09-11)
+
+Cerrado §0.fa, el user: *«no quiero soluciones pensadas en tablas puntuales,
+quiero soluciones generales que sirvan para toda tabla_quieta»*. La lista de
+crónicos seguía llena de `tabla_quieta` con otra causa: `research.bcra_series`
+(8 episodios), `research.fred_observations` (11), `bancos.sync_log` (12) — el
+caso de §0.ew: sello de ALTA, job incremental, la fuente no publicó, el job
+corrió perfecto y la tarjeta manda «relanzar».
+
+**Lo que se descartó, y por qué.** La primera idea fue un CONTRATO: que todo
+job anote «filas escritas» con un nombre único, contado en la puerta de
+escritura (`core/pg_mirror`) sin tocar cada job. **Medido**: 27 de los jobs
+escriben con `cursor.execute` directo, por fuera de `pg_mirror` —justo los de
+estas tablas (`eikon_cierres`, `mercado_1816_series`, `fred_research`,
+`bcra_research`, `mayor_sync`)—, así que un contador en la puerta no sería
+general, y uno por job es lo que el user no quiere. Los `stats` de hoy son
+25 nombres distintos para lo mismo (`escritos`, `filas`, `upserted`, `docs`…).
+
+**Lo que sí es general y ya existe**: `manager.job_runs` tiene, para todo job
+con `JobRunLogger` (todos menos 7), CUÁNDO corrió y CÓMO terminó. Con eso se
+separan las tres causas sin declarar nada por tabla:
+
+| La planilla dice | `tabla_quieta` hace |
+|---|---|
+| no hay corridas (motor, o job sin logger) | canta como siempre (`sin_escribir`) |
+| la última corrida no es `ok` | **calla**: «no corrió» / «falló» lo canta `salud` para todo el crontab (REGLA #9: un hecho, un lugar) |
+| corrió `ok` después del último dato, menos de N veces | **calla**: la fuente no publicó; relanzar no cambia nada |
+| corrió N o más veces después del último dato (ok o no) y la tabla no avanzó | `corre_ok_sin_avanzar`: o la fuente lleva días muda, o escribe y la columna no se mueve; el `que_hacer` dice cómo separarlas. Se cuentan todas las posteriores, no sólo las ok seguidas: un job que falla de a ratos nunca juntaría N ok, y si `salud` no confirma cada falla suelta nadie la cantaría |
+
+N = `corridas_ok_sin_avanzar` (4, en el catálogo; editable por base). «Después
+del último dato» se mide con `started_at` y contra el día CERRADO cuando la
+columna es fecha de negocio: la corrida que escribió el dato termina segundos
+después del sello que dejó y contaría como posterior sin serlo.
+
+**Lo que queda afuera, dicho**: un job que corre `ok` y escribe cero para
+siempre (watermark roto) se ve recién a las N corridas, como
+`corre_ok_sin_avanzar`, no antes; y una tabla sin job de reloj sigue igual que
+ayer. El «sello de escritura universal» —leer `pg_stat_user_tables.n_tup_ins/upd`
+por pasada para saber cuándo se ESCRIBIÓ cada tabla, sin depender de columnas—
+resolvería también la cota de fecha de negocio (§0.em) y queda propuesto, no
+hecho.

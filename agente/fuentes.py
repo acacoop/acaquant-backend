@@ -325,14 +325,18 @@ def universo_1816() -> dict | None:
 # ── LAS CORRIDAS DE UN JOB (§0.dk) ─────────────────────────────────────────
 def corridas(job: str, n: int = 15) -> list[dict] | None:
     """Las últimas N corridas de ese job, la más nueva primero:
-    `[{finished_at, status, stats}, …]`. Va por el índice `(tipo, started_at)`."""
+    `[{started_at, finished_at, status, stats}, …]`. Va por el índice
+    `(tipo, started_at)`. `started_at` está porque «¿esta corrida es POSTERIOR
+    al último dato?» se contesta con el arranque: la que escribió el dato
+    termina unos segundos DESPUÉS del sello que dejó (§0.fb)."""
     def _leer():
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT finished_at, status, data->'stats' FROM manager.job_runs "
+            cur.execute("SELECT started_at, finished_at, status, data->'stats' "
+                        "  FROM manager.job_runs "
                         " WHERE tipo = %s AND finished_at IS NOT NULL "
                         " ORDER BY finished_at DESC LIMIT %s", (job, int(n)))
-            return [{"finished_at": r[0], "status": r[1], "stats": dict(r[2] or {})}
-                    for r in cur.fetchall()]
+            return [{"started_at": r[0], "finished_at": r[1], "status": r[2],
+                     "stats": dict(r[3] or {})} for r in cur.fetchall()]
     return _una_vez(f"corridas:{job}:{n}", _leer)
 
 

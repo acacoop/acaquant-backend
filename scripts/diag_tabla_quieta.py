@@ -19,8 +19,16 @@ sello de ALTA (`ingestado_en`), y sus jobs son incrementales por watermark — s
 el BCRA no publicó un día nuevo, mandan CERO filas y el sello no se mueve. El
 job está perfecto y la tabla figura «atrasada» todas las mañanas.
 
-El dato que separa las tres YA EXISTE y el detector no lo mira: `manager.job_runs`
-(lo escribe `JobRunLogger` en cada corrida, con su `status` y sus `stats`).
+El dato que separa las tres es `manager.job_runs` (lo escribe `JobRunLogger` en
+cada corrida). Desde §0.fb el detector lo mira solo (`sistema._planilla`); este
+diag lo muestra crudo para discutir un veredicto.
+
+Y dos preguntas más que una persona hace delante de la tarjeta y el detector
+tampoco: **¿el día sin dato era hábil?** (`mercado.dias_habiles` contra los
+días que sí tienen dato — un feriado entre semana no lo descuenta nadie) y
+**¿las otras veces que cantó, qué día y a qué hora fue?** (`agente.hallazgos`:
+si el «crónico 4× en 30 d» cae siempre un lunes o después de un feriado, es el
+calendario, no el job).
 
     python -m scripts.diag_tabla_quieta                 # las que el agente tiene abiertas
     python -m scripts.diag_tabla_quieta --tabla bancos.sync_log
@@ -101,9 +109,61 @@ def _corridas(job: str, n: int) -> list[tuple]:
         " ORDER BY started_at DESC LIMIT %s", (tipo, n))
 
 
+def _calendario(tabla: str, col: str, dias: int = 10) -> None:
+    """Día por día: ¿fue hábil según `mercado.dias_habiles`? ¿tiene dato en
+    `col`? La fila que dice «hábil SIN dato» es la única que acusa al job."""
+    from datetime import UTC, datetime, timedelta
+    hoy = datetime.now(UTC).date()
+    desde = hoy - timedelta(days=dias)
+    habiles = {r[0] for r in _filas(
+        "SELECT fecha FROM mercado.dias_habiles WHERE fecha BETWEEN %s AND %s",
+        (desde, hoy))}
+    try:
+        con_dato = {r[0] for r in _filas(
+            f'SELECT DISTINCT "{col}"::date FROM {tabla} WHERE "{col}" >= %s', (desde,))}
+    except Exception as e:
+        print(f"    ⚠ no pude listar los días con dato: {str(e).splitlines()[0][:120]}")
+        return
+    print(f"\n  CALENDARIO (últimos {dias} días · hábil según mercado.dias_habiles):")
+    if not habiles:
+        print("    ⚠ mercado.dias_habiles no tiene filas en la ventana: no sé qué día fue hábil")
+    for i in range(dias, -1, -1):
+        d = desde + timedelta(days=dias - i)
+        es_habil = ("sí" if d in habiles else "no") if habiles else "?"
+        marca = "   ← hábil SIN dato" if d in habiles and d not in con_dato else ""
+        print(f"    {d:%a %d/%m}  hábil={es_habil:<2}  dato={'sí' if d in con_dato else 'NO'}{marca}")
+
+
+def _historial(tabla: str, dias: int = 30) -> None:
+    """Cada vez que `tabla_quieta` cantó esta tabla: cuándo apareció (día de la
+    semana incluido), cuánto duró, cómo se cerró y si alguien lo leyó."""
+    from core.tz import hora_ar
+    filas = _filas(
+        "SELECT id, detectado_at, veces, estado, cerrado_at, cerrado_como, leido_por, "
+        "       evidencia "
+        "  FROM agente.hallazgos "
+        " WHERE habilidad = 'tabla_quieta' AND sujeto = %s "
+        "   AND detectado_at >= now() - make_interval(days => %s) "
+        " ORDER BY detectado_at DESC", (tabla, dias))
+    print(f"\n  HISTORIAL ({len(filas)} vez/veces en {dias} días · hora ART):")
+    for hid, det, veces, estado, cer, como, quien, ev in filas:
+        duro = f"duró {(cer - det).total_seconds() / 3600:.1f} h" if cer else "ABIERTO"
+        print(f"    #{hid} {hora_ar(det)} ({det:%a}) · ×{veces} · {estado:<9} · {duro} · "
+              f"cierre={como or '—'} · leído={'por ' + quien if quien else 'no'}")
+        ev = ev or {}
+        # `ultimo_vivo=False` sólo aparece en hallazgos anteriores a §0.fa: la
+        # lectura en vivo había fallado y se juzgó con la foto del barrido.
+        at, tp = ev.get("atraso_s"), ev.get("tope_s")
+        vivo = "" if "ultimo_vivo" not in ev else f"ultimo_vivo={ev['ultimo_vivo']} · "
+        print(f"          evidencia: {vivo}"
+              f"ultimo_dato={ev.get('ultimo_dato')} · "
+              + (f"atraso/tope={at / 3600:.2f}/{tp / 3600:.2f} h" if at and tp else "sin atraso"))
+
+
 def _una(tabla: str, n_corridas: int) -> None:
     from agente import tablas
     from core import escribe
+    from core.tz import hora_ar
 
     _titulo(tabla)
     p = _perfil(tabla)
@@ -130,12 +190,21 @@ def _una(tabla: str, n_corridas: int) -> None:
     else:
         print("  ritmo DECLARADO : — no hay: el veredicto sale del MEDIDO —")
 
+    foto = dict(p)
     ult = _ultimo_dato(tabla, col) if col else None
     if ult is not None:
         p = {**p, "ultimo_dato": ult}
     f = tablas.frescura(p, declarado=declarado)
-    print(f"  último dato     : {ult}")
+    print(f"  último dato VIVO: {ult}   (max({col}) leído ahora)")
+    print(f"  último dato FOTO: {foto.get('ultimo_dato')}   (barrido del "
+          f"{hora_ar(foto.get('medido_at'))} ART)")
     print(f"  VEREDICTO       : {f['estado'].upper()} — {f['motivo']}")
+    if f.get("atraso_s") is not None and f.get("tope_s"):
+        print(f"  atraso / tope   : {f['atraso_s'] / 3600:.2f} h / {f['tope_s'] / 3600:.2f} h"
+              + (" · fecha de NEGOCIO: es una cota" if f.get("fecha_de_negocio") else ""))
+    if col:
+        _calendario(tabla, col)
+    _historial(tabla)
 
     # ── LA MITAD QUE EL DETECTOR NO MIRA ────────────────────────────────────
     if not job:
@@ -159,11 +228,38 @@ def _una(tabla: str, n_corridas: int) -> None:
           "o la escritura falla.\n      Los `stats` de arriba dicen cuál de las dos.")
 
 
+def _lectura_viva() -> None:
+    """Reproduce el paso del detector que lee `max(col)` de TODAS las tablas con
+    ritmo en UN viaje (`tablas._ultimo_dato_vivo`) y mide cuánto tarda. El pool
+    corta a los 15 s (`statement_timeout`). Si el viaje único falla se lee tabla
+    por tabla, y la que igual no se pueda leer sale como `NoMirado`."""
+    import time
+
+    from agente import tablas
+    _titulo("LA LECTURA EN VIVO — como la hace el detector, todas las tablas de un viaje")
+    con_ritmo = tablas.perfiles(solo_con_ritmo=True)
+    t0 = time.perf_counter()
+    vivo, fallidas = tablas._ultimo_dato_vivo(con_ritmo)
+    seg = time.perf_counter() - t0
+    print(f"  tablas con ritmo : {len(con_ritmo)}")
+    print(f"  tardó            : {seg:.2f} s   (tope del pool: 15 s)")
+    print(f"  leídas           : {len(vivo)}"
+          + ("   ⚠ NINGUNA: la habilidad entera queda en «sin datos»" if not vivo else ""))
+    for i, motivo in fallidas.items():
+        t = con_ritmo[i]
+        print(f"  no pude mirar    : {t['schema']}.{t['tabla']} → {motivo}   "
+              f"(sale como NoMirado: no se crea ni se cierra nada)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tabla", default="", help="una sola (`schema.tabla`)")
     ap.add_argument("--corridas", type=int, default=CORRIDAS)
+    ap.add_argument("--vivo", action="store_true",
+                    help="además, medir la lectura en vivo de todas las tablas")
     a = ap.parse_args()
+    if a.vivo:
+        _lectura_viva()
 
     tablas_ = [a.tabla] if a.tabla else _abiertas()
     if not tablas_:

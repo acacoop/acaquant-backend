@@ -61,16 +61,33 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
     decir una herramienta de integridad, porque deja el tablero en verde justo
     el día que está más ciega.
     """
+    todo = list(hallazgos or [])
+    # ⚠️ **«NO LO PUDE MIRAR» VIAJA MEZCLADO CON LOS HALLAZGOS Y SE SEPARA ACÁ**
+    # (`tipos.NoMirado`, §0.fa): el sujeto cuenta como VISTO para el cierre por
+    # ausencia —lo que tuviera abierto sigue abierto— y como NADA para el
+    # resto: no nace un hallazgo, no se le pone texto, no cuenta en AHORA.
+    filas = [h for h in todo if not isinstance(h, tipos.NoMirado)]
+    no_mirados = [h for h in todo if isinstance(h, tipos.NoMirado)]
+    if no_mirados and resultado == tipos.OK and not error:
+        # Va a `ultimo_error` con la corrida en `ok`: HABILIDADES lo muestra al
+        # lado de «cuándo miró», que es donde se pregunta «¿y por qué no a
+        # esta?». Los primeros tres con motivo, el resto contado.
+        detalle = " · ".join(f"{n.sujeto} ({n.motivo})" if n.motivo else n.sujeto
+                             for n in no_mirados[:3])
+        resto = f" y {len(no_mirados) - 3} más" if len(no_mirados) > 3 else ""
+        error = f"no pude mirar {len(no_mirados)}: {detalle}{resto}"
+    # ⚠️ UNA sola vez por corrida: `sellar_corrida` suma `corridas_hoy`, y
+    # sellar dos veces (lo cazó el revisor antes del push) contaba doble justo
+    # en las pasadas con algo sin mirar.
     sellar_corrida(habilidad, resultado=resultado, error=error,
                    duracion_ms=duracion_ms, traceback=traceback)
     if resultado != tipos.OK:
         return {"ok": False, "resultado": resultado, "abiertos": 0,
                 "nuevos": 0, "cerrados": 0, "reincidencias": 0,
-                "silenciados": 0}
+                "silenciados": 0, "no_mirados": len(no_mirados)}
 
-    filas = list(hallazgos or [])
     nuevos = reincidencias = silenciados = 0
-    vistos: list[tuple[str, str]] = []
+    vistos: list[tuple[str, str]] = [(n.sujeto, n.regla) for n in no_mirados]
     try:
         # UNA transacción: o entra todo lo que vio y se cierra lo que no vino, o
         # no entra nada. Media escritura es peor que ninguna — deja hallazgos
@@ -108,7 +125,7 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
         raise
     return {"ok": True, "resultado": resultado, "abiertos": len(filas),
             "nuevos": nuevos, "cerrados": cerrados,
-            "reincidencias": reincidencias,
+            "reincidencias": reincidencias, "no_mirados": len(no_mirados),
             # **Se cuenta, y se cuenta en la TERMINAL** (log y `diag_agente`), no
             # en el modal: el user pidió explícitamente que los silenciados no
             # ensucien la pantalla. Pero un silencio invisible del todo es cómo

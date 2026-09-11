@@ -192,6 +192,29 @@ class SinDatos(Exception):
 
 
 @dataclass(frozen=True)
+class NoMirado:
+    """«A ESTE sujeto no lo pude mirar». El invariante 1, un nivel más abajo.
+
+    `SinDatos` es todo o nada: la habilidad entera queda en «no pude mirar» y no
+    se cierra nada. Pero una habilidad que mira 72 tablas y no pudo leer UNA no
+    está ciega: está ciega de a una. Sin esto tenía dos salidas, las dos malas:
+    levantar `SinDatos` por una tabla (72 quedan sin juzgar por culpa de una) o
+    saltearla (el registro cierra POR AUSENCIA lo que esa tabla tuviera abierto,
+    que es «se arregló» dicho sobre algo que nadie miró).
+
+    Un detector devuelve estos MEZCLADOS con sus `Hallazgo`. El registro los
+    separa: **no crean nada y no cierran nada** — el sujeto cuenta como visto
+    para el cierre por ausencia y como nada para todo lo demás — y la corrida
+    queda `ok` con la lista de lo que no pudo mirar en `ultimo_error`, que es
+    donde HABILIDADES lo muestra.
+    """
+
+    sujeto: str
+    regla: str
+    motivo: str = ""
+
+
+@dataclass(frozen=True)
 class Hallazgo:
     """Lo que una habilidad vio, en un momento.
 

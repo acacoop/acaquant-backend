@@ -14,9 +14,10 @@ lo decide el motor**, una sola vez, para todos.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from agente import reloj
-from agente.tipos import Hallazgo, SinDatos
+from agente.tipos import Hallazgo, NoMirado, SinDatos
 
 
 def _humano(s: float) -> str:
@@ -566,6 +567,84 @@ def _perfil_vencido(tablas, *, tope_h: int = PERFIL_VENCE_H) -> bool:
     return max(medidos) < datetime.now(UTC) - timedelta(hours=tope_h)
 
 
+# ── tabla_quieta: la planilla del job (§0.fb) ──────────────────────────────
+#
+# «No escribió» tiene tres causas que se atienden al revés una de otra y en la
+# tarjeta se veían idénticas (§0.ew): el job NO CORRIÓ (es el cron), corrió y
+# FALLÓ (es el código), o corrió BIEN y no había nada nuevo (es la fuente, y no
+# hay nada roto). El detector miraba sólo la tabla y mandaba «relanzar el job»
+# en los tres — y en el tercero relanzar no cambia nada, porque el job ya
+# corrió bien: `research.bcra_series` salía 8 veces por mes con el job perfecto.
+#
+# El dato que separa las tres ya existía —`manager.job_runs`, lo que anota cada
+# corrida— y es GENERAL: vale para toda tabla con un job de reloj, sin declarar
+# nada por tabla. Las dos primeras causas ya las canta `salud` para TODO el
+# crontab (`api/services/salud.evaluar`: «no corrió después de su horario» /
+# «corrió y salió mal»); repetirlas acá sería el mismo hecho en dos lugares
+# (REGLA #9). Acá queda lo que sólo esta habilidad puede ver: el job corre bien
+# y la tabla igual no avanza.
+CALLAR, ESCALAR, SIN_PLANILLA = "callar", "escalar", "sin_planilla"
+
+
+def _tipo_de_job(job: str) -> str:
+    """`jobs.x` → el `tipo` con el que `JobRunLogger` anota sus corridas.
+    Vacío si no es un job (un motor no lleva planilla)."""
+    if not job.startswith("jobs."):
+        return ""
+    from api.services.jobs_catalogo import _tipo_de
+    return _tipo_de(job)
+
+
+def _planilla(job: str, ult_efectivo: datetime, umbral: int) -> tuple[str, dict]:
+    """Qué dice la planilla del job sobre una tabla atrasada.
+
+        SIN_PLANILLA  no hay corridas anotadas → se canta como siempre
+        CALLAR        el job no corrió desde el último dato, o su última corrida
+                      no es `ok` (las dos las canta `salud`), o corrió `ok`
+                      después del dato menos de `umbral` veces (la fuente no
+                      publicó: no hay nada roto todavía)
+        ESCALAR       corrió `umbral` o más veces después del último dato y la
+                      tabla no avanzó
+
+    Se cuentan TODAS las corridas posteriores al dato, no sólo las `ok`
+    seguidas: un job que falla de a ratos (ok, ok, error, ok) nunca juntaría
+    N ok consecutivas, y si `salud` no llega a confirmar cada falla suelta la
+    tabla quedaría atrasada sin que nadie la cante (lo cazó el revisor).
+
+    «Después del último dato» se mide con `started_at`: la corrida que ESCRIBIÓ
+    el dato termina segundos después del sello que dejó, y con `finished_at`
+    contaría como una corrida posterior sin serlo.
+    """
+    from agente import fuentes
+    umbral = max(int(umbral), 1)          # pisado a 0 en la base no puede indexar [-1]
+    tipo = _tipo_de_job(job)
+    if not tipo:
+        return SIN_PLANILLA, {}
+    corridas = fuentes.corridas(tipo, umbral + 2)
+    if not corridas:
+        return SIN_PLANILLA, {}
+    # Vienen de la más nueva a la más vieja: las posteriores al dato están al
+    # principio, y la primera que no lo es corta.
+    posteriores = []
+    for c in corridas:
+        arranco = c.get("started_at")
+        if not arranco or arranco <= ult_efectivo:
+            break
+        posteriores.append(c)
+    if not posteriores:
+        return CALLAR, {"motivo": "el job no corrió desde el último dato: lo canta salud"}
+    if len(posteriores) < umbral:
+        ultima = posteriores[0]
+        if ultima.get("status") != "ok":
+            return CALLAR, {"motivo": f"la última corrida terminó {ultima.get('status')}: "
+                                      "lo canta salud"}
+        return CALLAR, {"motivo": f"corrió ok {len(posteriores)} vez/veces después del "
+                                  "último dato: la fuente no publicó"}
+    oks = sum(1 for c in posteriores if c.get("status") == "ok")
+    return ESCALAR, {"corridas": len(posteriores), "corridas_ok": oks, "tipo": tipo,
+                     "desde": posteriores[-1]["started_at"].isoformat()}
+
+
 def tabla_quieta(u: dict) -> list[Hallazgo]:
     """Tablas que dejaron de escribir cuando deberían estar escribiendo.
 
@@ -607,9 +686,21 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
     try:
         con_contrato = tablas._ya_tienen_contrato()
         con_ritmo = tablas.perfiles(solo_con_ritmo=True)
-        vivo = tablas._ultimo_dato_vivo(con_ritmo)
+        vivo, no_leidas = tablas._ultimo_dato_vivo(con_ritmo)
     except Exception as e:
         raise SinDatos(f"no pude leer el perfil de las tablas: {e}") from e
+
+    # ⚠️⚠️ **SIN DATO VIVO NO SE JUZGA** (§0.fa). La foto del barrido dice de
+    # qué tablas hay y cada cuánto escriben; **el atraso se mide contra la
+    # tabla, ahora, o no se mide**. La primera versión caía a la foto cuando la
+    # lectura viva fallaba, «y lo decía» en la evidencia — y el user vio el
+    # resultado en AHORA el 2026-09-11: diez tablas de cierre en rojo por una
+    # foto de ayer, con el dato de hoy escrito hacía 16 horas. Si no se pudo
+    # leer ninguna, la habilidad entera no miró; si no se pudo leer una, esa
+    # una sale como `NoMirado` y el registro no la crea ni la cierra.
+    if con_ritmo and not vivo:
+        raise SinDatos("no pude leer el último dato en vivo de ninguna tabla: "
+                       + (next(iter(no_leidas.values())) if no_leidas else "sin motivo"))
 
     # **Un perfil viejo NO se lee como un tablero limpio.** Si el barrido no pudo
     # correr y la foto quedó vieja de verdad, esta corrida no vio la base de hoy
@@ -648,15 +739,18 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
     from agente import peso as _peso
     nuestros = _peso.schemas_nuestros()
 
-    out = []
+    out: list = []
     for i, p in enumerate(con_ritmo):
-        if i in vivo:
-            p = {**p, "ultimo_dato": vivo[i]}
         if nuestros and p["schema"] not in nuestros:
             continue
         nombre = f"{p['schema']}.{p['tabla']}"
         if nombre in con_contrato:
             continue
+        if i not in vivo:
+            out.append(NoMirado(sujeto=nombre, regla="sin_escribir",
+                                motivo=no_leidas.get(i, "sin lectura en vivo")))
+            continue
+        p = {**p, "ultimo_dato": vivo[i]}
         d = declarado.get(nombre)
         f = tablas.frescura(p, declarado=d)
         if f["estado"] != "atrasada":
@@ -665,6 +759,32 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
         # quieta porque no pasó nada, no porque algo esté roto, y no hay nada
         # que relanzar. `no_se` NO se saltea: ante la duda se sigue exigiendo.
         if escribe.la_dispara(nombre) == escribe.EVENTO:
+            continue
+        # ⚠️ **LA PLANILLA ANTES QUE LA TARJETA** (§0.fb, ver `_planilla`).
+        job = escribe.que_relanzar(nombre) or ""
+        ult = datetime.fromisoformat(str(f["ultimo_dato"]))
+        ult_efectivo = ult + timedelta(days=1) if f.get("fecha_de_negocio") else ult
+        veredicto, pl = _planilla(job, ult_efectivo, int(u.get("corridas_ok_sin_avanzar", 4)))
+        if veredicto == CALLAR:
+            continue
+        if veredicto == ESCALAR:
+            out.append(Hallazgo(
+                sujeto=nombre, regla="corre_ok_sin_avanzar", severidad="media",
+                problema=(f"{job} corrió {pl['corridas']} veces desde el último dato "
+                          f"({pl['corridas_ok']} ok) y {p['col_fecha']} no avanzó · "
+                          f"{f['motivo']}"),
+                detalle=(f"{p['col_fecha']} = {f['ultimo_dato']} · corridas ok desde "
+                         f"{pl['desde']} · {p['filas']:,} filas"),
+                que_hacer=(f"Correr a mano `python -m {job}` y mirar cuántas filas "
+                           f"escribe: si escribe cero, la fuente no publica desde "
+                           f"{ult:%d/%m}; si escribe y {p['col_fecha']} no avanza, "
+                           "la escritura está fallando."),
+                evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
+                           "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
+                           "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
+                           "corridas": pl["corridas"], "corridas_ok": pl["corridas_ok"],
+                           "job": job,
+                           "la_escribe": escribe.quien_escribe(nombre)}))
             continue
         out.append(Hallazgo(
             sujeto=nombre, regla="sin_escribir",
@@ -693,10 +813,6 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
             evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                        "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
                        "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
-                       # ¿El atraso se midió AHORA o salió de la foto del
-                       # barrido? Sin esto, un veredicto viejo se lee igual que
-                       # uno fresco.
-                       "ultimo_vivo": i in vivo,
                        "la_escribe": escribe.quien_escribe(nombre),
                        "relanzar": escribe.que_relanzar(nombre)}))
     return out

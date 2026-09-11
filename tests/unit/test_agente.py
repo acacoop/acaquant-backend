@@ -5334,6 +5334,35 @@ def test_el_fci_se_resuelve_por_el_LINK_y_el_nombre_es_el_respaldo():
     assert (r[0]["propuesto"], r[0]["fuente"]) == ("MM ARS", clase.PRIMARY)
 
 
+def test_un_fondo_sin_tipo_de_renta_dice_CUAL_de_las_dos_razones_es():
+    """Medido después del deploy: **35 de 84** quedaron «linkeados pero sin
+    `tipo_renta`», y esa frase se lee como un bug del link. Son dos cosas
+    distintas y se atienden distinto (§0.fg):
+
+      sin `simbolo_primary`  `fci_universo._assets` no pudo emparejar el asset
+                             con Primary y le creó una fila propia
+                             (`origen = 'asset'`) → cargar `instrumento` en
+                             Manager, o la clase a mano si es bilateral
+      con `simbolo_primary`  el emparejamiento está y es la FICHA la que no
+                             trae el tipo de renta
+    """
+    from agente import clase
+
+    base = {"cartera": "FCI", "ticker": "x", "clase_activo": "", "emisor": ""}
+    propio = {**base, "unidad": "u_propio"}
+    emparejado = {**base, "unidad": "u_par"}
+    fci = {"u_propio": {"nombre": "x", "tipo_renta": "", "moneda": "ARS",
+                        "categoria": "", "simbolo_primary": None,
+                        "origen": "asset"},
+           "u_par": {"nombre": "x", "tipo_renta": "", "moneda": "ARS",
+                     "categoria": "", "simbolo_primary": "ADBAICA AR",
+                     "origen": "primary"}}
+    r = clase.proponer([propio, emparejado], [], usadas=["MM ARS"], fci=fci)
+    assert "no está emparejado con Primary" in r[0]["nota"]
+    assert "Manager" in r[0]["nota"], "tiene que decir DÓNDE se arregla"
+    assert "ADBAICA AR" in r[1]["nota"] and "no trae tipo de renta" in r[1]["nota"]
+
+
 def test_la_categoria_del_informe_no_se_toma_prestada():
     """`mercado.fci.categoria` es el estante del INFORME y la mesa manda ahí:
     puede decir «T+0 MONEY MARKET», que no es vocabulario de `clase_activo`.

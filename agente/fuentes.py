@@ -159,11 +159,19 @@ def fci_por_unidad() -> dict[str, dict] | None:
     """
     def _leer():
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT unidad, nombre, tipo_renta, moneda, categoria "
+            # `simbolo_primary` viaja porque es lo que distingue las DOS razones
+            # por las que una fila puede no tener `tipo_renta`, y se atienden
+            # distinto: sin símbolo es una fila propia que `fci_universo` creó
+            # desde el asset (`origen = 'asset'`) porque no pudo emparejarlo con
+            # Primary —eso se arregla cargando `instrumento` en Manager—; con
+            # símbolo, el emparejamiento está y es la ficha la que no trae el
+            # tipo de renta.
+            cur.execute("SELECT unidad, nombre, tipo_renta, moneda, categoria, "
+                        "       simbolo_primary, origen "
                         "  FROM mercado.fci WHERE unidad IS NOT NULL")
             return {u: {"nombre": n, "tipo_renta": tr, "moneda": m,
-                        "categoria": cat}
-                    for u, n, tr, m, cat in cur.fetchall()}
+                        "categoria": cat, "simbolo_primary": sym, "origen": org}
+                    for u, n, tr, m, cat, sym, org in cur.fetchall()}
     return _una_vez("fci_por_unidad", _leer)
 
 

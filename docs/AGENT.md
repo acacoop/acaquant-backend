@@ -7337,6 +7337,24 @@ bonos ARS los destapó la nota, y ninguno tenía quién lo reportara:
   un aviso apagó, sin que nadie lo decidiera, la única regla que podía
   completarles la ficha.
 
+**Medido después del deploy: 170 → 101** (los 69 del agro los completó la mesa
+cargando los 7 valores; la lista cerrada pasó de 18 a 25) **y 23 FCI quedaron
+propuestos por el link**, que el ejecutor escribe solo. El dato que cierra el
+caso: **el match por nombre aportó CERO** — 12 filas matchean una ficha y
+ninguna produjo propuesta, así que el nombre no sólo fallaba: nunca hizo falta.
+
+De los 61 FCI que siguen, **35 estaban «linkeados pero sin `tipo_renta`»**, que
+se lee como un bug del link y no lo es: `fci_universo._assets` linkea la fila a
+la de Primary sólo si el asset tiene `instrumento` y Primary lo lista; si no, le
+crea una **fila propia** (`origen = 'asset'`, `simbolo_primary = NULL`) con la
+moneda y nada más. Sin tipo de renta no hay clase que derivar, y el arreglo no
+es del agente: es cargar `instrumento` en Manager (el job ya intenta el match
+por nombre solo y cuenta los ambiguos en sus stats) o, si el fondo es bilateral,
+que la clase la ponga la mesa. La nota ahora dice cuál de las dos es. Los otros
+26: 19 son `Renta Mixta`/`Retorno Total` —no hay clase declarada para eso y el
+propio job borró «RENTA MIXTA» de su vocabulario por ser inventado, así que es
+una decisión de la mesa— y 7 no tienen link.
+
 Los tres quedan ANOTADOS y sin arreglo: cada uno es un aviso que hoy no existe,
 y decidir si son habilidades nuevas es una decisión de la mesa, no un
 refactor. Lo mismo el vocabulario de `WTI` y de las opciones de acciones

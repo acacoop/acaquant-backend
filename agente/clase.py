@@ -237,8 +237,16 @@ def _fci(f: dict, indice: dict, indice_fci: dict,
     if not primary_leido:
         return "", "", "no pude leer el catálogo de Primary en esta pasada"
     if fondo:
-        return "", "", ("está linkeado en mercado.fci pero sin `tipo_renta`, y su "
-                        "nombre no matchea ninguna ficha de Primary")
+        # ⚠️ Las dos razones de un `tipo_renta` vacío se atienden distinto, y
+        # «está linkeado pero sin tipo_renta» se leía como un bug del link.
+        if not (fondo.get("simbolo_primary") or "").strip():
+            return "", "", ("no está emparejado con Primary: `fci_universo` le "
+                            "creó una fila propia desde el asset, así que no hay "
+                            "tipo de renta de dónde derivar la clase — cargá "
+                            "`instrumento` en Manager, o la clase a mano si el "
+                            "fondo es bilateral")
+        return "", "", (f"está emparejado con Primary («{fondo['simbolo_primary']}») "
+                        "pero esa ficha no trae tipo de renta")
     return "", "", ("no está linkeado en mercado.fci (falta el link en Manager) y "
                     "su nombre no matchea ninguna ficha de Primary")
 

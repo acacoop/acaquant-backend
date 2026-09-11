@@ -19,6 +19,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from core.clase_activo import de_fci
+
 # Ruido que aparece en una grafía y no en otra. Orden: los largos primero.
 _RUIDO = (
     "fondos comunes de inversion", "fondo comun de inversion", "f.c.i.", "f.c.i", "fci",
@@ -91,22 +93,10 @@ def alias_compartidos(alias_por_gerente: dict[str, list[str]]) -> dict[str, list
 
 
 def sugerir_categoria(tipo_renta: str | None, plazo: int | None, moneda: str | None) -> str | None:
-    """El estante que se PROPONE para una fila sin categoría (la mesa manda).
-    Reglas simples y visibles; lo que no encaja queda sin estante, no se inventa."""
-    tr = (tipo_renta or "").lower()
-    usd = (moneda or "").upper() == "USD"
-    if "dinero" in tr:
-        return "MONEY MARKET USD" if usd else "T+0 MONEY MARKET"
-    if "renta fija" in tr:
-        if usd:
-            return "RENTA FIJA USD"
-        if plazo == 0:
-            return "T+0"
-        if plazo == 1:
-            return "T+1"
-        return None
-    if "mixta" in tr:
-        return "RENTA MIXTA USD" if usd else "RENTA MIXTA"
-    if "variable" in tr:
-        return "RENTA VARIABLE"
-    return None
+    """La CLASE DE ACTIVO que se propone para un fondo sin asset linkeado, en el
+    vocabulario de Manager → ASSETS (`core/clase_activo.de_fci`: MM ARS · MM USD ·
+    ARS T1 · HD T1 · RENTA VARIABLE). `plazo` no decide nada hoy: se conserva en la
+    firma por si la mesa quiere distinguir T+0 de T+1 en su vocabulario. Lo que no
+    encaja queda sin clase, no se inventa."""
+    del plazo
+    return de_fci(tipo_renta or "", moneda or "") or None

@@ -31,13 +31,9 @@ from typing import Any
 from api.cache import cached
 from core.postgres import get_pool
 
-# Orden de los estantes en la vista (los del informe primero; el resto alfabético;
-# sin estante al final).
-ORDEN_CATEGORIAS: tuple[str, ...] = (
-    "T+0 MONEY MARKET", "T+0 LECAPS", "T+0", "T+1", "CER", "DÓLAR LINK",
-    "MONEY MARKET USD", "RENTA FIJA USD", "RENTA FIJA USD ARG", "RENTA FIJA USD LATAM",
-    "RENTA MIXTA", "RENTA MIXTA USD", "RENTA VARIABLE",
-)
+# Orden de las CLASES DE ACTIVO en la vista (el vocabulario de Manager → ASSETS;
+# lo que no esté acá va después, alfabético; sin clase al final).
+ORDEN_CATEGORIAS: tuple[str, ...] = ("MM ARS", "ARS T1", "MM USD", "HD T1", "RENTA VARIABLE")
 
 
 def _lateral(alias: str, cond: str) -> str:

@@ -28,8 +28,11 @@ Cuatro pasos, siempre en este orden:
     La gerente de una fila linkeada es `assets.emisor` (la palabra de la mesa),
     aunque el prefijo diga otra cosa.
 
- 4. CATEGORÍA. Donde está vacía, sugiere el estante (tipo de renta + plazo +
-    moneda). Nunca pisa una cargada.
+ 4. CLASE. La `categoria` de la fila ES la clase de activo de Manager → ASSETS
+    (MM ARS · ARS T1 · MM USD · HD T1 · RENTA VARIABLE): en los fondos linkeados
+    se copia del asset (la mesa la edita ahí y nada más); en los que no tienen
+    asset se sugiere con la misma regla que usa el agente (`core/clase_activo.de_fci`)
+    solo donde está vacía.
 
 Uso:
     python -m jobs.fci_universo            # todo
@@ -175,7 +178,7 @@ def _primary(cur, seguidas: dict[str, list[str]], dry: bool, jr: JobRunLogger) -
 # ── paso 3 ───────────────────────────────────────────────────────────────────
 
 def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: JobRunLogger) -> None:
-    cur.execute("SELECT unidad, ticker, emisor, instrumento, cafci FROM portafolio.assets "
+    cur.execute("SELECT unidad, ticker, emisor, instrumento, cafci, clase_activo FROM portafolio.assets "
                 "WHERE cartera IN ('FCI', 'CARTERA FCI') AND COALESCE(vigente, true) ORDER BY unidad")
     assets = cur.fetchall()
     por_norm: dict[str, list[dict]] = {}
@@ -183,7 +186,10 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
         por_norm.setdefault(f["nombre_norm"], []).append(f)
     now = datetime.now(UTC)
     linkeados = nuevos_link = bilaterales = ambiguos = fuera = conflictos = 0
-    for unidad, ticker, emisor, instrumento, cafci in assets:
+    for unidad, ticker, emisor, instrumento, cafci, clase_activo in assets:
+        clase = (clase_activo or "").strip().upper() or None
+        if clase in ("NO APLICA", "N/A", "-"):
+            clase = None
         gerente = (emisor or "").strip().upper() or None
         if gerente and gerente not in seguidas:
             gerente_seg = gerente_de(ticker or unidad, seguidas)
@@ -235,20 +241,23 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
                             "ON CONFLICT DO NOTHING", (destino, vieja[0]))
                 cur.execute("DELETE FROM mercado.fci_vcp WHERE fci_id = %s", (vieja[0],))
                 cur.execute("DELETE FROM mercado.fci WHERE fci_id = %s", (vieja[0],))
+            # La CLASE la manda el asset (Manager → ASSETS es el único lugar donde
+            # se edita): si está cargada, pisa la sugerencia del job.
             cur.execute("UPDATE mercado.fci SET unidad = %s, cafci = %s, gerente = COALESCE(%s, gerente), "
-                        "actualizado_en = %s WHERE fci_id = %s",
-                        (unidad, cafci, gerente, now, destino))
+                        "categoria = COALESCE(%s, categoria), actualizado_en = %s WHERE fci_id = %s",
+                        (unidad, cafci, gerente, clase, now, destino))
             linkeados += 1
         else:
             # bilateral (o símbolo que Primary hoy no lista): fila propia por unidad
             cur.execute(
                 "INSERT INTO mercado.fci (nombre, nombre_norm, gerente, simbolo_primary, unidad, cafci,"
-                " origen, activo, actualizado_en) "
-                "VALUES (%s, %s, %s, NULL, %s, %s, 'asset', true, %s) "
+                " categoria, origen, activo, actualizado_en) "
+                "VALUES (%s, %s, %s, NULL, %s, %s, %s, 'asset', true, %s) "
                 "ON CONFLICT (unidad) DO UPDATE SET nombre = EXCLUDED.nombre,"
                 " nombre_norm = EXCLUDED.nombre_norm, gerente = COALESCE(EXCLUDED.gerente, mercado.fci.gerente),"
-                " cafci = EXCLUDED.cafci, activo = true, actualizado_en = EXCLUDED.actualizado_en",
-                (nombre, norm, gerente, unidad, cafci, now))
+                " cafci = EXCLUDED.cafci, categoria = COALESCE(EXCLUDED.categoria, mercado.fci.categoria),"
+                " activo = true, actualizado_en = EXCLUDED.actualizado_en",
+                (nombre, norm, gerente, unidad, cafci, clase, now))
             bilaterales += 1
     jr.set_stat("assets_fci", len(assets))
     jr.set_stat("assets_linkeados_primary", linkeados)
@@ -261,7 +270,17 @@ def _assets(cur, seguidas: dict[str, list[str]], primary: dict, dry: bool, jr: J
 
 # ── paso 4 ───────────────────────────────────────────────────────────────────
 
+# Vocabulario que el job inventó en su primera versión (2026-09-10) y que NO es el
+# de Manager → ASSETS. Se limpia en cada corrida (idempotente) para que la clase
+# vuelva a sugerirse con el vocabulario de la mesa. Borrar cuando prod ya no lo tenga.
+_VOCABULARIO_VIEJO = ("T+0 MONEY MARKET", "MONEY MARKET USD", "T+0", "T+1", "RENTA FIJA USD",
+                      "RENTA MIXTA", "RENTA MIXTA USD", "T+0 LECAPS")
+
+
 def _categorias(cur, dry: bool) -> int:
+    if not dry:
+        cur.execute("UPDATE mercado.fci SET categoria = NULL WHERE categoria = ANY(%s)",
+                    (list(_VOCABULARIO_VIEJO),))
     cur.execute("SELECT fci_id, tipo_renta, plazo, moneda FROM mercado.fci WHERE categoria IS NULL")
     n = 0
     for fci_id, tr, plazo, mon in cur.fetchall():

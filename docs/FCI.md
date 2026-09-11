@@ -52,7 +52,7 @@ rendimientos se calculan **en la lectura** desde la serie. Nada se precalcula.
 | Tabla | Grano | Quién escribe | Qué es |
 |---|---|---|---|
 | `fci_gerentes` | `gerente` (el nombre de la MESA: SCHRODER, TORONTO, IAM) | `fci_universo` inserta las que faltan; la mesa edita `alias` y `seguida` | El filtro duro del universo. |
-| `fci` | `fci_id` | `fci_universo` (Primary + assets); `fci_admin alta` (bilateral manual) | El objeto: nombre, gerente, `simbolo_primary` (UNIQUE), `unidad` (UNIQUE, = assets), `cafci`, moneda, `tipo_renta` (el `underlying` de Primary), `plazo` (settlType 1/2/3/4 → T+0/1/2/3), `categoria` (el estante; la mesa manda, el job solo sugiere donde está vacío), `origen`, `activo`. |
+| `fci` | `fci_id` | `fci_universo` (Primary + assets); `fci_admin alta` (bilateral manual) | El objeto: nombre, gerente, `simbolo_primary` (UNIQUE), `unidad` (UNIQUE, = assets), `cafci`, moneda, `tipo_renta` (el `underlying` de Primary), `plazo` (settlType 1/2/3/4 → T+0/1/2/3), `categoria` = **la CLASE DE ACTIVO de Manager → ASSETS** (MM ARS · ARS T1 · MM USD · HD T1 · RENTA VARIABLE; en los linkeados se copia del asset, en el resto la sugiere `core/clase_activo.de_fci`), `origen`, `activo`. |
 | `fci_vcp` | `(fci_id, fecha)` | `fci_vcp` (primary, tenencia); `fci_admin vcp` (manual) | La serie. `fuente` con prioridad primary > tenencia > manual: el upsert no deja que una fuente débil pise una fuerte. |
 
 Identidad con Manager: `assets.cafci` = `CAFCI<fondo>-<clase>` (ids de CAFCI) y
@@ -82,10 +82,10 @@ Un fondo en USD rinde en USD: no se convierte, se compara dentro de su estante.
 
 | Qué | Cuándo (UTC, L-V) | Qué hace |
 |---|---|---|
-| `jobs.fci_universo` | 12:20 (después de `discovery_pyrofex`) | (1) asegura gerentes; (2) **una** llamada `get_detailed_instruments` → upsert de los CIO de gerentes seguidas por `simbolo_primary`; lo que Primary dejó de listar pasa a `activo=false`; (3) assets FCI: con `instrumento` → link; sin él → match único por nombre → escribe `assets.instrumento` y linkea; si no → fila propia (bilateral) con `gerente = assets.emisor`; (4) sugiere `categoria` donde está vacía (tipo de renta + plazo + moneda). |
+| `jobs.fci_universo` | 12:20 (después de `discovery_pyrofex`) | (1) asegura gerentes; (2) **una** llamada `get_detailed_instruments` → upsert de los CIO de gerentes seguidas por `simbolo_primary`; lo que Primary dejó de listar pasa a `activo=false`; (3) assets FCI: con `instrumento` → link; sin él → match único por nombre → escribe `assets.instrumento` y linkea; si no → fila propia (bilateral) con `gerente = assets.emisor`; (4) la CLASE: en los linkeados copia `assets.clase_activo`; en el resto sugiere con `core/clase_activo.de_fci` donde está vacía. |
 | `jobs.fci_vcp` | 20:30 (fuera de rueda) | Por fondo con símbolo: `get_market_data(LA)` → punto `primary` **en la fecha del timestamp del LA** (si Primary no publicó, el LA es el de ayer y va a ayer). Después, tenencia de los últimos 3 días para los linkeados → `tenencia` donde no hay `primary`. ~300 requests REST throttleadas. |
 | `jobs.fci_vcp --backfill-tenencia --desde` | a mano, fuera de rueda, vía `run_job.sh` | La historia del `precio` de la tenencia para los fondos linkeados: scopeado por unidad sobre el índice `(fecha, unidad)`, **por mes** con sleep, idempotente. `--medir` muestra el EXPLAIN y cuenta filas del primer mes antes de escribir (REGLA #4). |
-| `scripts.fci_admin` | a demanda | `gerentes` · `gerente X --alias … / --seguir / --dejar` · `fondos --gerente/--q/--sin-simbolo` · `categoria <ids> --set` · `alta` (bilateral manual) · `vcp <id> <fecha> <valor>`. |
+| `scripts.fci_admin` | a demanda | `gerentes` · `gerente X --alias … / --seguir / --dejar` · `fondos --gerente/--q/--sin-simbolo` · `categoria <ids> --set` (solo fondos sin asset; los linkeados se editan en Manager → ASSETS) · `alta` (bilateral manual) · `vcp <id> <fecha> <valor>` · **`vcp-csv archivo.csv`** (muchos de una: `fci_id|nombre, fecha, vcp`; alcanza con fines de mes para MTD/YTD/30D). |
 
 ## 6. Decisiones y límites
 
@@ -101,10 +101,11 @@ Un fondo en USD rinde en USD: no se convierte, se compara dentro de su estante.
   anterior (ADCABLD: banda 1.040368 vs LA 1.040419). Si se confirma, el job
   puede recuperar un día perdido con la misma llamada del catálogo. Se mide con
   `scripts/diag_fci_primary` un día de estos.
-- **Estantes ≠ tipo de renta.** `categoria` es la clasificación de la mesa; la
-  sugerencia automática solo cubre lo obvio (Mercado de Dinero → T+0 MONEY
-  MARKET / MONEY MARKET USD; Renta Fija T+0/T+1 en ARS → T+0/T+1; Renta Fija
-  USD → RENTA FIJA USD). Lo demás queda sin estante hasta que alguien lo ponga.
+- **Una sola clasificación: la CLASE DE ACTIVO de assets.** La primera versión
+  inventó «estantes» propios (T+0 MONEY MARKET, T+1…) y un toggle CALENDARIO/
+  CORRIDAS; se sacaron el mismo día (feedback del user 2026-09-11): el vocabulario
+  es el de Manager → ASSETS y se edita ahí. El job limpia el vocabulario viejo en
+  cada corrida (`_VOCABULARIO_VIEJO`) hasta que prod no lo tenga más.
 - **Portal invitado:** `fci` NO está en `INVITADO_MODULES` (REGLA #8).
 - **REGLA #10:** las dos piezas están en el árbol del Diagnóstico
   (`diagnostico_registry`); una habilidad propia del agente queda pendiente.
@@ -123,6 +124,16 @@ front: `src/app/fci/page.tsx`, `components/fci-view.tsx`, `fci-table.tsx`,
 ---
 
 # PARTE B — Changelog
+
+### 2026-09-11 — la clase es la de assets; una barra; carga masiva de VCP
+
+- La `categoria` pasa a ser la CLASE DE ACTIVO de Manager → ASSETS (copiada del
+  asset en los linkeados, sugerida con `core/clase_activo.de_fci` en el resto).
+  Se van los estantes inventados y el toggle CALENDARIO/CORRIDAS; la tabla
+  muestra 1D · WTD · MTD · YTD · 30D · TNA 30D y los fondos sin VCP no se listan.
+- La vista tiene UNA barra de filtros a lo ancho (clase, ARS/USD, gerente,
+  buscador, fecha del VCP) y abajo el 50/50.
+- `fci_admin vcp-csv` para cargar VCP en lote (fines de mes alcanza para MTD/YTD/30D).
 
 ### 2026-09-10 — nace el mercado FCI (MVP sobre Primary + tenencia)
 

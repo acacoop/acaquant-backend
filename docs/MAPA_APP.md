@@ -419,7 +419,7 @@ vacío donde se montaba — se limpió el 2026-08-31.
 | `/renta-fija` | *sin tabs de vista* (grid 2×2) | — | Sub-tabs por panel: RF (TASA FIJA/CER/HARD DOLAR/DOLAR LINKED/LIBRO), CURVAS (LIVE/HISTÓRICO/FAIR VALUE), FORWARDS (LIVE/GRÁFICO/Z-SCORE), BREAKEVENS (LIVE/HISTÓRICO). En la barra de tabs, el botón **SIMULAR INVERSIÓN** abre un MODAL (no una pantalla): importe + bono + precio editable → TIR/TEA + cronograma de cobros escalado |
 | `/renta-variable` | *sin tabs de vista* | — | ninguna: un solo panel CEDEARS (tabla) y la derecha vacía (refactor en curso) |
 | `/sinteticos` | *sin tabs* | — | 2 tablas + 2 charts |
-| `/fci` | *sin tabs de vista* (50/50) | `fci.categoria` · `fci.moneda` · `fci.gerentes` · `fci.ventanas` · `fci.soloConVcp` (session) | Izq: pills de ESTANTE (TODOS + cada categoría) · ARS/USD · GERENTE (multi) · CALENDARIO (1D WTD MTD YTD) / CORRIDAS (7D 30D 90D 365D) · CON VCP · buscador. Der: ficha con rango 1M/3M/YTD/1A del VCP |
+| `/fci` | *sin tabs de vista* (barra única arriba + 50/50) | `fci.clase` · `fci.moneda` · `fci.gerentes` (session) | Barra: pills de CLASE DE ACTIVO (TODOS + MM ARS · ARS T1 · MM USD · HD T1 · RENTA VARIABLE) · ARS/USD · GERENTE (multi) · buscador · «VCP AL dd/mm/yy». Der: ficha con rango 1M/3M/YTD/1A del VCP |
 | `/aum` | **TOTAL** · FCI · ANÁLISIS DE DINERO | en la URL (`?tab=`) | |
 | `/valuaciones` | **RESUMEN** · ACTIVOS · MÉTRICAS · EVOLUCIÓN · PNL TÍTULOS (arriba) · **TOTALES** (barra INFERIOR) | en la URL (`?sub=`, `?cuenta=`) | Las 3 primeras son UN componente y UN fetch (`/vista`): cambiar de tab no vuelve a consultar. **TOTALES y AJUSTES viven en la barra de estado de abajo**, al lado de BRIEFING/AV AGENT, y solo con la vista abierta. TOTALES **ignora** el selector de cuenta; tiene 2 modos internos (POR TÍTULO / POR CUENTA) |
 | `/operaciones` | **OPERACIONES** · ARANCELES · AGRO · DÓLAR FUTURO · POSICIONES Y DIFERENCIAS · DEPÓSITOS & EXTRACCIONES | `operaciones.tab` (keep-alive) | |
@@ -2468,11 +2468,11 @@ normaliza a `'manual'`). Congelado por test. Ver `docs/ACA.md` §5.
 
 | Panel | Qué muestra | Endpoints | Filtros | Escrituras |
 |---|---|---|---|---|
-| **FONDOS** (izq) | Una fila por fondo: FONDO (marca USD · ● = la ALyC lo tiene · BIL = no está en Primary), GERENTE, T+n, VCP, las ventanas del toggle (1D WTD MTD YTD ó 7D 30D 90D 365D) + **TNA 30D**. Agrupada por **estante** (`categoria`) con ranking adentro (default 30D desc). Header: «VCP al dd/mm/yy» (o SIN ACTUALIZAR) | `GET /api/fci/tabla` | ESTANTE · ARS/USD · GERENTE (multi) · CALENDARIO/CORRIDAS · CON VCP (esconde los que aún no tienen serie) · buscador | ninguna |
-| **FICHA** (der) | Datos (gerente, estante, moneda, T+n, tipo de renta, símbolo Primary, VCP con fecha y fuente, asset de Manager: emisor, clase activo, fee, CNV), los 8 rendimientos con TNA 7D/30D, **curva del VCP base 100** (1M/3M/YTD/1A) con la fuente de cada punto y cuántos días aportó cada fuente | `GET /api/fci/fondo/{fci_id}` | Rango del gráfico | ninguna |
+| **FONDOS** (izq) | Una fila por fondo CON VCP (los que aún no tienen se cuentan al lado del título): FONDO (marca USD · ● = la ALyC lo tiene · BIL = no está en Primary), GERENTE, VCP, 1D · WTD · MTD · YTD · 30D + **TNA 30D**. Agrupada por **clase de activo** (`categoria` = `assets.clase_activo`) con ranking adentro (default 30D desc) | `GET /api/fci/tabla` | La barra única de arriba: CLASE · ARS/USD · GERENTE (multi) · buscador | ninguna |
+| **FICHA** (der) | Datos (gerente, clase, moneda, T+n, tipo de renta, símbolo Primary, VCP con fecha y fuente, asset de Manager: emisor, clase activo, fee, CNV), los 8 rendimientos con TNA 7D/30D, **curva del VCP base 100** (1M/3M/YTD/1A) con la fuente de cada punto y cuántos días aportó cada fuente | `GET /api/fci/fondo/{fci_id}` | Rango del gráfico | ninguna |
 
 **Qué NO hace la vista:** no calcula (rendimientos del backend, `docs/FCI.md` §4); no edita el universo
-(gerentes, alias, estantes, altas manuales y VCP manual van por `scripts/fci_admin`; la pantalla en
+(gerentes y alias van por `scripts/fci_admin`; la CLASE de un fondo tenido se edita en Manager → ASSETS; VCP manual por `fci_admin vcp` / `vcp-csv`; la pantalla en
 Manager está pendiente); no convierte monedas.
 
 #### Endpoints — `fci.py` (`/api/fci`, módulo `fci`)

@@ -56,15 +56,15 @@ def test_gerente_de_gana_el_alias_mas_largo_y_exige_palabra_entera():
     assert fci_match.gerente_de("", alias) is None
 
 
-def test_sugerir_categoria_solo_lo_obvio():
+def test_sugerir_categoria_usa_el_vocabulario_de_assets():
+    # La clase es la de Manager → ASSETS (core/clase_activo.de_fci); nada inventado.
     s = fci_match.sugerir_categoria
-    assert s("Mercado de Dinero", 0, "ARS") == "T+0 MONEY MARKET"
-    assert s("Mercado de Dinero", 0, "USD") == "MONEY MARKET USD"
-    assert s("Renta Fija", 1, "ARS") == "T+1"
-    assert s("Renta Fija", 0, "ARS") == "T+0"
-    assert s("Renta Fija", 2, "ARS") is None          # no se inventa
-    assert s("Renta Fija", 2, "USD") == "RENTA FIJA USD"
+    assert s("Mercado de Dinero", 0, "ARS") == "MM ARS"
+    assert s("Mercado de Dinero", 0, "USD") == "MM USD"
+    assert s("Renta Fija", 1, "ARS") == "ARS T1"
+    assert s("Renta Fija", 2, "USD") == "HD T1"
     assert s("Renta Variable", 2, "ARS") == "RENTA VARIABLE"
+    assert s("Renta Mixta", 1, "ARS") is None          # no se inventa
     assert s(None, None, None) is None
 
 
@@ -79,7 +79,7 @@ def test_rendimiento_y_tna():
 
 
 def test_fila_arma_todos_los_rendimientos_desde_los_anclas():
-    r = (7, "Adcap Cobertura - Clase A", "ADCAP", "T+1", "ARS", "Renta Fija", 1,
+    r = (7, "Adcap Cobertura - Clase A", "ADCAP", "ARS T1", "ARS", "Renta Fija", 1,
          "ADBAICA AR", "[3367] CAFCI1216-3367 - Adcap Cobertura - Clase A", "CAFCI1216-3367", "primary",
          date(2026, 9, 7), 110.0, "primary",
          109.0, date(2026, 9, 4), 108.0, 105.0, 100.0, 107.0, 104.0, 102.0, 90.0)
@@ -102,8 +102,8 @@ def test_fila_sin_vcp_da_none_sin_romper():
 
 
 def test_orden_categorias():
-    assert sorted(["ZZZ", None, "CER", "T+0 MONEY MARKET"], key=fci_sql._orden_categoria) == \
-        ["T+0 MONEY MARKET", "CER", "ZZZ", None]
+    assert sorted(["ZZZ", None, "HD T1", "MM ARS"], key=fci_sql._orden_categoria) == \
+        ["MM ARS", "HD T1", "ZZZ", None]
 
 
 # ── el job ───────────────────────────────────────────────────────────────────

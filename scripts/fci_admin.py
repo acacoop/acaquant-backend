@@ -15,11 +15,19 @@ Uso:
     python -m scripts.fci_admin categoria 123 124 --set "T+1"          # el estante ('' = borrar)
     python -m scripts.fci_admin alta "Delta Pesos - Clase B" --gerente DELTA --moneda ARS --categoria T+1 [--unidad "[123] CAFCI…"]
     python -m scripts.fci_admin vcp 123 2026-09-10 1234.5678           # VCP manual (no pisa primary/tenencia)
+    python -m scripts.fci_admin vcp-csv vcp.csv                        # muchos de una: fci_id,fecha,vcp (o nombre,fecha,vcp)
+
+El CSV: una fila por (fondo, fecha). Primera columna `fci_id` (el de `fondos`) o el
+NOMBRE del fondo tal como figura en la vista (se compara normalizado: mayúsculas,
+acentos y «FCI» no importan). Fecha `YYYY-MM-DD` o `DD/MM/YYYY`; el VCP acepta coma
+decimal. Alcanza con cargar fines de mes: MTD/YTD/30D toman el último VCP en o
+antes del ancla; 1D y WTD van a quedar vacíos hasta que haya datos diarios.
 """
 from __future__ import annotations
 
 import argparse
-from datetime import date
+import csv
+from datetime import date, datetime
 
 from core.fci_match import normalizar
 from core.postgres import get_pool
@@ -104,6 +112,49 @@ def cmd_vcp(a):
     return 0
 
 
+def _fecha(txt: str) -> date:
+    t = txt.strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(t, fmt).date()
+        except ValueError:
+            pass
+    raise ValueError(f"fecha inválida: {txt!r}")
+
+
+def cmd_vcp_csv(a):
+    with open(a.archivo, newline="", encoding="utf-8-sig") as f:
+        muestra = f.read(2048)
+        f.seek(0)
+        sep = ";" if muestra.count(";") > muestra.count(",") else ","
+        filas = [r for r in csv.reader(f, delimiter=sep) if any(c.strip() for c in r)]
+    if filas and not filas[0][0].strip().isdigit() and filas[0][1].strip().lower() in ("fecha", "date"):
+        filas = filas[1:]                      # cabecera
+    por_norm = {n: fid for fid, n in _q("SELECT fci_id, nombre_norm FROM mercado.fci WHERE activo")}
+    ok, saltadas, no_escritas = 0, [], 0
+    for i, r in enumerate(filas, 1):
+        try:
+            clave, fecha, vcp = r[0].strip(), _fecha(r[1]), float(r[2].strip().replace(",", "."))
+            fid = int(clave) if clave.isdigit() else por_norm.get(normalizar(clave))
+            if fid is None:
+                raise ValueError(f"fondo no encontrado: {clave!r}")
+            if vcp <= 0:
+                raise ValueError("vcp <= 0")
+        except (ValueError, IndexError) as e:
+            saltadas.append(f"fila {i}: {e}")
+            continue
+        n = _q("INSERT INTO mercado.fci_vcp (fci_id, fecha, vcp, fuente) VALUES (%s, %s, %s, 'manual') "
+               "ON CONFLICT (fci_id, fecha) DO UPDATE SET vcp = EXCLUDED.vcp "
+               "WHERE mercado.fci_vcp.fuente = 'manual' RETURNING fci_id", (fid, fecha, vcp))
+        ok += bool(n)
+        no_escritas += not n
+    print(f"  {ok} VCP escritos · {no_escritas} no escritos (ya había primary/tenencia ese día) · "
+          f"{len(saltadas)} filas salteadas")
+    for m in saltadas[:30]:
+        print("   ", m)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -122,6 +173,7 @@ def main() -> int:
     p = sub.add_parser("vcp"); p.add_argument("fci_id", type=int)
     p.add_argument("fecha", type=date.fromisoformat); p.add_argument("vcp", type=float)
     p.set_defaults(fn=cmd_vcp)
+    p = sub.add_parser("vcp-csv"); p.add_argument("archivo"); p.set_defaults(fn=cmd_vcp_csv)
     a = ap.parse_args()
     return a.fn(a)
 

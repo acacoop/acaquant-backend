@@ -504,3 +504,12 @@
 # quinto reloj, y salir de los cuatro relojes fue todo el punto del rediseño.
 */15 13-19 * * 1-5 /root/TradingAV/deploy/run_job.sh agente_tasa 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.agente_tasa'
 
+# ── CUSTODIA CVSA (BYMA) — la tenencia según la Caja de Valores ──────────────
+# CADA HORA, de 8 a 24 ART (= 11:00-02:59 UTC), L-V. El ritmo NO es arbitrario:
+# el gateway de BYMA declara cache_milliseconds=3.600.000, o sea que cachea su
+# propia respuesta 60 minutos — pedirla más seguido devuelve lo mismo y gasta
+# cuota. Consumo real: ~80 requests de los 10.000 diarios.
+# Son DOS líneas porque la ventana horaria cruza la medianoche UTC: la segunda
+# (0-2 UTC de martes a sábado) es el tramo 21-23:59 ART de lunes a viernes.
+0 11-23 * * 1-5 /root/TradingAV/deploy/run_job.sh custodia_cvsa 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.custodia_cvsa'
+0 0-2 * * 2-6 /root/TradingAV/deploy/run_job.sh custodia_cvsa 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.custodia_cvsa'

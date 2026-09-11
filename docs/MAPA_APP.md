@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **515 endpoints** montados en `api.main.app`, en **34 routers**.
-- **192 escriben** (POST/PUT/PATCH/DELETE); 323 son de solo lectura.
+- **516 endpoints** montados en `api.main.app`, en **35 routers**.
+- **192 escriben** (POST/PUT/PATCH/DELETE); 324 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -48,13 +48,14 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
+| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
 | `/api/agente` | 19 | 10 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
 | `/api/back-office` | 67 | 39 | `back-office` · 34 rutas con gate extra | `back-office` |  |
-| `/api/back-office/interbanking` | 27 | 18 | `back-office` | `back-office` |  |
+| `/api/back-office/custodia` | 1 | 0 | `back-office` | `back-office` |  |
+| `/api/back-office/interbanking` | 27 | 18 | `back-office` · 23 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -64,13 +65,13 @@
 | `/api/ingest` | 13 | 9 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 120 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 10 | 5 | — · 8 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 58 | 9 | `operaciones` · 25 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 3 | 1 | `operar` · 2 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 12 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
 | `/api/pulso` | 1 | 1 | —`require_no_invitado` | — |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
@@ -428,7 +429,7 @@ vacío donde se montaba — se limpió el 2026-08-31.
 | `/contrapartes` | *sin tabs* — **2 modos excluyentes** (rango / día) | — | El modo lo decide si el filtro Día tiene valor |
 | `/mesa-dinero` | **OPERACIONES** · RESULTADOS · ACA VALORES RETORNO TOTAL | `mesaDinero.tab` | |
 | `/aca` | **RESUMEN** · CARTERAS · ACTIVOS · MÉTRICAS · HISTÓRICO | no persistida | Todo habla del período elegido en el selector de la barra (`YYYY-MM`). **Sin polling**: es una foto mensual, no hay nada que se mueva solo |
-| `/back-office` | Senebis · **Tenencia Valorizada** · Títulos en Alquiler · Contabilidad · Tesorería · Títulos / Mercado · Acreencias Clientes · Saldos de Cuentas Comitentes | `backoffice.tab` | ⚠ El orden VISUAL pone Senebis primero pero **el default es la 2ª tab**. Senebis: **Órdenes** · Excel Quantex · Excel MAE. Tesorería: **movimientos** · bancos · cheques · mercados · banco a banco. Alquiler: **Portfolio Alquiler** · Marcas por cuenta |
+| `/back-office` | Senebis · **Tenencia Valorizada** · Títulos en Alquiler · Contabilidad · Tesorería · Interbanking · Títulos / Mercado · Acreencias Clientes · Saldos de Cuentas Comitentes · Custodia | `backoffice.tab` | ⚠ El orden VISUAL pone Senebis primero pero **el default es la 2ª tab**. Senebis: **Órdenes** · Excel Quantex · Excel MAE. Tesorería: **movimientos** · bancos · cheques · mercados · banco a banco. Alquiler: **Portfolio Alquiler** · Marcas por cuenta |
 | `/manager` | **VALIDACIONES** · TÍTULOS · CLIENTES · CONTRAPARTES · ACA VALORES · **ACA** · AUNESA · OPERACIONES · MESA · DOCUMENTOS · USUARIOS | `manager.tab` + sub-pills | 11 top-level, **27 hojas** en la tabla de §3.4. **OBSERVABILIDAD se dio de baja el 2026-09-09** (DIAGNÓSTICO y BASE incluidos): la salud del sistema vive 100 % en el AV AGENT. Ver 3.4. ⚠ **ACA VALORES** (informe de retorno del FCI ACA R.TOTAL) y **ACA** (config + histórico de la vista `/aca`) son cosas distintas |
 
 ### 3.4 Sub-pills de Manager (segundo nivel, todas persistidas)
@@ -1909,6 +1910,7 @@ nunca ve ese request. `/api/titulos/assets` **no tiene consumidor**.
 | **Títulos / Mercado** | Qué títulos hay que ENVIAR y RECIBIR al mercado hoy, por ticker (expandible a comitentes) o por par ticker·comitente. Poll 10s | `/titulos-mercado` | `fecha` (def hoy); client-side: unidad `nominales`/`dinero`, filtro `ambos`/`enviar`/`recibir`, vista `ticker`/`comitente`, sort por neto | Solo **export .xlsx client-side** (`titulos-mercado-<fecha>.xlsx`) |
 | **Acreencias Clientes** | Calendario de cobros futuros: tabla/chart por día + detalle del día por cliente·ticker | `/acreencias/por-dia`, `/acreencias/dia` | `desde` (def hoy) / `hasta` (def hoy+90) con atajos; día seleccionado; client-side `fTicker`, moneda `ALL/ARS/USD` | Ninguna |
 | **Saldos de Cuentas Comitentes** | **DOS pantallas con selector** (2026-08-13). **SALDOS (default)** — descubiertos de EFECTIVO desde `portafolio.control_saldos` (daemon `jobs/control_saldos.py`, endpoint `cuentas/{id}/posiciones` de Aunesa): es el saldo **LIQUIDADO**, o sea que NO cuenta lo que todavía no liquidó → un negativo acá es descubierto REAL y no el falso positivo que deja una caución sin vencer. **UNA MONEDA POR VEZ** (pills derivadas de los datos, **ARS por default**; el daemon persiste ARS/USD/USDL/**USDC** — el cable entró el 2026-08-14) — sumar pesos con dólares no significa nada, y por eso tampoco hay columna MONEDA. **50/50**: izq **A FAVOR** (saldo > 0, de mayor a menor) · der **EN DESCUBIERTO** (saldo < 0, el más negativo primero), las dos mitades partidas por signo de las MISMAS filas → sus totales no pueden contradecirse. Columnas: CUENTA · **OPERADOR** (join `clientes.comitentes` → `operadores`; sin operador cargado la fila se muestra igual, en itálica) · SALDO (2 decimales: es plata, no nominales). Total por lado en la cabecera. El backend devuelve **positivos y negativos** y el contador de la solapa es `n_negativos` (no depende de la moneda elegida). **Botón OCULTAS** → modal ABM (`portafolio.control_saldos_ocultas`, `PUT`/`DELETE /saldos/ocultas`): cuentas que el equipo decide NO ver, con el alta desde la propia vista (patrón agentes de SENEBIS) y **quién la ocultó y cuándo a la vista en cada fila**. ⚠️ OCULTAR NO ES EXCLUIR: el saldo se sigue persistiendo, solo no se muestra — por eso el corte vive en la LECTURA y no en el job. **Excluye además por `nivel_5` ∈ {CDC, OTC}** (`NIVEL5_EXCLUIDOS` en el service — el filtro sale de la segmentación, no de un patrón sobre el nombre: reclasificar en Manager la saca sola) y la barra dice **cuántas ocultó**. **TÍTULOS** — el control viejo: nominales < 0 en DOS tableros al 50% desde `tenencia_live`, izq **T0** (liquidada a HOY) · der **T1** (liquidada a MAÑANA con lo concertado hoy). Columnas CUENTA · TICKER · NOMINALES. Poll 20s; **cada pantalla muestra la antigüedad de SU daemon** (son dos y uno puede estar muerto con el otro sano) | `/titulos-negativos` (un solo request: el bloque `saldos` viaja en la misma respuesta) | `incluir_todo` (solo en TÍTULOS, def **no** — MONEDAS y DERIVADOS quedan afuera: ahí el negativo es normal); buscador `q` client-side, que en SALDOS **incluye al operador** | Ninguna (solo lectura) |
+| **Custodia** | **LA TENENCIA SEGÚN LA CAJA DE VALORES (CVSA)** — otra FUENTE, no otra vista: todo lo demás del sistema sale de Aunesa (el back-office tercerizado) y esto es lo que la Caja tiene REGISTRADO; cuando difieren, la razón legal es de la Caja. Sub-tab única **TENENCIAS** (la barra existe para que sumar la segunda no sea un rediseño). Sale de `portafolio.custodia_cvsa`, que escribe `jobs/custodia_cvsa.py` **cada hora de 8 a 24 ART** — el ritmo no es arbitrario: el gateway de BYMA declara `cache_milliseconds=3.600.000`, o sea que cachea su propia respuesta 60 min. Columnas: CUENTA · DENOMINACIÓN · INSTRUMENTO · CVSA · ESTADO · CANTIDAD (**nominales**, CVSA no valoriza). **Dos cosas que no se ven en ningún otro lado**: (1) **qué está TRABADO** — `subBalanceType` separa AVAILABLE de EMBARGO / BLOCKED_FOR_PLEDGE / PENDING_REDEMPTION…, detalle que Aunesa no da, y hasta ahora un papel embargado figuraba como cualquier otro; (2) **qué no sabemos nombrar** — CVSA identifica los papeles con un número propio (`cvsa_id`) y la traducción sale de `assets.codigo_cnv`: cuando falta, la fila se muestra igual con su número crudo y el contador **sin instrumento** lo canta. Los chips de estado salen de los DATOS del día, no de una lista fija. Los filtros van al BACKEND (no se aplican en el cliente) para que los contadores correspondan a lo filtrado. Poll 2 min con la **antigüedad de la foto siempre a la vista**: una lista vacía con el job parado no es «no hay tenencia», es «no sabemos» | `/back-office/custodia/tenencias` (un solo request: filas + totales + estados + frescura) | `fecha` (def: la última foto) · `id_cuenta` · `estado` · `solo_trabado` | Ninguna (solo lectura) |
 
 **Endpoints no-Tesorería (14)**: `GET /titulos-mercado` (settlement = ops de `fecha` con plazo CI/Inm +
 ops del día hábil anterior con plazo 24hs; `op=Venta`→enviar, `Compra`→recibir; día no hábil →

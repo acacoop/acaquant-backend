@@ -38,6 +38,7 @@ from api.routers import (
     carteras,
     cotizaciones,
     cuentas,
+    custodia,
     derivados_agro,
     derivados_sinteticos,
     fci,
@@ -299,6 +300,7 @@ app.include_router(market.router,            dependencies=_PUBLIC)
 app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
+app.include_router(custodia.router,           dependencies=_BACK_OFFICE)  # CUSTODIA: la tenencia según la Caja de Valores (solo lectura)
 app.include_router(interbanking.router,       dependencies=_BACK_OFFICE)  # INTERBANKING: extractos de los bancos (solo lectura)
 app.include_router(senebis.router,            dependencies=_BACK_OFFICE)  # SENEBIS: órdenes trader → back office
 app.include_router(scanner.router,            dependencies=_PUBLIC)

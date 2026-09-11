@@ -1579,6 +1579,65 @@ CREATE TABLE IF NOT EXISTS portafolio.control_saldos_ocultas (
     creado_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ── custodia_cvsa — LA TENENCIA SEGÚN LA CAJA DE VALORES ─────────────────────
+-- Fuente: BYMA `GET /holdings` (asíncrono). Doc: `docs/BYMA_CUSTODIA.md`.
+-- Writer ÚNICO: jobs/custodia_cvsa.py.
+--
+-- Tabla APARTE de `tenencia` y de `tenencia_live` a propósito: es OTRA FUENTE,
+-- no otra vista de la misma. `tenencia_live` es la posición PROYECTADA que
+-- informa Aunesa (mete adentro lo que todavía no liquidó); esto es lo que la
+-- Caja tiene REGISTRADO. Cuando difieren, la que tiene razón legal es la Caja —
+-- y esa diferencia es justamente el producto: hoy nadie la puede ver.
+--
+-- ⚠️ ES ACUMULATIVA, al revés que `tenencia_live`. CVSA purga a los 7 días
+-- (`balanceDate` no acepta más atrás), así que lo que no se guarda el día que
+-- pasa NO se puede reconstruir nunca. Por eso hay histórico y no un tablero.
+--
+-- UNA FILA POR DÍA, NO POR CORRIDA. El job corre cada hora (el gateway cachea su
+-- respuesta 60 min, así que más seguido devuelve lo mismo) y cada corrida
+-- REEMPLAZA la foto del día entera: `DELETE` de esa fecha + `INSERT`, en una
+-- transacción. No es un UPSERT a propósito: con upsert, un papel que la cuenta
+-- tenía a las 10 y ya no tiene a las 15 quedaría como fila FANTASMA —presente en
+-- la tabla, ausente en la Caja— y nadie lo notaría. Guardar 17 fotos por día
+-- serían 10M de filas al año para responder una pregunta que nadie hace.
+--
+-- ⚠️ **UNA RESPUESTA VACÍA NO BORRA LA FOTO.** Si BYMA contesta 200 con cero
+-- filas (pasa temprano, antes de que arme el día), el job NO escribe: se queda
+-- la foto anterior y envejece a la vista por `actualizado_at`. Sin esa guarda,
+-- el primer barrido de la mañana borraría el día entero y la pantalla mostraría
+-- «sin tenencia» con total seguridad — que es peor que mostrarla vieja.
+--
+-- `sub_balance_type` va en la PK porque la misma cuenta puede tener el mismo
+-- papel en dos estados a la vez (parte AVAILABLE y parte EMBARGO), y son dos
+-- hechos distintos: sumarlos perdería justo la información que Aunesa no da.
+--
+-- `unidad` se resuelve en el job por `assets.codigo_cnv` y puede quedar NULL:
+-- un instrumento sin código de CAJA cargado es un hueco CONOCIDO, no un error.
+-- Se guarda igual — la tenencia existe aunque no sepamos cómo se llama acá.
+CREATE TABLE IF NOT EXISTS portafolio.custodia_cvsa (
+    fecha            date NOT NULL,
+    id_cuenta        text NOT NULL,          -- '805' (el lado derecho de '74/805')
+    cvsa_id          text NOT NULL,          -- '5921' — código de la Caja
+    sub_balance_type text NOT NULL,          -- AVAILABLE | EMBARGO | ...
+    cantidad         numeric,                -- nominales (NO valorizado)
+    unidad           text,                   -- portafolio.assets.unidad, o NULL
+    account_number   text,                   -- '74/805' crudo, para auditar
+    ident_composite  text,                   -- id interno de la cuenta en CVSA
+    actualizado_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha, id_cuenta, cvsa_id, sub_balance_type)
+);
+-- La vista arranca por FECHA y agrupa por cuenta: columna líder `fecha`.
+CREATE INDEX IF NOT EXISTS ix_custodia_fecha_cuenta
+    ON portafolio.custodia_cvsa(fecha, id_cuenta);
+-- El cruce contra nuestra tenencia arranca por INSTRUMENTO.
+CREATE INDEX IF NOT EXISTS ix_custodia_fecha_unidad
+    ON portafolio.custodia_cvsa(fecha, unidad);
+-- «¿Qué hay trabado hoy?» — parcial, porque lo no-disponible es la minoría y es
+-- lo único que se consulta por estado.
+CREATE INDEX IF NOT EXISTS ix_custodia_trabado
+    ON portafolio.custodia_cvsa(fecha, sub_balance_type)
+    WHERE sub_balance_type <> 'AVAILABLE';
+
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (
     fecha       date NOT NULL,

@@ -249,6 +249,15 @@ PIEZAS: list[Pieza] = [
           run_tipo="movimientos_propias"),
 
     # ── BACK OFFICE ────────────────────────────────────────
+    # CUSTODIA (CVSA) — la tenencia según la Caja. Es la ÚNICA pieza de esta vista
+    # que no viene de Aunesa, y ese es el punto: si se cae, lo que deja de andar
+    # no es una pantalla más, es el control cruzado.
+    # Umbral 150 min = dos corridas y media: el job va cada hora y el gateway de
+    # BYMA cachea su respuesta 60 min, así que una foto de hasta ~2 h es normal y
+    # recién la tercera hora perdida es un problema de verdad.
+    Pieza("BACK_OFFICE", "job", "custodia CVSA (tenencia de la Caja)", unidad="jobs.custodia_cvsa",
+          cadencia="cada 60m · 11-02 UTC L-V (8-24 ART)", ventana="diario",
+          umbral_s=150 * 60, run_tipo="custodia_cvsa"),
     Pieza("BACK_OFFICE", "api", "Aunesa boletos (negocio_movimientos)", unidad="jobs.negocio_movimientos",
           cadencia="cada 60m en rueda", ventana="rueda", umbral_s=70 * 60,
           run_tipo="negocio_movimientos"),

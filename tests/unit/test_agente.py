@@ -5294,6 +5294,95 @@ def test_clase_activo_se_propone_con_fuente_y_de_lista_cerrada():
     assert (r[0]["propuesto"], r[0]["fuente"]) == ("FUTUROS DE MAÍZ", clase.REGLA)
 
 
+def test_lo_que_corre_a_pedido_no_CENSA_1816():
+    """⚠️⚠️ **EL CENSO NO ENTRA EN UN CLICK, Y ES ARITMÉTICA** (§0.fh).
+
+    `mercado_1816.censar()` recorre `/curvas` y pide `/instrumentos` por cada
+    una: ~29 requests, y el cliente tiene un throttle OBLIGATORIO de
+    `_MIN_INTERVALO_S = 2,5 s` entre llamadas → **72 s de piso** antes de contar
+    un milisegundo de red. El proxy de Next corta a los 30 s. El preview de
+    `cartera` lo pedía, así que **no podía contestar nunca**: la fila quedaba en
+    «trabajando…» para siempre.
+
+    Lo interactivo lee el CATÁLOGO persistido (`universo_1816_local`), que es
+    una consulta. El censo vivo queda para los detectores, que corren en el
+    daemon y son los que justifican el crédito.
+
+    ⚠️ Y la MISMA fuente para el preview y para el ejecutor: con dos universos
+    distintos el agente podría escribir solo una cartera que la pantalla nunca
+    ofreció (REGLA #9).
+    """
+    import inspect as _i
+
+    from agente import arreglos
+
+    for fn in (arreglos.CompletarFicha.preview, arreglos.CompletarFicha.solo):
+        src = _i.getsource(fn)
+        assert "universo_1816_local()" in src, (
+            f"{fn.__name__} tiene que leer el catálogo, no censar")
+        assert "fuentes.universo_1816()" not in src, (
+            f"{fn.__name__} volvió a censar 1816: son ~29 llamadas con 2,5 s de "
+            "throttle y del otro lado hay 30 s de proxy")
+
+
+def test_un_preview_declara_cuanto_puede_esperar():
+    """El techo del preview se declara en la PUERTA (§0.fh), como ya lo hacía
+    `agente/alta.py::_interactivo`. Sin eso un preview caro no devuelve un
+    error: no devuelve nada, el proxy lo mata y la pantalla no puede distinguir
+    «tarda» de «se colgó».
+
+    El número se calibra contra el corte que llega PRIMERO: el proxy de Next
+    (30 s), no Cloudflare (~100 s).
+    """
+    import inspect as _i
+
+    from agente import arreglos
+
+    src = _i.getsource(arreglos.preview)
+    assert "mercado_1816.presupuesto(PRESUPUESTO_PREVIEW_S)" in src
+    assert arreglos.PRESUPUESTO_PREVIEW_S <= 25, (
+        "el techo del preview tiene que entrar en el del navegador (25 s) y en "
+        "el del proxy (30 s), o se pierde la respuesta y no se ve el error")
+
+
+def test_el_catalogo_local_de_1816_pide_columnas_QUE_EXISTEN():
+    """⚠️ **La «degradación honesta al catálogo» nunca ocurrió una sola vez.**
+
+    `fuentes.universo_1816` prometía caerse al catálogo persistido cuando la API
+    no contesta, y esa lectura pedía `SELECT ticker, curva, data` — **`data` no
+    es una columna de `research.mkt_1816_instrumentos`** (el discovery escribe
+    columnas tipadas). La única salida posible era `column "data" does not
+    exist`, y no fallaba nada porque `_una_vez` captura y cachea `None`: el
+    fallback existía en el docstring y no en la realidad.
+
+    Este test compara lo que la query PIDE contra lo que el DDL declara.
+    """
+    import inspect as _i
+    import re
+
+    from agente import fuentes
+
+    ddl_ini = (RAIZ / "sql" / "schema.sql").read_text().index(
+        "CREATE TABLE IF NOT EXISTS research.mkt_1816_instrumentos")
+    ddl = (RAIZ / "sql" / "schema.sql").read_text()
+    ddl = ddl[ddl_ini:ddl.index(");", ddl_ini)]
+    columnas = set(re.findall(r"^\s{4}(\w+)\s", ddl, re.M))
+    assert "ticker" in columnas and "data" not in columnas, (
+        f"cambió el DDL de la tabla: {sorted(columnas)}")
+
+    # Solo el SQL del `cur.execute`, no el docstring —que nombra la columna
+    # inexistente justamente para contar la historia.
+    src = _i.getsource(fuentes._catalogo_1816_local)
+    ejecuta = src[src.index("cur.execute("):]
+    sql = " ".join(re.findall(r'"([^"]*)"', ejecuta[:ejecuta.index(")")]))
+    pedidas = {c.strip() for c in
+               sql[sql.index("SELECT") + 6:sql.index("FROM")].split(",")}
+    fuera = sorted(c for c in pedidas if c and c not in columnas)
+    assert not fuera, (
+        f"la lectura del catálogo pide columnas que no existen: {fuera}. "
+        "No falla nada —`_una_vez` cachea None— y el fallback queda muerto.")
+
+
 def test_el_fci_se_resuelve_por_el_LINK_y_el_nombre_es_el_respaldo():
     """⚠️⚠️ **EL LINK GANA, Y EL NOMBRE NO ES UNA IDENTIDAD** (§0.fg).
 

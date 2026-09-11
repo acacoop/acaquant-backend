@@ -322,13 +322,51 @@ def ons_no_interesan() -> set[str] | None:
 
 
 # ── EL UNIVERSO DE 1816 ────────────────────────────────────────────────────
-def universo_1816() -> dict | None:
-    """El censo. **Cuesta créditos**, así que solo lo pide la habilidad que lo
-    necesita y una vez por pasada.
+#
+# ⚠️⚠️ **DOS FUENTES, Y LA DIFERENCIA ES QUIÉN ESPERA** (§0.fh).
+#
+# El CENSO (`universo_1816`) recorre `/curvas` y pide `/instrumentos` por cada
+# una: ~29 requests con un throttle obligatorio de 2,5 s entre llamadas
+# (`core/mercado_1816._MIN_INTERVALO_S`), o sea **72 s de piso** antes de contar
+# un milisegundo de red. Eso está bien para un job y es imposible para una
+# pantalla: el proxy de Next corta a los 30 s (`maxDuration`) y Cloudflare a los
+# ~100. El preview de `cartera` lo pedía y **no podía contestar nunca** — la fila
+# quedaba en «trabajando…» para siempre.
+#
+# El CATÁLOGO (`universo_1816_local`) es la misma información ya persistida por
+# `jobs/mercado_1816_discovery`: UNA consulta, sin créditos y sin red. Es lo que
+# tiene que leer todo lo que corre a pedido de una persona.
+def _catalogo_1816_local() -> dict | None:
+    """`{ticker: {"_curva": …}}` desde `research.mkt_1816_instrumentos`, o `None`
+    si está vacía. La forma es la del censo para que los dos sean
+    intercambiables — quien las consume mira `_curva` y nada más.
 
-    Si la API no contesta se cae al catálogo YA persistido
-    (`research.mkt_1816_instrumentos`, que llena el discovery): degradar es
-    distinto de fallar, y lo que se usó se declara en la evidencia.
+    ⚠️ **Las columnas son las TIPADAS de la tabla.** Hasta hoy esta lectura
+    pedía `SELECT ticker, curva, data` y **`data` no existe en esa tabla**: la
+    única salida posible era `column "data" does not exist`. No fallaba nada
+    porque `_una_vez` captura y cachea `None` — así que la «degradación honesta
+    al catálogo» que este módulo prometía nunca ocurrió una sola vez.
+    """
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, curva, denominacion, emisor, "
+                    "       moneda_denom, moneda_pago, fecha_vencimiento "
+                    "  FROM research.mkt_1816_instrumentos "
+                    " WHERE coalesce(activo, true)")
+        filas = cur.fetchall()
+    if not filas:
+        return None
+    inst = {tk: {"_curva": curva, "denominacion": den, "emisorNombre": em,
+                 "monedaDenom": md, "monedaPago": mp, "fechaVencimiento": venc}
+            for tk, curva, den, em, md, mp, venc in filas}
+    return {"instrumentos": inst, "fuente": "catalogo_local"}
+
+
+def universo_1816() -> dict | None:
+    """El CENSO VIVO. **Cuesta créditos y tarda** (~29 llamadas): sólo para lo
+    que corre en el daemon, nunca para una pantalla.
+
+    Si la API no contesta se cae al catálogo ya persistido: degradar es distinto
+    de fallar, y lo que se usó se declara en `fuente`.
     """
     def _leer():
         from core import mercado_1816
@@ -338,19 +376,19 @@ def universo_1816() -> dict | None:
                 return {"instrumentos": u, "fuente": "1816"}
         except Exception as e:
             logger.warning("agente: 1816 no contestó (%s) — voy al catálogo", e)
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT ticker, curva, data "
-                        "FROM research.mkt_1816_instrumentos")
-            filas = cur.fetchall()
-        if not filas:
-            return None
-        inst = {}
-        for tk, curva, data in filas:
-            d = dict(data or {})
-            d["_curva"] = curva
-            inst[tk] = d
-        return {"instrumentos": inst, "fuente": "catalogo_local"}
+        return _catalogo_1816_local()
     return _una_vez("univ1816", _leer)
+
+
+def universo_1816_local() -> dict | None:
+    """El CATÁLOGO persistido, sin red y sin créditos. **Es lo que usa todo lo
+    que corre a pedido de una persona** (§0.fh).
+
+    La foto es de la última corrida de `jobs/mercado_1816_discovery`, y para
+    PROPONER un valor que alguien confirma eso alcanza: lo otro es no poder
+    abrir la pantalla.
+    """
+    return _una_vez("univ1816_local", _catalogo_1816_local)
 
 
 # ── LAS CORRIDAS DE UN JOB (§0.dk) ─────────────────────────────────────────

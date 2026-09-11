@@ -7359,3 +7359,77 @@ Los tres quedan ANOTADOS y sin arreglo: cada uno es un aviso que hoy no existe,
 y decidir si son habilidades nuevas es una decisión de la mesa, no un
 refactor. Lo mismo el vocabulario de `WTI` y de las opciones de acciones
 locales (`GFGV6600OC`), que tienen otra convención de nombre y ninguna regla.
+
+---
+
+### 0.fh EL BOTÓN DE CARTERA NO PODÍA CONTESTAR NUNCA — 72 segundos de censo contra 30 de proxy (2026-09-11)
+
+El user: *«el tema es que CARTERA no sé por qué no funciona: queda en
+«trabajando…» desde hoy, nunca lo pude abrir, a diferencia de los otros»*.
+
+**No era lentitud ni un flake: era aritmética.** `CompletarFicha.preview` es el
+único preview que le pedía el universo a 1816, y ese universo es un CENSO:
+
+```
+mercado_1816.censar()      recorre /curvas y pide /instrumentos por cada una
+                           → 1 + 28 = ~29 requests SECUENCIALES
+_MIN_INTERVALO_S = 2.5     throttle OBLIGATORIO entre llamadas, con lock
+                           → 29 × 2,5 = 72,5 s de PISO, sin contar red
+maxDuration = 30           el proxy de Next corta acá
+```
+
+**72,5 > 30.** No hay corrida con suerte. Los otros dos campos andaban porque no
+tocan 1816: `clase_activo` es todo SQL local y `emisor` hace a lo sumo una
+llamada a Finnhub/modelo con tope declarado.
+
+**Por qué «trabajando…» y no un error.** `datos.tsx` le pone `conTecho(25 s)` a
+`leer` y a `releer`, y no a `calcular`. La excepción estaba escrita para las
+ESCRITURAS —*«abortar un POST no deshace lo que el backend ya escribió»*, que es
+cierto— y se le aplicó a un POST que **no muta**, que ese mismo archivo define
+como «POST que CALCULA (preview)». Sin techo, el navegador no le pone timeout a
+`fetch`: la promesa **no se resuelve ni se rechaza**, así que el
+`finally { setOcupado(null) }` nunca corre y los tres botones de la fila quedan
+`disabled` hasta recargar la pestaña. Es la tercera vez que este repo aprende lo
+mismo (§0.dm fue en los polls), ahora en el único verbo que había quedado afuera.
+
+**Y cada click lo empeoraba**: `fuentes._una_vez` no es thread-safe, así que cada
+intento lanzaba OTRO censo completo, y `_throttle` los serializa a todos detrás
+del mismo lock — el intento N esperaba a los N−1 anteriores.
+
+**Las tres capas del arreglo, en orden de cuánto importan:**
+
+1. **Lo interactivo lee el CATÁLOGO, no el censo** (`fuentes.universo_1816_local`):
+   `research.mkt_1816_instrumentos`, una consulta, sin créditos y sin red. El
+   censo vivo queda para los detectores, que corren en el daemon. El preview
+   pasó de imposible a milisegundos. **La misma fuente la usa el ejecutor**
+   (`CompletarFicha.solo`): con dos universos distintos, el agente podría
+   escribir solo una cartera que la pantalla nunca ofreció (REGLA #9).
+2. **La puerta declara su paciencia**: `arreglos.preview` abre un
+   `mercado_1816.presupuesto(20 s)`. Es el mecanismo que `agente/alta.py::_interactivo`
+   ya usaba para sus puertas, aplicado a la que faltaba — si algún preview
+   futuro pide algo caro, contesta **«se agotó el tiempo disponible para
+   consultar a 1816»** en vez de morir callado.
+3. **`calcular` lleva techo** (25 s): un cálculo que se cuelga tiene que decirlo.
+
+**Dos cosas que aparecieron en el camino y no eran esto:**
+
+- ⚠️ **La «degradación honesta al catálogo» nunca ocurrió una sola vez.**
+  `universo_1816` prometía caerse al catálogo persistido cuando la API no
+  contesta, y esa lectura pedía `SELECT ticker, curva, **data**` — y `data` **no
+  es una columna** de `research.mkt_1816_instrumentos` (el discovery escribe
+  columnas tipadas). La única salida posible era `column "data" does not exist`,
+  y no fallaba nada porque `_una_vez` captura y cachea `None`: el fallback vivía
+  en el docstring y no en la realidad. Congelado por test (la query se compara
+  contra el DDL).
+- **`alta.py::_PRESUPUESTO_S = 45` está calibrado contra el techo equivocado**:
+  su comentario dice *«45 s deja margen de sobra dentro de los 100 s del proxy»*
+  y esos 100 s son Cloudflare — el corte que llega PRIMERO es el `maxDuration`
+  de Vercel, 30. No se tocó: bajarlo sin medir cuánto tarda de verdad la cadena
+  de alta (que gasta un crédito por cupón) sería romper un botón que hoy
+  funciona. Queda anotado para medirlo con `diag_*`.
+
+**La moral, que es la misma que el módulo de 1816 ya tenía escrita:** *la
+paciencia depende de quién espera*. El mismo código censa perfecto en el daemon
+—por eso `sin_cartera` tiene 24 escrituras de `av-agent`— y es inalcanzable para
+una persona. **El agente podía hacer el arreglo y una persona no, y la única
+diferencia eran 30 segundos.**

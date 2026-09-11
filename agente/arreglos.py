@@ -720,7 +720,13 @@ class CompletarFicha(Arreglo):
         if c["campo"] == "cartera" and filas:
             from agente import cartera, fuentes
             try:
-                filas = cartera.proponer(filas, fuentes.master(), fuentes.universo_1816(),
+                # ⚠️⚠️ **EL CATÁLOGO, NO EL CENSO** (§0.fh). El censo vivo son
+                # ~29 llamadas con 2,5 s de throttle entre cada una: 72 s de
+                # piso contra los 30 s del proxy. Este preview **no podía
+                # contestar nunca** y la fila quedaba en «trabajando…» para
+                # siempre. Lo que corre a pedido lee la copia persistida.
+                filas = cartera.proponer(filas, fuentes.master(),
+                                         fuentes.universo_1816_local(),
                                          det.valores_usados("cartera"))
                 propuestas = sum(1 for f in filas if f.get("propuesto"))
             except Exception as e:
@@ -766,9 +772,14 @@ class CompletarFicha(Arreglo):
                                fci=fuentes.fci_por_unidad()))
         if c["campo"] == "cartera":
             from agente import cartera
+            # ⚠️ **LA MISMA FUENTE QUE EL PREVIEW, y no por velocidad.** Si el
+            # ejecutor censara en vivo y la pantalla leyera el catálogo, los dos
+            # podrían ver universos distintos: el agente escribiría solo una
+            # cartera que la pantalla nunca ofreció, y nadie podría explicar de
+            # dónde salió (REGLA #9). Un universo, un criterio.
             return cartera.deterministas(
                 cartera.proponer(det.faltantes(c), fuentes.master(),
-                                 fuentes.universo_1816(),
+                                 fuentes.universo_1816_local(),
                                  det.valores_usados("cartera")))
         return None
 
@@ -1166,7 +1177,25 @@ def catalogo() -> list[dict]:
             for a in ARREGLOS.values()]
 
 
+# ⚠️⚠️ **UN PREVIEW TIENE 20 SEGUNDOS, Y NO ES UNA PREFERENCIA** (§0.fh).
+#
+# Del otro lado hay una persona que apretó un botón y un proxy que corta a los
+# 30 s (`maxDuration` en `src/app/api/agente/[...path]/route.ts`). Sin un techo
+# declarado acá, un preview que le pide algo caro a 1816 no devuelve un error:
+# **no devuelve nada**, el proxy lo mata y la fila queda en «trabajando…» para
+# siempre — la promesa del navegador no se resuelve, así que ni el `finally` que
+# libera los botones llega a correr.
+#
+# Es el mismo mecanismo que `agente/alta.py::_interactivo` ya usaba para sus
+# puertas (`mercado_1816.presupuesto`), aplicado a la que faltaba. Y el número
+# se calibra contra el proxy (30 s), no contra Cloudflare: el corte que llega
+# primero es el que manda.
+PRESUPUESTO_PREVIEW_S = 20.0
+
+
 def preview(hallazgo_id: int) -> dict:
+    from core import mercado_1816
+
     h = _hallazgo(hallazgo_id)
     if h is None:
         return {"ok": False, "error": "ese hallazgo no existe"}
@@ -1174,8 +1203,9 @@ def preview(hallazgo_id: int) -> dict:
     if a is None:
         return {"ok": False, "error": f"«{h['arreglo']}» no es un arreglo"}
     try:
-        return {"ok": True, "arreglo": a.id, "titulo": a.titulo,
-                **(a.preview(h["sujeto"], h["evidencia"]) or {})}
+        with mercado_1816.presupuesto(PRESUPUESTO_PREVIEW_S):
+            return {"ok": True, "arreglo": a.id, "titulo": a.titulo,
+                    **(a.preview(h["sujeto"], h["evidencia"]) or {})}
     except Exception as e:
         logger.exception("arreglos: preview de %s falló", a.id)
         return {"ok": False, "error": str(e)[:300]}

@@ -86,8 +86,13 @@ def _indice_1816(universo_1816: dict | None) -> dict[str, dict]:
 def proponer(filas: list[dict], master: list[dict] | None,
              universo_1816: dict | None, usadas: list[str]) -> list[dict]:
     """Cada fila con `propuesto`, `fuente` y `nota`. **PURA** salvo el import
-    lazy de las reglas del job. `master` es `agente.fuentes.master()`;
-    `universo_1816` es `agente.fuentes.universo_1816()`.
+    lazy de las reglas del job. `master` es `agente.fuentes.master()`.
+
+    `universo_1816` es **`agente.fuentes.universo_1816_local()`** —el catálogo
+    persistido— y no el censo vivo: el censo son ~29 llamadas con 2,5 s de
+    throttle entre cada una y esto corre cuando alguien abre una pantalla, con
+    30 s de proxy del otro lado (§0.fh). Los dos tienen la misma forma, así que
+    esta función no sabe cuál le pasaron: mira `_curva` y nada más.
     """
     fin, fci, otc, tk_regla = _reglas_job()
     indice_master = _indice_master(master)

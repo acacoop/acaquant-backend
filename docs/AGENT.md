@@ -7007,3 +7007,61 @@ ayer. El «sello de escritura universal» —leer `pg_stat_user_tables.n_tup_ins
 por pasada para saber cuándo se ESCRIBIÓ cada tabla, sin depender de columnas—
 resolvería también la cota de fecha de negocio (§0.em) y queda propuesto, no
 hecho.
+
+### 0.fc EL ESCRITOR QUE ESTABA A LA VISTA — un `[a-z_]+` y una constante dejaban 12 tablas exigidas a ciegas (2026-09-11)
+
+Seguido de §0.fb, el user, sobre los mismos avisos de `tabla_quieta`: *«este
+tipo de tablas quietas en realidad está MAL DEFINIDO. La gracia es para las que
+se llenan con procesos automáticos, no las de inputs manuales por usuarios»*.
+
+Tenía razón, y la distinción **ya existía**: `core/escribe.la_dispara()` separa
+`reloj` (cron o motor → se le exige) de `evento` (una persona, una request → se
+saltea), y el detector ya hace `continue` sobre las de evento. El problema no era
+el diseño: era el **tercer** valor. `no_se` sigue exigiendo a propósito («dejar de
+mirar algo que no entendimos es cómo se pierde una señal de verdad»), y nadie
+había medido cuántas caían ahí.
+
+**Medido** (`scripts/diag_quien_escribe`, sobre el universo real del detector):
+**12 de 65**. Y las 12 se explican por dos fallas mecánicas del escaneo, las dos
+en silencio — el `INSERT` estaba a la vista en todos los casos:
+
+| | tablas | la falla |
+|---|---|---|
+| `([a-z_]+)` como schema | 4 (`ap5.*`) | `ap5` tiene un dígito: el patrón leía `ap`, pedía un punto, encontraba un `5` y se rendía. `ap5` es el único de los 16 schemas declarados con un dígito |
+| el nombre vive en una constante | 8 | `_TABLA_CHEQUES = "operaciones.tesoreria_cheques"` arriba y `f"INSERT INTO {_TABLA_CHEQUES} (…)"` abajo — el literal que el patrón busca está partido en dos lugares y no existe en ninguno. También con las puertas de `pg_mirror`: `write_native(TABLE, …)`. Y con el nombre **sin schema** (`_UI_JOBS_TABLE = "aranceles_job_runs"`) |
+
+**El arreglo son dos cosas y NO tienen el mismo riesgo**, por eso se dicen por
+separado: sumar `0-9` al schema **no silencia nada** (las cuatro de `ap5` son de
+RELOJ: lo que estaba roto era el `que_hacer`, que mandaba a «relanzar el job que
+la escribe» sin poder nombrarlo, teniendo `jobs.ap5_portfolio` a la vista).
+Resolver las constantes **sí silencia**, y es lo correcto: siete de las ocho se
+escriben desde `api/` o `core/` —las seis de tesorería y `mercado.eikon_snapshot`—
+o sea que son de EVENTO, y a **tablas de carga manual se les venía exigiendo el
+ritmo de un feed live**. Las dos que más cantaban (`tesoreria_cheques`,
+`tesoreria_banco_a_banco`, «es tiempo real (cada 10 s)») eran de ahí.
+
+**La guarda de la parte que silencia**: una constante sólo se resuelve si su
+valor es una tabla que `sql/schema.sql` declara (`schema_sql.donde_vive`, que ya
+descarta además los nombres cortos ambiguos). Sin eso, un `f"… {_COLS_CHEQUE}"`
+—una lista de columnas— le adjudicaría un escritor a una tabla inventada, y un
+escritor FALSO es peor que ninguno: manda a relanzar, con seguridad, algo que no
+existe. Es el mismo default seguro de `_resolver`.
+
+**El efecto, medido antes y después sobre las 216 tablas de `sql/schema.sql`**:
+`no_se` baja de 55 a 25, y **ninguna tabla pasó de `reloj` a otra cosa** — que
+era el único cambio peligroso posible.
+
+**Lo que NO se tocó, dicho**: las dos de `agente/` que quedan en `no_se`
+(`agente.hallazgos`, `manager.tabla_perfil`). Su `INSERT` es literal y está a la
+vista, pero `_mapa()` sólo escanea `jobs/ engines/ core/ api/`, y la clase de
+`agente/` es MIXTA (el daemon escribe `hallazgos` en cada pasada; `vista.py` y
+`arreglos.py` escriben cuando alguien aprieta). Hoy se las exige y **está bien
+que se las exija**; lo único pobre es el texto. Declararlas es una decisión, no
+un arreglo, y no se tomó acá.
+
+**De yapa, sin arreglar**: `mercado.agro_pizarra_audit` está en el mapa de
+escritores y no en `sql/schema.sql` — la crea en runtime
+`api/services/derivados_agro.py` con un `CREATE TABLE IF NOT EXISTS`. Es anterior
+a esto y no lo rompe nada; queda anotado porque un test que exija «toda tabla del
+mapa está en el schema» fallaría por ella, y el que se escribió prueba la guarda
+en vez de esa afirmación más fuerte y falsa.

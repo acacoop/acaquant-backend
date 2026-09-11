@@ -35,6 +35,14 @@ dice quién lo dispara:
     jobs/ · engines/   → lo dispara un RELOJ (cron, loop de motor) → se le exige
     core/ · api/       → lo dispara un EVENTO (una request, una acción) → no
 
+⚠️ **El `INSERT` no siempre trae el nombre escrito al lado.** Las tres formas que
+este repo usa y que hay que resolver antes de buscar (§0.fc): el nombre **sin
+schema** (lo resuelve el `search_path` en runtime), el que viaja como argumento
+de una puerta de `core/pg_mirror`, y el que vive en una **constante del módulo**
+y se interpola — `_TABLA_CHEQUES = "operaciones.tesoreria_cheques"` arriba,
+`f"INSERT INTO {_TABLA_CHEQUES} (…)"` abajo. Las tres fallaban en silencio, que
+es el modo de falla que este módulo existe para no tener.
+
 ⚠️ **`no sé` NO es `evento`.** Si no se encuentra el escritor, la tabla se sigue
 exigiendo como hasta hoy: dejar de mirar algo porque no lo entendimos es cómo se
 pierde una señal de verdad. Ante la duda, se sigue mirando.
@@ -122,8 +130,17 @@ _RAICES = tuple(_QUIEN_DISPARA)
 
 # `INSERT INTO schema.tabla`, con lo que se le cruce en el medio (comillas,
 # saltos de línea del string SQL partido en varias líneas de Python).
+# ⚠️ **EL SCHEMA PUEDE TENER UN DÍGITO Y `[a-z_]+` NO LO VE.** Acá decía
+# `([a-z_]+)`, y con eso `INSERT INTO ap5.contratos` no matcheaba: el patrón
+# leía `ap`, pedía un punto, encontraba un `5` y se rendía — **sin error**. Las
+# dos tablas de `ap5` quedaban sin escritor, o sea en `no_se`, o sea exigidas
+# con un `que_hacer` que mandaba a «relanzar el job que la escribe» sin poder
+# nombrarlo, teniendo el `INSERT` literal a la vista en `jobs/ap5_portfolio.py`.
+# `ap5` es el único de los 16 schemas declarados con un dígito, así que el bug
+# afectaba exactamente a dos tablas — y las dos son de RELOJ, o sea que lo que
+# se perdía no era ruido: era el nombre del job que hay que relanzar.
 _RE_INSERT = re.compile(
-    r'INSERT\s+INTO\s+"?([a-z_]+)"?\s*\.\s*"?([a-z_0-9]+)"?', re.I)
+    r'INSERT\s+INTO\s+"?([a-z_][a-z_0-9]*)"?\s*\.\s*"?([a-z_0-9]+)"?', re.I)
 
 # ⚠️⚠️ **Y EL `INSERT INTO tabla` SIN SCHEMA, QUE EL DE ARRIBA NO VE.**
 #
@@ -158,9 +175,47 @@ _RE_INSERT_CORTO = re.compile(
 # mismo bug que un regex parcial: mide una forma de hacer la cosa y no se queja.
 # Si mañana `pg_mirror` suma una puerta, esta lista hay que sumarla acá — lo
 # congela `test_estan_todas_las_puertas_de_pg_mirror`.
+# ⚠️ **LAS PUERTAS SE DECLARAN UNA VEZ Y LOS DOS PATRONES SALEN DE ACÁ.** Hay
+# dos formas de llamarlas —con el nombre entre comillas y con una constante— y
+# si cada patrón llevara su propia lista, sumar una puerta a una y olvidarla en
+# la otra dejaría tablas sin escritor en silencio. Es el mismo bug que este
+# módulo persigue, una capa más adentro.
+_PUERTAS = ("write_native", "append_native", "write_snapshot",
+            "merge_jsonb_native", "replace_native")
+_P = "|".join(_PUERTAS)
+
 _RE_MIRROR = re.compile(
-    r'(?:write_native|append_native|write_snapshot|merge_jsonb_native|'
-    r'replace_native)\s*\(\s*["\']([a-z_]+(?:\.[a-z_0-9]+)?)["\']', re.I)
+    rf'(?:{_P})\s*\(\s*["\']([a-z_][a-z_0-9]*(?:\.[a-z_0-9]+)?)["\']', re.I)
+
+# ⚠️⚠️ **Y LA MISMA PUERTA LLAMADA CON UNA CONSTANTE.** `core/eikon_live.py`
+# hace `write_native(TABLE, …)` con `TABLE = "mercado.eikon_snapshot"` arriba, y
+# `jobs/aranceles.py` hace `write_native(_UI_JOBS_TABLE, …)`. El de arriba exige
+# comillas, así que no veía ninguna de las dos. Lo que captura acá es el
+# IDENTIFICADOR; el valor lo resuelve `_constantes()` contra el archivo, y si
+# ese identificador no es una constante con una tabla REAL adentro, se descarta.
+_RE_MIRROR_VAR = re.compile(
+    rf'(?:{_P})\s*\(\s*([A-Za-z_][A-Za-z_0-9]*)\s*[,)]')
+
+# ⚠️⚠️ **EL NOMBRE DE LA TABLA VIVE EN UNA CONSTANTE DEL MÓDULO.** Es la
+# convención más común de este repo para las tablas que se escriben desde `api/`:
+#
+#     _TABLA_CHEQUES = "operaciones.tesoreria_cheques"
+#     …
+#     f"INSERT INTO {_TABLA_CHEQUES} (lado, tipo, …)"
+#
+# Ninguno de los tres patrones de arriba ve eso —el literal que buscan está
+# partido en dos lugares del archivo—, y el resultado medido el 2026-09-11 eran
+# OCHO tablas sin escritor: las seis de tesorería, `mercado.eikon_snapshot` y
+# `manager.aranceles_job_runs`. Las siete primeras se escriben desde `api/` o
+# `core/`, o sea que son de EVENTO: **`tabla_quieta` les venía exigiendo el ritmo
+# de un feed live a tablas de carga manual**, y las dos que más cantaban
+# (`tesoreria_cheques`, `tesoreria_banco_a_banco`) eran de ahí.
+#
+# Sólo se toma la asignación de MÓDULO (sin sangría): una constante adentro de
+# una función es del caso de esa función, no del archivo.
+_RE_CONST = re.compile(
+    r'^([A-Za-z_][A-Za-z_0-9]*)\s*=\s*["\']'
+    r'([a-z_][a-z_0-9]*(?:\.[a-z_0-9]+)?)["\']\s*(?:#.*)?$', re.M)
 
 # ⚠️ **`write_hist` NO RECIBE UNA TABLA: RECIBE UNA COLECCIÓN.** Su primer
 # argumento es `'FuturosDLR'`, `'Breakevens'`… y siempre escribe en la MISMA
@@ -175,6 +230,30 @@ _TABLA_HIST = "mercado.mercado_hist"
 # escrituras — ver el comentario de `_mapa`. El tope de largo evita que un
 # backtick suelto se coma medio archivo.
 _SIN_CITAS = re.compile(r"`[^`]{1,300}`", re.S)
+
+
+def _constantes(texto: str) -> dict[str, str]:
+    """`NOMBRE → schema.tabla` de las constantes de módulo que guardan una tabla.
+
+    ⚠️⚠️ **LA GUARDA ES QUE LA TABLA EXISTA DE VERDAD**, y no es opcional: este
+    archivo está lleno de constantes de módulo que guardan cualquier otra cosa
+    (`_COLS_CHEQUE`, una lista de columnas; `_FUENTE`, un literal de negocio). Si
+    se aceptara cualquier string, un `f"INSERT INTO … {_COLS_CHEQUE}"` le
+    adjudicaría el escritor a una tabla inventada — y como el módulo es
+    fail-open hacia «seguir mirando», un escritor FALSO es peor que ninguno:
+    manda a relanzar, con seguridad, algo que no existe.
+
+    `schema_sql.donde_vive` es exactamente ese filtro y ya lo teníamos: devuelve
+    vacío si el nombre no está declarado en `sql/schema.sql`, y también si es un
+    nombre corto AMBIGUO (dos schemas con la misma tabla) — el mismo default
+    seguro que `_resolver`.
+    """
+    from core import schema_sql
+    out = {}
+    for nombre, valor in _RE_CONST.findall(texto):
+        if (completo := schema_sql.donde_vive(valor)):
+            out[nombre] = completo
+    return out
 
 
 @functools.lru_cache(maxsize=1)
@@ -209,6 +288,18 @@ def _mapa() -> dict[str, list[str]]:
             # mirar donde no está. La regla que los separa es del repo y no del
             # lenguaje: **el SQL de verdad nunca va entre backticks.**
             texto = _SIN_CITAS.sub(" ", texto)
+            # ⚠️ **LAS CONSTANTES SE RESUELVEN ANTES DE BUSCAR NADA.** Reemplazar
+            # `{_TABLA_CHEQUES}` por su valor convierte el f-string en el mismo
+            # `INSERT INTO operaciones.tesoreria_cheques` que los patrones ya
+            # sabían leer: no hace falta un patrón nuevo para el INSERT, sólo
+            # para la puerta de `pg_mirror` llamada con el identificador pelado.
+            #
+            # Se reemplaza SÓLO la forma `{NOMBRE}` —la interpolación—, no el
+            # identificador suelto: pisar `_TABLA_CHEQUES` en todo el archivo
+            # rompería su propia definición y cualquier comparación que lo use.
+            constantes = _constantes(texto)
+            for nombre, tabla in constantes.items():
+                texto = texto.replace("{" + nombre + "}", tabla)
             arriba = texto.upper()
             if not any(x in arriba for x in
                        ("INSERT", "_NATIVE(", "WRITE_HIST(", "WRITE_SNAPSHOT(")):
@@ -221,7 +312,13 @@ def _mapa() -> dict[str, list[str]]:
             # resuelven contra `sql/schema.sql`. Lo que no se puede resolver se
             # guarda igual con la clave corta: `quien_escribe` busca por las dos,
             # así que una tabla que el schema no declara no se pierde.
-            for nombre in _RE_INSERT_CORTO.findall(texto) + _RE_MIRROR.findall(texto):
+            # Las puertas de `pg_mirror` llamadas con una constante
+            # (`write_native(TABLE, …)`): el identificador se traduce acá, y lo
+            # que no sea una constante con una tabla real adentro no entra.
+            por_variable = [constantes[v] for v in _RE_MIRROR_VAR.findall(texto)
+                            if v in constantes]
+            for nombre in (_RE_INSERT_CORTO.findall(texto) + _RE_MIRROR.findall(texto)
+                           + por_variable):
                 if (clave := _resolver(nombre)):
                     out.setdefault(clave, []).append(mod)
             if _RE_HIST.search(texto):

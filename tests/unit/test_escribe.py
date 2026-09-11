@@ -14,9 +14,14 @@ sido construir una puerta a ninguna parte — peor que no tenerla, porque promet
 """
 from __future__ import annotations
 
+import pathlib
 from unittest.mock import patch
 
 from core import escribe
+
+# La raíz del repo: estos tests se corren CONTRA EL CÓDIGO DE VERDAD, no contra
+# un fixture — un mapa que anda sobre un archivo inventado no prueba nada.
+RAIZ = pathlib.Path(__file__).resolve().parents[2]
 
 # ── contra el repo REAL, que es la única prueba que vale ─────────────────────
 
@@ -204,3 +209,92 @@ def test_las_tablas_del_AGENTE_son_POR_OCASION():
         assert escribe.la_dispara(tabla) == escribe.EVENTO, tabla
         assert escribe.que_relanzar(tabla) == "", tabla
         assert escribe.por_ocasion(tabla), f"{tabla} sin motivo declarado"
+
+
+# ── LAS DOS FORMAS QUE EL PATRÓN NO VEÍA (2026-09-11) ───────────────────────
+#
+# Medido con `scripts/diag_quien_escribe`: DOCE tablas del universo de
+# `tabla_quieta` caían en `no_se`, o sea que se les exigía frescura sin saber si
+# correspondía. Diez eran estas dos formas, y las dos fallaban en silencio.
+
+
+def test_el_schema_con_DIGITO_se_ve():
+    """`[a-z_]+` no matchea el `5` de `ap5`: el patrón leía `ap`, pedía un punto,
+    encontraba un dígito y se rendía. Las cuatro tablas de `ap5` que escribe el
+    job quedaban sin escritor con el `INSERT` literal a la vista.
+
+    ⚠️ Es la mitad que NO silencia nada: son de RELOJ y se las sigue mirando.
+    Lo que estaba roto era el `que_hacer`, que mandaba a «relanzar el job que la
+    escribe» sin poder nombrarlo."""
+    assert escribe.la_dispara("ap5.contratos") == escribe.RELOJ
+    assert escribe.que_relanzar("ap5.contratos") == "jobs.ap5_portfolio"
+    assert escribe.que_relanzar("ap5.margenes") == "jobs.ap5_portfolio"
+
+
+def test_la_tabla_guardada_en_una_CONSTANTE_del_modulo_se_ve():
+    """`_TABLA_CHEQUES = "operaciones.tesoreria_cheques"` arriba del archivo y
+    `f"INSERT INTO {_TABLA_CHEQUES} (…)"` abajo: el literal que el patrón busca
+    está partido en dos lugares y no existe en ninguno.
+
+    Las seis de tesorería se escriben desde `api/`, o sea que son de EVENTO: a
+    tablas de CARGA MANUAL se les venía exigiendo el ritmo de un feed live."""
+    assert escribe.la_dispara("operaciones.tesoreria_cheques") == escribe.EVENTO
+    assert escribe.quien_escribe("operaciones.tesoreria_cheques") == ["api.services.tesoreria"]
+    # Y por lo tanto no hay botón que prometer.
+    assert escribe.que_relanzar("operaciones.tesoreria_cheques") == ""
+
+
+def test_la_puerta_de_pg_mirror_llamada_con_una_CONSTANTE():
+    """`write_native(TABLE, …)` con `TABLE = "mercado.eikon_snapshot"` arriba.
+    `_RE_MIRROR` exige comillas en el argumento, así que no la veía."""
+    assert escribe.quien_escribe("mercado.eikon_snapshot") == ["core.eikon_live"]
+    assert escribe.la_dispara("mercado.eikon_snapshot") == escribe.EVENTO
+
+
+def test_la_constante_SIN_schema_tambien():
+    """`_UI_JOBS_TABLE = "aranceles_job_runs"` — sin schema, como el `INSERT INTO
+    tabla` que resuelve el `search_path`. Se resuelve contra `sql/schema.sql` por
+    la misma puerta (`_resolver`), así que no hay una segunda regla que mantener.
+
+    La escriben un job Y la API: gana el RELOJ, que es el invariante de siempre."""
+    assert escribe.la_dispara("manager.aranceles_job_runs") == escribe.RELOJ
+    assert escribe.que_relanzar("manager.aranceles_job_runs") == "jobs.aranceles"
+
+
+def test_una_constante_que_NO_es_una_tabla_no_inventa_un_escritor():
+    """⚠️ **LA GUARDA, Y ES LA QUE HACE SEGURO TODO ESTO.** Un módulo tiene
+    muchas constantes de módulo que guardan strings que no son tablas
+    (`_COLS_CHEQUE`, una lista de columnas). Si se aceptara cualquiera, un
+    `f"… {_COLS_CHEQUE}"` le adjudicaría un escritor a una tabla inventada — y un
+    escritor FALSO es peor que ninguno: manda a relanzar algo que no existe.
+
+    El filtro es que el valor exista en `sql/schema.sql`, y ya lo teníamos.
+
+    Se prueba sobre `api/services/tesoreria.py`, que tiene las dos clases de
+    constante al lado: `_TABLA_CHEQUES` (una tabla) y `_COLS_CHEQUE` (una lista
+    de columnas). La primera tiene que entrar; la segunda, nunca.
+
+    ⚠️ NO se prueba «toda tabla del mapa está en `schema.sql`»: sería más
+    fuerte y FALSO — `mercado.agro_pizarra_audit` la crea en runtime
+    `api/services/derivados_agro.py` con un `CREATE TABLE IF NOT EXISTS` y su
+    `INSERT` literal es perfectamente real. Eso es anterior a esto y no es lo
+    que este test vigila."""
+    fuente = (RAIZ / "api" / "services" / "tesoreria.py").read_text(encoding="utf-8")
+    consts = escribe._constantes(fuente)
+    assert consts.get("_TABLA_CHEQUES") == "operaciones.tesoreria_cheques"
+    assert "_COLS_CHEQUE" not in consts, (
+        "una constante que no es una tabla entró al mapa: le adjudicaría un "
+        "escritor a algo que no existe, y eso manda a relanzar lo que no hay")
+    # Y ninguna de las que pasaron el filtro puede ser un invento.
+    from core import schema_sql
+    assert all(schema_sql.donde_vive(v) for v in consts.values())
+
+
+def test_las_DOS_formas_de_llamar_una_puerta_salen_de_LA_MISMA_lista():
+    """Hay dos patrones para `pg_mirror` —con el nombre entre comillas y con una
+    constante— y si cada uno llevara su propia lista de puertas, sumar una a uno
+    y olvidarla en el otro dejaría tablas sin escritor en silencio: el mismo bug
+    que este módulo persigue, una capa más adentro."""
+    for puerta in escribe._PUERTAS:
+        assert puerta in escribe._RE_MIRROR.pattern
+        assert puerta in escribe._RE_MIRROR_VAR.pattern

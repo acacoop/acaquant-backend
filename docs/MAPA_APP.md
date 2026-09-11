@@ -2238,7 +2238,7 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 | Pieza | Qué es | Estado |
 |---|---|---|
 | `core/llm.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/ai.py` | tareas registradas, presupuesto diario como kill-switch, y la traza obligatoria | vive, **1 tarea: `smoke`**, que no produce nada |
+| `core/ai.py` | tareas registradas, presupuesto diario como kill-switch, y la traza obligatoria | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `investigador`) |
 | `ia.trazas` | una fila por llamada al modelo: tarea, modelo, usuario, tokens, latencia, la pregunta y la respuesta | vacía |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
 

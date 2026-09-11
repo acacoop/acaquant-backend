@@ -1,47 +1,37 @@
-"""core/ai.py — gateway único de IA.
+"""core/ai.py — EL PORTERO DE LA IA.
 
-⚠️⚠️ **HOY NO LO LLAMA NADIE (2026-08-28).** El sistema no tiene una sola feature
-de IA: el copiloto se dio de baja el 19/08, el MCP el 28/08 y el destilado del
-research —la última tarea— el mismo día. Este módulo y `core/llm.py` se
-CONSERVARON a propósito, por decisión del user: es el núcleo que costó construir
-y que no conviene rehacer desde cero (transporte, ruteo, presupuesto, traza).
+Toda llamada a un modelo del sistema pasa por acá. `core/llm.py` sabe CÓMO
+hablarle al proveedor; este archivo decide QUÉ se le permite y lo anota.
 
-**Antes de escribir la primera tarea nueva, la pregunta es: ¿QUIÉN MIRA SU
-SALIDA?** Las tres features de IA que murieron este mes murieron por lo mismo, no
-por bugs: nadie leía lo que producían, y como no fallaban, nadie lo notaba. Si la
-respuesta es «queda en una tabla», la tarea no va.
+Hace cuatro cosas, y ninguna la debería resolver cada feature por su cuenta:
 
-Lo que NO sobrevivió y hay que rehacer si hace falta: `api/services/ia_obs.py`
-(leía las trazas), el chequeo `ia:gateway` de SALUD (vigilaba el gasto) y
-`scripts/smoke_ai.py` (probaba que el gateway andaba). Están en git.
+1. TAREAS REGISTRADAS. Nadie llama al modelo «como quiera»: dice qué tarea es
+   y de esa fila salen el proveedor, el modelo, el tope de respuesta y el
+   tiempo de espera. Eso se decide en un solo lugar.
 
-TODA llamada a un LLM del sistema pasa por acá. El gateway resuelve lo que
-ninguna feature debería resolver por su cuenta:
+2. PRESUPUESTO DIARIO. Hay un tope de tokens por día, global y por persona. Si
+   se pasó, la llamada se niega. Es el freno contra una factura sorpresa.
 
-- **Tareas registradas** (_TAREAS): cada llamada declara una tarea y de ahí
-  salen proveedor, modelo (tier flash/pro), max_tokens y timeout. El PROMPT
-  vive en el módulo de la feature (ej. jobs/research_mail.py).
-- **Transporte y ruteo**: delegados a `core/llm.py` — el ÚNICO módulo que
-  conoce a los proveedores (HTTP, auth, retry, dialecto). Una tarea elige su
-  proveedor con la clave `proveedor`; cambiar/agregar uno = tocar SOLO
-  core/llm.py. Si el proveedor de una tarea no está configurado, la llamada
-  NO se hace y NO cae a otro (fail-closed: caer a otro proveedor mandaría
-  datos del negocio justo al que entrena con ellos).
-- **Presupuesto diario de tokens** (global y por usuario) contra ia.trazas:
-  superado → la llamada se niega y la feature degrada. Kill switch de costos.
-- **Reintentos**: 1 retry ante timeout / error de conexión / 5xx. Nunca ante 4xx.
-- **Traza**: cada llamada (ok o no) deja una fila en SQL `ia.trazas` (tarea,
-  modelo, usuario, tokens in/out, latencia, éxito/fallo) — el "job_runs" de la
-  IA. Best-effort: si la DB no responde, la llamada sigue igual.
+3. TRAZA. Cada llamada, salga bien o mal, deja una fila en `ia.trazas`: qué
+   tarea, qué modelo, quién, cuántos tokens, cuánto tardó. Sin registro no hay
+   forma de saber qué se gastó ni en qué.
 
-CONTRATO (mismo que core/notify.py): completar() NUNCA propaga excepción.
-Devuelve el texto o None; el caller SIEMPRE tiene su camino determinista
-(regla de oro 4 del roadmap: todo degrada con gracia).
+4. RUTEO SEGURO. Una tarea marcada `datos: "negocio"` sólo puede correr en un
+   proveedor que se comprometió a no entrenar con lo que le mandamos. Si no,
+   el gateway NIEGA la llamada.
 
-Env vars (las del proveedor viven en core/llm.py):
-  AI_BUDGET_TOKENS_DIA          — tope global de tokens/día (default 2.000.000).
-  AI_BUDGET_TOKENS_DIA_USUARIO  — tope por usuario/día (default 1.000.000).
-  AI_BUDGET_TOKENS_DIA_INVITADO — tope del portal invitado (default 100.000).
+⚠️ REGLA PARA SUMAR UNA TAREA: primero contestar **quién mira su salida**. Las
+features de IA que murieron en agosto no murieron por bugs — murieron porque
+nadie leía lo que producían, y como no fallaban, nadie lo notaba. La historia
+está en `docs/AGENT.md` §0.k.
+
+⚠️ CONTRATO: `completar()` NUNCA levanta una excepción. Devuelve el texto o
+None. El que llama SIEMPRE tiene su camino sin IA.
+
+Variables de entorno:
+  AI_BUDGET_TOKENS_DIA           tope global de tokens por día (2.000.000)
+  AI_BUDGET_TOKENS_DIA_USUARIO   tope por persona por día (1.000.000)
+  AI_BUDGET_TOKENS_DIA_INVITADO  tope de un invitado del portal www (100.000)
 """
 from __future__ import annotations
 
@@ -53,96 +43,60 @@ from dotenv import load_dotenv
 
 from core import llm
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_RAIZ, ".env"))
 
 logger = logging.getLogger(__name__)
 
-_MAX_ERROR_CHARS = 700  # techo del texto de error que se persiste en la traza
 
-# Registro de tareas: tier "flash" = redacción/clasificación barata; "pro" =
-# razonamiento pesado. `thinking`: "enabled"/"disabled" — VERIFICADO contra la
-# doc del proveedor (2026-07-11): los v4 traen thinking DEFAULT ENABLED, por
-# eso hay que apagarlo explícito en tareas simples (venía quemando tokens
-# invisibles y hasta derramando el razonamiento dentro de la respuesta del
-# copiloto). El razonamiento llega aparte en `reasoning_content` → se guarda
-# en la traza (debug), nunca se muestra al usuario.
-# `model_env` (opcional) = env var que overridea el modelo SOLO para esa tarea.
+# ── LAS TAREAS ──────────────────────────────────────────────────────────────
+#
+# tier      "flash" = barato, para redactar o clasificar · "pro" = caro, para
+#           razonar sobre varios datos.
+# thinking  "disabled" apaga el razonamiento previo. Va explícito porque los
+#           modelos lo traen PRENDIDO de fábrica: sin esto, una tarea simple
+#           quema tokens que no se ven.
+# datos     "negocio" marca que la tarea ve números de la empresa. Sin la
+#           marca, se asume que son datos públicos de mercado.
+#
+# Cada fila dice QUIÉN MIRA SU SALIDA. Una tarea sin esa respuesta no va.
+
 _TAREAS: dict[str, dict] = {
-    # ⚠️ **UNA TAREA EXISTE SOLO SI ALGUIEN LEE SU SALIDA** (regla del user,
-    # 2026-08-19: *«si lo usa AV Agent perfecto, si no se elimina»*). El 19/08 se
-    # borraron SEIS que no la tenían: `copiloto_vista`/`copiloto_vista_pro` y
-    # `asistente_negocio` (el botón CONSULTALE A LA IA, dado de baja),
-    # `critico_calidad` (evaluaba conversaciones del copiloto), `triage_incidente`
-    # (corría cada 10 minutos contra una tabla que **nadie leía** — ni endpoint ni
-    # front), `controles_resumen` (una llamada por día cuyo texto terminaba en un
-    # `print()` del log) y `salud_diagnostico` (lo generaba el panel de SALUD, que
-    # se fue del front). Antes de sumar una tarea nueva: **quién la mira**.
-    #
-    # ⚠️ Se fueron también las TRES del AV AGENT viejo (`av_agent_informe`,
-    # `av_agent_accion`, `av_agent_error`): ninguna habilidad de AGENT 2.0
-    # DETECTA con IA —`usa_ia` es False en TODAS, y un test lo congela— y los
-    # services que las invocaban ya no existen. Quedaba la CONFIG (tier, tokens, timeout) de tres
-    # tareas que nadie podía llamar, que es la peor clase de código muerto: hace
-    # creer que el agente usa IA cuando no la usa.
-    "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
-    # ⚠️ **EL TRANSPORTE DE ESTA TAREA NO ES `core/llm.py`.** El investigador
-    # (`lab/langgraph/`) habla con el proveedor a través de LangChain, que
-    # necesita un objeto-modelo y no una función. Así que NO pasa por
-    # `completar()` y esta config (tier/max_tokens/timeout) no la lee nadie:
-    # la fila existe para que la tarea esté DECLARADA en el mismo lugar que
-    # las demás, y para que su gasto no aparezca en las trazas como un nombre
-    # que nadie puede rastrear.
-    #
-    # Lo que sí comparte con todas: el PRESUPUESTO (se consulta antes de
-    # arrancar una investigación) y la TRAZA (una fila por llamada, escrita por
-    # `lab/langgraph/medidor.py` con `registrar()`).
-    #
-    # Quién mira su salida: la tab LAB del modal del AV AGENT.
+    # La mira: la tab LAB del modal del AV AGENT. El investigador habla con el
+    # proveedor por LangChain y no por `completar()`, así que de esta fila sólo
+    # se usan el nombre y el presupuesto — la traza la escribe él con
+    # `registrar()`.
     "investigador": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
                      "thinking": "disabled"},
-    # Quién la mira: el botón «explicámelo» del panel de HABILIDADES del AV
-    # AGENT (`agente/explicar.py`, §0.dh). Solo a pedido, nunca en una pasada,
-    # y cacheada por hash del error: el mismo error no se paga dos veces.
+
+    # La mira: el botón «explicámelo» del panel HABILIDADES. Sólo a pedido de
+    # una persona, y cacheada por error: el mismo error no se paga dos veces.
     "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
                        "thinking": "disabled"},
-    # Quién la mira: **el texto de todo aviso del AV AGENT** —el `que_hacer` de
-    # los hallazgos que NO tienen botón— en la tab AHORA del modal
-    # (`agente/redactar.py`, §0.dn). Es la primera tarea del sistema que corre
-    # SOLA, sin que nadie apriete nada, así que trae las guardas que las de a
-    # pedido no necesitan: alcance derivado (sólo avisos), tope por pasada,
-    # tope de intentos por hallazgo, validación mecánica de la salida, y un
-    # PISO determinista que se muestra si algo de eso falla. Nunca DECIDE: el
-    # detector ya dijo que hay un problema, esto sólo lo explica.
-    #
-    # 400 tokens porque la salida es un JSON de dos claves con un texto de 260
-    # caracteres: darle más es invitarlo a escribir de más.
+
+    # La mira: el texto de cada aviso del AV AGENT en la tab AHORA. Es la única
+    # que corre SOLA, sin que nadie apriete, así que trae guardas que las de a
+    # pedido no necesitan (tope por pasada, tope de intentos por aviso,
+    # validación de la salida y un texto fijo de respaldo si algo falla).
+    # 400 tokens porque la salida es una o dos frases: darle más es invitarlo
+    # a escribir de más.
     "agente_texto": {"tier": "flash", "max_tokens": 400, "timeout_s": 45,
                      "thinking": "disabled"},
-    # Quién la mira: **el listado de `completar_ficha`** en la tab ENCONTRÓ del
-    # modal del AV AGENT (`agente/emisor.py`). Propone el EMISOR de los títulos
-    # que ninguna regla determinista pudo derivar, ELIGIENDO de la lista cerrada
-    # de emisores que el catálogo ya usa — lo que contesta fuera de esa lista se
-    # descarta. **No escribe nada**: una persona confirma en la misma pantalla.
-    #
-    # Corre A PEDIDO (cuando alguien abre el listado), no en una pasada del
-    # daemon: es una sola llamada por pantalla y su costo lo dispara un click.
-    #
-    # `pro` y no `flash`: acá no se redacta, se RECONOCE —que «Ciclo Nova Ahorro
-    # Plus» es un fondo de IEB no sale de leer el string— y equivocarse escribe
-    # un dato en un campo por el que se agrupa plata. Mismo criterio que el
-    # investigador. 2000 tokens porque la salida es un JSON de N pares cortos, y
-    # 45 s por lo mismo que la cadena de alta: detrás de Cloudflare hay un reloj.
+
+    # La mira: el listado de «completar ficha» en la tab ENCONTRÓ. Propone el
+    # emisor de los títulos que ninguna regla puede derivar, eligiendo de una
+    # lista cerrada. No escribe nada: una persona confirma.
+    # "pro" porque acá no se redacta, se RECONOCE — que «Ciclo Nova Ahorro
+    # Plus» es un fondo de IEB no sale de leer el nombre —, y equivocarse
+    # escribe un dato en un campo por el que se agrupa plata.
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
                       "thinking": "disabled"},
-    # ⚠️ `research_destilar` se fue el 2026-08-28 con su job: era la ÚLTIMA tarea
-    # productiva del sistema. Se probó cuatro días (14-17/07), se apagó el 17/07
-    # y ninguna pantalla llegó a dibujar su salida. Con ella, `smoke` quedó como
-    # la única tarea registrada — y `smoke` no produce nada: existe para probar
-    # que el transporte anda.
 }
 
-_DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}
+# Si alguien pide una tarea que no está en la tabla, corre igual con esto (y
+# queda un warning). Que una tarea sin declarar no rompa nada es a propósito.
+_DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60,
+                  "thinking": "disabled"}
 
 
 def _config(tarea: str) -> dict:
@@ -157,36 +111,35 @@ def _proveedor(cfg: dict) -> str:
     return cfg.get("proveedor") or llm.PROVEEDOR_DEFAULT
 
 
-def _ruteo_seguro(cfg: dict) -> bool:
-    """Invariante de PRIVACIDAD: una tarea que ve datos del negocio
-    (`datos == "negocio"`) SOLO puede correr en un proveedor que no entrena.
+def _modelo(cfg: dict) -> str:
+    return llm.modelo(cfg.get("tier", "flash"), _proveedor(cfg))
 
-    Cierra el fail-open que el /ia-review encontró: sin esto, la garantía
-    dependía 100% de que el caller pasara el string de tarea correcto — una
-    tarea de negocio ruteada mal (o registrada con el proveedor equivocado)
-    mandaba los números de la empresa justo al proveedor que el ruteo evita. Con
-    esto el gateway se niega a correrla. Las tareas de mercado (datos públicos)
-    no llevan la marca → no las afecta."""
+
+def _ruteo_seguro(cfg: dict) -> bool:
+    """¿Esta tarea puede salir hacia el proveedor que le toca?
+
+    Una tarea que ve datos de la empresa sólo puede ir a un proveedor que se
+    comprometió a no entrenar con ellos. Si no, se niega la llamada.
+
+    Existe porque sin esto la garantía dependía de que el que llama pasara el
+    nombre de tarea correcto: una tarea de negocio mal ruteada mandaba los
+    números de la empresa justo al proveedor que este ruteo evita.
+    """
     if cfg.get("datos") != "negocio":
         return True
     prov = _proveedor(cfg)
     if llm.no_entrena(prov):
         return True
     logger.error("core.ai: RUTEO INSEGURO — tarea de negocio hacia %r (entrena). "
-                 "Se NIEGA la llamada (fail-closed).", prov)
+                 "Se NIEGA la llamada.", prov)
     return False
 
 
-def _modelo(cfg: dict) -> str:
-    override_env = cfg.get("model_env")
-    if override_env and os.getenv(override_env):
-        return os.environ[override_env]
-    return llm.modelo(cfg.get("tier", "flash"), _proveedor(cfg))
-
-
-# ── Config editable (ia.config, editable desde Manager → OBSERVABILIDAD → IA) ──
-# Precedencia: tabla ia.config > env var > default del código. Cache 60s para
-# no pegarle a la DB en cada llamada; best-effort (DB caída → último conocido).
+# ── EL PRESUPUESTO ──────────────────────────────────────────────────────────
+#
+# Los topes se pueden editar sin deploy desde la tabla `ia.config`. El orden
+# manda así: lo que diga la tabla, si no la variable de entorno, si no el
+# default del código. Se cachea 60 s para no pegarle a la base en cada llamada.
 
 _CONFIG_DB_TTL_S = 60
 _config_db_cache: dict = {"ts": 0.0, "valores": {}}
@@ -196,7 +149,7 @@ def _config_db() -> dict:
     ahora = time.monotonic()
     if ahora - _config_db_cache["ts"] < _CONFIG_DB_TTL_S:
         return _config_db_cache["valores"]
-    valores = _config_db_cache["valores"]  # fallback: último conocido
+    valores = _config_db_cache["valores"]  # si la base no responde, el último conocido
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -209,28 +162,23 @@ def _config_db() -> dict:
 
 
 def presupuesto_dia_global() -> int:
-    """Tope global de tokens/día del gateway — TECHO DURO del sistema: aunque
-    la suma de topes por usuario lo supere, el gasto total del día no lo pasa
-    (cada llamada chequea los dos). Fuente única — lo usa el check interno y
-    la vista de observabilidad (borrada el 2026-08-28 junto con ia_obs.py)."""
+    """Techo duro del sistema: aunque la suma de los topes por persona sea
+    mayor, el gasto total del día no pasa de acá."""
     v = _config_db().get("budget_dia_global")
     return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000"))
 
 
 def presupuesto_dia_usuario(usuario: str | None = None) -> int:
-    """Tope diario de tokens para UN usuario. Precedencia: excepción personal
-    (clave 'budget_dia_usuario:<email>' en ia.config, editable en Manager) >
-    tope general (clave 'budget_dia_usuario') > env > default 1M (subido de
-    200k el 2026-07-11: el copiloto cuesta ~22k tokens/pregunta medidos)."""
+    """Tope diario de una persona. Se puede subir o bajar por email desde
+    Manager (clave `budget_dia_usuario:<email>` en `ia.config`)."""
     cfgdb = _config_db()
     if usuario:
         propio = cfgdb.get(f"budget_dia_usuario:{usuario}")
         if propio:
             return propio
-        # Invitados del portal www (2026-07-21): CADA email de invitado tiene
-        # su propio tope diario, más BAJO que el de la mesa (default 100k) —
-        # editable por email como excepción personal en Manager (la clave de
-        # arriba pisa este default).
+        # Un invitado del portal www tiene un tope más bajo que la mesa. Hoy
+        # ninguna feature de IA le llega, pero si mañana alguna le llega, este
+        # default evita que se lleve el tope de un trader sin que nada falle.
         from core.roles import es_invitado_id
 
         if es_invitado_id(usuario):
@@ -240,12 +188,15 @@ def presupuesto_dia_usuario(usuario: str | None = None) -> int:
 
 
 def motivo_presupuesto(usuario: str | None) -> str | None:
-    """'global' o 'usuario' según QUÉ tope superó el gasto de HOY (UTC), o None
-    si hay margen. Público a propósito: las features lo consultan ANTES de
-    llamar para devolver un error CLARO ("tu límite" vs "el del sistema") en
-    vez de un genérico — el gateway igual re-chequea. Best-effort: si la DB no
-    responde NO bloquea — el presupuesto es control de costos, no un gate de
-    seguridad."""
+    """Qué tope se pasó hoy: "global", "usuario", o None si hay margen.
+
+    Devuelve el motivo y no un sí/no porque «se acabó tu cuota» y «se acabó la
+    del sistema» se arreglan distinto, y el que lo lee en pantalla necesita
+    saber cuál de las dos es.
+
+    Si la base no responde NO bloquea: esto es control de gastos, no una
+    puerta de seguridad.
+    """
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -264,9 +215,8 @@ def motivo_presupuesto(usuario: str | None) -> str | None:
             logger.warning("core.ai: presupuesto GLOBAL diario agotado (%s tokens hoy)", total)
             return "global"
         if usuario and del_usuario >= presupuesto_dia_usuario(usuario):
-            logger.warning(
-                "core.ai: presupuesto diario de %s agotado (%s tokens hoy)", usuario, del_usuario
-            )
+            logger.warning("core.ai: presupuesto diario de %s agotado (%s tokens hoy)",
+                           usuario, del_usuario)
             return "usuario"
         return None
     except Exception as e:
@@ -274,13 +224,16 @@ def motivo_presupuesto(usuario: str | None) -> str | None:
         return None
 
 
-def _presupuesto_excedido(usuario: str | None) -> bool:
-    return motivo_presupuesto(usuario) is not None
+# ── LA TRAZA ────────────────────────────────────────────────────────────────
+#
+# Una fila por llamada en `ia.trazas`. Los tres extractos de texto se guardan
+# recortados: sirven para poder leer después qué se preguntó y qué contestó el
+# modelo, que es la única forma de revisar una respuesta que ya se fue.
 
-
-_MAX_DETALLE_CHARS = 600     # extracto del pedido (lo pasa el caller, ej. la pregunta)
-_MAX_RESPUESTA_CHARS = 1500  # extracto de la respuesta del modelo
-_MAX_RAZONAMIENTO_CHARS = 2000  # extracto del reasoning_content (debug, panel IA)
+_MAX_ERROR_CHARS = 700
+_MAX_DETALLE_CHARS = 600      # extracto del pedido
+_MAX_RESPUESTA_CHARS = 1500   # extracto de lo que contestó
+_MAX_RAZONAMIENTO_CHARS = 2000
 
 
 def _trazar(
@@ -298,10 +251,8 @@ def _trazar(
     cache_hit: int | None = None,
     cache_miss: int | None = None,
 ) -> int | None:
-    """Persiste la traza y devuelve su id (para asociar feedback 👍/👎),
-    o None si la DB no respondió — best-effort, nunca corta la llamada.
-    `detalle`/`respuesta`/`razonamiento` son extractos legibles para el panel
-    de OBSERVABILIDAD (qué se preguntó / qué contestó / cómo razonó), capados."""
+    """Guarda la fila y devuelve su id. Si la base no responde devuelve None y
+    la llamada sigue igual: perder la traza es malo, cortar la feature es peor."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -337,23 +288,20 @@ def registrar(
     detalle: str | None = None,
     respuesta: str | None = None,
 ) -> int | None:
-    """Deja la traza de una llamada que el gateway NO transportó.
+    """Deja la traza de una llamada que este archivo NO hizo.
 
-    ⚠️ **Existe para un caller cuyo transporte no es `core/llm.py`** — hoy el
-    investigador, que usa LangChain porque necesita un objeto-modelo con
-    herramientas y no una función `completar()`. Sin esto, ese gasto no
-    aparecería en `ia.trazas`: ni cuánto, ni de qué tarea, ni de quién.
+    Existe para el investigador del lab, que habla con el proveedor por
+    LangChain porque necesita un objeto-modelo con herramientas y no una
+    función. Sin esto, ese gasto no aparecería en ningún lado.
 
-    No es una puerta trasera: el presupuesto se sigue consultando con
-    `motivo_presupuesto()` antes de arrancar, y el ruteo de privacidad sigue
-    siendo responsabilidad del caller. Lo que esta función garantiza es que
-    **no haya gasto sin registro**.
-
-    Best-effort como `_trazar`: si la DB no responde, no rompe nada.
+    No es una puerta trasera: ese caller igual consulta el presupuesto antes de
+    arrancar. Lo que esto garantiza es que no haya gasto sin registro.
     """
     return _trazar(tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms,
                    ok, error, detalle=detalle, respuesta=respuesta)
 
+
+# ── LA LLAMADA ──────────────────────────────────────────────────────────────
 
 def completar(
     tarea: str,
@@ -363,10 +311,14 @@ def completar(
     usuario: str | None = None,
     detalle: str | None = None,
 ) -> str | None:
-    """Una completion vía el gateway. Devuelve el texto o None (sin key,
-    presupuesto agotado, o fallo del proveedor) — NUNCA levanta excepción.
-    `detalle`: extracto legible del pedido (ej. la pregunta del usuario) que
-    queda en la traza para el panel de OBSERVABILIDAD."""
+    """Le hace una pregunta al modelo y devuelve el texto, o None.
+
+    Devuelve None —sin levantar nunca— si falta la clave del proveedor, si el
+    ruteo no es seguro, si se acabó el presupuesto o si el proveedor falló.
+
+    `detalle` es un extracto legible del pedido que queda en la traza, para
+    poder entender después qué se le preguntó.
+    """
     texto, _traza_id = completar_con_traza(
         tarea, system=system, user=user, usuario=usuario, detalle=detalle
     )
@@ -381,12 +333,14 @@ def completar_con_traza(
     usuario: str | None = None,
     detalle: str | None = None,
 ) -> tuple[str | None, int | None]:
-    """Igual que completar() pero devuelve también el id de la traza en
-    ia.trazas (o None si no se pudo trazar) — para features interactivas que
-    asocian feedback 👍/👎 a la llamada. Mismo contrato: NUNCA levanta."""
+    """Igual que `completar()` pero devuelve además el id de la fila de
+    `ia.trazas`, para poder guardarlo junto a lo que se haya hecho con esa
+    respuesta y después saber de qué llamada salió. Mismo contrato: no levanta.
+    """
     try:
         return _completar(tarea, system=system, user=user, usuario=usuario, detalle=detalle)
-    except Exception as e:  # cinturón: el contrato es no propagar JAMÁS
+    except Exception as e:
+        # Cinturón: el contrato es no propagar JAMÁS una excepción.
         logger.warning("core.ai: fallo inesperado en %s: %s: %s", tarea, type(e).__name__, e)
         return None, None
 
@@ -395,11 +349,15 @@ def _completar(
     tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
 ) -> tuple[str | None, int | None]:
     cfg = _config(tarea)
+    # Sin clave o con ruteo inseguro no se traza: sería ruido, no un gasto.
     if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
-        return None, None  # proveedor apagado / ruteo inseguro — sin traza (ruido)
+        return None, None
     modelo = _modelo(cfg)
+
     motivo = motivo_presupuesto(usuario)
     if motivo:
+        # Esto SÍ se traza aunque no haya llamada: que el presupuesto haya
+        # frenado algo es justo lo que hay que poder ver después.
         _trazar(tarea, modelo, usuario, None, None, None, False,
                 f"presupuesto diario agotado ({motivo})", detalle=detalle)
         return None, None
@@ -415,13 +373,12 @@ def _completar(
         _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
                 r.error, detalle=detalle)
         return None, None
+
     texto = r.texto or ""
     traza_id = _trazar(tarea, modelo, usuario, r.tokens_in, r.tokens_out,
                        r.latencia_ms, bool(texto),
                        None if texto else "respuesta vacía",
                        detalle=detalle, respuesta=texto or None,
                        razonamiento=r.razonamiento,
-                       # telemetría del caché de prefijo (~10x más barato el
-                       # hit): mide el ahorro real del diseño prefijo-estable
                        cache_hit=r.cache_hit, cache_miss=r.cache_miss)
     return (texto or None), traza_id

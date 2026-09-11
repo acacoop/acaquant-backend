@@ -680,9 +680,26 @@ def barrer(*, guardar: bool = True) -> dict:
                 [(p["schema"], p["tabla"], p["col_fecha"], p["cadencia"],
                   p["intervalo_p50_s"], p["filas"], p["ultimo_dato"])
                  for p in perfiles])
+            # ⚠️⚠️ **UNA MEMORIA QUE NUNCA OLVIDA ES UN BUG** (§0.fa). El upsert
+            # de arriba agrega y actualiza, pero una tabla que se BORRÓ de la
+            # base quedaba en el perfil para siempre — y la lectura en vivo,
+            # que es UNA query para todas, se caía entera por ese nombre
+            # muerto. Medido el 2026-09-11: `estrategia.resultados` ya no
+            # existía, la lectura viva devolvía 0 de 72 en cada pasada, y las
+            # 72 se juzgaban con la foto de ayer. Lo que ya no está en el
+            # catálogo, no está en la memoria.
+            cur.execute(
+                "DELETE FROM manager.tabla_perfil WHERE NOT EXISTS ("
+                "  SELECT 1 FROM unnest(%s::text[], %s::text[]) AS v(s, t) "
+                "  WHERE v.s = schema AND v.t = tabla)",
+                ([p["schema"] for p in perfiles], [p["tabla"] for p in perfiles]))
+            olvidadas = cur.rowcount or 0
+    else:
+        olvidadas = 0
     return {"tablas": len(perfiles),
             "con_ritmo": sum(1 for p in perfiles
-                             if p["cadencia"] in TOLERANCIA_S)}
+                             if p["cadencia"] in TOLERANCIA_S),
+            "olvidadas": olvidadas}
 
 
 def perfiles(solo_con_ritmo: bool = False) -> list[dict]:
@@ -739,29 +756,59 @@ def _ya_tienen_contrato() -> set[str]:
 # Es el mismo HOT/COLD de `ops_agregado_diario`: lo caro y lento se precomputa,
 # lo barato y vivo se calcula al leer.
 #
-# **Si la lectura viva falla, se usa la guardada y se DICE** (`ultimo_vivo` en
-# la evidencia): un veredicto viejo sirve, uno viejo disfrazado de nuevo no.
-def _ultimo_dato_vivo(perfiles_: list[dict]) -> dict[int, object]:
-    """`max(col_fecha)` de cada tabla, AHORA. Una query para todas.
+# **Si la lectura viva falla, NO se juzga con la guardada** (§0.fa). La
+# primera versión caía a la foto y lo decía en la evidencia (`ultimo_vivo`), y
+# el user lo vio en pantalla el 2026-09-11: diez tablas de cierre «no escriben
+# hace 1,5 días» a las 09:19, con el dato del día anterior escrito a las 17:15.
+# Un veredicto viejo disfrazado de nuevo es justo lo que el invariante 1
+# prohíbe. La tabla que no se pudo leer sale como `tipos.NoMirado`; si no se
+# pudo leer NINGUNA, la habilidad levanta `SinDatos`.
+def _ultimo_dato_vivo(perfiles_: list[dict]) -> tuple[dict[int, object], dict[int, str]]:
+    """`max(col_fecha)` de cada tabla, AHORA. Devuelve `(leidas, fallidas)`,
+    las dos por índice de `perfiles_`: la fecha de las que se pudieron leer y
+    el motivo de las que no.
 
     El peaje de Supabase se paga por VIAJE (~8,5 ms), no por fila: 120 `max()`
-    en un `UNION ALL` cuestan un viaje. Nunca levanta — si no se puede leer, el
-    detector se queda con lo que guardó el barrido y lo declara.
+    en un `UNION ALL` cuestan un viaje, y ese es el camino normal.
+
+    ⚠️⚠️ **PERO UN VIAJE PARA TODAS ES TODO O NADA, y eso no puede ser el único
+    camino** (§0.fa). Un solo nombre muerto en la lista —una tabla borrada de
+    la base que el perfil todavía recordaba— hacía fallar la query entera y
+    dejaba a las 72 sin dato vivo, en cada pasada, en 0,03 s. Si el viaje
+    único falla, se lee tabla por tabla: cuesta 72 viajes (~0,6 s) sólo en las
+    pasadas en que algo está roto, y devuelve las 71 que sí se pudieron leer
+    con el motivo de la que no. Nunca levanta.
     """
     if not perfiles_:
-        return {}
+        return {}, {}
+    con_col = [(i, p) for i, p in enumerate(perfiles_) if p.get("col_fecha")]
+    if not con_col:
+        return {}, {}
     partes = [f'SELECT {i} AS i, max("{p["col_fecha"]}") AS t '
-              f'FROM "{p["schema"]}"."{p["tabla"]}"'
-              for i, p in enumerate(perfiles_) if p.get("col_fecha")]
-    if not partes:
-        return {}
+              f'FROM "{p["schema"]}"."{p["tabla"]}"' for i, p in con_col]
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(" UNION ALL ".join(partes))
-            return {r[0]: r[1] for r in cur.fetchall()}
+            return {r[0]: r[1] for r in cur.fetchall()}, {}
     except Exception as e:
-        logger.warning("contexto: no pude leer el último dato en vivo (%s)", e)
-        return {}
+        logger.warning("contexto: la lectura en vivo de un viaje falló (%s); "
+                       "leo tabla por tabla", str(e).splitlines()[0][:200])
+    leidas: dict[int, object] = {}
+    fallidas: dict[int, str] = {}
+    for i, p in con_col:
+        try:
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(f'SELECT max("{p["col_fecha"]}") '
+                            f'FROM "{p["schema"]}"."{p["tabla"]}"')
+                leidas[i] = cur.fetchone()[0]
+        except Exception as e:
+            fallidas[i] = str(e).splitlines()[0][:200]
+    if fallidas:
+        logger.warning("contexto: no pude leer el último dato en vivo de %d tabla(s): %s",
+                       len(fallidas),
+                       ", ".join(f'{perfiles_[i]["schema"]}.{perfiles_[i]["tabla"]}'
+                                 for i in fallidas))
+    return leidas, fallidas
 
 
 def declarados() -> dict[str, dict]:

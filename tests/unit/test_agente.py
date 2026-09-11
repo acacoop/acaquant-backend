@@ -5605,3 +5605,132 @@ def test_hd_1816_al_ccl_esta_conectada_y_es_un_aviso():
     # La regla de qué moneda corresponde NO se reimplementa acá: se deriva del
     # cliente, que es de donde la toman también los jobs (REGLA #9).
     assert "moneda_series" in fuente
+
+
+# ── tabla_quieta: sin dato vivo no se juzga (§0.fa) ────────────────────────
+
+def _pool_de_maximos(monkeypatch, *, muertas: set[str], fecha):
+    """Una base de mentira para `_ultimo_dato_vivo`: cualquier query que nombre
+    una tabla muerta falla —el viaje único con todas, y de a una sólo esa—; el
+    resto contesta `fecha`."""
+    from unittest.mock import MagicMock
+
+    def execute(sql, *_a):
+        for m in muertas:
+            if f'"{m}"' in sql:
+                raise RuntimeError(f'relation "{m}" does not exist')
+    cur = MagicMock()
+    cur.execute.side_effect = execute
+    cur.fetchone.return_value = (fecha,)
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value = conn
+    # `tablas` liga `get_pool` al importar: se parchea el nombre que usa.
+    from agente import tablas
+    monkeypatch.setattr(tablas, "get_pool", lambda: pool)
+    return cur
+
+
+def test_una_tabla_muerta_no_deja_sin_dato_vivo_a_las_demas(monkeypatch):
+    """§0.fa. `estrategia.resultados` ya no existía, el perfil la recordaba, y el
+    `UNION ALL` de las 72 fallaba entero en cada pasada: 0 de 72 leídas, y las
+    72 juzgadas con la foto de ayer. Ahora el viaje único que falla se rehace de
+    a una: vuelven las que sí están, y la muerta vuelve con su motivo."""
+    from datetime import datetime
+
+    from agente import tablas
+    hoy = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+    _pool_de_maximos(monkeypatch, muertas={"resultados"}, fecha=hoy)
+    perfiles = [{"schema": "mercado", "tabla": "cedears_ohlc_daily", "col_fecha": "fecha"},
+                {"schema": "estrategia", "tabla": "resultados", "col_fecha": "resuelto_at"},
+                {"schema": "mercado", "tabla": "eikon_cierres", "col_fecha": "fecha"}]
+    leidas, fallidas = tablas._ultimo_dato_vivo(perfiles)
+    assert leidas == {0: hoy, 2: hoy}
+    assert set(fallidas) == {1} and "does not exist" in fallidas[1]
+
+
+def _tabla_quieta_con(monkeypatch, perfiles, vivo, fallidas):
+    """Le pone al detector un perfil y una lectura viva de mentira, y apaga el
+    barrido, el contrato y el filtro de schemas."""
+    from datetime import datetime
+
+    from agente import peso, tablas
+    ahora = datetime(2026, 9, 11, 12, 19, tzinfo=UTC)
+    for p in perfiles:
+        p.setdefault("cadencia", "diaria_habil")
+        p.setdefault("col_fecha", "fecha")
+        p.setdefault("intervalo_p50_s", 86400)
+        p.setdefault("filas", 10)
+        p.setdefault("medido_at", ahora)
+    monkeypatch.setattr(sistema, "_perfil_vencido", lambda *a, **k: False)
+    monkeypatch.setattr(tablas, "perfiles", lambda solo_con_ritmo=False: perfiles)
+    monkeypatch.setattr(tablas, "_ya_tienen_contrato", lambda: set())
+    monkeypatch.setattr(tablas, "_ultimo_dato_vivo", lambda _p: (vivo, fallidas))
+    monkeypatch.setattr(tablas, "declarados", lambda: {})
+    monkeypatch.setattr(peso, "schemas_nuestros", lambda: set())
+    return sistema.tabla_quieta({})
+
+
+def test_sin_dato_vivo_no_se_juzga_con_la_foto(monkeypatch):
+    """§0.fa. La foto dice que `x` escribió hace cinco días. Si la lectura viva
+    de `x` falló, eso NO es un hallazgo: es un `NoMirado`. Juzgar con la foto es
+    exactamente lo que puso diez tablas sanas en rojo a las 09:19."""
+    from datetime import datetime, timedelta
+    ahora = datetime(2026, 9, 11, 12, 19, tzinfo=UTC)
+    foto_vieja = ahora - timedelta(days=5)
+    perfiles = [{"schema": "mercado", "tabla": "sana", "ultimo_dato": foto_vieja},
+                {"schema": "mercado", "tabla": "muerta", "ultimo_dato": foto_vieja}]
+    out = _tabla_quieta_con(monkeypatch, perfiles,
+                            vivo={0: ahora}, fallidas={1: "relation does not exist"})
+    assert [type(o).__name__ for o in out] == ["NoMirado"]
+    assert out[0].sujeto == "mercado.muerta" and out[0].regla == "sin_escribir"
+    assert "does not exist" in out[0].motivo
+
+
+def test_si_no_se_pudo_leer_ninguna_tabla_la_habilidad_no_miro(monkeypatch):
+    """§0.fa. Cero leídas de N no es «N están al día» ni «N están quietas»: es
+    `SinDatos`, y el motor no cierra nada."""
+    from datetime import datetime
+    ahora = datetime(2026, 9, 11, 12, 19, tzinfo=UTC)
+    perfiles = [{"schema": "mercado", "tabla": "a", "ultimo_dato": ahora},
+                {"schema": "mercado", "tabla": "b", "ultimo_dato": ahora}]
+    with pytest.raises(tipos.SinDatos):
+        _tabla_quieta_con(monkeypatch, perfiles, vivo={}, fallidas={0: "caído", 1: "caído"})
+
+
+def test_no_mirado_no_crea_ni_cierra_y_queda_dicho(monkeypatch):
+    """§0.fa. `registro.guardar` separa los `NoMirado`: el sujeto entra a
+    `vistos` (lo que tuviera abierto NO se cierra por ausencia), no pasa por
+    `_ver` (no nace un hallazgo), y la corrida queda `ok` con «no pude mirar»
+    en `ultimo_error`."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(registro, "get_pool", lambda: MagicMock())
+    sellos, vistos_cerrar, creados = [], [], []
+    monkeypatch.setattr(registro, "sellar_corrida",
+                        lambda h, **k: sellos.append(k))
+    monkeypatch.setattr(registro, "_silenciados", lambda conn, h: set())
+    monkeypatch.setattr(registro, "_ver",
+                        lambda conn, h, x: (creados.append(x), {"nacio": True, "reincidio": False})[1])
+    monkeypatch.setattr(registro, "_cerrar_ausentes",
+                        lambda conn, h, vistos: (vistos_cerrar.extend(vistos), 0)[1])
+    real = tipos.Hallazgo(sujeto="mercado.b", regla="sin_escribir", severidad="media",
+                          problema="quieta", que_hacer="Relanzar jobs.b.")
+    r = registro.guardar("tabla_quieta",
+                         [real, tipos.NoMirado("mercado.a", "sin_escribir", "does not exist")])
+    assert creados == [real]
+    assert ("mercado.a", "sin_escribir") in vistos_cerrar
+    assert r["no_mirados"] == 1 and r["resultado"] == tipos.OK
+    assert any("no pude mirar 1: mercado.a" in (k.get("error") or "") for k in sellos)
+
+
+def test_el_barrido_olvida_las_tablas_que_murieron():
+    """§0.fa. El upsert del perfil agregaba y actualizaba, y una tabla borrada
+    de la base quedaba en la memoria para siempre — y tumbaba la lectura viva
+    de las otras 71. Lo que no está en el catálogo se borra del perfil."""
+    from agente import tablas
+    assert "DELETE FROM manager.tabla_perfil" in _codigo(tablas.barrer)
+    # Y el detector ya no lleva `ultimo_vivo`: no hay veredicto sin dato vivo.
+    assert "ultimo_vivo" not in _codigo(sistema.tabla_quieta)
+    assert "NoMirado(" in _codigo(sistema.tabla_quieta)

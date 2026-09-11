@@ -24,6 +24,8 @@ los 19 detectores por su cuenta, cada uno distinto. Acá:
 
     devolvió        → `ok`        · lo que no vino se cierra POR AUSENCIA
     levantó SinDatos→ `sin_datos` · **no se cierra nada**
+    devolvió NoMirado → `ok`, pero ESE sujeto **ni se crea ni se cierra**
+                      (el invariante 1 de a uno, §0.fa)
     reventó         → `error`     · **no se cierra nada**
     no le tocó      → la fila del catálogo lo dice sola
 

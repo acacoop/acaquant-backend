@@ -137,7 +137,7 @@ problema más grave del agente viejo.**
 | `activa` | guardado — se puede apagar sin tocar código |
 | `ultima_corrida_at` | **guardado** |
 | `ultimo_resultado` | **guardado** — `ok` · `sin_datos` · `error` |
-| `ultimo_error` | guardado |
+| `ultimo_error` | guardado — con la corrida en `ok` lleva lo que la habilidad **no pudo mirar** (`tipos.NoMirado`, §0.fa): «no pude mirar 1: mercado.x (relation does not exist)» |
 | `corridas_hoy` | guardado |
 | `hallazgos_total` | derivado de `hallazgos` |
 | `ultimo_hallazgo_at` | derivado de `hallazgos` |
@@ -1320,7 +1320,10 @@ habilidades, editable sin deploy.
 
 ## 8. Invariantes — lo que no se puede romper
 
-1. **Una habilidad que no corrió no cierra nada.** Nunca.
+1. **Una habilidad que no corrió no cierra nada.** Nunca. **Y de a uno**
+   (§0.fa): un detector que no pudo mirar UN sujeto lo devuelve como
+   `tipos.NoMirado`, y ese sujeto no se crea ni se cierra — la corrida sigue
+   `ok` para los demás. Nunca se juzga con una foto vieja «diciéndolo».
 2. **Un hallazgo sin `que_hacer` no se guarda.** Si no se puede decir qué hacer,
    la regla está mal pensada.
 3. **Todo lo que se muestra lleva fecha y hora.**
@@ -6905,3 +6908,55 @@ BOPREALes, 9 Bonares, 6 Globales). El backfill se corrió el 2026-09-09 con
 filas viejas en `ars` no se borran: son el único registro del tramo que la API
 ya no deja rebajar (topea en 1 año) y la lectura las ignora. Detalle del lado de
 Research en `docs/RESEARCH.md` §A.4.7b.
+
+---
+
+### 0.fa DIEZ TABLAS «NO ESCRIBEN HACE 1,5 DÍAS» Y TODAS ESCRIBÍAN — la memoria que no olvidaba y el viaje todo-o-nada (2026-09-11)
+
+El user, con AHORA abierto un viernes a las 09:19: diez tablas de cierre
+(`cedears_ohlc_daily`, `eikon_cierres`, `fair_value_residuos`, `bonos_ohlc_daily`,
+`snapshots_cierre_hist`, …) marcadas `tabla_quieta` con «no escribe hace 1,5
+días y su cron dice cada 1,0 días», todas «crónico, 4-5× en 30 d». *«El mercado
+cierra a las 17. No entiendo qué toma para decir que no escribe hace X días si
+en realidad sí escribe. Es el mismo patrón que pasa con casi todas.»*
+
+**Medido con `scripts/diag_tabla_quieta --tabla mercado.cedears_ohlc_daily --vivo`:**
+
+- El job corrió las ocho últimas veces, `ok`, 17:15 ART, con cedears escritos.
+  A las 10:01 `max(fecha)` decía **10/09**. El agente a las 09:19 decía 09/09.
+- **La lectura en vivo fallaba en TODAS las pasadas, en 0,03 s**: `relation
+  "estrategia.resultados" does not exist`. Una tabla borrada de la base que
+  `manager.tabla_perfil` seguía recordando — el barrido hace upsert y **nunca
+  borraba** — y como la lectura viva era UNA query `UNION ALL` para las 72,
+  un nombre muerto la tumbaba entera. `journalctl` mostró el warning ocho
+  veces entre las 08:52 y las 12:49.
+- Sin dato vivo, el detector caía a la FOTO «y lo decía» (`ultimo_vivo: false`
+  en la evidencia). La foto se saca al cerrar la rueda, **17:15, el mismo
+  minuto en que corren los jobs de cierre**: siempre dice «ayer». Ayer +
+  36 h de tope = **hoy a las 09:00**. Por eso las cuatro veces cayeron a las
+  09:19/09:20: la primera pasada después de las 09:00.
+- Y el «crónico 4×» eran **tres bugs distintos del detector**, ninguno del
+  job: 28/08 la fecha de negocio (§0.em), 31/08 el finde a medias
+  (`_segundos_de_finde`), 05/09 y 11/09 esto.
+
+**Qué se cambió (código, no IA — el user lo discutió y tiene razón: «no sería
+mejor que no pase nunca el NO PUDE MIRAR?». Lo nuestro se previene; lo del
+mundo se declara):**
+
+1. **El barrido olvida** (`tablas.barrer`): lo que ya no está en el catálogo se
+   borra del perfil. Una memoria que nunca olvida es un bug.
+2. **La lectura viva no es todo o nada** (`tablas._ultimo_dato_vivo`): si el
+   viaje único falla, se lee tabla por tabla y devuelve `(leídas, fallidas)`.
+   72 viajes sólo en las pasadas en que algo está roto.
+3. **Sin dato vivo no se juzga** (`sistema.tabla_quieta`): la foto dice qué
+   tablas hay y cada cuánto escriben; el atraso se mide contra la tabla ahora
+   o no se mide. Si no se pudo leer ninguna → `SinDatos`. Si no se pudo leer
+   una → **`tipos.NoMirado`**, que es nuevo: viaja mezclado con los
+   `Hallazgo`, `registro.guardar` lo separa, cuenta como visto para el cierre
+   por ausencia (lo que esa tabla tuviera abierto sigue abierto) y como nada
+   para el resto. La corrida queda `ok` y `ultimo_error` dice «no pude mirar
+   1: …», que es lo que HABILIDADES muestra. Es el invariante 1 de a uno.
+
+`ultimo_vivo` desaparece de la evidencia: ya no hay veredicto sin dato vivo.
+El desfase de la hora del barrido contra los jobs de cierre queda como está:
+con la foto fuera del veredicto, no decide nada.

@@ -44,7 +44,9 @@ paths:
 > **Los invariantes (`AGENT.md` §8), congelados por `tests/unit/test_agente.py`:**
 > 1. Una habilidad que no corrió **no cierra nada**. Solo un resultado `ok`
 >    puede cerrar por ausencia: una corrida ciega que cierra 40 problemas deja
->    el tablero en verde justo el día que menos ve.
+>    el tablero en verde justo el día que menos ve. **Y de a uno**: un sujeto
+>    que no se pudo mirar vuelve como `tipos.NoMirado` y ni se crea ni se
+>    cierra (§0.fa). Nunca se juzga con una foto vieja.
 > 2. Un hallazgo **sin `que_hacer` no se guarda** (CHECK en la base).
 > 3. Todo lo que se muestra lleva **fecha y hora**.
 > 4. **Solo lo cerrado POR ACCIÓN puede reincidir.** Ante la duda, por ausencia.

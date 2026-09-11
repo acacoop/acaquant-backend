@@ -150,11 +150,11 @@ def _historial(tabla: str, dias: int = 30) -> None:
         print(f"    #{hid} {hora_ar(det)} ({det:%a}) · ×{veces} · {estado:<9} · {duro} · "
               f"cierre={como or '—'} · leído={'por ' + quien if quien else 'no'}")
         ev = ev or {}
-        # ⚠️ `ultimo_vivo=False` = la lectura en vivo FALLÓ y se juzgó con la
-        # foto del barrido. Es la diferencia entre «la tabla no escribió» y
-        # «el agente no pudo mirar la tabla».
+        # `ultimo_vivo=False` sólo aparece en hallazgos anteriores a §0.fa: la
+        # lectura en vivo había fallado y se juzgó con la foto del barrido.
         at, tp = ev.get("atraso_s"), ev.get("tope_s")
-        print(f"          evidencia: ultimo_vivo={ev.get('ultimo_vivo')} · "
+        vivo = "" if "ultimo_vivo" not in ev else f"ultimo_vivo={ev['ultimo_vivo']} · "
+        print(f"          evidencia: {vivo}"
               f"ultimo_dato={ev.get('ultimo_dato')} · "
               + (f"atraso/tope={at / 3600:.2f}/{tp / 3600:.2f} h" if at and tp else "sin atraso"))
 
@@ -230,20 +230,24 @@ def _una(tabla: str, n_corridas: int) -> None:
 def _lectura_viva() -> None:
     """Reproduce el paso del detector que lee `max(col)` de TODAS las tablas con
     ritmo en UN viaje (`tablas._ultimo_dato_vivo`) y mide cuánto tarda. El pool
-    corta a los 15 s (`statement_timeout`); si esa lectura se pasa, el detector
-    se queda SIN dato vivo para todas y juzga con la foto del barrido."""
+    corta a los 15 s (`statement_timeout`). Si el viaje único falla se lee tabla
+    por tabla, y la que igual no se pueda leer sale como `NoMirado`."""
     import time
 
     from agente import tablas
     _titulo("LA LECTURA EN VIVO — como la hace el detector, todas las tablas de un viaje")
     con_ritmo = tablas.perfiles(solo_con_ritmo=True)
     t0 = time.perf_counter()
-    vivo = tablas._ultimo_dato_vivo(con_ritmo)
+    vivo, fallidas = tablas._ultimo_dato_vivo(con_ritmo)
     seg = time.perf_counter() - t0
     print(f"  tablas con ritmo : {len(con_ritmo)}")
     print(f"  tardó            : {seg:.2f} s   (tope del pool: 15 s)")
-    print(f"  devolvió         : {len(vivo)} lecturas"
-          + ("   ⚠ NINGUNA: falló → el detector juzga con la FOTO" if not vivo else ""))
+    print(f"  leídas           : {len(vivo)}"
+          + ("   ⚠ NINGUNA: la habilidad entera queda en «sin datos»" if not vivo else ""))
+    for i, motivo in fallidas.items():
+        t = con_ritmo[i]
+        print(f"  no pude mirar    : {t['schema']}.{t['tabla']} → {motivo}   "
+              f"(sale como NoMirado: no se crea ni se cierra nada)")
 
 
 def main() -> int:

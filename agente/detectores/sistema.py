@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 
 from agente import reloj
-from agente.tipos import Hallazgo, SinDatos
+from agente.tipos import Hallazgo, NoMirado, SinDatos
 
 
 def _humano(s: float) -> str:
@@ -607,9 +607,21 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
     try:
         con_contrato = tablas._ya_tienen_contrato()
         con_ritmo = tablas.perfiles(solo_con_ritmo=True)
-        vivo = tablas._ultimo_dato_vivo(con_ritmo)
+        vivo, no_leidas = tablas._ultimo_dato_vivo(con_ritmo)
     except Exception as e:
         raise SinDatos(f"no pude leer el perfil de las tablas: {e}") from e
+
+    # ⚠️⚠️ **SIN DATO VIVO NO SE JUZGA** (§0.fa). La foto del barrido dice de
+    # qué tablas hay y cada cuánto escriben; **el atraso se mide contra la
+    # tabla, ahora, o no se mide**. La primera versión caía a la foto cuando la
+    # lectura viva fallaba, «y lo decía» en la evidencia — y el user vio el
+    # resultado en AHORA el 2026-09-11: diez tablas de cierre en rojo por una
+    # foto de ayer, con el dato de hoy escrito hacía 16 horas. Si no se pudo
+    # leer ninguna, la habilidad entera no miró; si no se pudo leer una, esa
+    # una sale como `NoMirado` y el registro no la crea ni la cierra.
+    if con_ritmo and not vivo:
+        raise SinDatos("no pude leer el último dato en vivo de ninguna tabla: "
+                       + (next(iter(no_leidas.values())) if no_leidas else "sin motivo"))
 
     # **Un perfil viejo NO se lee como un tablero limpio.** Si el barrido no pudo
     # correr y la foto quedó vieja de verdad, esta corrida no vio la base de hoy
@@ -648,15 +660,18 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
     from agente import peso as _peso
     nuestros = _peso.schemas_nuestros()
 
-    out = []
+    out: list = []
     for i, p in enumerate(con_ritmo):
-        if i in vivo:
-            p = {**p, "ultimo_dato": vivo[i]}
         if nuestros and p["schema"] not in nuestros:
             continue
         nombre = f"{p['schema']}.{p['tabla']}"
         if nombre in con_contrato:
             continue
+        if i not in vivo:
+            out.append(NoMirado(sujeto=nombre, regla="sin_escribir",
+                                motivo=no_leidas.get(i, "sin lectura en vivo")))
+            continue
+        p = {**p, "ultimo_dato": vivo[i]}
         d = declarado.get(nombre)
         f = tablas.frescura(p, declarado=d)
         if f["estado"] != "atrasada":
@@ -693,10 +708,6 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
             evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                        "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
                        "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
-                       # ¿El atraso se midió AHORA o salió de la foto del
-                       # barrido? Sin esto, un veredicto viejo se lee igual que
-                       # uno fresco.
-                       "ultimo_vivo": i in vivo,
                        "la_escribe": escribe.quien_escribe(nombre),
                        "relanzar": escribe.que_relanzar(nombre)}))
     return out

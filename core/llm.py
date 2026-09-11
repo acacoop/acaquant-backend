@@ -1,47 +1,33 @@
-"""core/llm.py — transporte LLM único y RUTEO de proveedores.
+"""core/llm.py — LA ÚNICA PUERTA HACIA UN MODELO DE IA.
 
-⚠️ **HOY NO HAY NINGUNA TAREA QUE LLEGUE HASTA ACÁ** (2026-08-28, ver el banner
-de `core/ai.py`). El módulo se conserva por lo que sabe, no por lo que hace: el
-dialecto de cada proveedor, los precios verificados, y sobre todo el **ruteo
-fail-closed** de abajo, que es una garantía de privacidad y no una optimización.
+Todo el sistema que quiera hablarle a un modelo pasa por acá. Nadie más sabe
+la URL, la clave ni cómo se le habla a cada proveedor.
 
-ESTE es el ÚNICO archivo del sistema que sabe qué proveedores de LLM usamos y
-cómo se le habla a cada uno. Cambiar de proveedor — o rutear una tarea a otro —
-es tocar SOLO este módulo. El gateway `core/ai.py` (tareas, presupuestos,
-trazas) y cualquier caller futuro hablan con `chat()` y no saben con quién.
+Para qué sirve que esté todo en un solo archivo: el día que cambiemos de
+proveedor, o que agreguemos otro, se toca ESTE archivo y nada más. Las
+features que usan IA no se enteran.
 
-Separación de responsabilidades:
-  core/llm.py  → TRANSPORTE + RUTEO: HTTP, auth, retry, dialecto de cada
-                 proveedor (nombres de parámetros, switch de razonamiento),
-                 parseo de la respuesta.
-  core/ai.py   → GATEWAY: tareas registradas (cada una declara su proveedor),
-                 presupuestos diarios, trazas a ia.trazas, contrato
-                 nunca-levanta de cara a las features.
+Hay dos proveedores y NO son intercambiables:
 
-## Proveedores (decisión del user 2026-07-21)
+  deepseek  barato. Pero sus términos le permiten entrenar con lo que le
+            mandamos → SOLO datos públicos de mercado.
+  openai    más caro. No entrena con lo que entra por la API → es el único
+            al que se le pueden mandar datos de la empresa.
 
-- **deepseek** (default) — barato, para el grueso del volumen: copiloto de
-  mercado, triage, research. Los datos que ve son PÚBLICOS (mercado).
-  Cuidado: sus términos permiten entrenar con lo que se le manda y los datos
-  viven en China → JAMÁS datos del negocio.
-- **openai** — para la tarea del ASISTENTE DE NEGOCIO. No entrena con datos de
-  API, retención de 30 días (0 con ZDR), DPA firmable. Más caro (~3x), pero a
-  nuestro volumen la diferencia es de dólares al mes y compra la garantía
-  contractual sobre los números de la empresa.
+⚠️ Si el proveedor que le toca a una tarea no tiene su clave puesta, la
+llamada NO SE HACE y no se manda a otro. Mandarla al otro sería justamente
+filtrarle datos de la empresa al que puede entrenar con ellos. Prefiere no
+funcionar antes que funcionar mal y en silencio.
 
-**FAIL-CLOSED (importante):** si el proveedor de una tarea NO está configurado,
-la llamada NO se hace y NO cae a otro proveedor — devolvería silenciosamente
-datos del negocio a DeepSeek, que es justo lo que este ruteo evita. La feature
-degrada (el asistente avisa que no está disponible).
+Quién lo llama: `core/ai.py` (que además lleva el presupuesto y la traza) y
+`agente/explicar.py` para preguntar si hay clave puesta.
 
-Env vars (las únicas de proveedores, leídas SOLO acá):
-  DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL   — proveedor deepseek.
-  OPENAI_API_KEY   / OPENAI_BASE_URL     — proveedor openai.
-  AI_MODEL_FLASH / AI_MODEL_PRO                 — modelos deepseek por tier.
-  AI_MODEL_OPENAI_FLASH / AI_MODEL_OPENAI_PRO   — modelos openai por tier.
-  AI_OPENAI_REASONING_OFF / _ON — esfuerzo de razonamiento de openai cuando la
-      tarea pide thinking disabled/enabled (default none/medium; válidos:
-      none, low, medium, high, xhigh — 'minimal' NO existe en gpt-5.6).
+Variables de entorno (se leen SOLO acá):
+  DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL
+  OPENAI_API_KEY   / OPENAI_BASE_URL
+  AI_MODEL_FLASH / AI_MODEL_PRO                 — modelos de deepseek
+  AI_MODEL_OPENAI_FLASH / AI_MODEL_OPENAI_PRO   — modelos de openai
+  AI_OPENAI_REASONING_OFF / _ON                 — cuánto "piensa" openai
 """
 from __future__ import annotations
 
@@ -52,129 +38,51 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+# El .env se lee acá y no desde la terminal: un `source .env` de bash rompe
+# los valores que tienen `&` adentro y el error que ves después habla de otra
+# cosa.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_RAIZ, ".env"))
 
 logger = logging.getLogger(__name__)
 
-# Body de error que viaja en RespuestaLLM.error. Generoso a propósito: un 400
-# del proveedor recién dice QUÉ parámetro rechaza en el medio del JSON, y con
-# 200 chars el diagnóstico quedaba cortado (caso 2026-07-21).
+# Cuánto texto del error del proveedor se guarda. Generoso porque un error de
+# pedido mal armado recién dice QUÉ parámetro rechaza en el medio del mensaje.
 _MAX_ERROR_BODY = 500
 
 PROVEEDOR_DEFAULT = "deepseek"
 
-# Dialecto de razonamiento por proveedor. DeepSeek usa `thinking: {type}`;
-# OpenAI usa `reasoning_effort`.
-#
-# ⚠ VERIFICADO CONTRA EL PROVEEDOR (2026-07-21, HTTP 400 real): gpt-5.6 acepta
-# 'none', 'low', 'medium', 'high', 'xhigh' — **NO acepta 'minimal'** (lo
-# habíamos elegido por un reporte de que 'none' se ignoraba en otro modelo).
-# Apagado → 'none'. Env-overridable para poder ajustar sin deploy si algún
-# modelo futuro se comporta distinto.
-def _reasoning_openai(thinking: str) -> str:
-    if thinking == "enabled":
-        return os.getenv("AI_OPENAI_REASONING_ON", "medium")
-    return os.getenv("AI_OPENAI_REASONING_OFF", "none")
-
+# La ficha de cada proveedor. Todo lo que lo distingue está acá adentro.
 _PROVEEDORES: dict[str, dict] = {
     "deepseek": {
         "key_env": "DEEPSEEK_API_KEY",
         "url_env": "DEEPSEEK_BASE_URL",
         "url_default": "https://api.deepseek.com",
+        # qué modelo usar según se pida el rápido y barato o el caro y capaz
         "modelos": {"flash": ("AI_MODEL_FLASH", "deepseek-v4-flash"),
                     "pro":   ("AI_MODEL_PRO",   "deepseek-v4-pro")},
-        # el parámetro de techo de salida cambia de nombre según proveedor
+        # cada proveedor llama distinto al tope de texto que puede devolver
         "max_tokens_param": "max_tokens",
         "dialecto": "deepseek",
-        # ¿el proveedor se compromete a no entrenar con lo que le mandamos?
+        # ¿se compromete por contrato a NO entrenar con lo que le mandamos?
         "no_entrena": False,
-        # prefijos de ID de modelo → para saber a qué proveedor pertenece una
-        # traza vieja (observabilidad). El cableado vive acá, como todo.
-        "prefijos": ("deepseek",),
     },
     "openai": {
         "key_env": "OPENAI_API_KEY",
         "url_env": "OPENAI_BASE_URL",
         "url_default": "https://api.openai.com/v1",
-        # gpt-5.6-luna $1/$6 por 1M · terra $2.50/$15 (verificado 2026-07-21)
         "modelos": {"flash": ("AI_MODEL_OPENAI_FLASH", "gpt-5.6-luna"),
                     "pro":   ("AI_MODEL_OPENAI_PRO",   "gpt-5.6-terra")},
-        # `max_tokens` está deprecado y NO es compatible con los modelos que
-        # razonan — los gpt-5.x exigen max_completion_tokens
+        # los modelos que razonan rechazan `max_tokens`: piden este otro
         "max_tokens_param": "max_completion_tokens",
         "dialecto": "openai",
         "no_entrena": True,
-        "prefijos": ("gpt-", "o1", "o3", "o4"),
     },
 }
 
 
-# ── Precios (USD por 1M de tokens) ───────────────────────────────────────────
-# VERIFICADOS contra las páginas de precios de cada proveedor el 2026-07-21.
-# Sirven para estimar el gasto en OBSERVABILIDAD: DeepSeek expone saldo real
-# (/user/balance) pero OpenAI NO tiene endpoint de saldo — ni con admin key —,
-# así que el gasto se calcula desde los tokens que ya guardamos en ia.trazas.
-# (entrada, salida, entrada_cacheada). Si el proveedor cambia los precios, se
-# actualizan ACÁ (el cableado del proveedor vive en este archivo y nada más).
-_PRECIOS: dict[str, tuple[float, float, float]] = {
-    "deepseek-v4-flash": (0.14, 0.28, 0.0028),
-    "deepseek-v4-pro":   (0.435, 0.87, 0.003625),
-    "gpt-5.6-luna":  (1.00, 6.00, 0.10),
-    "gpt-5.6-terra": (2.50, 15.00, 0.25),
-    "gpt-5.6-sol":   (5.00, 30.00, 0.50),
-    "gpt-5.4-mini":  (0.75, 4.50, 0.075),
-    "gpt-5.4-nano":  (0.20, 1.25, 0.02),
-}
-
-
-def costo_estimado(modelo: str | None, tokens_in: int | None, tokens_out: int | None,
-                   cache_hit: int | None = None) -> float | None:
-    """USD estimados de una llamada (o de un agregado por modelo). None si el
-    modelo no está en la tabla de precios — mejor sin dato que un número
-    inventado. Los tokens servidos desde caché se cobran mucho menos y se
-    descuentan del input."""
-    precios = _PRECIOS.get(str(modelo or "").strip().lower())
-    if precios is None:
-        return None
-    p_in, p_out, p_cache = precios
-    ti, to = int(tokens_in or 0), int(tokens_out or 0)
-    hit = min(int(cache_hit or 0), ti)
-    return ((ti - hit) * p_in + hit * p_cache + to * p_out) / 1_000_000
-
-
-def proveedor_de_modelo(modelo: str | None) -> str | None:
-    """A qué proveedor pertenece un ID de modelo (para leer trazas viejas en
-    OBSERVABILIDAD). None si no se reconoce."""
-    m = str(modelo or "").strip().lower()
-    if not m:
-        return None
-    for nombre, cfg in _PROVEEDORES.items():
-        if any(m.startswith(p) for p in cfg["prefijos"]):
-            return nombre
-    return None
-
-
-def estado_proveedores() -> list[dict]:
-    """Foto de cada proveedor para el panel: si está configurado, sus modelos
-    por tier, si se compromete a no entrenar y su saldo (si lo expone)."""
-    out = []
-    for nombre, cfg in _PROVEEDORES.items():
-        out.append({
-            "proveedor": nombre,
-            "configurado": bool(os.getenv(cfg["key_env"])),
-            "no_entrena": bool(cfg["no_entrena"]),
-            "modelos": {tier: modelo(tier, nombre) for tier in cfg["modelos"]},
-            "saldo": saldo_cuenta(nombre),
-        })
-    return out
-
-
-def proveedores() -> tuple[str, ...]:
-    return tuple(_PROVEEDORES)
-
-
 def _cfg_proveedor(proveedor: str | None) -> dict:
+    """La ficha de un proveedor. Levanta si el nombre no existe."""
     cfg = _PROVEEDORES.get(proveedor or PROVEEDOR_DEFAULT)
     if cfg is None:
         raise ValueError(f"proveedor LLM desconocido: {proveedor!r} "
@@ -183,8 +91,8 @@ def _cfg_proveedor(proveedor: str | None) -> dict:
 
 
 def configurado(proveedor: str | None = None) -> bool:
-    """True si ESE proveedor tiene credencial. Los callers chequean esto,
-    jamás la env var directa (que es detalle del proveedor)."""
+    """¿Tiene puesta su clave? Se pregunta ACÁ y nunca leyendo la variable de
+    entorno por fuera: cuál es se cambia en este archivo."""
     try:
         return bool(os.getenv(_cfg_proveedor(proveedor)["key_env"]))
     except ValueError:
@@ -192,9 +100,9 @@ def configurado(proveedor: str | None = None) -> bool:
 
 
 def no_entrena(proveedor: str | None = None) -> bool:
-    """True si el proveedor se compromete contractualmente a no entrenar con
-    lo que le mandamos. Lo usa la doc/observabilidad para ser explícita sobre
-    a dónde va cada tarea."""
+    """¿Este proveedor se comprometió a no entrenar con lo nuestro? Es lo que
+    mira `core/ai.py` para decidir si una tarea con datos de la empresa puede
+    salir o no."""
     try:
         return bool(_cfg_proveedor(proveedor)["no_entrena"])
     except ValueError:
@@ -202,63 +110,60 @@ def no_entrena(proveedor: str | None = None) -> bool:
 
 
 def modelo(tier: str = "flash", proveedor: str | None = None) -> str:
-    """ID del modelo para (tier, proveedor), con override por env var."""
+    """El nombre del modelo a usar. `tier` es "flash" (barato) o "pro" (caro).
+    Si no existe ese tier, cae en flash."""
     cfg = _cfg_proveedor(proveedor)
     env, default = cfg["modelos"].get(tier) or cfg["modelos"]["flash"]
     return os.getenv(env, default)
-
-
-def modelo_flash() -> str:
-    """Compat: modelo tier flash del proveedor default."""
-    return modelo("flash")
-
-
-def modelo_pro() -> str:
-    """Compat: modelo tier pro del proveedor default."""
-    return modelo("pro")
 
 
 def _base_url(cfg: dict) -> str:
     return os.getenv(cfg["url_env"], cfg["url_default"])
 
 
+def _reasoning_openai(thinking: str) -> str:
+    """Cuánto tiene que "pensar" openai antes de contestar. Pensar más cuesta
+    más tokens, así que el default es no pensar."""
+    if thinking == "enabled":
+        return os.getenv("AI_OPENAI_REASONING_ON", "medium")
+    return os.getenv("AI_OPENAI_REASONING_OFF", "none")
+
+
 @dataclass
 class RespuestaLLM:
-    """Resultado de una llamada de transporte. `ok=False` + `error` ante
-    cualquier fallo — chat() NUNCA levanta excepción."""
+    """Lo que devuelve una llamada. Si algo falló, `ok` es False y el motivo
+    está en `error` — nunca se levanta una excepción."""
     ok: bool
     texto: str | None = None
-    razonamiento: str | None = None          # reasoning_content, si el proveedor lo expone
-    tokens_in: int | None = None
-    tokens_out: int | None = None
-    cache_hit: int | None = None             # tokens servidos desde caché de prefijo
-    cache_miss: int | None = None
+    razonamiento: str | None = None   # lo que "pensó", si el proveedor lo muestra
+    tokens_in: int | None = None      # cuánto texto entró (lo que se paga)
+    tokens_out: int | None = None     # cuánto salió
+    cache_hit: int | None = None      # de lo que entró, cuánto salió del caché
+    cache_miss: int | None = None     # (el caché es ~10 veces más barato)
     latencia_ms: int | None = None
     error: str | None = None
 
 
-def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict], max_tokens: int,
-                thinking: str | None) -> dict:
-    """Traduce los parámetros neutros al dialecto del proveedor."""
+def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict],
+                max_tokens: int, thinking: str | None) -> dict:
+    """Arma el pedido en el idioma del proveedor. Los dos hablan parecido pero
+    no igual, y esta función es la que traduce."""
     body: dict = {"model": modelo_id, "messages": mensajes,
                   cfg["max_tokens_param"]: max_tokens}
     if cfg["dialecto"] == "openai":
-        # store=false SIEMPRE: que la llamada no quede almacenada del lado del
-        # proveedor para evals/distillation, sin depender de que el toggle de
-        # la organización esté bien puesto (defensa en profundidad).
+        # Que openai NO guarde la conversación de su lado. Va siempre, sin
+        # depender de que el interruptor de la cuenta esté bien puesto.
         body["store"] = False
         if thinking is not None:
             body["reasoning_effort"] = _reasoning_openai(thinking)
     elif thinking is not None:
-        # Shape verificado contra la doc del proveedor (2026-07-11): el default
-        # es "enabled" → los callers lo mandan SIEMPRE explícito por tarea.
         body["thinking"] = {"type": thinking}
     return body
 
 
 def _usage_cache(usage: dict) -> tuple[int | None, int | None]:
-    """Tokens de caché normalizados entre dialectos: DeepSeek expone
-    prompt_cache_hit/miss_tokens; OpenAI, prompt_tokens_details.cached_tokens."""
+    """Cuántos tokens vinieron del caché del proveedor. Cada uno lo informa
+    con otro nombre, así que se normaliza a un solo par de números."""
     hit = usage.get("prompt_cache_hit_tokens")
     miss = usage.get("prompt_cache_miss_tokens")
     if hit is None:
@@ -279,15 +184,15 @@ def chat(
     reintentos: int = 0,
     proveedor: str | None = None,
 ) -> RespuestaLLM:
-    """Una llamada de chat al proveedor indicado (default: PROVEEDOR_DEFAULT).
+    """Una llamada al modelo. Es lo único que hace este archivo.
 
-    - `mensajes`: lista OpenAI-style ({role, content, ...}) — se manda tal cual.
-    - `thinking`: "enabled"/"disabled" NEUTRO — cada proveedor lo traduce a su
-      dialecto (thinking / reasoning_effort). None = no mandar nada.
-    - `reintentos`: cuántas veces reintentar ante timeout / conexión / 5xx.
-      Ante 4xx JAMÁS se reintenta (pedido mal armado).
+    - `mensajes`: la conversación, como lista de {role, content}.
+    - `thinking`: "enabled" / "disabled" / None. Cada proveedor lo traduce.
+    - `reintentos`: sólo sirve para fallas pasajeras (se cortó la red, el
+      proveedor devolvió un error suyo). Si el pedido está mal armado o la
+      clave es inválida NO se reintenta: volver a mandar lo mismo da lo mismo.
 
-    NUNCA levanta excepción: cualquier fallo → RespuestaLLM(ok=False, error=...).
+    NUNCA levanta una excepción. Si algo falla, devuelve ok=False y el motivo.
     """
     try:
         cfg = _cfg_proveedor(proveedor)
@@ -303,28 +208,30 @@ def chat(
     import requests
 
     url = _base_url(cfg) + "/chat/completions"
-    body = _armar_body(cfg, modelo_id=modelo, mensajes=mensajes, max_tokens=max_tokens,
-                       thinking=thinking)
+    body = _armar_body(cfg, modelo_id=modelo, mensajes=mensajes,
+                       max_tokens=max_tokens, thinking=thinking)
 
     t0 = time.perf_counter()
     ultimo_error: str | None = None
     for _intento in range(reintentos + 1):
         try:
-            resp = requests.post(
-                url, headers={"Authorization": f"Bearer {key}"}, json=body, timeout=timeout_s,
-            )
-        except requests.RequestException as e:  # timeout / conexión → reintentable
+            resp = requests.post(url, headers={"Authorization": f"Bearer {key}"},
+                                 json=body, timeout=timeout_s)
+        except requests.RequestException as e:
+            # se cortó la red o venció el tiempo → vale volver a intentar
             ultimo_error = f"{type(e).__name__}: {e}"
             continue
-        if resp.status_code >= 500:  # error del proveedor → reintentable
+        if resp.status_code >= 500:
+            # el problema es del proveedor → vale volver a intentar
             ultimo_error = f"HTTP {resp.status_code}: {resp.text[:_MAX_ERROR_BODY]}"
             continue
         latencia_ms = int((time.perf_counter() - t0) * 1000)
-        if resp.status_code != 200:  # 4xx: pedido mal armado / key inválida — sin retry
+        if resp.status_code != 200:
+            # 4xx: el pedido está mal armado o la clave no sirve. Reintentar
+            # daría exactamente el mismo error, así que se corta acá.
             return RespuestaLLM(
                 ok=False, latencia_ms=latencia_ms,
-                error=f"HTTP {resp.status_code}: {resp.text[:_MAX_ERROR_BODY]}",
-            )
+                error=f"HTTP {resp.status_code}: {resp.text[:_MAX_ERROR_BODY]}")
         try:
             data = resp.json()
             msg = data["choices"][0]["message"]
@@ -346,54 +253,3 @@ def chat(
 
     latencia_ms = int((time.perf_counter() - t0) * 1000)
     return RespuestaLLM(ok=False, latencia_ms=latencia_ms, error=ultimo_error)
-
-
-# ── Saldo REAL de la cuenta del proveedor ────────────────────────────────────
-# GET /user/balance — endpoint propio de DeepSeek (verificado contra su doc
-# 2026-07-11: is_available + balance_infos[{currency, total_balance,
-# granted_balance, topped_up_balance}]). Es el dato de la CUENTA, no una
-# inferencia. Los demás proveedores no exponen un equivalente → None.
-
-_SALDO_TTL_S = 300
-_saldo_cache: dict = {"ts": 0.0, "valor": None}
-
-
-def saldo_cuenta(proveedor: str = "deepseek") -> dict | None:
-    """Saldo real de la cuenta del proveedor, cacheado 5 min. None si no hay
-    key, si el proveedor no expone saldo, o ante fallo sin valor previo.
-    Nunca levanta."""
-    if proveedor != "deepseek":
-        return None
-    cfg = _PROVEEDORES["deepseek"]
-    key = os.getenv(cfg["key_env"])
-    if not key:
-        return None
-    ahora = time.monotonic()
-    if ahora - _saldo_cache["ts"] < _SALDO_TTL_S and _saldo_cache["valor"] is not None:
-        return _saldo_cache["valor"]
-    try:
-        import requests
-        resp = requests.get(_base_url(cfg) + "/user/balance",
-                            headers={"Authorization": f"Bearer {key}"}, timeout=10)
-        if resp.status_code != 200:
-            logger.warning("core.llm: /user/balance HTTP %s: %s",
-                           resp.status_code, resp.text[:120])
-            return _saldo_cache["valor"]
-        data = resp.json()
-        valor = {
-            "disponible": bool(data.get("is_available")),
-            "saldos": [
-                {
-                    "moneda": b.get("currency"),
-                    "total": b.get("total_balance"),
-                    "otorgado": b.get("granted_balance"),
-                    "cargado": b.get("topped_up_balance"),
-                }
-                for b in (data.get("balance_infos") or [])
-            ],
-        }
-        _saldo_cache.update(ts=ahora, valor=valor)
-        return valor
-    except Exception as e:
-        logger.warning("core.llm: no pude leer el saldo del proveedor (%s)", e)
-        return _saldo_cache["valor"]

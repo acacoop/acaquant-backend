@@ -5294,6 +5294,161 @@ def test_clase_activo_se_propone_con_fuente_y_de_lista_cerrada():
     assert (r[0]["propuesto"], r[0]["fuente"]) == ("FUTUROS DE MAÍZ", clase.REGLA)
 
 
+def test_el_fci_se_resuelve_por_el_LINK_y_el_nombre_es_el_respaldo():
+    """⚠️⚠️ **EL LINK GANA, Y EL NOMBRE NO ES UNA IDENTIDAD** (§0.fg).
+
+    Medido el 2026-09-11: de 84 FCI sin clase, **73 «no matchearon»** ninguna
+    ficha de Primary — teniendo el link al lado. `mercado.fci.unidad` lo
+    confirma la mesa en Manager y es la MISMA clave con la que se escribe;
+    `core/fci_match.py` lo dice desde el principio: *«el link es por símbolo, no
+    por texto»*.
+    """
+    from agente import clase
+
+    fondo = {"unidad": "[1138] CAFCI562-1138 - FCI Toronto Trust Renta Fija - Clase A",
+             "cartera": "FCI", "ticker": "Toronto Trust Renta Fija - Clase A",
+             "clase_activo": "", "emisor": ""}
+    fci = {fondo["unidad"]: {"nombre": "Toronto Trust Renta Fija - Clase A",
+                             "tipo_renta": "Renta Fija", "moneda": "ARS",
+                             "categoria": "ARS T1"}}
+
+    # Sin ninguna ficha de Primary, el link solo alcanza.
+    r = clase.proponer([fondo], [], usadas=["ARS T1"], fci=fci)
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("ARS T1", clase.FCI)
+
+    # Y el link GANA sobre el nombre: si los dos contestan, manda el que la
+    # mesa confirmó, no el match de texto.
+    fichas = [{"simbolo": "Toronto Trust Renta Fija - Clase A",
+               "subyacente": "Mercado de Dinero", "moneda": "ARS"}]
+    r = clase.proponer([fondo], fichas, usadas=["ARS T1", "MM ARS"], fci=fci)
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("ARS T1", clase.FCI)
+
+    # Sin link, el nombre sigue siendo el respaldo — y ahora con el
+    # normalizador del DOMINIO FCI: el asset dice «FCI …» y Primary no, más un
+    # espacio inicial. Con el normalizador corto esto no matcheaba.
+    suelto = {**fondo, "unidad": "u_sin_link",
+              "ticker": "FCI IAM Ahorro Pesos - Clase B"}
+    fichas = [{"simbolo": " IAM Ahorro Pesos - Clase B",
+               "subyacente": "Mercado de Dinero", "moneda": "ARS"}]
+    r = clase.proponer([suelto], fichas, usadas=["MM ARS"], fci=fci)
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("MM ARS", clase.PRIMARY)
+
+
+def test_la_categoria_del_informe_no_se_toma_prestada():
+    """`mercado.fci.categoria` es el estante del INFORME y la mesa manda ahí:
+    puede decir «T+0 MONEY MARKET», que no es vocabulario de `clase_activo`.
+    Tomarla prestada haría que la lista cerrada la rechace y la nota mande a
+    «cargar ese valor a mano» — un consejo equivocado sobre otro campo. Se usa
+    `tipo_renta` + `moneda` por `de_fci`, la MISMA función con la que el job
+    calculó esa categoría."""
+    from agente import clase
+
+    fondo = {"unidad": "u1", "cartera": "FCI", "ticker": "x",
+             "clase_activo": "", "emisor": ""}
+    fci = {"u1": {"nombre": "x", "tipo_renta": "", "moneda": "ARS",
+                  "categoria": "T+0 MONEY MARKET"}}
+    r = clase.proponer([fondo], [], usadas=["MM ARS", "T+0 MONEY MARKET"], fci=fci)
+    assert r[0]["propuesto"] == "", "la categoría del informe no es la clase"
+    assert r[0]["nota"], "y la fila igual tiene que decir por qué"
+
+
+def test_una_clave_de_fondo_ambigua_no_propone_nada():
+    """Dos fichas distintas bajo el mismo nombre normalizado: «el primero gana»
+    es estable pero ARBITRARIO, y acá el resultado se ESCRIBE en la ficha de un
+    título — sería la clase de OTRO fondo. Un campo vacío se ve; una clase
+    ajena se suma."""
+    from agente import clase
+
+    fondo = {"unidad": "u1", "cartera": "FCI", "ticker": "Fondo X - Clase A",
+             "clase_activo": "", "emisor": ""}
+    fichas = [{"simbolo": "Fondo X - Clase A", "subyacente": "Renta Fija",
+               "moneda": "ARS"},
+              {"simbolo": "FCI Fondo X Clase A", "subyacente": "Renta Variable",
+               "moneda": "ARS"}]
+    r = clase.proponer([fondo], fichas, usadas=["ARS T1", "RENTA VARIABLE"])
+    assert r[0]["propuesto"] == ""
+    # Dos fichas que dicen LO MISMO no son ambiguas: proponen igual.
+    iguales = [{"simbolo": "Fondo X - Clase A", "subyacente": "Renta Fija",
+                "moneda": "ARS"},
+               {"simbolo": "FCI Fondo X Clase A", "subyacente": "Renta Fija",
+                "moneda": "ARS"}]
+    r = clase.proponer([fondo], iguales, usadas=["ARS T1"])
+    assert (r[0]["propuesto"], r[0]["fuente"]) == ("ARS T1", clase.PRIMARY)
+
+
+def test_toda_fila_sin_propuesta_dice_POR_QUE():
+    """⚠️⚠️ **EL INVARIANTE NUEVO** (§0.fg). Hasta el 2026-09-11 la `nota` se
+    llenaba en UN caso —la lista cerrada rechazó el valor— y en el resto la fila
+    viajaba con los tres campos vacíos: en pantalla, un guion. Abajo del MISMO
+    guion convivían «no hay nada que proponer» (correcto, por diseño) y «la
+    regla no encontró su fuente» (un bug). Medido: 101 de 170 filas.
+
+    Y dos de los motivos **ni son de este campo**: un bono en `mercado.curvas`
+    sin ejes no cae en ninguna curva, y una cartera ARS con curva en USD son dos
+    fuentes afirmando cosas distintas del mismo bono (REGLA #9). Esta pantalla
+    es hoy el único lugar donde eso se ve.
+    """
+    from agente import clase
+
+    base = {"clase_activo": "", "emisor": ""}
+    casos = [
+        # sin cartera: las cinco reglas arrancan por ahí
+        {**base, "unidad": "[CRN.CME/ABR27]", "cartera": "", "ticker": "CRN.CME/ABR27"},
+        {**base, "unidad": "u", "cartera": "NO APLICA", "ticker": "x"},
+        # DERIVADOS que ninguna regla reconoce
+        {**base, "unidad": "[WTI092026]", "cartera": "DERIVADOS", "ticker": "WTI092026"},
+        {**base, "unidad": "[GFGV6600OC]", "cartera": "DERIVADOS", "ticker": "GFGV6600OC"},
+        # FCI sin link y sin ficha
+        {**base, "unidad": "u_fci", "cartera": "FCI", "ticker": "Fondo Raro"},
+        # ARS: las cuatro razones
+        {**base, "unidad": "u_ars", "cartera": "ARS", "ticker": "TO26"},
+        {**base, "unidad": "u_ars2", "cartera": "ARS", "ticker": "NZC30"},
+        {**base, "unidad": "u_ars3", "cartera": "ARS", "ticker": "TZVD8"},
+        {**base, "unidad": "u_ars4", "cartera": "ARS", "ticker": "RMJ28"},
+        # una cartera que ninguna regla mira
+        {**base, "unidad": "u_otros", "cartera": "OTROS", "ticker": "ORD1V"},
+    ]
+    master = [{"ticker_corto": "NZC30", "ajuste": "", "moneda_eje": ""},
+              {"ticker_corto": "TZVD8", "ajuste": "fija", "moneda_eje": "USD"},
+              {"ticker_corto": "RMJ28", "ajuste": "badlar", "moneda_eje": "ARS"}]
+
+    r = clase.proponer(casos, [], usadas=["CER"], master=master, fci={})
+    for fila in r:
+        assert fila["propuesto"] == "", "este caso no se propone"
+        assert fila["nota"], (
+            f"«{fila['unidad']}» quedó sin propuesta Y SIN MOTIVO: en pantalla "
+            "es un guion pelado, y ahí «no hay nada que proponer» y «la regla "
+            "no encontró su fuente» se leen igual")
+
+    # Y los motivos DISTINGUEN lo que se atiende distinto.
+    notas = {f["unidad"]: f["nota"] for f in r}
+    assert "CARTERA" in notas["[CRN.CME/ABR27]"]
+    assert "WTI" in notas["[WTI092026]"]
+    assert "no tiene la forma" in notas["[GFGV6600OC]"]
+    assert "mercado.fci" in notas["u_fci"]
+    assert "no está en mercado.curvas" in notas["u_ars"]
+    assert "SIN EJES" in notas["u_ars2"], "un bono sin ejes no cae en ninguna curva"
+    assert "USD" in notas["u_ars3"] and "mal" in notas["u_ars3"], (
+        "cartera ARS contra curva en USD: dos fuentes contradiciéndose")
+    assert "badlar" in notas["u_ars4"]
+    assert "OTROS" in notas["u_otros"]
+
+
+def test_la_clase_por_link_del_fci_es_deterministica():
+    """`FCI` entra a `deterministas` —lo que el ejecutor escribe SOLO— porque no
+    es una inferencia: es el link que confirmó la mesa, leído con la función con
+    la que el job ya calculó la categoría. Si eso no fuera determinístico,
+    tampoco lo sería `CURVA`."""
+    from agente import clase
+
+    fondo = {"unidad": "u1", "cartera": "FCI", "ticker": "x",
+             "clase_activo": "", "emisor": ""}
+    fci = {"u1": {"nombre": "x", "tipo_renta": "Mercado de Dinero",
+                  "moneda": "USD", "categoria": ""}}
+    r = clase.proponer([fondo], [], usadas=["MM USD"], fci=fci)
+    assert clase.deterministas(r) == [{"unidad": "u1", "valor": "MM USD"}]
+
+
 def test_clase_activo_ars_se_propone_por_la_curva_del_master():
     """La regla CURVA: cartera ARS, ejes del bono en `mercado.curvas`
     (`ticker_corto` == `ticker` del asset, upper/strip)."""

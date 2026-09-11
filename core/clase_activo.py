@@ -76,8 +76,11 @@ CARTERA_COPIA = {"RENTA VARIABLE": "RENTA VARIABLE", "HD": "HD", "DL": "DL"}
 POR_AJUSTE = {"cer": "CER", "fija": "FIJA", "tamar": "TAMAR"}
 DUAL = "DUAL"
 
-_CARTERA_DERIVADOS = "DERIVADOS"
-_CARTERA_ARS = "ARS"
+# ⚠️ PÚBLICAS: `agente/clase.py` las lee para explicar por qué una fila no
+# recibió propuesta. Con dos literales «DERIVADOS» sueltos, el día que la
+# mesa renombre la cartera la regla y su explicación dirían cosas distintas.
+CARTERA_DERIVADOS = "DERIVADOS"
+CARTERA_ARS = "ARS"
 
 # El punto ES parte del contrato (`SOJ.ROS`, `MAI.ROS`), igual que en
 # `jobs/assets_autofill._PREFIJOS_AGRO`: no es un separador cualquiera. La
@@ -115,13 +118,43 @@ def de_derivado(cartera: str, unidad: str, ticker: str) -> str:
     Prueba la `unidad` y, si no matchea, el `ticker` — el contrato puede venir
     en cualquiera de los dos según cómo se cargó el asset.
     """
-    if (cartera or "").strip().upper() != _CARTERA_DERIVADOS:
+    if (cartera or "").strip().upper() != CARTERA_DERIVADOS:
         return ""
     for candidato in (unidad, ticker):
         m = _RE_OPCION.match(_sin_corchetes(candidato).upper())
         if m:
             return CALL if m.group(1) == "C" else PUT
     return ""
+
+
+def contrato_de(unidad: str, ticker: str) -> tuple[str, bool]:
+    """`(prefijo, es_otc)` del PRIMER candidato que parsea como contrato, o
+    `("", False)` si ninguno. **PURA.**
+
+    Existe para que `de_futuro` decida y `agente/clase.py` pueda EXPLICAR con
+    la MISMA lectura del contrato: «el prefijo WTI no tiene producto» y «esto no
+    parsea como contrato» son dos trabajos distintos —uno es agregar una línea a
+    `PRODUCTO`, el otro es que el asset está cargado de otra forma— y con un
+    parseo propio del lado de la explicación los dos podrían mentir por separado.
+    """
+    for candidato in (unidad, ticker):
+        c = _sin_corchetes(candidato or "").upper()
+        if not c:
+            continue
+        m_otc = _RE_OTC.match(c)
+        contrato = m_otc.group(1) if m_otc else c
+        if (m := _RE_PREFIJO.match(contrato)):
+            return m.group(1), bool(m_otc)
+    return "", False
+
+
+def es_opcion(unidad: str, ticker: str) -> bool:
+    """¿La unidad o el ticker tienen la forma de una opción (C/P al final)?
+    **PURA.** Lo usan `de_futuro` —para no pisar a `de_derivado`— y la
+    explicación, que necesita distinguir «es una opción que no reconocí» de
+    «no es un contrato»."""
+    return any(_RE_OPCION.match(_sin_corchetes(c or "").upper())
+               for c in (unidad, ticker) if (c or "").strip())
 
 
 def de_futuro(cartera: str, unidad: str, ticker: str) -> str:
@@ -133,27 +166,17 @@ def de_futuro(cartera: str, unidad: str, ticker: str) -> str:
     El producto sale del PREFIJO del contrato (`PRODUCTO`); el dólar (`DLR`)
     solo se propone bajo OTC.
     """
-    if (cartera or "").strip().upper() != _CARTERA_DERIVADOS:
+    if (cartera or "").strip().upper() != CARTERA_DERIVADOS:
         return ""
-    for candidato in (unidad, ticker):
-        c = _sin_corchetes(candidato).upper()
-        if not c:
-            continue
-        if _RE_OPCION.match(c):
-            return ""
-        m_otc = _RE_OTC.match(c)
-        es_otc = bool(m_otc)
-        contrato = m_otc.group(1) if m_otc else c
-        m_pref = _RE_PREFIJO.match(contrato)
-        if not m_pref:
-            continue
-        producto = PRODUCTO.get(m_pref.group(1), "")
-        if not producto:
-            continue
-        if not es_otc and producto == _DOLAR:
-            continue
-        return f"OTC {producto}" if es_otc else f"FUTUROS DE {producto}"
-    return ""
+    if es_opcion(unidad, ticker):
+        return ""                       # es una opción: la resuelve `de_derivado`
+    prefijo, es_otc = contrato_de(unidad, ticker)
+    producto = PRODUCTO.get(prefijo, "")
+    if not producto:
+        return ""
+    if not es_otc and producto == _DOLAR:
+        return ""
+    return f"OTC {producto}" if es_otc else f"FUTUROS DE {producto}"
 
 
 def en_lista_cerrada(valor: str, usadas: list[str]) -> str:
@@ -208,7 +231,7 @@ def de_curva(cartera: str, moneda_eje: str, ajuste: str, ajuste_alt: str | None)
     `badlar`, `tpm`, `caucion`, `dolar_linked`, sin ejes, o `moneda_eje`
     distinto de ARS no se proponen.
     """
-    if (cartera or "").strip().upper() != _CARTERA_ARS:
+    if (cartera or "").strip().upper() != CARTERA_ARS:
         return ""
     if (moneda_eje or "").strip().upper() != "ARS":
         return ""

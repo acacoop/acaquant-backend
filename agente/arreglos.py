@@ -712,7 +712,8 @@ class CompletarFicha(Arreglo):
             try:
                 filas = clase.proponer(filas, fuentes.fichas_primary(),
                                        det.valores_usados("clase_activo"),
-                                       master=fuentes.master())
+                                       master=fuentes.master(),
+                                       fci=fuentes.fci_por_unidad())
                 propuestas = sum(1 for f in filas if f.get("propuesto"))
             except Exception as e:
                 logger.warning("completar_ficha: sin propuestas de clase (%s)", e)
@@ -761,7 +762,8 @@ class CompletarFicha(Arreglo):
             return clase.deterministas(
                 clase.proponer(det.faltantes(c), fuentes.fichas_primary(),
                                det.valores_usados("clase_activo"),
-                               master=fuentes.master()))
+                               master=fuentes.master(),
+                               fci=fuentes.fci_por_unidad()))
         if c["campo"] == "cartera":
             from agente import cartera
             return cartera.deterministas(

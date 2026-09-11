@@ -144,6 +144,29 @@ def fichas_primary() -> list[dict] | None:
     return _una_vez("fichas_primary", _leer)
 
 
+# ── LOS FONDOS QUE LA MESA YA LINKEÓ ───────────────────────────────────────
+def fci_por_unidad() -> dict[str, dict] | None:
+    """`{unidad: {nombre, tipo_renta, moneda, categoria}}` de `mercado.fci`, solo
+    los fondos LINKEADOS a un asset. `None` = no pude leer.
+
+    ⚠️ **Es un link por ID, no por texto**, y esa es toda la diferencia.
+    `mercado.fci.unidad` la confirma la mesa en Manager y es la MISMA clave con
+    la que `CompletarFicha` escribe; el `tipo_renta` que trae es el `underlying`
+    de Primary que ya bajó `jobs/fci_universo`. Antes de esto, la regla de FCI
+    emparejaba por NOMBRE contra la ficha de Primary y fallaba en 73 de 84
+    (2026-09-11, §0.fg) — teniendo el link al lado. `core/fci_match.py` lo dice
+    desde el principio: *«el link es por símbolo, no por texto»*.
+    """
+    def _leer():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT unidad, nombre, tipo_renta, moneda, categoria "
+                        "  FROM mercado.fci WHERE unidad IS NOT NULL")
+            return {u: {"nombre": n, "tipo_renta": tr, "moneda": m,
+                        "categoria": cat}
+                    for u, n, tr, m, cat in cur.fetchall()}
+    return _una_vez("fci_por_unidad", _leer)
+
+
 # ── EL MASTER DE CEDEARs ───────────────────────────────────────────────────
 def cedears_master() -> list[dict] | None:
     """`mercado.cedears` entero (activos e inactivos), por `core.cedears_sql`.

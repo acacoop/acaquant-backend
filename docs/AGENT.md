@@ -5617,6 +5617,14 @@ que Primary publica, y el agente ya la leía (`fuentes.fichas_primary`,
 Primary usa como símbolo: se cruza por nombre normalizado. Y el vocabulario de
 clases ya está fijado por datos (`aca.clase_destacada`, `aca.moneda_regla`).
 
+> ⚠️ **Ese «se cruza por nombre normalizado» era la parte NO verificada, y era
+> falsa: superseded por §0.fg (2026-09-11).** El símbolo de Primary puede ser
+> ` IEB Retorno Total - Clase D` (con espacio inicial) o un código
+> (`ADBAICA AR`), y el asset dice `FCI IAM Ahorro Pesos - Clase B`: medido, 73
+> de 84 no matchearon. Hoy la clase de un FCI sale del LINK
+> `mercado.fci.unidad`, y el nombre quedó como respaldo con el normalizador del
+> dominio (`core/fci_match.normalizar`).
+
 **Por qué NO es el job nocturno.** `jobs/assets_autofill` sabe hacer esto y lo
 haría a las 3 de la mañana. Pero el ejecutor (§0.ef) ya corre en cada pasada:
 lo que faltaba era que `completar_ficha` —un arreglo que PIDE DATOS, o sea que
@@ -7245,3 +7253,91 @@ puesto CI en rojo por una decisión legítima y reversible. Lo que el test sí
 garantiza —que ninguna regla pueda dispararse antes de los 300 s— se comprueba
 donde de verdad importa, en el dataclass que lo impide, y eso vale sobre cero
 reglas igual que sobre diez.
+
+---
+
+### 0.fg LOS 170 SIN CLASE: DOS COSAS MECÁNICAS TAPABAN EL 84%, Y EL GUION NO DECÍA CUÁL (2026-09-11)
+
+El user, mirando el listado de `clase_activo`: *«no entiendo por qué CLASE
+ACTIVO no está sugiriendo… hay un montón de FCI y bonos que no entiendo por qué
+no sugiere»*. Se midió con `scripts/diag_clase_activo` sobre los 170 reales:
+
+| | N | Qué era |
+|---|---:|---|
+| se proponían | **0** | — |
+| la regla SABE y el valor no existe en `clase_activo` | 69 | 7 valores de agro (`OTC SOJA`, `FUTUROS DE MAIZ`, …) sin cargar |
+| FCI · el nombre no matchea ninguna ficha de Primary | 73 | **el bug** |
+| FCI · `Renta Mixta` / `Retorno Total` | 11 | no hay clase para eso: lo decide la mesa |
+| sin CARTERA | 4 | las cinco reglas arrancan por la cartera |
+| bonos ARS | 9 | cinco razones, y **dos no son de este campo** |
+| cartera `OTROS` | 2 | uno está mal carteado (`OTC - MAI.ROS/JUL26`) |
+| DERIVADOS sin regla | 2 | una opción de acción local y `WTI092026` |
+
+**El bug de los FCI: el nombre como IDENTIDAD.** La regla emparejaba el
+`ticker` del asset con el `simbolo` de la ficha de Primary usando
+`normalizar_nombre` (upper + sin acentos + espacios). Un fondo llega con TRES
+grafías del mismo nombre —`FCI IAM Ahorro Pesos - Clase B` en el asset,
+` IAM Ahorro Pesos - Clase B` (con espacio inicial) o `ADBAICA AR` en Primary—
+y por eso el dominio FCI tiene su propio normalizador desde el principio
+(`core/fci_match.normalizar`: saca «FCI»/«F.C.I.», el `[1047]` de Aunesa, el
+código `CAFCI643-1024` y la puntuación). **Dos normalizadores para la misma
+pregunta** (REGLA #9), y el débil dejaba la columna vacía sin fallar.
+
+**Y la respuesta ya estaba en la base.** De los 84, **77 estaban linkeados en
+`mercado.fci` por `unidad`** —la misma clave con la que escribe
+`CompletarFicha`, y un link que la mesa confirmó en Manager—, 42 con el
+`tipo_renta` de Primary y 23 con la `categoria` **ya calculada** por
+`jobs/fci_universo` con `de_fci`, la misma función. `core/fci_match.py` lo
+decía en su encabezado: *«el link es por símbolo, no por texto»*.
+
+**Qué se cambió.**
+
+1. **Fuente nueva `FCI`, y va PRIMERO**: `agente.fuentes.fci_por_unidad()` trae
+   `{unidad: fila de mercado.fci}` y la clase sale de `tipo_renta` + `moneda`
+   por `de_fci`. El match por nombre queda como respaldo para los que no están
+   linkeados, ahora con `fci_match.normalizar` — o sea que el normalizador
+   débil desapareció de esta pregunta. Entra a `deterministas`: no es una
+   inferencia, es un link confirmado leído con la función del job.
+2. **NO se toma prestada `mercado.fci.categoria`.** Es el estante del INFORME y
+   la mesa manda ahí: puede decir «T+0 MONEY MARKET», que no es vocabulario de
+   `clase_activo`. Tomarla haría que la lista cerrada la rechace y la nota mande
+   a «cargar ese valor a mano» — un consejo equivocado sobre otro campo.
+3. **Una clave de fondo ambigua no propone nada.** El índice de fichas usaba
+   «el primero gana», estable pero ARBITRARIO; acá el resultado se ESCRIBE en la
+   ficha de un título, así que con dos fichas de distinta clase bajo la misma
+   clave se descarta la clave. Un campo vacío se ve; una clase ajena se suma.
+4. **TODA fila sin propuesta dice POR QUÉ** (`nota`, congelado por test). Era el
+   defecto transversal: la nota se llenaba en UN caso —la lista cerrada rechazó
+   el valor— y en los otros 101 la fila viajaba con los tres campos vacíos. En
+   pantalla es un guion, y abajo del mismo guion convivían «no hay nada que
+   proponer» (correcto, por diseño) y «la regla no encontró su fuente» (un bug).
+   El front ya dibujaba `nota`: no hizo falta tocarlo.
+5. **`core/clase_activo` expone `contrato_de` y `es_opcion`** (y `CARTERA_*`
+   dejan de ser privadas): `de_futuro` DECIDE con ellas y la explicación EXPLICA
+   con ellas. Con un parseo propio del lado de la nota, «el prefijo WTI no tiene
+   producto» y «esto no parsea» podían mentir por separado.
+6. **`diag_clase_activo` dejó de clasificar**: agrupa por `nota`, o sea por lo
+   que la mesa va a leer en pantalla. Su primera versión tenía su propio
+   clasificador de causas — funcionaba, y era la segunda definición del mismo
+   criterio esperando a divergir.
+
+**Dos hallazgos que aparecieron de costado y NO son de `clase_activo`.** Los
+bonos ARS los destapó la nota, y ninguno tenía quién lo reportara:
+
+- **`NZC30` y `DHSOO` están en `mercado.curvas` con `moneda_eje` vacío.** Un
+  bono sin ejes **no cae en ninguna curva** (`core/curvas_sql`: *«desaparece de
+  todo lo que llame acá»*): son títulos en cartera de cliente invisibles en las
+  vistas de renta fija, no sólo sin clase.
+- **`TZVD8` y `D15E7`: la ficha dice cartera `ARS` y su curva dice
+  `moneda_eje = USD`.** Dos fuentes afirmando cosas distintas del mismo bono, sin
+  árbitro (REGLA #9, el caso de `core/duplicados`).
+- Y un efecto cruzado del silencio: `TO26` y `TY30P` están en
+  `agente.silenciados` por `no_esta_en_curvas`, así que **nunca van a entrar al
+  master y por lo tanto nunca van a poder recibir clase por curva**. Silenciar
+  un aviso apagó, sin que nadie lo decidiera, la única regla que podía
+  completarles la ficha.
+
+Los tres quedan ANOTADOS y sin arreglo: cada uno es un aviso que hoy no existe,
+y decidir si son habilidades nuevas es una decisión de la mesa, no un
+refactor. Lo mismo el vocabulario de `WTI` y de las opciones de acciones
+locales (`GFGV6600OC`), que tienen otra convención de nombre y ninguna regla.

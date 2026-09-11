@@ -410,8 +410,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         automatico={"sin_clase_activo":
                     "derivados C/P, futuros y OTC de agro/dólar por el "
                     "prefijo del contrato, copia de cartera (RENTA "
-                    "VARIABLE/HD/DL), FCI por Primary y ARS por la curva del "
-                    "master. Lo demás queda para una persona.",
+                    "VARIABLE/HD/DL), FCI por el LINK de mercado.fci que "
+                    "confirmó la mesa (o, sin link, por su ficha de Primary) "
+                    "y ARS por la curva del master. Lo demás queda para una "
+                    "persona.",
                     "sin_cartera":
                     "reglas del job (pagarés, FCI, OTC/agro) + los ejes del "
                     "bono en el master o en el catálogo de 1816: "

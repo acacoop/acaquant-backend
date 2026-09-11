@@ -20,6 +20,7 @@ from __future__ import annotations
 import inspect
 from datetime import date
 
+from asistente import permitido
 from core.postgres import get_pool
 
 # Tope de cuántos días para adelante se puede preguntar. No es capricho: sin
@@ -39,6 +40,11 @@ def bonos_que_vencen(dias: int) -> dict:
     comprar en su lugar: para eso hace falta mirar el mercado, que es otra
     herramienta.
 
+    ⚠️ SOLO mira las cuentas habilitadas para el asistente, que vienen en la
+    respuesta (`cuentas_miradas`). NO es toda la cartera de la casa: si te
+    preguntan por una cuenta que no está en esa lista, decí que no tenés acceso
+    a esa cuenta, en vez de contestar con lo que sí ves.
+
     La cartera se lee de la ÚLTIMA foto de tenencia disponible, y se cuentan
     solo las posiciones que suman al AuM. La fecha de esa foto viene en la
     respuesta (`foto_del`): si es de hace varios días, decilo al contestar.
@@ -57,6 +63,16 @@ def bonos_que_vencen(dias: int) -> dict:
         return {"error": f"`dias` tiene que estar entre 1 y {MAX_DIAS}, llegó {n}",
                 "que_hacer": "Volvé a llamar con un número dentro de ese rango."}
 
+    # ⚠️⚠️ **EL PERMISO VA PRIMERO Y CORTA.** Si no hay ninguna cuenta
+    # habilitada, la consulta NO sale. `permitido.parametros()` levanta, y acá
+    # se convierte en un dato que el modelo puede contar — no en una lista
+    # vacía, que se leería como "no tenés nada" y es mentira.
+    try:
+        params = permitido.parametros()
+    except permitido.SinPermiso:
+        return permitido.como_error()
+    params["d"] = n
+
     # ⚠️ **EL VENCIMIENTO SALE DE `mercado.curvas`, NO DE `portafolio.assets`.**
     # `assets.vencimiento` es TEXTO libre; `curvas.fecha_vencimiento` es una
     # fecha de verdad, o sea que la puede comparar la base y no hay que
@@ -68,9 +84,14 @@ def bonos_que_vencen(dias: int) -> dict:
     # `core/duplicados` y `agente/vigencia`. NO se joinea por ticker suelto
     # desde tenencia: ahí el ticker puede traer la especie (AL30D) y el del
     # catálogo es el base (AL30).
-    sql = """
+    #
+    # `{permiso}` es `permitido.FILTRO_SQL`, y va en las DOS consultas. La foto
+    # también se busca dentro de las cuentas permitidas: la última fecha de
+    # otra cuenta no dice nada de éstas.
+    sql = f"""
         WITH foto AS (
-            SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'
+            SELECT max(fecha) AS f FROM portafolio.tenencia t
+             WHERE aum = 'si' AND {permitido.FILTRO_SQL}
         )
         SELECT a.ticker,
                c.fecha_vencimiento,
@@ -78,15 +99,13 @@ def bonos_que_vencen(dias: int) -> dict:
                sum(t.valuacion)            AS valuacion,
                t.moneda,
                count(DISTINCT t.id_cuenta) AS cuentas,
-               -- Todas las filas son de la misma foto (el JOIN de arriba lo
-               -- garantiza), así que `min` devuelve esa fecha y evita meter un
-               -- subquery adentro de un GROUP BY.
                min(t.fecha)                AS foto_del
           FROM portafolio.tenencia t
           JOIN foto ON t.fecha = foto.f
           JOIN portafolio.assets a ON a.unidad = t.unidad
           JOIN mercado.curvas   c ON c.ticker = a.ticker
          WHERE t.aum = 'si'
+           AND {permitido.FILTRO_SQL}
            AND c.fecha_vencimiento IS NOT NULL
            AND c.fecha_vencimiento >= current_date
            AND c.fecha_vencimiento <= current_date + make_interval(days => %(d)s)
@@ -96,12 +115,13 @@ def bonos_que_vencen(dias: int) -> dict:
          GROUP BY a.ticker, c.fecha_vencimiento, t.moneda
          ORDER BY c.fecha_vencimiento, a.ticker
     """
-    # Lo que tenemos en cartera y NO tiene vencimiento cargado. Va aparte y se
+    # Lo que hay en esas cuentas y NO tiene vencimiento cargado. Va aparte y se
     # informa: sin esto, un bono con la ficha incompleta desaparece de la
     # respuesta y se lee como "ese no vence".
-    sql_sin = """
+    sql_sin = f"""
         WITH foto AS (
-            SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'
+            SELECT max(fecha) AS f FROM portafolio.tenencia t
+             WHERE aum = 'si' AND {permitido.FILTRO_SQL}
         )
         SELECT DISTINCT a.ticker
           FROM portafolio.tenencia t
@@ -109,16 +129,17 @@ def bonos_que_vencen(dias: int) -> dict:
           JOIN portafolio.assets a ON a.unidad = t.unidad
           LEFT JOIN mercado.curvas c ON c.ticker = a.ticker
          WHERE t.aum = 'si'
+           AND {permitido.FILTRO_SQL}
            AND a.ticker IS NOT NULL
            AND c.fecha_vencimiento IS NULL
          ORDER BY a.ticker
     """
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, {"d": n})
+            cur.execute(sql, params)
             cols = [c[0] for c in cur.description]
             filas = [dict(zip(cols, f, strict=True)) for f in cur.fetchall()]
-            cur.execute(sql_sin)
+            cur.execute(sql_sin, params)
             sin_vto = [f[0] for f in cur.fetchall()]
     except Exception as e:
         # El error vuelve como DATO, no como excepción: el ciclo se lo cuenta
@@ -143,6 +164,10 @@ def bonos_que_vencen(dias: int) -> dict:
 
     return {
         "dias_mirados": n,
+        # Va en la respuesta para que el modelo pueda decir de qué cuentas
+        # habla. Sin esto, "te vencen 29 bonos" se lee como si fuera toda la
+        # casa.
+        "cuentas_miradas": permitido.cuentas(),
         "foto_del": foto_del.isoformat() if foto_del else None,
         "bonos": bonos,
         "cuantos": len(bonos),

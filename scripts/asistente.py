@@ -79,7 +79,21 @@ def main() -> int:
     ap.add_argument("--callado", action="store_true", help="sólo la respuesta")
     a = ap.parse_args()
 
-    from asistente import ciclo
+    from asistente import ciclo, permitido
+
+    # ⚠️ EL ALCANCE, ANTES DE PREGUNTAR NADA. Saber qué cuentas ve el asistente
+    # no puede depender de acordarse de mirar el `.env`: si no se dice acá, una
+    # respuesta parcial se lee como si fuera toda la casa.
+    habilitadas = permitido.cuentas()
+    if not a.callado:
+        if habilitadas:
+            print(f"{GRIS}cuentas habilitadas ({len(habilitadas)}): "
+                  f"{', '.join(habilitadas)}{FIN}")
+        else:
+            print(f"{ROJO}⚠ No hay ninguna cuenta habilitada: el asistente no va a "
+                  f"poder mirar datos.{FIN}\n"
+                  f"{GRIS}  Se declaran en el `.env` del servidor:"
+                  f"  {permitido.CLAVE_ENV}=id1,id2,id3{FIN}")
 
     ver = None if a.callado else _dibujar
 

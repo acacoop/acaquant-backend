@@ -917,10 +917,11 @@ def comercial_informe_segmento(
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
     corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional.
 
-    Cada segmento trae además las CUATRO lecturas que dibuja el gráfico Q1:
+    Cada segmento trae además las TRES lecturas que dibuja el gráfico Q1:
     `ctas_ops` / `ctas_ops_ano` (VENTANA: operó dentro del mes / del año) y
-    `n_activas` / `n_enfriandose` (SEMÁFORO: días desde la ÚLTIMA op, la misma
-    definición de ANÁLISIS COMERCIAL). Son preguntas distintas y por eso conviven."""
+    `ctas_semaforo` (SEMÁFORO: ACTIVA + ENFRIÁNDOSE juntas = última op dentro de los
+    últimos `DIAS_DORMIDA` días, la misma definición de ANÁLISIS COMERCIAL). Son
+    preguntas distintas y por eso conviven."""
     return _com_sql.informe_cuentas_por_segmento(
         hasta=hasta, operador=operador, fecha=fecha, desde=desde,
         nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
@@ -967,8 +968,8 @@ def comercial_informe_segmento_detalle(
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): los clientes del scope con su arancel,
     con `opero_mes`/`opero_ano` (los flags de los filtros por VENTANA) y con
-    `estado`/`dias_sin_operar` (el SEMÁFORO: ACTIVA / ENFRIANDOSE, o `null` fuera de
-    esa ventana — el Informe no scanea el histórico, así que no dice DORMIDA ni NUEVA).
+    `en_semaforo` (ACTIVA o ENFRIÁNDOSE — el Informe no scanea el histórico, así que
+    no distingue DORMIDA de NUEVA; eso lo contesta Análisis Comercial).
     `segmento='todos'` → todos los segmentos (vista por defecto). `operador` opcional.
     `nivel_1` lo fija `segmento`; el resto de los niveles + referido scopean.
 

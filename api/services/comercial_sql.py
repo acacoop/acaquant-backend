@@ -757,23 +757,30 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
         f"AND c.estado = 'Activa' WHERE {w_op} "
         f"GROUP BY COALESCE(c.nivel_1, '(sin segmentar)')", p2)}
-    # ── ACTIVAS / ENFRIÁNDOSE por segmento — el semáforo de ANÁLISIS COMERCIAL ──
+    # ── ACTIVAS + ENFRIÁNDOSE por segmento — el semáforo de ANÁLISIS COMERCIAL ──
+    #
+    # UNA sola lectura, las dos juntas: "cuentas que operaron dentro de los últimos
+    # DIAS_DORMIDA días", o sea lo que del padrón sigue vivo. ACTIVA y ENFRIANDOSE
+    # separadas se miran en Análisis Comercial; acá interesa el bloque.
     #
     # Es OTRA pregunta que `ctas_ops`, no un sinónimo, y por eso conviven en el mismo
     # gráfico: CTAS OPS mira una VENTANA (¿operó dentro de este mes?) y el semáforo
     # mira la ÚLTIMA op (¿cuánto hace que no aparece?). Una cuenta que operó el 2 de
     # agosto y nada más sigue ACTIVA todo septiembre y NO es operativa de septiembre.
     #
-    # Misma definición que la tabla ESTADO COMERCIAL: días entre el corte y la última
-    # op que cuenta (`_act_where` = cualquier boleto no anulado). Por eso alcanza con
-    # scanear [corte − DIAS_DORMIDA, corte]: todo lo que cae adentro es ACTIVA o
-    # ENFRIANDOSE, y lo de afuera es DORMIDA/NUEVA — que esta pantalla no muestra
-    # (esas dos viven en Análisis Comercial, que sí scanea el histórico completo).
+    # Misma definición que la tabla ESTADO COMERCIAL: la última op que cuenta
+    # (`_act_where` = cualquier boleto no anulado) dentro de [corte − DIAS_DORMIDA,
+    # corte]. Lo que cae afuera de esa ventana es DORMIDA/NUEVA y no se cuenta —
+    # distinguir entre esas dos exige recorrer el histórico, que es lo que hace
+    # Análisis Comercial y esta pantalla NO.
+    #
+    # Como la ventana ya define el resultado, no hace falta la última op por cuenta:
+    # alcanza con contar cuentas DISTINTAS con al menos un boleto adentro.
     #
     # Scope IDÉNTICO al de `ctas_ops` (mismo JOIN, mismos filtros madre, sin filtro de
     # `fecha_alta_legajo`): las barras de un mismo gráfico tienen que compartir universo.
     dorm_ini = corte - timedelta(days=DIAS_DORMIDA)
-    p3: dict = {"dorm_ini": dorm_ini, "corte": corte, "act": DIAS_ACTIVA}
+    p3: dict = {"dorm_ini": dorm_ini, "corte": corte}
     w_est = (f"{_act_where('o')} "
              f"AND o.concertacion >= %(dorm_ini)s AND o.concertacion <= %(corte)s")
     if operador:
@@ -781,27 +788,18 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         p3["op"] = operador
     w_est = _append_niveles(w_est, p3, "c", nivel_1, nivel_2, nivel_3, nivel_4, nivel_5,
                             referido, division)
-    # La última op por cuenta primero (CTE) y recién después el conteo por segmento:
-    # clasificar antes de agrupar contaría la cuenta una vez por boleto.
-    est_map = {r["segmento"]: r for r in _q(
-        f"WITH ult AS ("
-        f"  SELECT o.id_cuenta, COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
-        f"         max(o.concertacion) AS ult "
-        f"  FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
-        f"  AND c.estado = 'Activa' WHERE {w_est} "
-        f"  GROUP BY o.id_cuenta, COALESCE(c.nivel_1, '(sin segmentar)')) "
-        f"SELECT segmento, "
-        f"  count(*) FILTER (WHERE (%(corte)s::date - ult) <= %(act)s) AS n_activas, "
-        f"  count(*) FILTER (WHERE (%(corte)s::date - ult) > %(act)s) AS n_enfriandose "
-        f"FROM ult GROUP BY segmento", p3)}
+    est_map = {r["segmento"]: int(r["n"] or 0) for r in _q(
+        f"SELECT COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
+        f"count(DISTINCT o.id_cuenta) AS n "
+        f"FROM operaciones o JOIN comitentes c ON c.id_cuenta = o.id_cuenta "
+        f"AND c.estado = 'Activa' WHERE {w_est} "
+        f"GROUP BY COALESCE(c.nivel_1, '(sin segmentar)')", p3)}
 
     for s in segmentos:
         r = ops_map.get(s["segmento"])
         s["ctas_ops"] = int((r or {}).get("n_mes") or 0)
         s["ctas_ops_ano"] = int((r or {}).get("n_ano") or 0)
-        e = est_map.get(s["segmento"])
-        s["n_activas"] = int((e or {}).get("n_activas") or 0)
-        s["n_enfriandose"] = int((e or {}).get("n_enfriandose") or 0)
+        s["ctas_semaforo"] = est_map.get(s["segmento"], 0)
 
     fa = _q("SELECT min(fecha_alta_legajo) AS f FROM comitentes "
             "WHERE fecha_alta_legajo IS NOT NULL")[0]["f"]
@@ -812,10 +810,9 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         "total": sum(s["n"] for s in segmentos),
         "total_ctas_ops": sum(s["ctas_ops"] for s in segmentos),
         "total_ctas_ops_ano": sum(s["ctas_ops_ano"] for s in segmentos),
-        "total_activas": sum(s["n_activas"] for s in segmentos),
-        "total_enfriandose": sum(s["n_enfriandose"] for s in segmentos),
-        # Los umbrales viajan para que el front pueda ROTULAR las barras con el
-        # número real ("≤ 45 días") en vez de repetirlo hardcodeado de su lado.
+        "total_ctas_semaforo": sum(s["ctas_semaforo"] for s in segmentos),
+        # Los umbrales viajan para que el front pueda ROTULAR la barra con el número
+        # real ("últimos 90 días") en vez de repetirlo hardcodeado de su lado.
         "dias_activa": DIAS_ACTIVA, "dias_dormida": DIAS_DORMIDA,
         "ano": anio,
         "segmentos": segmentos,
@@ -1165,7 +1162,7 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     if not ids:
         return {"segmento": segmento or "todos", "n_clientes": 0,
                 "n_operativas": 0, "n_operativas_ano": 0,
-                "n_activas": 0, "n_enfriandose": 0,
+                "n_semaforo": 0,
                 "dias_activa": DIAS_ACTIVA, "dias_dormida": DIAS_DORMIDA, "clientes": []}
 
     pa: dict = {"ids": ids, "mes_ini": mes_ini}
@@ -1208,22 +1205,21 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     operativas_ano = {i for i, r in op_win.items() if r["en_ano"]}
     operativas = {i for i, r in op_win.items() if r["en_mes"]}
 
-    def _semaforo(idc: str) -> tuple[str | None, int | None]:
-        """(estado, días sin operar) de una cuenta — solo DENTRO de la ventana del
-        semáforo. Fuera de ella devuelve (None, None) a propósito: el Informe no
-        scanea el histórico completo, así que no puede distinguir DORMIDA de NUEVA y
-        no va a inventar la diferencia. Esas dos las contesta Análisis Comercial.
+    def _en_semaforo(idc: str) -> bool:
+        """¿La cuenta está ACTIVA o ENFRIÁNDOSE? = su última op cae dentro de los
+        últimos DIAS_DORMIDA días. Las dos juntas, que es la lectura que pide esta
+        pantalla: cuánto del padrón sigue vivo.
 
-        La clasificación la hace `estado_comercial()`, la MISMA función pura que usa
-        la tabla ESTADO COMERCIAL: acá no se reimplementa el umbral."""
+        Quién es cuál lo decide `estado_comercial()`, la MISMA función pura que usa la
+        tabla ESTADO COMERCIAL — acá no se reimplementa el umbral. Fuera de la ventana
+        es False y nada más: distinguir DORMIDA de NUEVA exige recorrer el histórico y
+        eso lo hace Análisis Comercial, no el Informe."""
         r = op_win.get(idc)
         ult = r["ult"] if r else None
-        if ult is None:
-            return None, None
-        dias = (corte - ult).days
-        if dias > DIAS_DORMIDA:
-            return None, None
-        return estado_comercial(dias, True, DIAS_ACTIVA, DIAS_DORMIDA), dias
+        if ult is None or (corte - ult).days > DIAS_DORMIDA:
+            return False
+        return estado_comercial((corte - ult).days, True, DIAS_ACTIVA,
+                                DIAS_DORMIDA) in ("ACTIVA", "ENFRIANDOSE")
 
     clientes = []
     for r in _q(f"SELECT id_cuenta, "
@@ -1233,14 +1229,13 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                 f"AND anulado_en IS NULL "
                 f"AND etapa IS DISTINCT FROM 'solicitud'{ub}{lo} GROUP BY id_cuenta", pa):
         idc = r["id_cuenta"]
-        est, dias = _semaforo(idc)
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
             "arancel_total": _cv(_f(r["ar_total"]), factor),
             "arancel_mes": _cv(_f(r["ar_mes"]), factor),
             "opero_mes": idc in operativas,
             "opero_ano": idc in operativas_ano,
-            "estado": est, "dias_sin_operar": dias,
+            "en_semaforo": _en_semaforo(idc),
         })
     # Las que OPERARON y no dejaron un peso de arancel en la ventana. Entran igual,
     # con el arancel en cero.
@@ -1256,14 +1251,13 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     # el año (última op en diciembre, corte en enero): si el filtro ENFRIÁNDOSE cuenta
     # una cuenta, la tabla la tiene que poder mostrar.
     vistos = {c["id_cuenta"] for c in clientes}
-    con_semaforo = {i for i in op_win if _semaforo(i)[0] is not None}
+    con_semaforo = {i for i in op_win if _en_semaforo(i)}
     for idc in sorted((operativas_ano | con_semaforo) - vistos):
-        est, dias = _semaforo(idc)
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
             "arancel_total": 0.0, "arancel_mes": 0.0,
             "opero_mes": idc in operativas, "opero_ano": idc in operativas_ano,
-            "estado": est, "dias_sin_operar": dias,
+            "en_semaforo": _en_semaforo(idc),
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
@@ -1280,7 +1274,6 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
             "n_operativas": sum(1 for c in clientes if c["opero_mes"]),
             "n_operativas_ano": sum(1 for c in clientes if c["opero_ano"]),
-            "n_activas": sum(1 for c in clientes if c["estado"] == "ACTIVA"),
-            "n_enfriandose": sum(1 for c in clientes if c["estado"] == "ENFRIANDOSE"),
+            "n_semaforo": sum(1 for c in clientes if c["en_semaforo"]),
             "dias_activa": DIAS_ACTIVA, "dias_dormida": DIAS_DORMIDA,
             "clientes": clientes}

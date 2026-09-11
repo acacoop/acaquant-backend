@@ -333,9 +333,10 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         # («una pregunta suelta, SIN método declarado»).
         #
         # **No se borró nada.** El mecanismo entero sigue en pie —triage, cola,
-        # presupuesto, traza, el botón manual de la tab LAB y sus 13 habilidades
-        # mapeadas—: lo único que cambia es que ya no arranca solo. Volver a
-        # encenderlo es restituir la línea de abajo.
+        # presupuesto, traza, el botón manual de la tab LAB y las habilidades
+        # que el lab sabe investigar (`lab/langgraph/`)—: lo único que cambia es
+        # que ya no arranca solo. Volver a encenderlo es restituir la línea de
+        # abajo. Historia: `AGENT.md` §0.ff.
         #
         # El número de la línea, para el día que vuelva: **20 minutos**, y sale
         # del propio detector — corre cada 5' y le alcanza UN fallo para cantar,

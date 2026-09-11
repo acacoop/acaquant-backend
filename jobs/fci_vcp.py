@@ -1,14 +1,20 @@
 """jobs/fci_vcp.py — el VCP diario de cada fondo del universo → `mercado.fci_vcp`.
 
-Doc madre: `docs/FCI.md`. Corre 20:30 UTC L-V (fuera de rueda, con el VCP del
-día ya publicado por Primary; medido 2026-09-10: el `LA` llega ~10:50 ART).
+Doc madre: `docs/FCI.md`. Corre 20:30 UTC L-V, fuera de rueda.
 
 Primary NO guarda histórico (trade history vacío), así que la serie se arma
 acá, un día por corrida, con dos fuentes en orden de prioridad:
 
-  1. `primary`  — `get_market_data(LA)` de cada fondo con símbolo: el precio y
-                  la FECHA del timestamp del LA (no la de hoy: si Primary no
-                  publicó todavía, el LA es el de ayer y se guarda en ayer).
+  1. `primary`  — la BANDA del CATÁLOGO (`get_detailed_instruments`, UNA llamada
+                  para los 776 CIO): en una cuotaparte `low == high` y esa banda
+                  ES el VCP del día. La fecha sale de `maturityDate`, que Primary
+                  mueve con la sesión.
+
+                  ⚠️ **Antes se pedía el `LA` fondo por fondo y no servía**
+                  (2026-09-11): el LA es dato de rueda ABIERTA, así que a las
+                  17:30 ART daba 627 de 755 fondos sin dato, más 128 errores de
+                  los símbolos con `Nº`/acentos que rompen el REST. 0 puntos.
+                  El catálogo no tiene ninguno de esos dos problemas.
   2. `tenencia` — el `precio` por cuotaparte de `portafolio.tenencia` del día,
                   para los fondos linkeados a un asset. Es lo que cubre los
                   BILATERALES (que Primary no tiene) y lo que rellena un día que
@@ -38,6 +44,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pyRofex
 
+from core.fci_match import punto_de_catalogo, simbolo_de
 from core.job_runs import JobRunLogger
 from core.postgres import get_pool
 from core.rofex_session import inicializar_sesion
@@ -45,8 +52,9 @@ from core.rofex_session import inicializar_sesion
 logger = logging.getLogger(__name__)
 
 _PRIORIDAD = {"primary": 3, "tenencia": 2, "manual": 1}
-_PAUSA_REQ_S = 0.12      # ~8 req/s al REST de Primary
 _PAUSA_MES_S = 1.5
+_CIO = "CIO"
+_MIN_CIO = 200   # debajo de esto la foto de Primary es anómala → no se escribe
 
 # El upsert que respeta la prioridad: una fuente más débil no pisa una más fuerte.
 _SQL_UPSERT = (
@@ -57,19 +65,12 @@ _SQL_UPSERT = (
 )
 
 
-def fecha_del_la(ts_ms: int | float | None, hoy: date) -> date:
-    """La fecha a la que pertenece un LA: la de su timestamp en hora ART. Sin
-    timestamp, hoy. PURA."""
-    if not ts_ms:
-        return hoy
-    return (datetime.fromtimestamp(float(ts_ms) / 1000, tz=UTC) - timedelta(hours=3)).date()
-
-
 def _hoy_art() -> date:
     return (datetime.now(UTC) - timedelta(hours=3)).date()
 
 
 def _desde_primary(cur, hoy: date, solo: int, dry: bool, jr: JobRunLogger) -> int:
+    """El VCP del día de cada fondo con símbolo, desde el catálogo de Primary."""
     cur.execute("SELECT fci_id, simbolo_primary, nombre FROM mercado.fci "
                 "WHERE simbolo_primary IS NOT NULL AND activo ORDER BY nombre")
     filas = cur.fetchall()
@@ -78,37 +79,47 @@ def _desde_primary(cur, hoy: date, solo: int, dry: bool, jr: JobRunLogger) -> in
     jr.set_stat("primary_fondos", len(filas))
     if not filas:
         return 0
+
     inicializar_sesion()
-    n = errores = sin_la = 0
-    for i, (fci_id, sym, nombre) in enumerate(filas, 1):
-        try:
-            md = pyRofex.get_market_data(sym, entries=[pyRofex.MarketDataEntry.LAST], depth=1)
-        except Exception as e:
-            errores += 1
-            if errores <= 5:
-                jr.log(f"   ✗ {nombre}: {type(e).__name__}: {e}")
+    res = pyRofex.get_detailed_instruments()
+    if not res or res.get("status") != "OK":
+        jr.error(f"get_detailed_instruments: {(res or {}).get('status')}")
+        return 0
+    cio = [i for i in (res.get("instruments") or []) if str(i.get("cficode") or "").startswith(_CIO)]
+    jr.set_stat("primary_cio", len(cio))
+    if len(cio) < _MIN_CIO:
+        jr.error(f"foto de Primary anómala: {len(cio)} CIO (< {_MIN_CIO}) — no se escribe")
+        return 0
+    por_simbolo = {sym: i for i in cio if (sym := simbolo_de(i))}
+
+    n = no_listados = sin_banda = 0
+    fechas: dict[date, int] = {}
+    for fci_id, sym, nombre in filas:
+        inst = por_simbolo.get(sym)
+        if inst is None:
+            no_listados += 1
             continue
-        la = ((md or {}).get("marketData") or {}).get("LA") or {}
-        px = la.get("price")
-        if not px or float(px) <= 0:
-            sin_la += 1
+        punto = punto_de_catalogo(inst, hoy)
+        if punto is None:
+            sin_banda += 1
+            if sin_banda <= 5:
+                jr.log(f"   sin banda: {nombre}")
             continue
-        f = fecha_del_la(la.get("date"), hoy)
-        if dry:
-            if i <= 5:
-                jr.log(f"   {nombre}: {px} @ {f}")
-        else:
-            cur.execute(_SQL_UPSERT, (fci_id, f, float(px), "primary"))
+        fecha, px = punto
+        fechas[fecha] = fechas.get(fecha, 0) + 1
+        if not dry:
+            cur.execute(_SQL_UPSERT, (fci_id, fecha, px, "primary"))
+        elif n < 5:
+            jr.log(f"   {nombre}: {px} @ {fecha}")
         n += 1
-        if i % 50 == 0:
-            time.sleep(_PAUSA_REQ_S * 10)
-        else:
-            time.sleep(_PAUSA_REQ_S)
     jr.set_stat("primary_puntos", n)
-    jr.set_stat("primary_sin_la", sin_la)
-    jr.set_stat("primary_errores", errores)
-    if errores and errores >= len(filas):
-        jr.error("ningún fondo respondió market data")
+    jr.set_stat("primary_no_listados", no_listados)
+    jr.set_stat("primary_sin_banda", sin_banda)
+    # La fecha que Primary le puso a la sesión: si no es hoy, el log lo dice (no
+    # se corrige nada — la fecha la manda el catálogo, no el reloj del Droplet).
+    jr.set_stat("primary_fechas", {f.isoformat(): c for f, c in sorted(fechas.items())})
+    if not n:
+        jr.error("Primary no dio ni un VCP (¿catálogo sin bandas?)")
     return n
 
 

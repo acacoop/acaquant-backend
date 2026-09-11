@@ -52,6 +52,7 @@ from core.fci_match import (
     nombre_desde_primary,
     normalizar,
     plazo_desde_settl,
+    simbolo_de,
     sugerir_categoria,
 )
 from core.job_runs import JobRunLogger
@@ -101,14 +102,6 @@ def _monedas_tenencia(cur, unidades: list[str]) -> dict[str, str]:
     return {u: m for u, m in cur.fetchall() if m in ("ARS", "USD")}
 
 
-def _sym(inst: dict) -> str | None:
-    s = inst.get("symbol")
-    if isinstance(s, str) and s:
-        return s
-    s = (inst.get("instrumentId") or {}).get("symbol")
-    return s if isinstance(s, str) and s else None
-
-
 # ── paso 1 ───────────────────────────────────────────────────────────────────
 
 def _asegurar_gerentes(cur, dry: bool) -> tuple[int, dict[str, list[str]]]:
@@ -152,7 +145,7 @@ def _primary(cur, seguidas: dict[str, list[str]], dry: bool, jr: JobRunLogger) -
     now = datetime.now(UTC)
     filas, sin_gerente = [], 0
     for i in cio:
-        sym = _sym(i)
+        sym = simbolo_de(i)
         if not sym:
             continue
         nombre = nombre_desde_primary(i)

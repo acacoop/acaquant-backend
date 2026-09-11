@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import date
 
 from core.clase_activo import de_fci
 
@@ -42,6 +43,55 @@ def normalizar(nombre: str | None) -> str:
         s = s.replace(r, " ")
     s = re.sub(r"[^a-z0-9]+", " ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+def simbolo_de(inst: dict) -> str | None:
+    """El símbolo de un instrument de Primary (`symbol` o `instrumentId.symbol`).
+    Los FCI lo traen con espacios y hasta con un espacio INICIAL — se devuelve tal
+    cual porque así es como lo guarda `mercado.fci.simbolo_primary`."""
+    s = inst.get("symbol")
+    if isinstance(s, str) and s:
+        return s
+    s = (inst.get("instrumentId") or {}).get("symbol")
+    return s if isinstance(s, str) and s else None
+
+
+def punto_de_catalogo(inst: dict, hoy: date) -> tuple[date, float] | None:
+    """(fecha, VCP) de una cuotaparte, desde el CATÁLOGO de Primary. PURA.
+
+    **El VCP es la BANDA** (`lowLimitPrice`, que en los FCI es igual a
+    `highLimitPrice`): una cuotaparte no se negocia, la banda ES el precio al que
+    se suscribe y se rescata ese día. Se usa la banda y no el `LA` (última
+    operación) porque el LA **solo existe con la rueda abierta** — medido
+    2026-09-11 con el mercado cerrado: 627 de 755 fondos sin LA y 0 puntos.
+
+    La FECHA sale de `maturityDate`, que Primary mueve con la sesión (medido
+    2026-09-10: los 776 CIO decían `20260910`). Si no viene o no parsea, `hoy`.
+
+    None si no hay banda usable (sin precio o <= 0: un cero no es un VCP).
+    """
+    px = _num(inst.get("lowLimitPrice")) or _num(inst.get("highLimitPrice"))
+    if px is None or px <= 0:
+        return None
+    return (_fecha_compacta(inst.get("maturityDate")) or hoy, px)
+
+
+def _num(v) -> float | None:
+    try:
+        return float(v) if v is not None and not isinstance(v, bool) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _fecha_compacta(v) -> date | None:
+    """'20260910' → date(2026, 9, 10). Otra cosa → None."""
+    s = str(v or "").strip()
+    if len(s) != 8 or not s.isdigit():
+        return None
+    try:
+        return date(int(s[:4]), int(s[4:6]), int(s[6:]))
+    except ValueError:
+        return None
 
 
 def nombre_desde_primary(inst: dict) -> str:

@@ -83,7 +83,7 @@ Un fondo en USD rinde en USD: no se convierte, se compara dentro de su estante.
 | Qué | Cuándo (UTC, L-V) | Qué hace |
 |---|---|---|
 | `jobs.fci_universo` | 12:20 (después de `discovery_pyrofex`) | (1) asegura gerentes; (2) **una** llamada `get_detailed_instruments` → upsert de los CIO de gerentes seguidas por `simbolo_primary`; lo que Primary dejó de listar pasa a `activo=false`; (3) assets FCI: con `instrumento` → link; sin él → match único por nombre → escribe `assets.instrumento` y linkea; si no → fila propia (bilateral) con `gerente = assets.emisor`; (4) la CLASE: en los linkeados copia `assets.clase_activo`; en el resto sugiere con `core/clase_activo.de_fci` donde está vacía. |
-| `jobs.fci_vcp` | 20:30 (fuera de rueda) | Por fondo con símbolo: `get_market_data(LA)` → punto `primary` **en la fecha del timestamp del LA** (si Primary no publicó, el LA es el de ayer y va a ayer). Después, tenencia de los últimos 3 días para los linkeados → `tenencia` donde no hay `primary`. ~300 requests REST throttleadas. |
+| `jobs.fci_vcp` | 20:30 (fuera de rueda) | **UNA** llamada `get_detailed_instruments`: por cada fondo con símbolo, la BANDA (`lowLimitPrice`, que en una cuotaparte es igual a `highLimitPrice`) es el VCP y `maturityDate` es su fecha. Después, tenencia de los últimos 3 días para los linkeados → `tenencia` donde no hay `primary`. |
 | `jobs.fci_vcp --backfill-tenencia --desde` | a mano, fuera de rueda, vía `run_job.sh` | La historia del `precio` de la tenencia para los fondos linkeados: scopeado por unidad sobre el índice `(fecha, unidad)`, **por mes** con sleep, idempotente. `--medir` muestra el EXPLAIN y cuenta filas del primer mes antes de escribir (REGLA #4). |
 | `scripts.fci_admin` | a demanda | `gerentes` · `gerente X --alias … / --seguir / --dejar` · `fondos --gerente/--q/--sin-simbolo` · `categoria <ids> --set` (solo fondos sin asset; los linkeados se editan en Manager → ASSETS) · `alta` (bilateral manual) · `vcp <id> <fecha> <valor>` · **`vcp-csv archivo.csv`** (muchos de una: `fci_id|nombre, fecha, vcp`; alcanza con fines de mes para MTD/YTD/30D). |
 
@@ -93,14 +93,22 @@ Un fondo en USD rinde en USD: no se convierte, se compara dentro de su estante.
   al que Aunesa valuó ese día; puede diferir del de Primary en el redondeo o en
   un día de rezago, por eso no pisa a `primary`. La ficha muestra de qué fuente
   salió cada tramo.
-- **La fecha del LA es la del timestamp, no la de la corrida.** Si el job corre
-  y Primary todavía no publicó el día, se guarda el de ayer en ayer y mañana
-  entra el de hoy. Sin esto un feriado o una publicación tardía corría toda la
-  serie un día.
-- **Hipótesis sin medir:** que la banda low/high de Primary sea el VCP del día
-  anterior (ADCABLD: banda 1.040368 vs LA 1.040419). Si se confirma, el job
-  puede recuperar un día perdido con la misma llamada del catálogo. Se mide con
-  `scripts/diag_fci_primary` un día de estos.
+- **El VCP es la BANDA del catálogo, no el `LA`** (2026-09-11). La primera versión
+  pedía `get_market_data(LA)` fondo por fondo y a las 17:30 ART dio **0 puntos**:
+  627 de 755 sin LA (es dato de rueda ABIERTA, y el job corre con el mercado
+  cerrado) y 128 errores de los símbolos con `Nº`/acentos que rompen el REST. La
+  banda vive en el catálogo, es una sola llamada, existe con la rueda cerrada y
+  para una cuotaparte —que no se negocia— ES el precio de suscripción y rescate.
+- **La fecha la manda `maturityDate`, no el reloj del Droplet.** Primary la mueve
+  con la sesión (medido 2026-09-10: los 776 CIO decían `20260910`). El job cuenta
+  cuántos fondos cayeron en cada fecha (`primary_fechas`) y no corrige nada: si un
+  día el catálogo trae la sesión anterior, la serie lo dice en vez de mentir.
+- **Hipótesis sin medir:** si la banda es el VCP de la sesión o el del cierre
+  anterior publicado en esa sesión (ADCABLD el 2026-09-10: banda 1.040368 vs LA
+  1.040419, 0,005 % de diferencia). Los RENDIMIENTOS son correctos igual —dos
+  bandas consecutivas dan el retorno del día—; lo que podría estar corrido un día
+  es la ETIQUETA de fecha. Se cierra comparando un fondo contra lo que publica su
+  gerente; `scripts/diag_fci_primary` muestra banda y LA lado a lado.
 - **Una sola clasificación: la CLASE DE ACTIVO de assets.** La primera versión
   inventó «estantes» propios (T+0 MONEY MARKET, T+1…) y un toggle CALENDARIO/
   CORRIDAS; se sacaron el mismo día (feedback del user 2026-09-11): el vocabulario
@@ -124,6 +132,16 @@ front: `src/app/fci/page.tsx`, `components/fci-view.tsx`, `fci-table.tsx`,
 ---
 
 # PARTE B — Changelog
+
+### 2026-09-11 — el VCP sale de la BANDA del catálogo (el LA no servía)
+
+- Medido en la primera corrida real, 17:30 ART: `get_market_data(LA)` devolvió
+  **0 puntos** sobre 755 fondos (627 sin LA porque la rueda estaba cerrada, 128
+  con `JSONDecodeError` por los símbolos con `Nº`/acentos). El paso Primary pasa a
+  ser UNA llamada a `get_detailed_instruments`: la banda `low == high` es el VCP y
+  `maturityDate` la fecha. Sin requests por símbolo, sin rate limit, funciona con
+  el mercado cerrado. `core/fci_match` gana `simbolo_de` y `punto_de_catalogo`.
+- La tenencia no se tocó: en esa misma corrida dio 378 puntos.
 
 ### 2026-09-11 — la clase es la de assets; una barra; carga masiva de VCP
 

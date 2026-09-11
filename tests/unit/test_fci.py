@@ -15,7 +15,7 @@ import pytest
 from api.auth import get_module_for_path
 from api.services import fci_sql
 from core import fci_match, roles
-from jobs.fci_vcp import _SQL_UPSERT, fecha_del_la
+from jobs.fci_vcp import _SQL_UPSERT
 
 # ── match por nombre ─────────────────────────────────────────────────────────
 
@@ -109,12 +109,38 @@ def test_orden_categorias():
 # ── el job ───────────────────────────────────────────────────────────────────
 
 
-def test_fecha_del_la_es_la_del_timestamp_en_art():
-    # 1789074601235 ms = 2026-09-10 13:50 UTC = 10:50 ART → 2026-09-10 (medido en el diag)
-    assert fecha_del_la(1789074601235, date(2026, 9, 11)) == date(2026, 9, 10)
-    # 01:30 UTC del día 11 = 22:30 ART del 10 → sigue siendo el 10
-    assert fecha_del_la(1789090200000, date(2026, 9, 11)) == date(2026, 9, 10)
-    assert fecha_del_la(None, date(2026, 9, 11)) == date(2026, 9, 11)
+def test_el_vcp_sale_de_la_banda_del_catalogo_no_del_LA():
+    """En una cuotaparte low == high y esa banda ES el VCP. El LA no sirve: es
+    dato de rueda abierta (medido 2026-09-11 con el mercado cerrado: 627 de 755
+    fondos sin LA, 0 puntos)."""
+    inst = {"lowLimitPrice": 41.772252, "highLimitPrice": 41.772252,
+            "maturityDate": "20260910", "instrumentId": {"symbol": "ADBAICA AR"}}
+    assert fci_match.simbolo_de(inst) == "ADBAICA AR"
+    assert fci_match.punto_de_catalogo(inst, date(2026, 9, 11)) == (date(2026, 9, 10), 41.772252)
+
+
+def test_punto_de_catalogo_sin_banda_usable_es_none():
+    hoy = date(2026, 9, 11)
+    assert fci_match.punto_de_catalogo({"lowLimitPrice": 0, "highLimitPrice": 0}, hoy) is None
+    assert fci_match.punto_de_catalogo({}, hoy) is None
+    assert fci_match.punto_de_catalogo({"lowLimitPrice": -1}, hoy) is None
+    # sin `highLimitPrice` alcanza con `low`, y al revés
+    assert fci_match.punto_de_catalogo({"highLimitPrice": "1.5"}, hoy) == (hoy, 1.5)
+
+
+def test_la_fecha_la_manda_el_catalogo_y_cae_a_hoy_si_no_parsea():
+    hoy = date(2026, 9, 11)
+    assert fci_match.punto_de_catalogo({"lowLimitPrice": 1, "maturityDate": "20251231"}, hoy)[0] == date(2025, 12, 31)
+    for basura in ("", None, "2026-09-10", "20261332", "abcdefgh"):
+        assert fci_match.punto_de_catalogo({"lowLimitPrice": 1, "maturityDate": basura}, hoy)[0] == hoy
+
+
+def test_simbolo_de_conserva_el_espacio_inicial_de_los_fci():
+    # Primary lista varios FCI con un espacio adelante; así se guardan y así se buscan.
+    assert fci_match.simbolo_de({"instrumentId": {"symbol": " IEB Retorno Total - Clase D"}}) == \
+        " IEB Retorno Total - Clase D"
+    assert fci_match.simbolo_de({"symbol": "ADBAICA AR"}) == "ADBAICA AR"
+    assert fci_match.simbolo_de({}) is None
 
 
 def test_el_upsert_respeta_la_prioridad_de_fuentes():

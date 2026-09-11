@@ -5829,3 +5829,25 @@ def test_si_el_job_corrio_ok_muchas_veces_y_la_tabla_no_avanza_se_escala(monkeyp
 
 def test_el_umbral_de_la_planilla_esta_declarado_en_el_catalogo():
     assert catalogo.HABILIDADES["tabla_quieta"].umbrales["corridas_ok_sin_avanzar"] >= 2
+
+
+def test_un_job_que_falla_de_a_ratos_igual_escala(monkeypatch):
+    """Lo cazó el revisor: ok, error, ok, ok no junta cuatro ok SEGUIDAS, y si
+    `salud` no confirma cada falla suelta la tabla quedaba atrasada sin que
+    nadie la cante. Se cuentan las corridas posteriores al dato, todas."""
+    from datetime import datetime, timedelta
+    hoy = datetime(2026, 9, 11, 9, 0, tzinfo=UTC)
+    out = _quieta_con_planilla(monkeypatch, corridas=[
+        _corrida(hoy), _corrida(hoy - timedelta(days=1)),
+        _corrida(hoy - timedelta(days=2), "error"), _corrida(hoy - timedelta(days=3))])
+    assert [h.regla for h in out] == ["corre_ok_sin_avanzar"]
+    assert out[0].evidencia["corridas"] == 4 and out[0].evidencia["corridas_ok"] == 3
+
+
+def test_el_umbral_pisado_a_cero_no_rompe_la_planilla(monkeypatch):
+    from datetime import datetime
+
+    from agente import fuentes
+    monkeypatch.setattr(fuentes, "corridas", lambda tipo, n: [])
+    v, _ = sistema._planilla("jobs.x", datetime(2026, 9, 11, tzinfo=UTC), umbral=0)
+    assert v == sistema.SIN_PLANILLA

@@ -599,38 +599,50 @@ def _planilla(job: str, ult_efectivo: datetime, umbral: int) -> tuple[str, dict]
     """Qué dice la planilla del job sobre una tabla atrasada.
 
         SIN_PLANILLA  no hay corridas anotadas → se canta como siempre
-        CALLAR        la última corrida no es `ok` (lo canta `salud`), o corrió
-                      `ok` después del último dato menos de `umbral` veces
-                      (la fuente no publicó: no hay nada roto todavía)
-        ESCALAR       corrió `ok` `umbral` o más veces seguidas después del
-                      último dato y la tabla no avanzó
+        CALLAR        el job no corrió desde el último dato, o su última corrida
+                      no es `ok` (las dos las canta `salud`), o corrió `ok`
+                      después del dato menos de `umbral` veces (la fuente no
+                      publicó: no hay nada roto todavía)
+        ESCALAR       corrió `umbral` o más veces después del último dato y la
+                      tabla no avanzó
+
+    Se cuentan TODAS las corridas posteriores al dato, no sólo las `ok`
+    seguidas: un job que falla de a ratos (ok, ok, error, ok) nunca juntaría
+    N ok consecutivas, y si `salud` no llega a confirmar cada falla suelta la
+    tabla quedaría atrasada sin que nadie la cante (lo cazó el revisor).
 
     «Después del último dato» se mide con `started_at`: la corrida que ESCRIBIÓ
     el dato termina segundos después del sello que dejó, y con `finished_at`
     contaría como una corrida posterior sin serlo.
     """
     from agente import fuentes
+    umbral = max(int(umbral), 1)          # pisado a 0 en la base no puede indexar [-1]
     tipo = _tipo_de_job(job)
     if not tipo:
         return SIN_PLANILLA, {}
-    corridas = fuentes.corridas(tipo, max(umbral, 1) + 2)
+    corridas = fuentes.corridas(tipo, umbral + 2)
     if not corridas:
         return SIN_PLANILLA, {}
-    ultima = corridas[0]
-    if ultima.get("status") != "ok":
-        return CALLAR, {"motivo": f"la última corrida terminó {ultima.get('status')}: "
-                                  "lo canta salud"}
-    oks = 0
+    # Vienen de la más nueva a la más vieja: las posteriores al dato están al
+    # principio, y la primera que no lo es corta.
+    posteriores = []
     for c in corridas:
         arranco = c.get("started_at")
-        if c.get("status") != "ok" or not arranco or arranco <= ult_efectivo:
+        if not arranco or arranco <= ult_efectivo:
             break
-        oks += 1
-    if oks >= umbral:
-        return ESCALAR, {"corridas_ok": oks, "tipo": tipo,
-                         "desde": corridas[oks - 1]["started_at"].isoformat()}
-    return CALLAR, {"motivo": f"corrió ok {oks} vez/veces después del último dato: "
-                              "la fuente no publicó"}
+        posteriores.append(c)
+    if not posteriores:
+        return CALLAR, {"motivo": "el job no corrió desde el último dato: lo canta salud"}
+    if len(posteriores) < umbral:
+        ultima = posteriores[0]
+        if ultima.get("status") != "ok":
+            return CALLAR, {"motivo": f"la última corrida terminó {ultima.get('status')}: "
+                                      "lo canta salud"}
+        return CALLAR, {"motivo": f"corrió ok {len(posteriores)} vez/veces después del "
+                                  "último dato: la fuente no publicó"}
+    oks = sum(1 for c in posteriores if c.get("status") == "ok")
+    return ESCALAR, {"corridas": len(posteriores), "corridas_ok": oks, "tipo": tipo,
+                     "desde": posteriores[-1]["started_at"].isoformat()}
 
 
 def tabla_quieta(u: dict) -> list[Hallazgo]:
@@ -758,8 +770,9 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
         if veredicto == ESCALAR:
             out.append(Hallazgo(
                 sujeto=nombre, regla="corre_ok_sin_avanzar", severidad="media",
-                problema=(f"{job} corrió ok {pl['corridas_ok']} veces desde el último "
-                          f"dato y {p['col_fecha']} no avanzó · {f['motivo']}"),
+                problema=(f"{job} corrió {pl['corridas']} veces desde el último dato "
+                          f"({pl['corridas_ok']} ok) y {p['col_fecha']} no avanzó · "
+                          f"{f['motivo']}"),
                 detalle=(f"{p['col_fecha']} = {f['ultimo_dato']} · corridas ok desde "
                          f"{pl['desde']} · {p['filas']:,} filas"),
                 que_hacer=(f"Correr a mano `python -m {job}` y mirar cuántas filas "
@@ -769,7 +782,8 @@ def tabla_quieta(u: dict) -> list[Hallazgo]:
                 evidencia={"cadencia": p["cadencia"], "col_fecha": p["col_fecha"],
                            "atraso_s": f["atraso_s"], "tope_s": f["tope_s"],
                            "ultimo_dato": f["ultimo_dato"], "filas": p["filas"],
-                           "corridas_ok": pl["corridas_ok"], "job": job,
+                           "corridas": pl["corridas"], "corridas_ok": pl["corridas_ok"],
+                           "job": job,
                            "la_escribe": escribe.quien_escribe(nombre)}))
             continue
         out.append(Hallazgo(

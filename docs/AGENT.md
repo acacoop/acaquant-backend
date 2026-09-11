@@ -6993,7 +6993,7 @@ separan las tres causas sin declarar nada por tabla:
 | no hay corridas (motor, o job sin logger) | canta como siempre (`sin_escribir`) |
 | la última corrida no es `ok` | **calla**: «no corrió» / «falló» lo canta `salud` para todo el crontab (REGLA #9: un hecho, un lugar) |
 | corrió `ok` después del último dato, menos de N veces | **calla**: la fuente no publicó; relanzar no cambia nada |
-| corrió `ok` N veces seguidas y la tabla no avanzó | `corre_ok_sin_avanzar`: o la fuente lleva días muda, o escribe y la columna no se mueve; el `que_hacer` dice cómo separarlas |
+| corrió N o más veces después del último dato (ok o no) y la tabla no avanzó | `corre_ok_sin_avanzar`: o la fuente lleva días muda, o escribe y la columna no se mueve; el `que_hacer` dice cómo separarlas. Se cuentan todas las posteriores, no sólo las ok seguidas: un job que falla de a ratos nunca juntaría N ok, y si `salud` no confirma cada falla suelta nadie la cantaría |
 
 N = `corridas_ok_sin_avanzar` (4, en el catálogo; editable por base). «Después
 del último dato» se mide con `started_at` y contra el día CERRADO cuando la

@@ -35,6 +35,15 @@ def _cuerpo(nombre: str) -> str:
     return resto.split("\ndef ", 1)[0]
 
 
+def _codigo(nombre: str) -> str:
+    """El cuerpo de una función SIN su docstring. Hace falta porque el docstring
+    habla de lo que la función NO hace («no devuelve nominales»), y un test que
+    busque esa palabra en todo el texto se dispara con su propia explicación."""
+    c = _cuerpo(nombre)
+    partes = c.split('"""')
+    return partes[0] + "".join(partes[2:]) if len(partes) > 2 else c
+
+
 def _consultas(src: str) -> list[str]:
     """Los bloques de SQL del archivo: todo lo que va entre triples comillas y
     tiene un SELECT adentro."""
@@ -113,63 +122,35 @@ def test_el_permiso_se_declara_FUERA_del_codigo():
         "hay una lista de cuentas escrita en el código")
 
 
-def test_el_resultado_dice_QUE_cuentas_miro():
-    """«Te vencen 29 bonos» sin decir de qué cuentas se lee como si fuera toda
-    la casa. El alcance viaja con el dato, igual que la moneda."""
-    assert '"cuentas_miradas"' in FUENTE
-    # Y el docstring de CADA herramienta que devuelve datos del negocio —que es
-    # lo que lee el modelo— lo dice. Se recorre la lista real de herramientas:
-    # una que se sume mañana y no lo diga cae acá, no dentro de un año.
+def test_el_resultado_dice_de_QUE_cuenta_habla():
+    """«Cobrás USD 612» sin decir de qué cuenta no sirve para nada, y peor: se
+    lee como si fuera toda la casa. El alcance viaja con el dato, igual que la
+    moneda y la fecha de la foto."""
+    assert '"cuenta": {"id_cuenta": pedida, "nombre": nombre}' in FUENTE, (
+        "la respuesta tiene que decir la cuenta Y su titular")
+
+
+def test_la_cuenta_es_OBLIGATORIA_para_el_modelo():
+    """⚠️ **ESTRUCTURAL, NO UN PEDIDO EN EL PROMPT.** Que el asistente pregunte
+    por la cuenta no puede depender de que el modelo lea una instrucción y se
+    acuerde: se acuerda casi siempre, y el «casi» es una respuesta segura sobre
+    la cuenta equivocada.
+
+    Con `cuenta` sin default, la ficha que ve el modelo la marca `required`, y
+    su única forma de conseguir una es `cuentas_disponibles` — o preguntar.
+    """
+    import inspect
+
     from asistente import herramientas as H
-    for fn in H.DISPONIBLES:
-        doc = fn.__doc__ or ""
-        if "cuentas_miradas" not in _cuerpo(fn.__name__):
-            continue  # no devuelve datos de cartera (p.ej. el listado de cuentas)
-        assert "cuentas_miradas" in doc, (
-            f"`{fn.__name__}` devuelve `cuentas_miradas` y su docstring no le "
-            "dice al modelo que lo aclare al contestar")
 
-
-# ── LO QUE SALIÓ MAL EN LA PRIMERA CORRIDA REAL (2026-09-11) ────────────────
-
-
-def test_la_lista_de_SIN_VENCIMIENTO_trae_solo_bonos():
-    """⚠️ El bug: con `LEFT JOIN` contra el catálogo de renta fija, la lista de
-    «bonos sin vencimiento cargado» se llenaba con todo lo que no matcheara.
-
-    En la primera corrida real devolvió ARS, USD y USDC (efectivo), MSFT y RKLB
-    (acciones) e IBIT y ETHA (ETFs). Y el modelo lo repitió: «sin vencimiento
-    cargado: ARS, ETHA, IBIT…». Eso es FALSO — no les falta el dato, es que no
-    son bonos. Y es la peor clase de error: no falla, contesta.
-
-    `mercado.curvas` ES el catálogo de renta fija, así que estar adentro es la
-    definición de «es un bono». Con INNER JOIN el problema no puede volver, y
-    no hace falta una lista de clases de activo que alguien mantenga al día.
-    """
-    sin_vto = [s for s in _consultas(FUENTE) if "fecha_vencimiento IS NULL" in s]
-    assert sin_vto, "no encontré la consulta de los que no tienen vencimiento"
-    for sql in sin_vto:
-        assert "LEFT JOIN mercado.curvas" not in sql, (
-            "vuelve el LEFT JOIN: el efectivo y las acciones se van a colar en "
-            "la lista de bonos con la ficha incompleta")
-        assert re.search(r"\bJOIN\s+mercado\.curvas\b", sql), (
-            "la consulta tiene que cruzar contra el catálogo de renta fija")
-
-
-def test_un_numero_de_plata_nunca_viaja_sin_su_moneda():
-    """Varias filas de `portafolio.tenencia` vienen con `moneda` en null. Con un
-    null el modelo simplemente omitía el dato y mostraba la valuación sola —
-    un número de plata que no se puede comparar con ningún otro.
-
-    Es la misma regla que la fecha de la foto y las cuentas miradas: **la
-    unidad viaja con el dato**. Si no se sabe, se dice que no se sabe.
-    """
-    assert 'f["moneda"] or "SIN DATO' in FUENTE, (
-        "la moneda vacía tiene que decirse, no mandarse como null")
-    from asistente.herramientas import bonos_que_vencen
-    doc = bonos_que_vencen.__doc__ or ""
-    assert "SIN DATO en la tenencia" in doc, (
-        "el modelo tiene que saber qué hacer cuando la moneda no está")
+    for fn in (H.cobros_futuros,):
+        p = inspect.signature(fn).parameters["cuenta"]
+        assert p.default is inspect.Parameter.empty, (
+            f"`{fn.__name__}.cuenta` tiene default: el modelo puede omitirla")
+        ficha = next(f for f in H.FICHAS if f["function"]["name"] == fn.__name__)
+        assert "cuenta" in ficha["function"]["parameters"]["required"]
+    # Y la herramienta para conseguirla existe.
+    assert "cuentas_disponibles" in H.POR_NOMBRE
 
 
 # ── COBROS FUTUROS — la plata que entra (2026-09-12) ────────────────────────
@@ -190,7 +171,7 @@ def test_la_plata_nunca_se_totaliza_mezclando_monedas():
     from asistente.herramientas import cobros_futuros
 
     doc = cobros_futuros.__doc__ or ""
-    assert "SEPARADO POR MONEDA" in doc and "NUNCA sumes" in doc, (
+    assert "POR MONEDA" in doc and "NUNCA sumes" in doc, (
         "el docstring tiene que prohibirle al modelo sumar monedas: es lo "
         "único que lee antes de contestar")
 
@@ -198,7 +179,8 @@ def test_la_plata_nunca_se_totaliza_mezclando_monedas():
     for sql in _consultas(cuerpo):
         if "operaciones.acreencias" not in sql or "sum(t.monto)" not in sql:
             continue
-        assert "moneda" in sql.lower().split("group by")[1].split("order by")[0], (
+        group_by = sql.lower().split("group by")[1].split("order by")[0]
+        assert "moneda" in group_by, (
             "una suma de plata sin la moneda en el GROUP BY mezcla ARS con USD "
             f"y el resultado parece bueno:\n{sql.strip()[:300]}…")
 
@@ -234,30 +216,77 @@ def test_el_total_no_sale_de_la_lista_que_se_puede_truncar():
     from asistente import herramientas as H
 
     assert H.MAX_PAGOS > 0
-    cuerpo = _cuerpo("cobros_futuros")
+    cuerpo = _codigo("cobros_futuros")
     assert '"truncado": len(filas) > MAX_PAGOS' in cuerpo, (
         "si se corta la lista hay que decirlo")
-    # El total se arma desde `meses` (la consulta del período entero), no desde
-    # `pagos` (la lista recortada).
-    i = cuerpo.index("for mes, moneda, monto in meses:")
-    j = cuerpo.index("pagos = [{")
-    assert i < j, "el total se calcula antes y aparte del detalle"
-    assert "total[m]" in cuerpo[i:j]
+    # El detalle es lo ÚNICO que se recorta (`filas[:MAX_PAGOS]`). El total y
+    # los títulos salen de sus propias consultas sobre el período entero.
+    assert "filas[:MAX_PAGOS]" in cuerpo
+    assert '"total": {_mon(m): round(float(v or 0), 2) for m, v in tot}' in cuerpo, (
+        "el total tiene que salir de su propia consulta (`tot`), no de sumar "
+        "la lista que se puede truncar")
+    for var in ("tot", "tits"):
+        assert f"cur.execute(sql_{'total' if var == 'tot' else 'titulos'}, params)" in cuerpo
 
 
-def test_lo_que_NO_proyecta_ningun_cobro_se_declara():
-    """Un bono que tenés y al que le falta el cronograma no genera ninguna fila
-    en `operaciones.acreencias`. Sin decirlo, desaparece de la respuesta y el
-    total se lee como completo cuando está corto.
+def test_la_plata_no_se_lee_de_la_tenencia():
+    """⚠️⚠️ **LA REGLA QUE COSTÓ DOS ITERACIONES, y la dijo el user:**
 
-    Es la misma regla que `sin_vencimiento_cargado`: el silencio se declara.
+    > *«NO HAY QUE MIRAR LA TENENCIA, HAY QUE MIRAR LA ACREENCIA QUE SE COBRA,
+    > ya está solucionado esto en la plataforma»*
+
+    La tenencia YA se miró: la miró `jobs/acreencias.py` al escribir
+    `operaciones.acreencias`, multiplicando los nominales por el cronograma del
+    bono (`api/services/acreencias.py:181`). Volver a mirarla desde acá sería
+    rehacer esa multiplicación: dos versiones del mismo número sin árbitro, y
+    el día que difieran ninguna falla — cada una contesta segura con la suya.
+
+    La primera versión de esto devolvía nominales y valuación, y la valuación
+    salía sin moneda porque `tenencia.moneda` se ingiere cruda de Aunesa y puede
+    venir vacía. La pregunta nunca fue «cuánto vale»: fue **cuánta plata cobro**.
     """
-    from asistente.herramientas import cobros_futuros
+    cuerpo = _codigo("cobros_futuros")
+    assert "portafolio.tenencia" not in cuerpo, (
+        "`cobros_futuros` volvió a mirar la tenencia: la plata sale de "
+        "`operaciones.acreencias`, que ya la cruzó")
+    # Se miran las CLAVES de la respuesta, no el texto: los comentarios de
+    # arriba explican justamente por qué los nominales no están, y un test que
+    # busque la palabra suelta se dispara con su propia explicación.
+    for prohibido in ("nominales", "valuacion", "cantidad", "precio"):
+        assert f'"{prohibido}"' not in cuerpo, (
+            f"`{prohibido}` es una clave de la respuesta: la pregunta es cuánta "
+            "plata se cobra, no cuánto vale la posición")
 
-    assert '"sin_proyeccion"' in FUENTE
-    doc = cobros_futuros.__doc__ or ""
-    assert "sin_proyeccion" in doc, (
-        "el modelo tiene que saber que esa lista significa «el total está corto»")
+
+def test_un_vencimiento_es_el_ultimo_cobro_de_un_bono():
+    """«¿Qué bono me vence?» y «¿cuánto cobro?» parecían dos preguntas y eran
+    una: el vencimiento es el último pago del cronograma.
+
+    Tenerlas en DOS herramientas fue el error — el modelo elegía la que se
+    llamaba parecido a la pregunta (`bonos_que_vencen`), que leía la tenencia y
+    contestaba con nominales y una valuación sin moneda. Ahora hay una sola, y
+    cada título trae su `vence` desde el CATÁLOGO de renta fija.
+    """
+    from asistente import herramientas as H
+
+    assert "bonos_que_vencen" not in H.POR_NOMBRE, (
+        "volvió la herramienta que contestaba la pregunta equivocada")
+    assert '"vence"' in _cuerpo("cobros_futuros")
+    doc = H.cobros_futuros.__doc__ or ""
+    assert "vence" in doc, (
+        "el modelo tiene que saber que esta herramienta contesta también "
+        "«qué bono me vence», o va a decir que no puede")
+
+    # ⚠️ Y el vencimiento sale de `mercado.curvas`, que lo guarda como `date`.
+    # `portafolio.assets.vencimiento` es TEXTO libre: "2027-3-5" y "05/03/2027"
+    # ordenan distinto y no falla nada.
+    sql = [q for q in _consultas(_cuerpo("cobros_futuros")) if "fecha_vencimiento" in q]
+    assert sql, "no encontré de dónde sale el vencimiento"
+    for q in sql:
+        assert "mercado.curvas" in q
+        # LEFT JOIN a propósito: un bono sin la fecha cargada igual tiene que
+        # aparecer con su plata, que es lo que se preguntó.
+        assert "LEFT JOIN mercado.curvas" in q
 
 
 def test_la_respuesta_dice_de_cuando_son_los_datos():

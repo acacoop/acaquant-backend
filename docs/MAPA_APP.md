@@ -2316,8 +2316,12 @@ nadie lo miraba.
 > | Herramienta | Qué contesta | De dónde sale |
 > |---|---|---|
 > | `cuentas_disponibles()` | qué cuentas se pueden consultar, con su nombre | `clientes.cuentas`, intersecado con el permiso |
-> | `cobros_futuros(dias, cuenta)` | **cuánta plata entra y cuándo** — cupones y amortizaciones juntos, por moneda, con el calendario mes a mes | `operaciones.acreencias`, que ya precomputa el cron de `jobs/acreencias.py` (12:45 UTC L-V). **No recalcula nada**: rehacer la cuenta acá serían dos versiones del mismo número sin árbitro |
-> | `bonos_que_vencen(dias)` | qué posiciones vencen, con nominales y valuación | `portafolio.tenencia` × `mercado.curvas.fecha_vencimiento` |
+> | `cobros_futuros(cuenta, dias)` | **cuánta plata cobra esa cuenta y cuándo** — cupones y amortizaciones juntos, por moneda, con el total por título y el detalle por fecha. Cada título trae su `vence`, así que contesta también «¿qué bono me vence?» | `operaciones.acreencias`, que ya precomputa el cron de `jobs/acreencias.py` (12:45 UTC L-V) cruzando la tenencia contra el cronograma de cada bono. **No recalcula nada y NO mira la tenencia**: rehacer esa multiplicación serían dos versiones del mismo número sin árbitro |
+>
+> ⚠️ `cuenta` **no tiene default**, así que la ficha la marca `required` y el
+> modelo no puede omitirla: o la sabe, o llama a `cuentas_disponibles` y
+> pregunta. Que el asistente pregunte por la cuenta es estructural, no una
+> instrucción del prompt que el modelo pueda saltearse.
 >
 > **Un endpoint, `require_admin` heredado del router de `/api/agente`:**
 >

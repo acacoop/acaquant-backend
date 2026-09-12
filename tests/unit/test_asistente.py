@@ -475,3 +475,148 @@ def test_el_libro_de_llamadas_se_llama_llamadas():
     # Las dos columnas que no leía nadie.
     assert "DROP COLUMN IF EXISTS conv_id" in esquema
     assert "DROP COLUMN IF EXISTS feedback" in esquema
+
+
+# ── EL PANEL DEL LAB (2026-09-12) ──────────────────────────────────────────
+
+
+def test_el_modelo_elegido_se_guarda_POR_PROVEEDOR():
+    """⚠️⚠️ **EL BUG QUE ESTE TEST IMPIDE, y estuvo escrito antes de existir.**
+
+    La primera versión guardaba la elección por rol a secas (`modelo_pro`). Con
+    eso, elegir un modelo de OpenAI desde la tab LAB **le cambiaba el modelo
+    también a `agente_texto`**, que corre contra DeepSeek. Ese nombre allá no
+    existe, así que el agente se quedaba sin texto todas las noches — por un
+    cambio hecho en otra pantalla, y sin que nada conectara una cosa con la otra.
+
+    Un nombre de modelo sólo existe para su proveedor. La clave lo lleva adentro.
+    """
+    from asistente import panel
+    from core import ai
+
+    assert "{proveedor}" in ai.CLAVE_MODELO and "{tier}" in ai.CLAVE_MODELO
+    # Y la pantalla usa LA MISMA clave que el gateway lee, no una copia: con dos
+    # formatos distintos la pantalla guardaría donde nadie mira — no falla nada,
+    # simplemente el cambio no tiene efecto.
+    assert panel.CLAVE_MODELO is ai.CLAVE_MODELO
+
+
+def test_no_se_puede_elegir_un_proveedor_que_entrena():
+    """La pantalla muestra DeepSeek deshabilitado. Eso es UX, y una pantalla no
+    es una barrera: el portazo tiene que estar también del lado del servidor.
+
+    Es la misma regla que el resto del repo — esconder una solapa no es un
+    permiso; el único gate real es el backend.
+    """
+    from asistente import panel
+    from core import llm
+
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    i = cuerpo.index("def elegir_modelo(")
+    cuerpo = cuerpo[i:cuerpo.index("\ndef ", i + 10)]
+    assert "llm.no_entrena(proveedor)" in cuerpo, (
+        "`elegir_modelo` no chequea si el proveedor entrena: con eso, un POST "
+        "directo deja los datos del negocio saliendo hacia el que entrena")
+    # Y el chequeo va ANTES de guardar.
+    assert cuerpo.index("no_entrena") < cuerpo.index("INSERT INTO ia.config")
+    assert not llm.no_entrena("deepseek") and llm.no_entrena("openai")
+    assert panel.ROLES
+
+
+def test_probar_el_modelo_es_parte_de_guardar_y_no_un_boton():
+    """⚠️ Un modelo que ignora `tools` deja al asistente **contestando de
+    memoria**: sin consultar la base, inventando números, con el mismo tono de
+    siempre y sin un solo error. Es el peor modo de falla de esta app.
+
+    Por eso la prueba no es un botón que se pueda saltear: vive adentro de
+    `elegir_modelo`, antes del INSERT. Si no pasa, no se guarda y queda el
+    modelo anterior. Misma decisión que `cuenta` en las herramientas: lo que se
+    puede mover de «acordate» a «no podés no hacerlo», se mueve.
+    """
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    i = cuerpo.index("def elegir_modelo(")
+    cuerpo = cuerpo[i:cuerpo.index("\ndef ", i + 10)]
+    assert "probar(" in cuerpo, "guardar tiene que probar el modelo"
+    assert cuerpo.index("probar(") < cuerpo.index("INSERT INTO ia.config"), (
+        "la prueba quedó DESPUÉS de guardar: entonces no protege de nada")
+    assert 'return {"ok": False' in cuerpo.split("probar(")[1].split("INSERT")[0], (
+        "si la prueba falla tiene que cortar, no seguir y guardar igual")
+
+    # Y la prueba tiene que EXIGIR una herramienta: un modelo que conteste texto
+    # pasaría una prueba que sólo mire que no hubo error.
+    from asistente import panel
+    assert panel._PRUEBA_HERRAMIENTA and "r.pedidos" in (
+        (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8"))
+
+
+def test_la_plata_no_se_estima_cuando_falta_el_precio():
+    """Una tarifa vieja hardcodeada no falla: miente, y encima se usa para
+    decidir. Por eso los precios van en `ia.config` (editables sin deploy) y un
+    modelo sin precio devuelve `usd: null` MÁS su nombre en `sin_precio`.
+
+    Sin esa lista, un `null` se lee como «no gastó».
+    """
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    assert '"sin_precio"' in cuerpo
+    assert "usd = None" in cuerpo
+    # Ningún precio escrito en el código.
+    import re
+    assert not re.search(r"_PRECIOS\s*=|precio.*=\s*\d+\.\d+\s*#", cuerpo), (
+        "hay una tarifa hardcodeada: las tarifas cambian y esto no avisa")
+
+
+def test_el_panel_no_replica_la_precedencia_del_gateway():
+    """Con qué modelo corre una tarea lo decide `core/ai.py` (elección > env >
+    default). El panel lo PREGUNTA, no lo recalcula: dos versiones de la misma
+    regla se desincronizan, y cuando pasa la pantalla muestra un modelo y el
+    sistema usa otro — sin que nada falle."""
+    from asistente import panel
+    from core import ai
+
+    assert hasattr(ai, "modelo_de") and hasattr(ai, "proveedor_de")
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    assert "ai.modelo_de(" in cuerpo and "ai.proveedor_de(" in cuerpo
+    assert panel.TAREA == "asistente"
+
+
+def test_la_lista_de_modelos_sale_del_proveedor_y_no_del_codigo():
+    """Los nombres de modelo cambian cada pocos meses. Si estuvieran escritos en
+    el repo, probar uno nuevo sería un deploy — y la lista quedaría vieja sin
+    que nada lo marque."""
+    from core import llm
+
+    assert hasattr(llm, "disponibles") and hasattr(llm, "proveedores")
+    fuente = (RAIZ / "core" / "llm.py").read_text(encoding="utf-8")
+    i = fuente.index("def disponibles(")
+    cuerpo = fuente[i:fuente.index("\ndef ", i + 10)]
+    assert "/models" in cuerpo, "se le pregunta al proveedor"
+    # Y no puede levantar: que no se pueda listar no rompe una pantalla.
+    assert "return []" in cuerpo and "except Exception" in cuerpo
+
+
+def test_el_panel_entra_en_el_techo_del_proxy():
+    """⚠️ **UNA CUENTA QUE HAY QUE VOLVER A HACER SI SE SUMA UN PROVEEDOR.**
+
+    El panel le pregunta la lista de modelos a CADA proveedor, en serie, adentro
+    de un request que tiene el proxy de Next cortando a los 30 s y el cliente
+    abortando a los 25 (`lib/fetch-json.ts::conTecho`).
+
+    Con esperas largas y dos proveedores caídos, el panel se ve exactamente
+    igual que un backend muerto — por una lista que es OPCIONAL. Este test hace
+    la multiplicación para que nadie tenga que acordarse.
+    """
+    import inspect
+
+    from core import llm
+
+    espera = inspect.signature(llm.disponibles).parameters["timeout_s"].default
+    peor = espera * len(llm.proveedores())
+    assert peor <= 20, (
+        f"el panel puede tardar {peor}s en el peor caso y el cliente aborta a "
+        f"los 25: bajá el timeout de `llm.disponibles` o pedí las listas en "
+        f"paralelo")
+
+    # Y la prueba del modelo viaja adentro del POST de guardar, con el mismo techo.
+    prueba = inspect.getsource((__import__("asistente.panel", fromlist=["x"])).probar)
+    assert "timeout_s=20" in prueba, (
+        "la prueba del modelo tiene que entrar en el techo del cliente")

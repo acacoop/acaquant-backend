@@ -118,6 +118,56 @@ def modelo(tier: str = "flash", proveedor: str | None = None) -> str:
     return os.getenv(env, default)
 
 
+def proveedores() -> list[str]:
+    """Los proveedores que este archivo sabe usar. Sale de la tabla de arriba,
+    no de una lista escrita a mano en otro lado."""
+    return sorted(_PROVEEDORES)
+
+
+def disponibles(proveedor: str | None = None, *, timeout_s: int = 8) -> list[str]:
+    """Los modelos que el proveedor dice tener HOY, preguntándoselo a él.
+
+    Existe para que elegir un modelo no sea editar código: los nombres cambian
+    cada pocos meses y el repo no tiene por qué enterarse. La pantalla ofrece
+    esta lista y guarda la elección en `ia.config`.
+
+    ⚠️ Devuelve TODO lo que el proveedor lista — incluidos modelos que no son de
+    chat (embeddings, audio, moderación) y modelos de chat viejos que ignoran
+    las herramientas. **El endpoint devuelve nombres, no capacidades**, así que
+    de acá NO se puede deducir cuáles sirven: eso sólo lo dice probarlos. Quien
+    elige tiene que verificar (`asistente/panel.py`).
+
+    Lista vacía = no se pudo preguntar (sin clave, sin red, el proveedor caído).
+    Nunca levanta: que no se pueda listar no puede romper una pantalla.
+
+    ⚠️ **8 SEGUNDOS Y NO MÁS, Y EL NÚMERO SALE DE UNA CUENTA.** El panel llama a
+    esto UNA VEZ POR PROVEEDOR, en serie, adentro de un request que del otro lado
+    tiene el proxy de Next cortando a los 30 s y el cliente abortando a los 25.
+    Con dos proveedores caídos, 15 s cada uno se comían el presupuesto entero y
+    el panel se veía igual que un backend muerto — por una lista que es opcional.
+    """
+    try:
+        cfg = _cfg_proveedor(proveedor)
+    except ValueError:
+        return []
+    key = os.getenv(cfg["key_env"])
+    if not key:
+        return []
+    import requests
+    try:
+        resp = requests.get(_base_url(cfg) + "/models",
+                            headers={"Authorization": f"Bearer {key}"},
+                            timeout=timeout_s)
+        if resp.status_code != 200:
+            logger.warning("llm.disponibles(%s): HTTP %s", proveedor, resp.status_code)
+            return []
+        datos = (resp.json() or {}).get("data") or []
+    except Exception as e:
+        logger.warning("llm.disponibles(%s): %s: %s", proveedor, type(e).__name__, e)
+        return []
+    return sorted({str(m.get("id")) for m in datos if m.get("id")})
+
+
 def _base_url(cfg: dict) -> str:
     return os.getenv(cfg["url_env"], cfg["url_default"])
 

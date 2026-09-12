@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **514 endpoints** montados en `api.main.app`, en **35 routers**.
-- **192 escriben** (POST/PUT/PATCH/DELETE); 322 son de solo lectura.
+- **517 endpoints** montados en `api.main.app`, en **35 routers**.
+- **194 escriben** (POST/PUT/PATCH/DELETE); 323 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 17 | 10 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 20 | 12 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
@@ -2324,11 +2324,20 @@ nadie lo miraba.
 > pregunta. Que el asistente pregunte por la cuenta es estructural, no una
 > instrucción del prompt que el modelo pueda saltearse.
 >
-> **Un endpoint, `require_admin` heredado del router de `/api/agente`:**
+> **Cuatro endpoints, `require_admin` heredado del router de `/api/agente`:**
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Devuelve la respuesta MÁS `eventos`: la traza del ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
+> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
+> | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas`, el **hit rate del caché**, y qué modelo cumple cada rol en cada proveedor (lista pedida al proveedor en vivo) |
+> | `POST /api/agente/lab/modelo` | fija qué modelo cumple un rol. ⚠️ **Prueba antes de guardar**: le da una herramienta de mentira y mira si la pide. Un modelo que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
+> | `POST /api/agente/lab/precio` | la tarifa de un modelo (USD por millón de tokens), para ver plata y no sólo tokens |
+>
+> ⚠️ **La elección se guarda POR PROVEEDOR** (`modelo:{proveedor}:{tier}` en
+> `ia.config`). Con una clave por rol a secas, elegir un modelo de OpenAI le
+> cambiaba el modelo también a `agente_texto`, que corre contra DeepSeek: ese
+> nombre allá no existe y el agente se quedaba sin texto todas las noches, por
+> un cambio hecho en otra pantalla.
 >
 > Síncrono a propósito y medido: una pregunta con una herramienta tarda 4,5 s, y
 > el peor caso (6 vueltas, el techo declarado en `ciclo.MAX_VUELTAS`) queda por

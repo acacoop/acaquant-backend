@@ -125,13 +125,35 @@ def _proveedor(cfg: dict) -> str:
     return cfg.get("proveedor") or llm.PROVEEDOR_DEFAULT
 
 
+# Cómo se llama en `ia.config` la elección de modelo. ⚠️ La clave lleva el
+# PROVEEDOR adentro, y no es un detalle: un nombre de modelo sólo existe para su
+# proveedor. Con una clave por rol a secas (`modelo_pro`), elegir un modelo de
+# OpenAI en la pantalla le cambiaría el modelo también a `agente_texto`, que
+# corre contra DeepSeek — y ese nombre allá no existe, así que el agente se
+# quedaría sin texto todas las noches por un cambio hecho en otra pantalla.
+CLAVE_MODELO = "modelo:{proveedor}:{tier}"
+
+
 def _modelo(cfg: dict) -> str:
     """El modelo que le toca a una tarea. El código pide un ROL (`flash`/`pro`)
-    y acá se resuelve a un nombre concreto: primero lo que hayas elegido en la
+    y acá se resuelve a un nombre concreto: primero lo que se haya elegido en la
     tab LAB (`ia.config`), y si no hay nada, el default de `core/llm.py`."""
     tier = cfg.get("tier", "flash")
-    elegido = ajustes().get(f"modelo_{tier}")
-    return elegido or llm.modelo(tier, _proveedor(cfg))
+    prov = _proveedor(cfg)
+    elegido = ajustes().get(CLAVE_MODELO.format(proveedor=prov, tier=tier))
+    return elegido or llm.modelo(tier, prov)
+
+
+def modelo_de(tarea: str) -> str:
+    """Con qué modelo corre HOY una tarea. Lo usa la pantalla del panel para no
+    tener que replicar la precedencia (elección > env > default) por su cuenta:
+    replicarla sería dos versiones de la misma regla sin árbitro."""
+    return _modelo(_config(tarea))
+
+
+def proveedor_de(tarea: str) -> str:
+    """Qué proveedor le toca a una tarea."""
+    return _proveedor(_config(tarea))
 
 
 def _ruteo_seguro(cfg: dict) -> bool:

@@ -283,3 +283,52 @@ def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
     r = ciclo.preguntar(body.pregunta, usuario=email,
                         historial=body.historial, ver=eventos.append)
     return {**r, "eventos": eventos}
+
+
+# ── EL PANEL DEL LAB — qué gastamos y con qué modelo corremos ───────────────
+#
+# Lectura y escritura de `asistente/panel.py`. Acá no hay lógica: la superficie
+# HTTP del asistente son estos tres endpoints más el de preguntar.
+
+@router.get("/lab/panel")
+def lab_panel(dias: int = 30):
+    """Todo el panel en UN request: gasto por tarea, hit rate del caché, y qué
+    modelo cumple cada rol en cada proveedor."""
+    from asistente import panel
+    return panel.vista(dias)
+
+
+class ElegirModelo(BaseModel):
+    proveedor: str = Field(..., min_length=1, max_length=32)
+    rol: str = Field(..., min_length=1, max_length=16)
+    modelo: str = Field(..., min_length=1, max_length=120)
+
+
+@router.post("/lab/modelo")
+def lab_modelo(body: ElegirModelo, email: str = Depends(get_user_email)):
+    """Deja fijado qué modelo cumple un rol. **Prueba antes de guardar**: si el
+    modelo no sabe pedir una herramienta, no se guarda y queda el anterior.
+
+    Eso no es un paso opcional que la pantalla podría saltear — vive adentro de
+    `panel.elegir_modelo`. Un modelo que ignora `tools` deja al asistente
+    contestando de memoria, con el mismo tono de siempre y sin un solo error.
+    """
+    from asistente import panel
+    return panel.elegir_modelo(body.proveedor, body.rol, body.modelo, por=email)
+
+
+class PonerPrecio(BaseModel):
+    modelo: str = Field(..., min_length=1, max_length=120)
+    # USD por MILLÓN de tokens.
+    entrada: float = Field(..., ge=0, le=10_000)
+    salida: float = Field(..., ge=0, le=10_000)
+
+
+@router.post("/lab/precio")
+def lab_precio(body: PonerPrecio, email: str = Depends(get_user_email)):
+    """La tarifa de un modelo, para poder ver plata y no sólo tokens. Va en
+    `ia.config` y no en el código: una tarifa vieja hardcodeada no falla, miente
+    — y encima se usa para decidir."""
+    from asistente import panel
+    return panel.poner_precio(body.modelo, entrada=body.entrada,
+                              salida=body.salida, por=email)

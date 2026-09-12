@@ -196,7 +196,7 @@ def explicar(nombre: str, *, por: str = "") -> dict:
                          detalle=f"{nombre}: {ctx['error'][:120]}")
     if not texto:
         return {"ok": False, "error": ("la IA no contestó: presupuesto agotado o proveedor "
-                                       "caído — mirar ia.trazas")}
+                                       "caído — mirar ia.llamadas")}
     resp = _parsear(texto)
     if resp is None:
         return {"ok": False, "error": "la IA contestó algo que no es la forma pedida",

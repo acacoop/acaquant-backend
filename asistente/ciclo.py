@@ -49,6 +49,98 @@ MAX_VUELTAS = 6
 # entero en la próxima llamada y se paga por token, cada vuelta.
 MAX_RESULTADO_CHARS = 20_000
 
+# ── ACHICAR LA CONVERSACIÓN VIEJA ───────────────────────────────────────────
+#
+# ⚠️ **EL PROBLEMA, Y NO ES TEÓRICO.** El modelo no recuerda nada, así que en
+# cada vuelta se le reenvía la conversación ENTERA. Un resultado de herramienta
+# de 4.000 caracteres no se paga una vez: se paga en cada vuelta de esa pregunta
+# Y en cada pregunta que venga después, mientras la pestaña siga abierta.
+#
+# **Por qué se puede tirar sin perder nada.** Mirá el orden de los mensajes:
+#
+#     1. usuario      «cuánta plata cobro»
+#     2. modelo       pide cobros_futuros(805, 60)
+#     3. herramienta  ← el JSON entero
+#     4. modelo       «cobrás USD 611,83; septiembre 431,23; octubre 180,60…»
+#
+# El 4 ya contiene lo que importaba del 3: el modelo leyó el JSON, sacó lo que
+# necesitaba y lo escribió. A partir de ahí el 3 es peso muerto.
+#
+# ⚠️⚠️ **SE ACHICA ENTRE PREGUNTAS, NUNCA DENTRO DE LA MISMA.** Adentro del turno
+# el modelo necesita el resultado completo para contestar. Recién cuando esa
+# pregunta terminó, el resultado pasa a ser historia. Por eso esto corre UNA vez,
+# sobre el `historial` que llega de afuera, y no adentro del bucle.
+#
+# **Y es genérico a propósito**: el stub se arma con el nombre de la herramienta,
+# sus argumentos y el tamaño de lo que se tira — tres cosas que el ciclo ya
+# tiene. Una herramienta que se agregue mañana queda achicada sola, sin escribir
+# una línea. Igual que la ficha del modelo, que sale de la función y no de una
+# lista paralela.
+#
+# ── LAS PERILLAS. Son estas tres y están acá para que se muevan acá. ──
+#
+# Cuántos resultados recientes se dejan ENTEROS. 0 = se achican todos; 1 = el
+# último queda completo, por si la próxima pregunta es sobre ese mismo dato.
+RESULTADOS_ENTEROS = 1
+# Por debajo de esto no vale la pena: el stub ocuparía casi lo mismo.
+ACHICAR_DESDE_CHARS = 400
+# Qué se le dice al modelo en lugar del resultado. Tiene que decir DOS cosas: que
+# el dato existió (y con qué argumentos), y que puede volver a pedirlo. Sin la
+# segunda, el modelo contesta «no tengo ese dato» en vez de llamar de nuevo.
+PLANTILLA_ACHICADO = (
+    "[resultado de {nombre}({args}) — ya usado en la respuesta de abajo; "
+    "{chars} caracteres descartados para no reenviarlos. "
+    "Si necesitás el detalle, volvé a llamar a la herramienta: "
+    "además te va a llegar más fresco.]"
+)
+
+
+def _achicar(historial: list[dict]) -> tuple[list[dict], int]:
+    """Reemplaza los resultados de herramienta VIEJOS por un resumen de una
+    línea. Devuelve el historial nuevo y cuántos caracteres se ahorraron.
+
+    ── SU ROL EN EL CICLO: baja lo que se paga en cada vuelta ──
+
+    No toca los mensajes del usuario ni los del modelo: esos son la conversación
+    y son chicos. Lo único que se achica es lo que devolvió una herramienta,
+    que es lo único que puede pesar miles de caracteres.
+    """
+    # De atrás para adelante, para poder dejar enteros los N más recientes.
+    quedan = RESULTADOS_ENTEROS
+    salida, ahorro = [], 0
+    for m in reversed(historial or []):
+        if m.get("role") != "tool" or len(str(m.get("content") or "")) < ACHICAR_DESDE_CHARS:
+            salida.append(m)
+            continue
+        if quedan > 0:
+            quedan -= 1
+            salida.append(m)
+            continue
+        crudo = str(m.get("content") or "")
+        nombre, args = _quien_fue(historial, m.get("tool_call_id"))
+        stub = PLANTILLA_ACHICADO.format(nombre=nombre, args=args, chars=len(crudo))
+        ahorro += len(crudo) - len(stub)
+        # ⚠️ `tool_call_id` se conserva TAL CUAL. El proveedor exige que cada
+        # resultado conteste a un pedido suyo; si el id no calza, la llamada
+        # entera se rechaza — y no por el contenido, que puede ser cualquiera.
+        salida.append({**m, "content": stub})
+    return list(reversed(salida)), ahorro
+
+
+def _quien_fue(historial: list[dict], tool_call_id) -> tuple[str, str]:
+    """Qué herramienta y con qué argumentos produjo ese resultado. Sale del
+    mensaje del modelo que lo pidió, que está más arriba en la conversación.
+
+    Si no se encuentra (un historial recortado a mano, por ejemplo), se degrada
+    a «una herramienta»: el stub sigue sirviendo, sólo dice menos."""
+    for m in historial or []:
+        for p in m.get("tool_calls") or []:
+            if p.get("id") == tool_call_id:
+                fn = p.get("function") or {}
+                return fn.get("name") or "una herramienta", str(fn.get("arguments") or "")[:200]
+    return "una herramienta", ""
+
+
 # ── LA INSTRUCCIÓN ──────────────────────────────────────────────────────────
 #
 # Es lo primero que lee el modelo y va en cada llamada. Corta a propósito:
@@ -138,13 +230,19 @@ def preguntar(
             except Exception:
                 pass  # mirar no puede romper lo que se está mirando
 
+    # ⚠️ Acá, y en ningún otro lado: lo viejo se achica ANTES de empezar. De acá
+    # para abajo el bucle trabaja con la conversación completa de ESTA pregunta.
+    historial, ahorro = _achicar(historial)
+
     mensajes = [{"role": "system", "content": SYSTEM}]
-    mensajes += list(historial or [])
+    mensajes += list(historial)
     mensajes.append({"role": "user", "content": pregunta})
 
     _ver("pregunta", texto=pregunta, herramientas=sorted(H.POR_NOMBRE))
+    if ahorro:
+        _ver("achicado", chars=ahorro)
     tokens_in = tokens_out = 0
-    trazas: list[int] = []
+    llamadas: list[int] = []
 
     for vuelta in range(1, MAX_VUELTAS + 1):
         _ver("vuelta", n=vuelta)
@@ -152,29 +250,29 @@ def preguntar(
         # ── PASO 1: se manda la conversación entera + las herramientas ──
         # Entera, sí: el modelo no recuerda nada de la vuelta anterior. Cada
         # llamada le reenvía todo desde el principio.
-        r, traza_id = ai.conversar(TAREA, mensajes=mensajes, herramientas=H.FICHAS,
+        r, llamada_id = ai.conversar(TAREA, mensajes=mensajes, herramientas=H.FICHAS,
                                    usuario=usuario, detalle=pregunta)
-        if traza_id:
-            trazas.append(traza_id)
+        if llamada_id:
+            llamadas.append(llamada_id)
 
         if r is None:
-            # El gateway se negó: sin clave, ruteo inseguro o sin presupuesto.
+            # El gateway se negó: sin clave del proveedor, o ruteo inseguro.
             _ver("corte", motivo="el gateway no dejó salir la llamada")
-            return _salida(None, mensajes, vuelta, tokens_in, tokens_out, trazas,
+            return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
                            error="No se pudo llamar al modelo: falta la clave del "
-                                 "proveedor, o se agotó el presupuesto del día.")
+                                 "proveedor, o el ruteo no es seguro para datos del negocio.")
         tokens_in += r.tokens_in or 0
         tokens_out += r.tokens_out or 0
         if not r.ok:
             _ver("corte", motivo=f"el proveedor falló: {r.error}")
-            return _salida(None, mensajes, vuelta, tokens_in, tokens_out, trazas,
+            return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
                            error=f"El proveedor no contestó: {r.error}")
 
         # ── PASO 2: ¿terminó, o quiere una herramienta? ──
         if not r.pedidos:
             _ver("texto", texto=r.texto)
             mensajes.append({"role": "assistant", "content": r.texto or ""})
-            return _salida(r.texto, mensajes, vuelta, tokens_in, tokens_out, trazas)
+            return _salida(r.texto, mensajes, vuelta, tokens_in, tokens_out, llamadas)
 
         # ── PASO 3: pidió. Se le devuelve su propio mensaje TAL CUAL y, abajo,
         # un resultado por cada herramienta que pidió. El crudo va sin tocar:
@@ -193,12 +291,12 @@ def preguntar(
         # ── PASO 4: y se vuelve a empezar.
 
     _ver("corte", motivo=f"llegué a {MAX_VUELTAS} vueltas sin una respuesta")
-    return _salida(None, mensajes, MAX_VUELTAS, tokens_in, tokens_out, trazas,
+    return _salida(None, mensajes, MAX_VUELTAS, tokens_in, tokens_out, llamadas,
                    error=f"Di {MAX_VUELTAS} vueltas pidiendo herramientas y no llegué "
                          "a una respuesta. Probá con una pregunta más acotada.")
 
 
-def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, trazas, error=None) -> dict:
+def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=None) -> dict:
     """Lo que devuelve una pregunta. `mensajes` (sin el system, que se agrega
     solo) es lo que hay que pasar como `historial` en la pregunta siguiente."""
     return {
@@ -207,6 +305,6 @@ def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, trazas, error=None)
         "vueltas": vueltas,
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
-        "trazas": trazas,
+        "llamadas": llamadas,
         "mensajes": [m for m in mensajes if m.get("role") != "system"],
     }

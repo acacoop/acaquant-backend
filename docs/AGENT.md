@@ -1509,7 +1509,7 @@ funciones deterministas que se pueden auditar leyendo el código una vez.
 - **Las lecciones de tokens**, pagadas ahí: el razonamiento cuenta como output
   (un `max_tokens` corto devuelve respuesta VACÍA), y `thinking` va apagado
   cuando la tarea es clasificar y no razonar.
-- **`ia.trazas`** — toda llamada al modelo queda registrada con tokens, latencia
+- **`ia.llamadas`** — toda llamada al modelo queda registrada con tokens, latencia
   y resultado. Es lo que permitió medir esto en vez de opinarlo.
 - **La postura de privacidad**: una tarea que ve datos del negocio no puede
   correr en un proveedor que entrena con ellos, y el gateway **se niega** en vez
@@ -3305,11 +3305,11 @@ La medición de §0.ap contra prod dio **105 hallazgos · 84 con puerta (80%) ·
 deuda**, y la pared #1 fue clarísima:
 
     1. sin_escribir  ×8   [tabla_quieta]   falta: relanzar el job de esa tabla
-       ej: ia.trazas, manager.role_audit, manager.salud_eventos
+       ej: ia.llamadas, manager.role_audit, manager.salud_eventos
 
 **Y las tres de ejemplo no tienen ningún job atrás.**
 
-    ia.trazas             ← `core/ai.py`, una fila por CADA llamada al LLM
+    ia.llamadas             ← `core/ai.py`, una fila por CADA llamada al LLM
     manager.role_audit    ← `core/roles.py`, cuando alguien CAMBIA un rol
     manager.salud_eventos ← cuando un chequeo TRANSICIONA
 
@@ -3322,7 +3322,7 @@ que relanzar: el job no existe.
 > dijo **que la pared más grande no era una pared**.
 
 Es la otra mitad de §0.u. Allá una RÁFAGA se leía como ritmo; acá **un ritmo REAL
-se lee como una obligación**: `ia.trazas` escribe casi todos los días porque se
+se lee como una obligación**: `ia.llamadas` escribe casi todos los días porque se
 usa IA casi todos los días — hasta el día que no, y ese día no hay nada roto.
 
 #### Cómo se sabe, sin ninguna lista
@@ -4553,7 +4553,7 @@ nada se pagaría en cada pasada para siempre.
 escribió (número inventado, muletilla, calco). Sin eso, «el proveedor no
 contestó» y «contestó una macana y la tiré» se ven idénticos en la tabla — que
 es el invariante #1 aplicado al propio redactor. `ia_traza` apunta a
-`ia.trazas` (modelo, tokens, latencia): el costo no se copia, se referencia
+`ia.llamadas` (modelo, tokens, latencia): el costo no se copia, se referencia
 (REGLA #9).
 
 **Cómo se juzga si sirve.** Un test puede congelar que el mecanismo no haga

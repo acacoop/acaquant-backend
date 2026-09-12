@@ -145,7 +145,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
   (backfill de series) el cliente consulta el balance y **corta si el costo
   estimado supera el margen** — kill switch. Se registra cada request y su costo en
   una tabla de auditoría (`research.mkt_1816_creditos_log`) → panel de
-  Observabilidad, mismo espíritu que `ia.trazas`.
+  Observabilidad, mismo espíritu que `ia.llamadas`.
 - **La cuenta real (estimada — HIPÓTESIS sin correr, verificar con el balance):**
   - Universo inicial ~13 tickers (§4.5) × ~10 campos.
   - **Backfill 1 año de series:** `13 × 10 × 365 ≈ 47.500` créditos, **una sola

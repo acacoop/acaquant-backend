@@ -116,7 +116,7 @@ def test_ingest_usa_su_token_dedicado():
 # ── 2. El panel de IA es admin-only ──────────────────────────────────────────
 # Bug real (auditoría 2026-08-03): estos GET colgaban solo de require_module("ia").
 # Como `ia` ∈ INVITADO_MODULES (core/roles.py), el portal www podía leer
-# `detalle`/`respuesta` de ia.trazas = las conversaciones de toda la mesa.
+# `detalle`/`respuesta` de ia.llamadas = las conversaciones de toda la mesa.
 
 
 # ── 3. REGLA #8 — el invitado nunca escribe ──────────────────────────────────

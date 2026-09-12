@@ -182,7 +182,7 @@ def guardar_texto_ia(hallazgo_id: int, *, texto: str, rechazo: str = "",
             "UPDATE agente.hallazgos SET "
             "  ia_texto = %s, "
             "  ia_at = CASE WHEN %s <> '' THEN now() ELSE ia_at END, "
-            "  ia_rechazo = %s, ia_traza = COALESCE(%s, ia_traza), "
+            "  ia_rechazo = %s, ia_llamada = COALESCE(%s, ia_llamada), "
             "  ia_intentos = ia_intentos + 1 "
             "WHERE id = %s",
             (texto, texto, (rechazo or "")[:200], traza, int(hallazgo_id)))

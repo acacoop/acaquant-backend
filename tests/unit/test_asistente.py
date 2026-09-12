@@ -327,3 +327,151 @@ def test_la_ficha_que_ve_el_modelo_sale_de_la_funcion_y_no_de_una_lista_aparte()
         assert set(params["properties"]) == set(firma)
         assert set(params["required"]) == {
             n for n, p in firma.items() if p.default is inspect.Parameter.empty}
+
+
+# ── ACHICAR LA CONVERSACIÓN VIEJA (2026-09-12) ─────────────────────────────
+#
+# El modelo no recuerda nada, así que en cada vuelta se le reenvía todo. Un
+# resultado de herramienta no se paga una vez: se paga en cada vuelta de esa
+# pregunta Y en cada pregunta que venga después.
+
+import json
+
+
+def _charla() -> list[dict]:
+    """Dos preguntas ya contestadas, con el shape EXACTO del proveedor."""
+    def pide(cid, nombre, args):
+        return {"role": "assistant", "content": None, "tool_calls": [
+            {"id": cid, "type": "function",
+             "function": {"name": nombre, "arguments": json.dumps(args)}}]}
+
+    grande = json.dumps({"pagos": [{"fecha": f"2026-10-{d:02d}", "monto": 100.0}
+                                   for d in range(1, 29)]})
+    return [
+        {"role": "user", "content": "cuánta plata cobro"},
+        pide("c1", "cobros_futuros", {"cuenta": "805", "dias": 60}),
+        {"role": "tool", "tool_call_id": "c1", "content": grande},
+        {"role": "assistant", "content": "Cobrás USD 611,83."},
+        {"role": "user", "content": "y de la 1346"},
+        pide("c2", "cobros_futuros", {"cuenta": "1346", "dias": 60}),
+        {"role": "tool", "tool_call_id": "c2", "content": grande},
+        {"role": "assistant", "content": "Cobrás USD 3.926,80."},
+    ]
+
+
+def test_el_id_del_pedido_sobrevive_al_achicado():
+    """⚠️ **LO QUE ROMPE LA CONVERSACIÓN ENTERA SI SE TOCA.** El proveedor exige
+    que cada mensaje `tool` conteste a un pedido suyo, por `tool_call_id`. Si un
+    id no calza, rechaza la llamada COMPLETA — y el error habla del formato, no
+    del contenido, así que buscarlo lleva horas.
+
+    El contenido se puede reemplazar por cualquier cosa. El id, no.
+    """
+    from asistente import ciclo
+
+    hist = _charla()
+    nuevo, _ = ciclo._achicar(hist)
+    assert [m.get("tool_call_id") for m in nuevo] == [m.get("tool_call_id") for m in hist]
+    # Y el orden tampoco: una conversación desordenada no la entiende nadie.
+    assert [m["role"] for m in nuevo] == [m["role"] for m in hist]
+
+
+def test_se_achica_ENTRE_preguntas_y_nunca_dentro_de_una():
+    """Adentro del turno el modelo NECESITA el resultado completo para contestar.
+    Achicarlo ahí sería sacarle el dato justo antes de usarlo.
+
+    Por eso `_achicar` se llama UNA vez, sobre el historial que llega de afuera,
+    y ANTES del bucle de vueltas. Es estructural: no depende de acordarse.
+    """
+    cuerpo = (RAIZ / "asistente" / "ciclo.py").read_text(encoding="utf-8")
+    cuerpo = cuerpo.split("def preguntar(", 1)[1]
+    assert cuerpo.count("_achicar(") == 1, "se achica en un solo lugar"
+    assert cuerpo.index("_achicar(") < cuerpo.index("for vuelta in range"), (
+        "el achicado quedó DENTRO del bucle: le estaría sacando al modelo el "
+        "resultado que necesita para contestar esta misma pregunta")
+
+
+def test_el_resumen_le_dice_al_modelo_que_puede_volver_a_pedir():
+    """Si el stub solo dijera «acá había algo», el modelo contestaría «no tengo
+    ese dato» — que es peor que el gasto que vinimos a evitar.
+
+    Tiene que decir dos cosas: qué herramienta fue (con sus argumentos, para que
+    sepa cómo repetirla) y que puede volver a llamarla.
+    """
+    from asistente import ciclo
+
+    nuevo, ahorro = ciclo._achicar(_charla())
+    stub = next(m["content"] for m in nuevo
+                if m["role"] == "tool" and m["content"].startswith("["))
+    assert "cobros_futuros" in stub and "805" in stub, (
+        "el stub tiene que nombrar la herramienta y sus argumentos")
+    assert "volvé a llamar" in stub.lower(), (
+        "sin esto el modelo dice «no tengo ese dato» en vez de volver a pedirlo")
+    assert ahorro > 0
+
+
+def test_el_resultado_mas_reciente_queda_entero():
+    """La próxima pregunta suele ser sobre lo último que se miró («¿y el emisor
+    de AO28?»). Achicar ESO obligaría a una vuelta más casi siempre.
+
+    Cuántos se dejan enteros es una perilla declarada, no un número enterrado.
+    """
+    from asistente import ciclo
+
+    assert ciclo.RESULTADOS_ENTEROS >= 1
+    nuevo, _ = ciclo._achicar(_charla())
+    tools = [m["content"] for m in nuevo if m["role"] == "tool"]
+    assert tools[-1].startswith("{"), "el último resultado tiene que quedar crudo"
+    assert tools[0].startswith("["), "el viejo tenía que achicarse"
+
+
+def test_las_perillas_del_achicado_estan_declaradas_juntas():
+    """El user va a querer mover esto. Tres constantes con nombre, arriba y
+    juntas — no tres números adentro de la función."""
+    from asistente import ciclo
+
+    for perilla in ("RESULTADOS_ENTEROS", "ACHICAR_DESDE_CHARS", "PLANTILLA_ACHICADO"):
+        assert hasattr(ciclo, perilla), f"falta la perilla {perilla}"
+
+
+def test_no_quedo_nada_del_presupuesto_diario():
+    """Se sacó entero por decisión del user (2026-09-12): era un mecanismo que
+    nadie miraba y le pedía una consulta a la base a CADA llamada.
+
+    Lo que queda acotando un gasto en bucle es el techo de vueltas del ciclo.
+    Este test existe para que la mitad vieja no vuelva de a pedazos.
+    """
+    from core import ai
+
+    for muerto in ("motivo_presupuesto", "presupuesto_dia_global",
+                   "presupuesto_dia_usuario"):
+        assert not hasattr(ai, muerto), f"volvió `{muerto}`"
+    fuente = (RAIZ / "core" / "ai.py").read_text(encoding="utf-8")
+    assert "budget" not in fuente.lower()
+    # Y el techo que SÍ queda.
+    from asistente import ciclo
+    assert 0 < ciclo.MAX_VUELTAS <= 10
+
+
+def test_el_libro_de_llamadas_se_llama_llamadas():
+    """`ia.trazas` → `ia.llamadas`. «Traza» es el término técnico de
+    observabilidad, pero esta tabla la mira una PERSONA para saber qué gastó: un
+    nombre que hay que explicar está mal puesto.
+
+    Y la mitad que se olvida: la columna `agente.hallazgos.ia_traza` apunta a esa
+    tabla. Media renombrada es peor que ninguna.
+    """
+    esquema = (RAIZ / "sql" / "schema.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS ia.llamadas" in esquema
+    assert "ALTER TABLE ia.trazas RENAME TO llamadas" in esquema, (
+        "sin el RENAME, el deploy crea una tabla nueva vacía y deja la vieja "
+        "con todos los datos al lado")
+    assert "RENAME COLUMN ia_traza TO ia_llamada" in esquema
+
+    for py in (RAIZ / "core" / "ai.py", RAIZ / "agente" / "registro.py"):
+        assert "ia.trazas" not in py.read_text(encoding="utf-8")
+        assert "ia_traza " not in py.read_text(encoding="utf-8")
+
+    # Las dos columnas que no leía nadie.
+    assert "DROP COLUMN IF EXISTS conv_id" in esquema
+    assert "DROP COLUMN IF EXISTS feedback" in esquema

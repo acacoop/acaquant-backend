@@ -3355,57 +3355,94 @@ ALTER TABLE operaciones.operaciones         SET (autovacuum_vacuum_scale_factor=
 ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- IA — observabilidad del gateway `core/ai.py`
--- Cada llamada a un LLM deja una fila acá (el "job_runs" de la IA). El
--- presupuesto diario del gateway (global y por usuario) se calcula sumando los
--- tokens de HOY sobre esta tabla. `feedback` guarda el 👍(1)/👎(-1) del usuario
--- en outputs interactivos (NULL = sin feedback). Retención: cleanup de Postgres
--- (no TTL nativo), igual que manager.job_runs.
+-- IA — EL LIBRO DE LLAMADAS AL MODELO (`core/ai.py`)
+--
+-- Una fila por cada vez que el sistema le habla a un modelo: qué tarea era, qué
+-- modelo se usó, quién lo pidió, cuántos tokens entraron y salieron, cuánto
+-- tardó, si salió bien, y cuánto del prompt pegó en el caché del proveedor.
+-- Es el "job_runs" de la IA: sin esto no hay forma de saber qué se gastó ni en
+-- qué. La escribe `core/ai.py::_trazar()` en TODA llamada, salga bien o mal.
+--
+-- ⚠️ **SE LLAMABA `ia.trazas` Y SE RENOMBRÓ.** «Traza» es el término técnico de
+-- observabilidad (un *trace*), y por eso lo eligió quien la creó — pero esta
+-- tabla no es infraestructura: es un libro de gastos que mira una persona. El
+-- user, que es el dueño del producto, no sabía qué era. Un nombre que hay que
+-- explicar está mal puesto: una fila es UNA LLAMADA, y así se llama.
+--
+-- Retención: cleanup de Postgres (no TTL nativo), igual que manager.job_runs.
 -- ─────────────────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS ia.trazas (
-    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ts          timestamptz NOT NULL DEFAULT now(),
-    tarea       text NOT NULL,
-    modelo      text NOT NULL,
-    usuario     text,
-    tokens_in   integer,
-    tokens_out  integer,
-    latencia_ms integer,
-    ok          boolean NOT NULL,
-    error       text,
-    feedback    smallint,
-    detalle     text,   -- extracto del pedido (ej. la pregunta), cap en core/ai
-    respuesta   text,   -- extracto de la respuesta del modelo, cap en core/ai
-    razonamiento text,  -- extracto del reasoning_content (thinking), cap en core/ai
-    conv_id     text    -- conversación del copiloto (cada chat su mundo)
-);
--- Telemetría del caché de prefijo del proveedor (2026-07-20): el proveedor
--- cobra ~10x menos los tokens servidos desde caché — estas columnas miden
--- cuánto del prompt pegó en caché (valida el diseño prefijo-estable del
--- copiloto y muestra el ahorro real en OBSERVABILIDAD).
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS cache_hit_tokens  integer;
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS cache_miss_tokens integer;
-CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
-CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
--- Columnas agregadas 2026-07-11 (panel OBSERVABILIDAD → IA: detalle por llamada)
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS detalle text;
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS respuesta text;
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS razonamiento text;
--- 2026-07-12: conversaciones separadas del copiloto (cada chat su mundo)
-ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS conv_id text;
+DO $ren$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'ia' AND table_name = 'trazas')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'ia' AND table_name = 'llamadas')
+    THEN
+        ALTER TABLE ia.trazas RENAME TO llamadas;
+    END IF;
+END
+$ren$;
 
--- Config editable del gateway de IA (presupuestos de tokens). Se edita desde
--- Manager → OBSERVABILIDAD → IA (solo admin). Precedencia en core/ai.py:
--- esta tabla > env var > default del código. Claves: budget_dia_global,
--- budget_dia_usuario. El GLOBAL es techo duro del día: aunque la suma de los
--- topes por usuario lo supere en papel, el gasto total no puede pasarlo
--- (cada llamada chequea los dos).
+CREATE TABLE IF NOT EXISTS ia.llamadas (
+    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts           timestamptz NOT NULL DEFAULT now(),
+    tarea        text NOT NULL,
+    modelo       text NOT NULL,
+    usuario      text,
+    tokens_in    integer,
+    tokens_out   integer,
+    latencia_ms  integer,
+    ok           boolean NOT NULL,
+    error        text,
+    detalle      text,          -- extracto del pedido (la pregunta), cap en core/ai
+    respuesta    text,          -- extracto de lo que contestó, cap en core/ai
+    razonamiento text,          -- extracto del reasoning (thinking), cap en core/ai
+    -- Cuánto del prompt salió del caché del proveedor. El caché cuesta ~10x
+    -- menos, así que estas dos columnas son las que dicen si el diseño de
+    -- "lo fijo adelante, lo variable atrás" está funcionando.
+    cache_hit_tokens  integer,
+    cache_miss_tokens integer
+);
+-- Por si la tabla ya existía con el shape viejo.
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS detalle text;
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS respuesta text;
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS razonamiento text;
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS cache_hit_tokens  integer;
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS cache_miss_tokens integer;
+
+-- ⚠️ DOS COLUMNAS QUE NO LEÍA NADIE (medido: cero referencias en todo el repo).
+-- `conv_id` era del copiloto y `feedback` el 👍/👎 de una pantalla; los dos se
+-- borraron el 2026-08-28 y las columnas quedaron. Una columna que nadie escribe
+-- ni lee no es "por las dudas": es una pregunta abierta para el próximo que lea
+-- el schema.
+ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS conv_id;
+ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS feedback;
+
+CREATE INDEX IF NOT EXISTS ix_ia_llamadas_ts         ON ia.llamadas (ts);
+CREATE INDEX IF NOT EXISTS ix_ia_llamadas_tarea_ts   ON ia.llamadas (tarea, ts);
+CREATE INDEX IF NOT EXISTS ix_ia_llamadas_usuario_ts ON ia.llamadas (usuario, ts);
+DROP INDEX IF EXISTS ia.ix_ia_trazas_ts;
+DROP INDEX IF EXISTS ia.ix_ia_trazas_usuario_ts;
+
+-- Ajustes del gateway editables SIN deploy. Precedencia en `core/ai.py`: esta
+-- tabla > variable de entorno > default del código.
+--
+-- ⚠️ **YA NO GUARDA PRESUPUESTOS.** El tope diario de tokens se sacó por
+-- decisión del user: era un mecanismo que nadie miraba y que complicaba cada
+-- llamada. Hoy la tabla existe para UNA cosa: **qué modelo cumple cada rol**
+-- (`modelo_flash`, `modelo_pro`), que es lo que se elige desde la tab LAB.
+--
+-- `valor` es TEXT y no bigint justamente por eso: un nombre de modelo no es un
+-- número. Los nombres de modelo cambian cada pocos meses y el código no tiene
+-- que enterarse — pide un ROL, nunca un nombre.
 CREATE TABLE IF NOT EXISTS ia.config (
     clave       text PRIMARY KEY,
-    valor       bigint NOT NULL,
+    valor       text NOT NULL,
     updated_at  timestamptz NOT NULL DEFAULT now(),
     updated_by  text
 );
+ALTER TABLE ia.config ALTER COLUMN valor TYPE text;
+DELETE FROM ia.config WHERE clave LIKE 'budget_%';
 
 
 
@@ -3414,7 +3451,7 @@ CREATE TABLE IF NOT EXISTS ia.config (
 -- `manager.salud_diagnosticos` · `ia.triage_incidentes` · `ia.triage_estado` ·
 -- `ia.calidad_flags` · `ia.calidad_estado`.
 --
--- ⚠️ `ia.trazas` e `ia.config` TAMBIÉN se dropearon ese día, y **volvieron**: se
+-- ⚠️ `ia.trazas` (hoy `ia.llamadas`) e `ia.config` TAMBIÉN se dropearon ese día, y **volvieron**: se
 -- borraron al sacar el gateway y se repusieron cuando el user decidió conservar
 -- el núcleo (`core/ai.py` + `core/llm.py` + sus dos tablas). Las vas a tener que
 -- recrear con `apply_schema` — están vacías, y las 904 trazas viejas quedaron en
@@ -5172,13 +5209,27 @@ ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET NOT NULL;
 -- `ia_rechazo` es la mitad que se olvida: guarda POR QUÉ se descartó lo que
 -- escribió (número inventado, muletilla, calco del problema). Sin eso, «no
 -- contestó» y «contestó una macana que tiré» se ven iguales en la tabla.
--- `ia_traza` apunta a `ia.trazas` (modelo, tokens, latencia): el costo no se
--- copia acá — se referencia, que es lo que pide la REGLA #9.
+-- `ia_llamada` apunta a `ia.llamadas` (modelo, tokens, latencia): el costo no
+-- se copia acá — se referencia, que es lo que pide la REGLA #9. Se llamaba
+-- `ia_traza` y se renombró con la tabla: media renombrada es peor que ninguna.
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_texto text NOT NULL DEFAULT '';
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_at timestamptz;
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_rechazo text NOT NULL DEFAULT '';
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_intentos smallint NOT NULL DEFAULT 0;
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_traza bigint;
+DO $rencol$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'agente' AND table_name = 'hallazgos'
+                  AND column_name = 'ia_traza')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'agente' AND table_name = 'hallazgos'
+                          AND column_name = 'ia_llamada')
+    THEN
+        ALTER TABLE agente.hallazgos RENAME COLUMN ia_traza TO ia_llamada;
+    END IF;
+END
+$rencol$;
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_llamada bigint;
 
 -- ⚠️⚠️ **CUÁNDO SE APLICÓ EL ARREGLO — sin esto, «esperando» no se puede
 -- distinguir de «ya contestó».** `arreglo_aplicado` guarda QUÉ se apretó, y el

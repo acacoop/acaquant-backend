@@ -2240,8 +2240,9 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 | Pieza | Qué es | Estado |
 |---|---|---|
 | `core/llm.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/ai.py` | tareas registradas, presupuesto diario como kill-switch, y la traza obligatoria | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente`) |
-| `ia.trazas` | una fila por llamada al modelo: tarea, modelo, usuario, tokens, latencia, la pregunta y la respuesta | vacía |
+| `core/ai.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente`) |
+| `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta. Se llamaba `ia.trazas` | la lee la tab LAB |
+| `ia.config` | ajustes editables sin deploy. Hoy guarda UNA cosa: qué modelo cumple cada rol (`modelo_flash`, `modelo_pro`) | la escribe la tab LAB |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
 
 **Por qué se conservó** (decisión del user, 2026-08-28, al ver que el borrado se

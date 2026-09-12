@@ -7,7 +7,7 @@ LO QUE ESTO ARREGLA
 
 La primera medición de cobertura (§0.ap) puso a `tabla_quieta · sin_escribir` como
 **la pared más cara: 8 casos**, y los tres ejemplos que imprimió fueron
-`ia.trazas` y `manager.role_audit`.
+`ia.llamadas` y `manager.role_audit`.
 
 Mirando quién las escribe, ninguna tiene un job atrás:
 
@@ -22,7 +22,7 @@ porque encima promete.
 
 Es la otra mitad de §0.u. Allá el problema era que una ráfaga se leía como ritmo;
 acá es que un ritmo REAL (los eventos vienen seguido) se lee como una obligación.
-`ia.trazas` escribe casi todos los días porque el agente usa IA casi todos los
+`ia.llamadas` escribe casi todos los días porque el agente usa IA casi todos los
 días — hasta el día que no, y ese día no hay nada roto.
 
 CÓMO SE SABE, SIN NINGUNA LISTA

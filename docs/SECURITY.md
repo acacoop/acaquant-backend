@@ -158,7 +158,7 @@ Ya corregido en el commit de la auditoría:
 
 - **`GET /api/ia/observabilidad|presupuesto|saldo` sin `require_admin`.** El
   gate era `require_module("ia")` y como `ia ∈ INVITADO_MODULES`, el portal
-  www podía leer `detalle`/`respuesta` de `ia.trazas` — las preguntas y
+  www podía leer `detalle`/`respuesta` de `ia.llamadas` — las preguntas y
   respuestas literales de las conversaciones de toda la mesa, con el email de
   cada uno, filtrables por `?usuario=` y `?q=`. Violaba la REGLA #8. Lo
   encontraron 5 de 6 cazadores por separado.

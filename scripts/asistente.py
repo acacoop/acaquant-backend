@@ -19,7 +19,7 @@ si razonó mal con datos buenos — que son tres problemas distintos.
 que sólo entra el admin. El día que sea un endpoint, ahí sí `require_admin`.
 
 ⚠️ GASTA PLATA DE VERDAD. Cada vuelta es una llamada a OpenAI, y queda anotada
-en `ia.trazas` con este usuario.
+en `ia.llamadas` con este usuario.
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _dibujar(e: dict) -> None:
 def _pie(r: dict) -> None:
     """El costo de la pregunta, que conviene tener a la vista."""
     print(f"\n{GRIS}   {r['vueltas']} vuelta(s) · {r['tokens_in']:,} tokens de entrada · "
-          f"{r['tokens_out']:,} de salida · trazas {r['trazas'] or '—'}{FIN}")
+          f"{r['tokens_out']:,} de salida · llamadas {r['llamadas'] or '—'}{FIN}")
     if r["tokens_in"] > r["tokens_out"] * 5 and r["vueltas"] > 1:
         print(f"{GRIS}   (entra mucho más de lo que sale porque en CADA vuelta se le "
               f"reenvía todo:\n    el modelo no recuerda nada de la vuelta anterior){FIN}")
@@ -75,7 +75,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("pregunta", nargs="*", help="si no la pasás, entra en conversación")
     ap.add_argument("--usuario", default=USUARIO_DEFAULT,
-                    help="con quién se anota el gasto en ia.trazas")
+                    help="con quién se anota el gasto en ia.llamadas")
     ap.add_argument("--callado", action="store_true", help="sólo la respuesta")
     a = ap.parse_args()
 

@@ -4045,7 +4045,7 @@ def test_el_piso_nunca_se_pisa():
     """`que_hacer` es el texto determinista y **se conserva entero**.
 
     Es lo que hace que meter un modelo acá no pueda agregar un modo de falla:
-    si el gateway no contesta, si no hay presupuesto o si la validación
+    si el gateway no contesta o si la validación
     rechaza, el aviso muestra lo de siempre. Un diseño donde el modelo escribe
     ENCIMA convierte cada caída del proveedor en una fila muda.
     """

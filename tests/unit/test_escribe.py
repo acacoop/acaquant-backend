@@ -1,12 +1,12 @@
 """UNA TABLA DE EVENTOS NO TIENE CADENCIA: TIENE OCASIONES.
 
 La primera medición de cobertura (§0.ap) puso a `tabla_quieta · sin_escribir` como
-la pared más cara —8 casos— y sus ejemplos fueron `ia.trazas`,
+la pared más cara —8 casos— y sus ejemplos fueron `ia.llamadas`,
 `manager.role_audit` y `manager.salud_eventos`. Ninguna tiene un job atrás:
 
     manager.role_audit ← `core/roles.py`, cuando alguien CAMBIA un rol
 
-(`ia.trazas` era el otro ejemplo y se borró el 2026-08-28 con el gateway de IA.
+(`ia.llamadas` era el otro ejemplo y se borró el 2026-08-28 con el gateway de IA.
 El invariante no cambió: cambió el ejemplo.)
 
 Están quietas porque no pasó nada. Ponerle un botón «relanzar» a esa pared habría

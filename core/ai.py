@@ -3,22 +3,27 @@
 Toda llamada a un modelo del sistema pasa por acá. `core/llm.py` sabe CÓMO
 hablarle al proveedor; este archivo decide QUÉ se le permite y lo anota.
 
-Hace cuatro cosas, y ninguna la debería resolver cada feature por su cuenta:
+Hace tres cosas, y ninguna la debería resolver cada feature por su cuenta:
 
 1. TAREAS REGISTRADAS. Nadie llama al modelo «como quiera»: dice qué tarea es
    y de esa fila salen el proveedor, el modelo, el tope de respuesta y el
    tiempo de espera. Eso se decide en un solo lugar.
 
-2. PRESUPUESTO DIARIO. Hay un tope de tokens por día, global y por persona. Si
-   se pasó, la llamada se niega. Es el freno contra una factura sorpresa.
+2. EL LIBRO DE LLAMADAS. Cada llamada, salga bien o mal, deja una fila en
+   `ia.llamadas`: qué tarea, qué modelo, quién, cuántos tokens, cuánto tardó y
+   cuánto pegó en el caché. Sin registro no hay forma de saber qué se gastó.
 
-3. TRAZA. Cada llamada, salga bien o mal, deja una fila en `ia.trazas`: qué
-   tarea, qué modelo, quién, cuántos tokens, cuánto tardó. Sin registro no hay
-   forma de saber qué se gastó ni en qué.
-
-4. RUTEO SEGURO. Una tarea marcada `datos: "negocio"` sólo puede correr en un
+3. RUTEO SEGURO. Una tarea marcada `datos: "negocio"` sólo puede correr en un
    proveedor que se comprometió a no entrenar con lo que le mandamos. Si no,
    el gateway NIEGA la llamada.
+
+⚠️ **YA NO HAY PRESUPUESTO DIARIO.** Había un tope de tokens por día, global y
+por persona, con su tabla y su pantalla. Se sacó entero por decisión del user:
+era un mecanismo que nadie miraba y que le pedía una consulta a la base a cada
+llamada. Lo único que hoy acota un gasto en bucle es el techo de vueltas del
+ciclo (`asistente/ciclo.py::MAX_VUELTAS`) y, para el agente, `AGENTE_REDACTA=0`.
+Si algún día vuelve, que vuelva como UNA constante en `config.py`, no como una
+tabla editable con precedencia de tres niveles.
 
 ⚠️ REGLA PARA SUMAR UNA TAREA: primero contestar **quién mira su salida**. Las
 features de IA que murieron en agosto no murieron por bugs — murieron porque
@@ -28,10 +33,6 @@ está en `docs/AGENT.md` §0.k.
 ⚠️ CONTRATO: `completar()` NUNCA levanta una excepción. Devuelve el texto o
 None. El que llama SIEMPRE tiene su camino sin IA.
 
-Variables de entorno:
-  AI_BUDGET_TOKENS_DIA           tope global de tokens por día (2.000.000)
-  AI_BUDGET_TOKENS_DIA_USUARIO   tope por persona por día (1.000.000)
-  AI_BUDGET_TOKENS_DIA_INVITADO  tope de un invitado del portal www (100.000)
 """
 from __future__ import annotations
 
@@ -125,7 +126,12 @@ def _proveedor(cfg: dict) -> str:
 
 
 def _modelo(cfg: dict) -> str:
-    return llm.modelo(cfg.get("tier", "flash"), _proveedor(cfg))
+    """El modelo que le toca a una tarea. El código pide un ROL (`flash`/`pro`)
+    y acá se resuelve a un nombre concreto: primero lo que hayas elegido en la
+    tab LAB (`ia.config`), y si no hay nada, el default de `core/llm.py`."""
+    tier = cfg.get("tier", "flash")
+    elegido = ajustes().get(f"modelo_{tier}")
+    return elegido or llm.modelo(tier, _proveedor(cfg))
 
 
 def _ruteo_seguro(cfg: dict) -> bool:
@@ -148,98 +154,48 @@ def _ruteo_seguro(cfg: dict) -> bool:
     return False
 
 
-# ── EL PRESUPUESTO ──────────────────────────────────────────────────────────
+# ── LOS AJUSTES EDITABLES ───────────────────────────────────────────────────
 #
-# Los topes se pueden editar sin deploy desde la tabla `ia.config`. El orden
-# manda así: lo que diga la tabla, si no la variable de entorno, si no el
-# default del código. Se cachea 60 s para no pegarle a la base en cada llamada.
+# `ia.config` es clave→valor y se puede editar SIN deploy (hoy, desde la tab
+# LAB). El orden manda así: lo que diga la tabla, si no la variable de entorno,
+# si no el default del código. Se cachea 60 s para no pegarle a la base en cada
+# llamada.
+#
+# Hoy guarda UNA sola cosa: qué modelo cumple cada rol (`modelo_flash`,
+# `modelo_pro`). Los nombres de modelo cambian cada pocos meses y el código no
+# tiene que enterarse — pide un ROL, nunca un nombre.
 
 _CONFIG_DB_TTL_S = 60
 _config_db_cache: dict = {"ts": 0.0, "valores": {}}
 
 
-def _config_db() -> dict:
+def ajustes() -> dict[str, str]:
+    """Lo que hay en `ia.config`, cacheado. Si la base no responde devuelve lo
+    último conocido: un ajuste que no se pudo leer no puede cortar una llamada."""
     ahora = time.monotonic()
     if ahora - _config_db_cache["ts"] < _CONFIG_DB_TTL_S:
         return _config_db_cache["valores"]
-    valores = _config_db_cache["valores"]  # si la base no responde, el último conocido
+    valores = _config_db_cache["valores"]
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT clave, valor FROM ia.config")
-            valores = {r[0]: int(r[1]) for r in cur.fetchall()}
+            valores = {r[0]: r[1] for r in cur.fetchall()}
     except Exception as e:
         logger.warning("core.ai: no pude leer ia.config (%s) — uso env/default", e)
     _config_db_cache.update(ts=ahora, valores=valores)
     return valores
 
 
-def presupuesto_dia_global() -> int:
-    """Techo duro del sistema: aunque la suma de los topes por persona sea
-    mayor, el gasto total del día no pasa de acá."""
-    v = _config_db().get("budget_dia_global")
-    return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000"))
-
-
-def presupuesto_dia_usuario(usuario: str | None = None) -> int:
-    """Tope diario de una persona. Se puede subir o bajar por email desde
-    Manager (clave `budget_dia_usuario:<email>` en `ia.config`)."""
-    cfgdb = _config_db()
-    if usuario:
-        propio = cfgdb.get(f"budget_dia_usuario:{usuario}")
-        if propio:
-            return propio
-        # Un invitado del portal www tiene un tope más bajo que la mesa. Hoy
-        # ninguna feature de IA le llega, pero si mañana alguna le llega, este
-        # default evita que se lleve el tope de un trader sin que nada falle.
-        from core.roles import es_invitado_id
-
-        if es_invitado_id(usuario):
-            return int(os.getenv("AI_BUDGET_TOKENS_DIA_INVITADO", "100000"))
-    v = cfgdb.get("budget_dia_usuario")
-    return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "1000000"))
-
-
-def motivo_presupuesto(usuario: str | None) -> str | None:
-    """Qué tope se pasó hoy: "global", "usuario", o None si hay margen.
-
-    Devuelve el motivo y no un sí/no porque «se acabó tu cuota» y «se acabó la
-    del sistema» se arreglan distinto, y el que lo lee en pantalla necesita
-    saber cuál de las dos es.
-
-    Si la base no responde NO bloquea: esto es control de gastos, no una
-    puerta de seguridad.
-    """
-    try:
-        from core.postgres import get_pool
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT coalesce(sum(coalesce(tokens_in, 0) + coalesce(tokens_out, 0)), 0),
-                       coalesce(sum(coalesce(tokens_in, 0) + coalesce(tokens_out, 0))
-                                FILTER (WHERE usuario = %s), 0)
-                FROM ia.trazas
-                WHERE ts >= date_trunc('day', now())
-                """,
-                (usuario,),
-            )
-            total, del_usuario = cur.fetchone()
-        if total >= presupuesto_dia_global():
-            logger.warning("core.ai: presupuesto GLOBAL diario agotado (%s tokens hoy)", total)
-            return "global"
-        if usuario and del_usuario >= presupuesto_dia_usuario(usuario):
-            logger.warning("core.ai: presupuesto diario de %s agotado (%s tokens hoy)",
-                           usuario, del_usuario)
-            return "usuario"
-        return None
-    except Exception as e:
-        logger.warning("core.ai: no pude chequear el presupuesto (%s) — sigo sin bloquear", e)
-        return None
+def olvidar_ajustes() -> None:
+    """Tira el caché. Lo llama quien acaba de escribir un ajuste, para que el
+    cambio se vea ya y no dentro de un minuto."""
+    _config_db_cache.update(ts=0.0)
 
 
 # ── LA TRAZA ────────────────────────────────────────────────────────────────
 #
-# Una fila por llamada en `ia.trazas`. Los tres extractos de texto se guardan
+# Una fila por llamada en `ia.llamadas`. Los tres extractos de texto se guardan
 # recortados: sirven para poder leer después qué se preguntó y qué contestó el
 # modelo, que es la única forma de revisar una respuesta que ya se fue.
 
@@ -270,7 +226,7 @@ def _trazar(
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO ia.trazas (tarea, modelo, usuario, tokens_in, tokens_out,"
+                "INSERT INTO ia.llamadas (tarea, modelo, usuario, tokens_in, tokens_out,"
                 " latencia_ms, ok, error, detalle, respuesta, razonamiento,"
                 " cache_hit_tokens, cache_miss_tokens)"
                 " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
@@ -301,10 +257,10 @@ def completar(
     """Le hace una pregunta al modelo y devuelve el texto, o None.
 
     Devuelve None —sin levantar nunca— si falta la clave del proveedor, si el
-    ruteo no es seguro, si se acabó el presupuesto o si el proveedor falló.
+    ruteo no es seguro, o si el proveedor falló.
 
-    `detalle` es un extracto legible del pedido que queda en la traza, para
-    poder entender después qué se le preguntó.
+    `detalle` es un extracto legible del pedido que queda en el libro de
+    llamadas, para poder entender después qué se le preguntó.
     """
     texto, _traza_id = completar_con_traza(
         tarea, system=system, user=user, usuario=usuario, detalle=detalle
@@ -321,7 +277,7 @@ def completar_con_traza(
     detalle: str | None = None,
 ) -> tuple[str | None, int | None]:
     """Igual que `completar()` pero devuelve además el id de la fila de
-    `ia.trazas`, para poder guardarlo junto a lo que se haya hecho con esa
+    `ia.llamadas`, para poder guardarlo junto a lo que se haya hecho con esa
     respuesta y después saber de qué llamada salió. Mismo contrato: no levanta.
     """
     try:
@@ -353,14 +309,8 @@ def conversar(
       1. ¿hay clave del proveedor que le toca a la tarea?
       2. ¿el ruteo es seguro? (una tarea de negocio no sale a un proveedor
          que entrena con lo que le mandamos)
-      3. ¿queda presupuesto de hoy?
 
-    ⚠️ EL PRESUPUESTO SE MIRA EN CADA VUELTA, no una vez por pregunta. Una
-    conversación con herramientas son varias llamadas, y si el techo se toca a
-    la mitad, la próxima vuelta no sale. Es lo que evita que una conversación
-    que se va de mano gaste sin freno.
-
-    Devuelve `(None, …)` si el gateway se negó (1, 2 o 3). Si la llamada salió,
+    Devuelve `(None, …)` si el gateway se negó (1 o 2). Si la llamada salió,
     devuelve la respuesta aunque el proveedor haya fallado — ahí `ok` es False
     y el motivo está adentro. NUNCA levanta una excepción.
     """
@@ -386,14 +336,6 @@ def _conversar(
     if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
         return None, None
     modelo = _modelo(cfg)
-
-    motivo = motivo_presupuesto(usuario)
-    if motivo:
-        # Esto SÍ se traza aunque no haya llamada: que el presupuesto haya
-        # frenado algo es justo lo que hay que poder ver después.
-        traza_id = _trazar(tarea, modelo, usuario, None, None, None, False,
-                           f"presupuesto diario agotado ({motivo})", detalle=detalle)
-        return None, traza_id
 
     r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
                  timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),

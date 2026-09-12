@@ -450,7 +450,7 @@ def evaluar() -> list[dict]:
         except Exception:
             _log.warning("salud: no pude evaluar %s", c["id"], exc_info=True)
     # Acá se agregaba el chequeo `ia:gateway` (gasto y errores del día contra
-    # ia.trazas). Se fue el 2026-08-28 con el gateway de IA: sin llamadas al
+    # ia.llamadas). Se fue el 2026-08-28 con el gateway de IA: sin llamadas al
     # modelo no hay gasto que vigilar, y la tabla que miraba ya no existe.
     out.sort(key=lambda c: (_PESO.get(c["estado"], 3), c["titulo"]))
     return out

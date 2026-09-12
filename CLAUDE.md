@@ -195,6 +195,6 @@ suite de integración**: `pytest -m integration` no selecciona nada y sale en ve
 - **Deploy backend**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → schema → restart
   de `api.service` **y nada más** → smoke). Motores: los maneja cron; reiniciarlos en rueda es decisión
   de la mesa. Push a `main` deploya el front en Vercel solo.
-- **No existe asistente conversacional**: `api/agent/`, `/api/chat` y el MCP server se borraron. No
-  documentar ni referenciar. Pendiente externo en `RUNBOOK.md`.
+- **EL ASISTENTE** (`asistente/`): ciclo agente↔herramientas a mano sobre `core/ai.py`, tab LAB del AV
+  AGENT; alcance por `ASISTENTE_CUENTAS` (`.env`, fail-closed). El copiloto viejo y el MCP se borraron.
 - **Frontend**: repo hermano `../acaquant-web/` (checkout paralelo). Proxies de data live: `force-dynamic` + `revalidate = 0`.

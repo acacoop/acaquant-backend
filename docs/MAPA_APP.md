@@ -2309,6 +2309,16 @@ nadie lo miraba.
 > herramientas sólo LEEN, y **el alcance de cuentas se declara fuera del código**
 > (env var `ASISTENTE_CUENTAS`, fail-closed: vacío = no muestra nada).
 >
+> **Lo que sabe hacer** (`asistente/herramientas.py`; la ficha que ve el modelo
+> se arma sola desde el docstring y la firma, así que no hay una lista paralela
+> que mantener):
+>
+> | Herramienta | Qué contesta | De dónde sale |
+> |---|---|---|
+> | `cuentas_disponibles()` | qué cuentas se pueden consultar, con su nombre | `clientes.cuentas`, intersecado con el permiso |
+> | `cobros_futuros(dias, cuenta)` | **cuánta plata entra y cuándo** — cupones y amortizaciones juntos, por moneda, con el calendario mes a mes | `operaciones.acreencias`, que ya precomputa el cron de `jobs/acreencias.py` (12:45 UTC L-V). **No recalcula nada**: rehacer la cuenta acá serían dos versiones del mismo número sin árbitro |
+> | `bonos_que_vencen(dias)` | qué posiciones vencen, con nominales y valuación | `portafolio.tenencia` × `mercado.curvas.fecha_vencimiento` |
+>
 > **Un endpoint, `require_admin` heredado del router de `/api/agente`:**
 >
 > | Endpoint | Qué hace |

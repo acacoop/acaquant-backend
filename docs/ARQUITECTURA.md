@@ -35,7 +35,7 @@ jobs/crons batch, caches precalculados donde pesa. ~30 usuarios hoy, objetivo 20
 - **Operativo (la mesa):** curvas, forwards, breakevens, opciones, órdenes (OPERAR),
   operaciones/negocio, portfolios/AuM, scanner.
 - **Comercial/back-office:** clientes, segmentación, operadores, aranceles, FCI.
-- **Plataforma:** Manager (RBAC, diagnóstico, ingesta). El **MCP server** se apagó y se borró el 2026-08-28 — el producto no tiene asistente conversacional.
+- **Plataforma:** Manager (RBAC, diagnóstico, ingesta) y **el ASISTENTE** (`asistente/`): ciclo agente↔herramientas escrito a mano, admin-only, en la tab LAB del AV AGENT. El copiloto viejo y el **MCP server** se borraron el 2026-08-28.
 
 ---
 

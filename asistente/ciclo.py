@@ -19,6 +19,12 @@ auditar: para saber todo lo que el asistente puede tocar, alcanza con leer
 Lo que este archivo NO hace: no sabe de HTTP, no imprime nada por su cuenta, y
 no sabe qué proveedor hay del otro lado. Para ver lo que va pasando se le pasa
 `ver`, una función que recibe cada paso — ahí abajo está el detalle.
+
+⚠️ **ESTO OCUPA EL LUGAR DEL INVESTIGADOR** (`docs/AGENT.md` §0.ff). Aquél eran
+2.520 líneas sobre LangGraph que sólo se movían si alguien apretaba un botón que
+nadie apretaba: se conectó a producción antes de que existiera un trabajo
+esperándolo. La diferencia acá no es de tecnología —es más chico y hecho a
+mano—: es que hay una pregunta real del otro lado antes de que esto exista.
 """
 from __future__ import annotations
 

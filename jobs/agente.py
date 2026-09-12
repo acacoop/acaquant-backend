@@ -39,12 +39,6 @@ from agente.motor import CICLO_QUIETO_S, CICLO_RUEDA_S  # noqa: E402
 _seguir = True
 
 
-# Quién figura como autor de lo que dispara el triage. **Es una constante y no
-# un literal suelto**: el tope diario se cuenta filtrando por este mismo string,
-# así que dos grafías distintas harían que el tope no cuente lo que gastó.
-POR_EL_TRIAGE = "agente/triage"
-
-
 def _parar(signum, _frame):
     """SIGTERM/SIGINT: termina la pasada en curso y sale limpio. Sin esto, un
     `systemctl restart` mata el proceso a mitad de una escritura."""
@@ -53,29 +47,11 @@ def _parar(signum, _frame):
     _seguir = False
 
 
-def _atender_investigaciones() -> None:
-    """El INVESTIGADOR (`lab/langgraph/`) atiende su cola en un hilo aparte.
-
-    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE.** El agente es el que
-    detecta: si el laboratorio no está instalado, o se rompe, o le falta una
-    dependencia, la pasada tiene que seguir igual. Por eso el import va adentro
-    del try y no arriba del archivo — un `ImportError` al cargar el módulo
-    mataría el daemon entero al arrancar, que es exactamente lo contrario de
-    lo que este subsistema tiene que garantizar.
-    """
-    try:
-        from lab.langgraph import servicio
-        servicio.atender()
-    except Exception as e:
-        logger.debug("agente: el investigador no atendió (%s)", e)
-
-
 def _aplicar_solo() -> None:
     """**EL EJECUTOR**: lo que el agente aplica SOLO, sin que nadie apriete.
     `agente/autonomo.py`.
 
-    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que el triage y los
-    avisos: el import va adentro del try.
+    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que los avisos: el import va adentro del try.
     """
     try:
         from agente import autonomo
@@ -87,65 +63,10 @@ def _aplicar_solo() -> None:
         logger.debug("agente: no apliqué SOLO (%s)", e)
 
 
-def _disparar_investigaciones() -> None:
-    """**EL TRIAGE**: lo que sigue caído se manda a investigar SOLO. §6.9.
-
-    Vive acá y no en `agente/` a propósito: es el único lugar del sistema que
-    conoce las dos mitades. `agente/triage.py` ELIGE (y no sabe que existe un
-    investigador); el laboratorio INVESTIGA (y no sabe que existe un agente).
-    Si mañana el lab no está, el agente detecta exactamente igual — que es la
-    garantía que no se negocia.
-
-    Tres guardas, y ninguna es opcional:
-
-      · el TOPE DIARIO, que es un techo de plata declarado
-      · `no_repetir_h`, para no pagar dos veces por la misma pregunta
-      · y la de arriba de todo, que la pone `triage.candidatos()`: **el problema
-        tiene que haber SOBREVIVIDO su espera**. Nadie está mirando, así que lo
-        que se dispara solo tiene que estar más confirmado que lo que se pide a
-        mano.
-
-    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que `_atender_
-    investigaciones`: el import va adentro del try.
-    """
-    try:
-        from agente import triage
-        from lab.langgraph import cola
-        from lab.langgraph.investigaciones import tipo_de
-
-        candidatos = triage.candidatos()
-        if not candidatos:
-            return
-        gastadas = cola.gastadas_hoy(POR_EL_TRIAGE)
-        if gastadas is None:
-            logger.warning("triage: no pude contar lo gastado hoy — no disparo. "
-                           "Un tope que no se puede contar no es un tope")
-            return
-        for c in candidatos:
-            if gastadas >= triage.TOPE_DIARIO:
-                logger.info("triage: llegué al tope de %d por hoy — quedan %d sin "
-                            "investigar. Si esto se repite, o sobra presupuesto o "
-                            "sobra una regla declarada", triage.TOPE_DIARIO,
-                            len(candidatos) - triage.TOPE_DIARIO)
-                return
-            if not (tipo := tipo_de(c["habilidad"])):
-                continue          # el lab no sabe investigar esa habilidad
-            r = cola.encolar(tipo, c["sujeto"], POR_EL_TRIAGE,
-                             hallazgo_id=c["id"],
-                             no_repetir_h=triage.NO_REPETIR_H)
-            if r.get("ok") and not r.get("ya_estaba"):
-                gastadas += 1
-                logger.info("triage: mando a investigar %s/%s «%s» — lleva %s min "
-                            "abierto (pedido %s)", c["habilidad"], c["regla"],
-                            c["sujeto"], c["min_abierto"], r.get("id"))
-    except Exception as e:
-        logger.debug("agente: el triage no corrió (%s)", e)
-
-
 def _redactar_avisos() -> None:
     """**EL TEXTO DE LOS AVISOS**, escrito con la evidencia adelante. §0.dn.
 
-    Vive acá por la misma razón que el triage: es el único lugar que conoce
+    Vive acá porque es el único lugar que conoce
     las dos mitades. `agente/redactar.py` REDACTA y no sabe que existe una base
     ni un daemon; `agente/registro.py` ESCRIBE y no sabe que existe un modelo.
 
@@ -181,13 +102,8 @@ def _una_pasada() -> dict:
     r = motor.tick()
     motor.latir(r)
     # Va DESPUÉS del tick, porque los detectores de esta pasada ya guardaron
-    # sus hallazgos, y ANTES del triage, porque lo que se arregla solo no hace
-    # falta investigarlo.
+    # sus hallazgos.
     _aplicar_solo()
-    # Y el triage ANTES de atender la cola, para que lo que se encola en esta
-    # pasada se levante en esta pasada y no en la próxima.
-    _disparar_investigaciones()
-    _atender_investigaciones()
     # Último: el texto es lo que se LEE de un hallazgo, así que se escribe
     # cuando el hallazgo ya está guardado y con su evidencia de esta pasada.
     _redactar_avisos()
@@ -320,16 +236,6 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, _parar)
     signal.signal(signal.SIGINT, _parar)
-
-    # Los pedidos de investigación que quedaron «corriendo» de una vida
-    # anterior: el hilo murió con el proceso y en la pantalla se ven como un
-    # spinner eterno, que es peor que un error porque no se distingue de «está
-    # tardando». Se cierran con el motivo y NO se reencolan solos.
-    try:
-        from lab.langgraph import servicio
-        servicio.recuperar_colgados()
-    except Exception as e:
-        logger.debug("agente: sin investigador (%s)", e)
 
     logger.info("agente: arrancado")
     while _seguir:

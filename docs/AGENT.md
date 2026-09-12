@@ -1129,88 +1129,6 @@ declarado sin verificador no caducaría nada, callado.
 
 ---
 
-### 6.9 EL TRIAGE — a qué vale la pena ir a investigar (2026-09-04)
-
-*Triage* es lo de la guardia de un hospital: cuando entran diez juntos y no se
-puede atender a todos, **alguien decide a quién primero**. No es curar, es
-elegir.
-
-Hace falta porque **investigar cuesta**: entre 8 y 18 llamadas al modelo, uno o
-dos minutos y plata por caso, contra ~40 hallazgos abiertos en cualquier momento.
-Investigarlos todos sería pagar cuarenta veces para encontrar dos.
-
-#### La regla, y la dijo el user
-
-> *«el agente tranquilamente puede ver 5 minutos después si eso ya funciona y
-> listo — esto tiene que ser cuando se termina de caer del todo»*
-
-**No se investiga lo que se acaba de caer: se investiga lo que SIGUE caído.**
-
-`proveedor_caido` corre cada 5 minutos y le alcanza UN fallo para cantar. El
-04/09 Aunesa se cayó 12:35, el hallazgo nació 12:41, y a la tarde ya no existía:
-se había recuperado solo. Disparar en el momento del hallazgo habría pagado una
-investigación entera de algo que se arregló sin que nadie hiciera nada.
-
-Y no hace falta un reloj nuevo para medirlo: **el detector ya vuelve a mirar
-solo**, y si el problema se fue, el hallazgo se cierra. Lo que sobrevive es lo
-real.
-
-#### Cómo se declara: una fila, dos datos
-
-```python
-Habilidad(
-    nombre="proveedor_caido", ...,
-    investigar={"no_responde": 20 * _M},   # regla → cuánto tiene que AGUANTAR
-)
-```
-
-Los 20 minutos salen del propio detector: corre cada 5', así que un hallazgo vivo
-a los 20' lo vieron **cuatro pasadas seguidas**. Eso ya no es un parpadeo.
-
-Vacío es el default y es una declaración: esa habilidad no dispara nada. El
-permiso se da **caso por caso** — *«no con todo, con casos que vayamos
-eligiendo»*.
-
-> ⚠️⚠️ **HOY HAY CERO, y es a propósito (§0.ff).** `proveedor_caido` era la
-> única y se apagó el 2026-09-11 por decisión del user: el investigador se había
-> conectado a producción antes de que existiera un trabajo esperándolo. **El
-> sistema no gasta un token de modelo sin que alguien apriete.** El mecanismo
-> entero —triage, cola, presupuesto, traza, el botón manual de la tab LAB— sigue
-> en pie; lo único que no ocurre es el disparo solo. La línea de arriba es
-> literalmente lo que hay que restituir para encenderlo, y el motivo de los 20
-> minutos quedó escrito al lado, en `agente/catalogo.py`.
-
-⚠️ **El TIPO de investigación no se declara acá.** Ya vive en
-`lab.langgraph.investigaciones.DE_LA_HABILIDAD`, que es quien sabe qué sabe
-investigar. Repetirlo sería la REGLA #9: dos mapas del mismo hecho sin árbitro, y
-el que se desincronice no falla — manda a investigar con el método equivocado.
-
-#### Tres piezas, y ninguna conoce a las otras dos
-
-| Pieza | Qué hace | Qué NO sabe |
-|---|---|---|
-| `agente/triage.py` | **elige** los que sobrevivieron su espera | que existe un investigador |
-| `lab/langgraph/` | **investiga** | que existe un agente |
-| `jobs/agente.py` | los junta y encola | — |
-
-Esa separación es la garantía que no se negocia: **si el laboratorio no está
-instalado, el agente detecta exactamente igual.** Un test prohíbe que `agente/`
-importe `lab/`, y en el daemon el import va adentro del `try`.
-
-#### Las guardas
-
-| | |
-|---|---|
-| **Sobrevivir** | el hallazgo tiene que seguir abierto después de su espera |
-| **Tope diario** | `TOPE_DIARIO = 6`. Es un techo de PLATA, declarado y no en un `while` |
-| **No repetir** | 24 h por caso: el problema puede seguir abierto una semana, la respuesta a «por qué pasó» no cambia todos los días |
-| **Si no puedo contar, no gasto** | `gastadas_hoy()` devuelve `None` si no pudo leer → no se dispara. Un tope que no se puede contar no es un tope |
-
-Y `lab.pedidos.hallazgo_id` guarda **qué problema lo disparó**, para poder mostrar
-el veredicto al lado del hallazgo: uno que vive en otra tab no lo lee nadie.
-
----
-
 ### 6.10 AGUDO vs CRÓNICO — la pregunta que decide qué hacer (2026-09-04)
 
 El agente miraba **cada hallazgo aislado**. Por eso un job que no escribió HOY y
@@ -1386,116 +1304,6 @@ habilidades, editable sin deploy.
     tres causas propias —`sin_simbolo`, `simbolo_rechazado`, `no_suscripto`—
     siguen cantando en `alta`. Sacar una de ellas convierte el silencio en un
     error escondido.
-
----
-
-## L. EL INVESTIGADOR — el agente que SÍ decide (`lab/langgraph/`)
-
-> **Por qué existe esta sección.** El investigador entró a producción, corre
-> adentro del daemon del agente, lee producción, gasta tokens todos los días y
-> tiene dos roles propios de Postgres — y durante días **ningún doc de `docs/`
-> lo nombraba**. Cero menciones. Su único manual era el README de su carpeta,
-> que además describía la versión anterior. Por la REGLA #10 (nada nuevo queda
-> suelto) eso era trabajo a medio terminar: corre adentro de este agente, así
-> que se documenta en el doc de este agente.
-
-### L.1 Qué es, y en qué se diferencia del agente
-
-El AV AGENT **detecta**: un catálogo de reglas deterministas, un ritmo
-declarado, y un motor que pregunta a quién le toca. Nadie elige nada — su
-`motor._agenda()` es un `sorted()`.
-
-El INVESTIGADOR **averigua por qué**: se le da un caso y **el modelo decide solo
-qué herramientas usar** hasta poder concluir. Es un agente en el sentido
-estricto (loop + tools elegidas + memoria), construido sobre LangGraph.
-
-| | `agente/` | `lab/langgraph/` |
-|---|---|---|
-| Qué hace | detecta y verifica | investiga y propone |
-| Cómo decide | catálogo + ritmo declarado | el modelo elige |
-| Escribe en producción | sí, por `registro.py`, con libro | **no — la base se lo impide** |
-| Quién lo califica | el detector, en la próxima pasada | `scripts/eval_investigador.py` |
-
-**La línea que no se cruza:** un LLM nunca puede ser la pieza que devuelve `ok`
-con lista vacía. Si el modelo no contestó es `sin_datos`, y entonces no se
-cierra nada — el invariante #1, intacto.
-
-**Y el #12 tampoco se toca:** el eval NO es un LLM-juez. Compara, de forma
-determinista, lo que el veredicto propuso contra el `arreglo_aplicado` que
-cerró ese hallazgo. La verdad de campo la escribió el agente determinista, no
-el modelo opinando de sí mismo.
-
-### L.2 Dónde corre
-
-En un **hilo aparte del daemon `agente.service`**, después del `tick()`. No en
-la pasada: una investigación tarda uno o dos minutos y la pasada es de treinta
-segundos — colgarla ahí apagaría el monitoreo justo cuando alguien está mirando
-un problema. **Uno por vez**: dos en paralelo duplican el gasto sin que nadie
-las haya pedido a la vez.
-
-Nada del investigador puede tirar abajo al agente: el import va adentro de un
-`try` (`jobs/agente.py::_atender_investigaciones`) y hay un test que lo congela.
-
-La pantalla no espera: pide, recibe un número y pregunta cómo va — el proxy de
-Next corta a los 30 s y ese corte se ve **idéntico** a un backend caído.
-
-### L.3 La jaula — dos identidades, y el alcance vive en el repo
-
-    lector_lab    lee seis tablas de producción y el esquema `lab`.
-                  **La base NO lo deja escribir.** En ningún lado.
-    escritor_lab  escribe SÓLO en `lab.*`. Producción le es INVISIBLE.
-
-Ninguna cae a `POSTGRES_URI` — esa es la del sistema y puede todo; un fallback
-silencioso convertiría la garantía en una intención.
-
-⚠️ **El alcance se declara en `sql/lab.sql`, y ese archivo REVOCA antes de
-otorgar.** No describe lo que el lab puede leer: lo impone. Antes de existir,
-los `GRANT` sobre producción se habían dado a mano en el editor de Supabase y no
-estaban escritos en ninguna parte del repo — no se podían auditar leyendo el
-proyecto, no se reproducían en una base nueva, y no tenían techo: un
-`GRANT ... ON ALL TABLES` otorgado un martes apurado pasaba todos los chequeos
-en verde para siempre.
-
-`probar_lector` verifica **las dos mitades**: que pueda leer lo declarado, y que
-no pueda leer nada más (le pregunta al catálogo, no adivina).
-
-**Lo único a mano, una vez:** crear los dos roles. `CREATE ROLE` lleva
-contraseña y una contraseña no va a un repo. Desde ahí sus permisos los manda
-`sql/lab.sql`, que aplica `deploy/deploy.sh` en cada deploy — y sus fallos
-**avisan sin cortar**: el lab es opcional, la mesa no.
-
-### L.4 Las dos piezas que no trae ningún framework
-
-**`revisar_piso` — el método.** Cuando el modelo deja de pedir herramientas NO
-concluye: se verifica que haya mirado el mínimo que su tipo de caso declara
-(`investigaciones.py`), y si falta algo vuelve **con el faltante nombrado**. Se
-mide contra las herramientas que se ejecutaron de verdad, **no contra lo que el
-modelo dice que miró**. Es el invariante #1 aplicado a una investigación.
-
-**`anotar` — la memoria de trabajo.** Una línea por herramienta ejecutada, que
-viaja aparte de la conversación. Sin ella el modelo repetía la misma búsqueda
-con el patrón apenas cambiado: cinco veces en una sola corrida. Y la lista sola
-no alcanzó — **el nodo `herramientas` DEDUPLICA de verdad** y le devuelve el
-resultado que ya tenía. Pedir por favor no obliga; es la misma diferencia que
-entre «confío en que no va a escribir» y «la base no lo deja».
-
-### L.5 Lo que falta, en orden
-
-1. **Checkpointer en Postgres.** Hoy es `InMemorySaver`: el progreso vive en la
-   RAM del proceso y un reinicio del daemon lo borra (`recuperar_colgados()` lo
-   cierra con el motivo y **no lo reencola** — un reintento automático es cómo
-   se hace un bucle que gasta tokens toda la noche).
-2. **`interrupt` antes de escribir** — el `PROPONER → OK → APLICAR` que el modal
-   ya hace a mano, formalizado en el grafo. ⚠️ **Va DESPUÉS del punto 1, no
-   antes**: una aprobación humana puede tardar horas o quedar de un día para el
-   otro, y con la memoria en RAM cualquier reinicio en el medio de esa espera
-   pierde la investigación.
-3. **Los 8 arreglos de `agente/arreglos.py` como tools.** Ya tienen `preview()`,
-   allowlist y libro de auditoría: son tools de producción esperando un selector.
-
-Detalle de implementación: `lab/langgraph/README.md`.
-
----
 
 ---
 
@@ -4724,7 +4532,7 @@ en orden de importancia:
    `test_el_redactor_no_escribe_ni_conoce_detectores` prohíbe que el módulo
    nombre una sola habilidad.
 
-**Dónde vive cada mitad**, con el mismo corte que el triage:
+**Dónde vive cada mitad**:
 
 | Pieza | Qué hace | Qué NO sabe |
 |---|---|---|
@@ -5493,10 +5301,9 @@ confirma. Y el libro ya guardaba `por`. Faltaba quién apriete y cómo firmar.
 1. **La declaración**, hermana de `investigar`: `Habilidad.automatico =
    {regla: motivo}`. Vacío es «nada de esto va solo». Un test exige que la
    regla tenga arreglo y que el arreglo no pida datos (un robot no tilda listas).
-2. **El ejecutor**, `agente/autonomo.py`: no escribe, ELIGE (como `triage.py`) y
-   llama a `arreglos.aplicar(hallazgo, por=ACTOR_AGENTE)`. Corre en cada pasada
-   del daemon (`jobs/agente.py::_aplicar_solo`), después del tick y antes del
-   triage. Tres guardas: **tope por pasada** (5: cada alta gasta créditos de 1816
+2. **El ejecutor**, `agente/autonomo.py`: no escribe, ELIGE, y llama a
+   `arreglos.aplicar(hallazgo, por=ACTOR_AGENTE)`. Corre en cada pasada del
+   daemon (`jobs/agente.py::_aplicar_solo`), después del tick. Tres guardas: **tope por pasada** (5: cada alta gasta créditos de 1816
    y segundos, y un bug no puede escribir 200 bonos), **no reintentar 24 h** lo
    que ya intentó (bien o mal: queda en `agente.acciones` con su motivo y el
    hallazgo sigue como botón), y **solo reglas declaradas**.
@@ -7216,16 +7023,16 @@ ACCIÓN puede reincidir) y no se toca. `repetible` tampoco cambió de dueño —
 afecta la reinsistencia del ejecutor a 24 h; queda anotado como pregunta, no
 como arreglo, porque cambiarlo cambia lo que el agente hace solo.
 
-### 0.ff EL INVESTIGADOR DEJA DE DISPARAR SOLO — una máquina buena sin un trabajo (2026-09-11)
+### 0.ff EL INVESTIGADOR: SE APAGÓ, Y UNA SEMANA DESPUÉS SE BORRÓ ENTERO (2026-09-11)
 
-No es un bug: es una decisión del user, y el motivo es de método.
+No es un bug: es una decisión del user, en dos pasos, y el motivo es de método.
 
-Repasando qué consume tokens sin que nadie apriete, el conteo dio esto: de las
-**30 habilidades del catálogo, UNA** declaraba `investigar` (`proveedor_caido ·
-no_responde`, espera 20'). Y de los **cuatro** tipos de investigación del lab,
-uno es `libre` — *«una pregunta suelta, **sin método declarado**»*. El user:
-*«todo esto de agentes lo hice por hacer, no pensé (…) con casos de uso que la
-verdad tampoco eran reales»*.
+**Paso 1 — dejó de dispararse solo.** Repasando qué consume tokens sin que nadie
+apriete, el conteo dio esto: de las **30 habilidades del catálogo, UNA**
+declaraba `investigar` (`proveedor_caido · no_responde`, espera 20'). Y de los
+**cuatro** tipos de investigación del lab, uno era `libre` — *«una pregunta
+suelta, **sin método declarado**»*. El user: *«todo esto de agentes lo hice por
+hacer, no pensé (…) con casos de uso que la verdad tampoco eran reales»*.
 
 O sea: **el investigador se conectó a producción antes de que existiera un
 trabajo esperándolo del otro lado.** Es la regla que ya está escrita arriba de
@@ -7233,26 +7040,25 @@ trabajo esperándolo del otro lado.** Es la regla que ya está escrita arriba de
 el MCP y el destilado del research— aplicada a una feature que había entrado por
 otra puerta y se la salteó.
 
-**Qué cambia**: nada del mecanismo. Se saca la línea `investigar` de
-`proveedor_caido` y con eso **el sistema deja de gastar un solo token de modelo
-sin que una persona apriete algo**. Siguen en pie el triage, la cola, el
-presupuesto, la traza, el botón «investigar» del modal y sus 13 habilidades
-mapeadas. Encenderlo de nuevo es restituir una línea, y el número de los 20
-minutos quedó documentado al lado, en `agente/catalogo.py`.
+**Paso 2 — se borró.** Apagado el disparo, quedó una máquina de 2.520 líneas que
+sólo se movía si alguien apretaba un botón que nadie apretaba. El user: *«ya ni
+me acuerdo para qué se usaba (…) borremos todo, claramente no sirvió»*. Se fueron
+`lab/`, `sql/lab.sql`, `agente/triage.py`, `scripts/eval_investigador.py`, la
+tarea `investigador` y `registrar()` de `core/ai.py`, el campo `investigar` de
+`agente/tipos.py`, los tres endpoints `/api/agente/lab/*` y las tres
+dependencias de LangChain/LangGraph — la única deuda de framework que tenía el
+repo del lado de LLM.
 
-**Lo que NO se hizo, y se dice**: no se borró el lab, no se corrió
-`scripts/eval_investigador.py` y por lo tanto **no hay número sobre si el
-investigador acierta**. Esa medición está pendiente y es la que decide el futuro
-del subsistema — apagar el disparo automático es reversible y barato; borrar
-2.520 líneas con el user cansado y sin el dato, no.
+**Qué ocupa su lugar**: la tab LAB pasa a ser el **asistente conversacional**
+(`asistente/`), escrito a mano sobre `core/ai.py`, con herramientas que leen
+datos del negocio y un alcance de cuentas declarado fuera del código. La
+diferencia no es de tecnología: el asistente tiene un usuario y una pregunta
+real del otro lado antes de existir, que es lo que al investigador le faltaba.
 
-⚠️ **Un test se corrigió, no se rompió.** `test_no_se_investiga_lo_que_se_acaba_
-de_caer` tenía un `assert declaradas` —«el triage no tiene ninguna regla
-declarada»— que confundía un HECHO de ese momento con un invariante: habría
-puesto CI en rojo por una decisión legítima y reversible. Lo que el test sí
-garantiza —que ninguna regla pueda dispararse antes de los 300 s— se comprueba
-donde de verdad importa, en el dataclass que lo impide, y eso vale sobre cero
-reglas igual que sobre diez.
+**Lo que NO se hizo, y se dice**: nunca se corrió `scripts/eval_investigador.py`,
+así que **no hay número sobre si el investigador acertaba**. Se borró sin esa
+medición, a sabiendas: el costo de mantener apagado algo que nadie mira es mayor
+que el valor de un dato que nadie iba a ir a buscar.
 
 ---
 

@@ -62,13 +62,6 @@ logger = logging.getLogger(__name__)
 # Cada fila dice QUIÉN MIRA SU SALIDA. Una tarea sin esa respuesta no va.
 
 _TAREAS: dict[str, dict] = {
-    # La mira: la tab LAB del modal del AV AGENT. El investigador habla con el
-    # proveedor por LangChain y no por `completar()`, así que de esta fila sólo
-    # se usan el nombre y el presupuesto — la traza la escribe él con
-    # `registrar()`.
-    "investigador": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
-                     "thinking": "disabled"},
-
     # La mira: el botón «explicámelo» del panel HABILIDADES. Sólo a pedido de
     # una persona, y cacheada por error: el mismo error no se paga dos veces.
     "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
@@ -293,32 +286,6 @@ def _trazar(
     except Exception as e:
         logger.warning("core.ai: no pude registrar la traza de %s (%s)", tarea, e)
         return None
-
-
-def registrar(
-    tarea: str,
-    *,
-    modelo: str,
-    usuario: str | None = None,
-    tokens_in: int | None = None,
-    tokens_out: int | None = None,
-    latencia_ms: int | None = None,
-    ok: bool = True,
-    error: str | None = None,
-    detalle: str | None = None,
-    respuesta: str | None = None,
-) -> int | None:
-    """Deja la traza de una llamada que este archivo NO hizo.
-
-    Existe para el investigador del lab, que habla con el proveedor por
-    LangChain porque necesita un objeto-modelo con herramientas y no una
-    función. Sin esto, ese gasto no aparecería en ningún lado.
-
-    No es una puerta trasera: ese caller igual consulta el presupuesto antes de
-    arrancar. Lo que esto garantiza es que no haya gasto sin registro.
-    """
-    return _trazar(tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms,
-                   ok, error, detalle=detalle, respuesta=respuesta)
 
 
 # ── LA LLAMADA ──────────────────────────────────────────────────────────────

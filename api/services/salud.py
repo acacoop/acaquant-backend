@@ -2,8 +2,8 @@
 
 Por qué existe (incidente 2026-08-07): el backfill de tenencias falló dos días
 seguidos y nadie se enteró. No fue por falta de datos —había `job_runs`,
-`latencia_endpoints`, el árbol de diagnóstico y hasta triage con
-IA— sino porque estaban repartidos en seis pantallas que hay que ir a mirar, y
+`latencia_endpoints` y el árbol de diagnóstico— sino porque estaban repartidos
+en seis pantallas que hay que ir a mirar, y
 porque **ninguna respondía la pregunta que importaba**: la card de AuM estaba en
 VERDE con el job muerto hacía 48 h, porque mostraba cómo salieron las corridas que
 hubo, no si el sistema estaba sano.

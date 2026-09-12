@@ -32,8 +32,7 @@ que no se parecen en nada:
     pocas   → se declaran a mano en `core.escribe.POR_OCASION`. Cero IA.
     muchas  → averiguar quién escribe cada una es trabajo de LEER CÓDIGO
               siguiendo un rastro (el INSERT usa una variable, o un helper, o
-              `core.pg_mirror`), y ahí sí se justifica el investigador del lab,
-              que ya tiene las herramientas (`buscar_en_repo`, `leer_archivo`).
+              `core.pg_mirror`), y eso se hace a mano, tabla por tabla.
 
 Sin este número, elegir una de las dos sería adivinar (REGLA #2).
 
@@ -98,7 +97,7 @@ def _universo() -> list[dict]:
 
 
 # Las carpetas que `core.escribe._mapa()` escanea. Lo que se escribe desde
-# `agente/`, `scripts/` o `lab/` es invisible para el mapa, y eso NO es un bug:
+# `agente/` o `scripts/` es invisible para el mapa, y eso NO es un bug:
 # esas carpetas no tienen una clase única (`agente/` escribe `hallazgos` en cada
 # pasada —reloj— y `acciones` cuando alguien aprieta —evento—). Se declaran.
 _ESCANEADAS = ("jobs", "engines", "core", "api")
@@ -141,7 +140,7 @@ def _porque_no_se(nombre: str) -> tuple[str, str]:
                    `f"INSERT INTO {_TABLA_CHEQUES} (…)"`. Ninguno de los tres
                    regex de `core.escribe` ve eso, y son ~37 tablas, casi todas
                    de `api/` (o sea: EVENTO, o sea: no había que exigirles nada).
-                   Antes de mandar a investigar nada, resolver las constantes.
+                   Antes de salir a buscar nada, resolver las constantes.
     `nadie la usa` no aparece en ningún `.py`: o la siembra un script que ya se
                    borró, o la escribe algo que no es este repo (Manager por la
                    UI, Supabase). Ninguna de las dos se arregla acá.
@@ -235,16 +234,11 @@ def main() -> int:
           "                      así no se detectó: está detrás de un helper, de\n"
           "                      `core.pg_mirror`, o el nombre viaja en una variable.\n"
           "                      Encontrarlo es seguir un rastro cuyo próximo paso depende\n"
-          "                      del anterior — eso es una INVESTIGACIÓN, no un regex, y es\n"
-          "                      lo único de acá que justifica el lab (`lab/langgraph/`),\n"
-          "                      que ya tiene `buscar_en_repo` y `leer_archivo` y no\n"
-          "                      escribe nada: propone la fila y una persona confirma.\n"
+          "                      del anterior: se lee el código a mano y se declara la fila.\n"
           "\n"
           "      nadie la usa  → no se escribe desde este repo (la carga Manager por la UI,\n"
           "                      o la sembró un script que ya se borró). Va a POR_OCASION\n"
           "                      igual, pero por otro motivo: no hay job que relanzar.\n"
-          "\n"
-          "  · Si `buscarla` es chico, el lab no se justifica todavía: se arregla a mano.\n"
           "\n"
           "  · Y lo que NO hay que hacer: mandar `no_se` al mismo balde que `evento`.\n"
           "    Dejaría de mirar tablas que sí tienen un job atrás, y esa señal se\n"

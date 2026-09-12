@@ -78,7 +78,7 @@ TAREA = "agente_emisor"
 REGLA, NOMBRE, FINNHUB, MODELO = "regla", "nombre", "finnhub", "modelo"
 
 # Cuántas filas van al modelo por pantalla. Un tope que no está escrito no es un
-# tope — mismo criterio que `redactar.TOPE_POR_PASADA` y `triage.TOPE_DIARIO`.
+# tope — mismo criterio que `redactar.TOPE_POR_PASADA`.
 TOPE_MODELO = 80
 # ⚠️⚠️ **DÓNDE EL MODELO NO OPINA, Y ESTÁ MEDIDO** (2026-09-05).
 #

@@ -21,7 +21,7 @@ a ENCONTRÓ no entra porque no hay nada que apretar.
 
 Es la regla #9 y es lo único que hace que el número valga. Un `WHERE` propio
 acá sería una CUARTA definición de «lo que está abierto» conviviendo con las
-tres reales, y ya pasó adentro de este mismo subsistema: `cola.investigables()`
+tres reales, y ya pasó adentro de este mismo subsistema: una lista interna
 ofrecía 60 casos mientras la pantalla mostraba 3 y 3, porque tenía su propio
 criterio. Así que se llama a `vista.ahora()`, `vista.encontro()` y
 `vista.cronicos()` —las mismas funciones que dibujan el modal— y se compara

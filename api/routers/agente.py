@@ -29,30 +29,8 @@ router = APIRouter(prefix="/api/agente", tags=["agente"],
 def vista():
     """Todo el modal en UN request y con UNA sola noción de «ahora»."""
     from agente import vista as v
-    d = v.vista()
-    _marcar_investigables(d)
-    return d
+    return v.vista()
 
-
-def _marcar_investigables(d: dict) -> None:
-    """Le pone `investigable` a cada hallazgo. **Acá y no en el navegador.**
-
-    La pantalla dibuja el botón «investigar» sólo donde el backend sabe
-    investigar. Si el mapa estuviera en el front, habría DOS copias de la misma
-    verdad (REGLA #9): agregar una investigación no mostraría el botón y sacar
-    una dejaría uno que falla, sin que nada avise.
-
-    ⚠️ Va en el ROUTER y no en `agente/vista.py` a propósito: `agente/` no puede
-    depender del laboratorio. Si el lab no está o revienta, el modal se dibuja
-    igual — sin el botón, que es la degradación correcta.
-    """
-    try:
-        from lab.langgraph.investigaciones import tipo_de
-    except Exception:
-        return
-    for clave in ("ahora", "encontro"):
-        for f in (d.get(clave) or {}).get("filas") or []:
-            f["investigable"] = bool(tipo_de(f.get("habilidad", "")))
 
 
 @router.get("/ahora")
@@ -271,74 +249,37 @@ def explicar(body: Explicar, email: str = Depends(get_user_email)):
     return ex.explicar(body.habilidad, por=email)
 
 
-# ── EL LABORATORIO (`lab/langgraph/`) ──────────────────────────────────────
+
+# ── EL LABORATORIO — el asistente conversacional ───────────────────────────
 #
-# El INVESTIGADOR: cuando el agente detecta algo y se queda ahí —la mayoría de
-# sus habilidades son avisos sin botón—, esto averigua por qué y propone qué
-# hacer.
+# La tab LAB del modal. Es la única boca HTTP de `asistente/`: acá no hay
+# lógica, solo se traduce un pedido de la pantalla a una llamada a `ciclo` y se
+# junta lo que el ciclo va contando por el camino.
 #
-# ⚠️ **NO HAY UN ENDPOINT QUE INVESTIGUE Y DEVUELVA EL RESULTADO.** Una
-# investigación son 8 a 18 idas y vueltas al modelo: uno o dos minutos. El
-# proxy de Next corta a los 30 s (`maxDuration`) y ese corte se ve en pantalla
-# **idéntico a un backend caído**. Así que se PIDE (contesta en milisegundos con
-# un número) y después se PREGUNTA cómo va. Lo corre el daemon del agente.
-#
-# ⚠️ Estas rutas heredan `require_admin` del router, como todas. No hay que
-# acordarse: está puesto en el `APIRouter`, no en cada función.
-class Investigar(BaseModel):
-    tipo: str = Field(..., min_length=1, max_length=40)
-    caso: str = Field(..., min_length=1, max_length=120)
+# ⚠️ **SÍNCRONO A PROPÓSITO, Y ESTÁ MEDIDO.** Una pregunta con una herramienta
+# tarda 4,5 s de punta a punta; el peor caso (6 vueltas) queda por debajo de los
+# 30 s que aguanta el proxy de Vercel. Una cola con estado sería infraestructura
+# para un problema que todavía no existe.
+
+class Preguntar(BaseModel):
+    pregunta: str = Field(..., min_length=1, max_length=2000)
+    # Los mensajes de las preguntas anteriores, tal cual los devolvió la
+    # respuesta anterior. El modelo no recuerda nada: la conversación la
+    # sostiene la pantalla mandando esto de vuelta.
+    historial: list[dict] = Field(default_factory=list, max_length=60)
 
 
-@router.post("/lab/investigar")
-def lab_investigar(body: Investigar, email: str = Depends(get_user_email)):
-    """Encola una investigación. **No la corre**: devuelve el id para seguirla.
+@router.post("/lab/preguntar")
+def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
+    """Una pregunta al asistente. Devuelve la respuesta MÁS todo lo que pasó.
 
-    Si ya hay una igual sin terminar devuelve ESA en vez de encolar otra: dos
-    investigaciones del mismo caso a la vez son el mismo trabajo hecho dos
-    veces, y pagado dos veces.
+    `eventos` es la traza del ciclo paso por paso (qué herramienta pidió, con
+    qué argumentos, qué devolvió). Viaja a la pantalla porque el punto de esta
+    tab es VER el ciclo, no solo su resultado.
     """
-    from lab.langgraph import cola
-    from lab.langgraph.investigaciones import INVESTIGACIONES
-    if body.tipo not in INVESTIGACIONES:
-        return {"ok": False, "error": f"«{body.tipo}» no es un tipo de "
-                f"investigación. Hay: {', '.join(INVESTIGACIONES)}"}
-    return cola.encolar(body.tipo, body.caso.strip(), por=email)
+    from asistente import ciclo
 
-
-@router.get("/lab/pedido/{pedido_id}")
-def lab_pedido(pedido_id: int):
-    """Cómo va un pedido: su estado, los pasos hechos HASTA AHORA, y el
-    veredicto si ya terminó. Es lo que pollea la pantalla mientras corre."""
-    from lab.langgraph import cola
-    p = cola.ver(pedido_id)
-    return p or {"ok": False, "error": "ese pedido no existe"}
-
-
-@router.get("/lab")
-def lab(limite: int = 20):
-    """La tab LAB: los últimos pedidos y qué sabe investigar.
-
-    El catálogo viaja con la lista porque la pantalla **no puede inventarse los
-    tipos**: si los tuviera escritos en el navegador, agregar una investigación
-    nueva del lado del backend no aparecería, y sacar una dejaría un botón que
-    falla. Es la misma ley que el resto del modal — nada se deriva acá.
-    """
-    from lab.langgraph import cola
-    from lab.langgraph.investigaciones import INVESTIGACIONES
-    r = cola.ultimos(limite)
-    # ⚠️ **LOS CASOS QUE SE PUEDEN INVESTIGAR VIENEN DE ACÁ, NO DE UN CAMPO DE
-    # TEXTO.** Antes había que adivinar qué escribir. Ahora la pantalla ofrece
-    # lo que está REALMENTE abierto, derivado de los hallazgos y reincidencias
-    # del agente: lo nuevo aparece solo y lo resuelto desaparece solo.
-    inv = cola.investigables()
-    return {
-        "casos": inv["casos"],
-        "casos_error": inv["error"],
-        # `ok` viene de si se pudo LEER, no se pone a mano: una lista vacía y
-        # una lectura fallida no se pueden ver iguales en la pantalla.
-        "ok": r["ok"], "error": r["error"],
-        "pedidos": r["pedidos"],
-        "tipos": [{"nombre": i.nombre, "que_es": i.que_es,
-                   "piso": list(i.piso)} for i in INVESTIGACIONES.values()],
-    }
+    eventos: list[dict] = []
+    r = ciclo.preguntar(body.pregunta, usuario=email,
+                        historial=body.historial, ver=eventos.append)
+    return {**r, "eventos": eventos}

@@ -53,10 +53,13 @@ HERRAMIENTAS: dict[str, str] = {
                              "abierto y alimenta /api/ingest/eikon/*. Sin esto la tab REUTERS no tiene datos.",
     "ext_ver":               "inspector de la API externa (/ext): qué ve un accionista con SU token.",
     # contratos y auditoría (dan un veredicto, no una opinión)
-    "eval_investigador":     "¿acierta el INVESTIGADOR? Compara lo que propuso contra el arreglo que "
-                             "cerró el hallazgo de verdad. Determinista a propósito (invariante #12: "
-                             "el agente no se autoevalúa). Sin este número no se puede decidir si "
-                             "darle más autonomía.",
+    "asistente":             "la terminal del ASISTENTE conversacional (`asistente/ciclo.py`) desde el "
+                             "Droplet: misma pregunta, mismas herramientas y mismo ciclo que la tab "
+                             "LAB, pero mostrando cada paso. Es como se prueba un cambio del ciclo "
+                             "sin pasar por el front.",
+    "diag_byma_red":         "¿por qué el Droplet no llega a `api.byma.com.ar`? Separa «BYMA filtra "
+                             "nuestra IP» de «el Droplet bloquea la salida» — dos causas con "
+                             "soluciones opuestas. Read-only, sin credenciales.",
     "audit_superficie_http": "inventario de la superficie HTTP por categoría — la contracara de audit_rbac.",
     "diag_fci_primary":      "qué FCI lista Primary, qué campos trae y si hay histórico (no lo hay): "
                              "es la medición que decide la fuente del mercado FCI (docs/FCI.md) y "

@@ -79,7 +79,7 @@ paths:
 > paginado del backend. Y tres son de lectura: **PATRONES** (los crónicos —
 > §6.10, lo que pasa SIEMPRE es una configuración mal puesta, no un incidente) ·
 > **HABILIDADES** (qué sabe hacer y **cuándo miró cada cosa**) · **LAB** (el
-> investigador, `lab/langgraph/`). Todo el modal viaja en UN request (`/vista`)
+> asistente conversacional, `asistente/`). Todo el modal viaja en UN request (`/vista`)
 > para que se dibuje con UNA sola noción de «ahora».
 >
 > **`docs/AGENT.md` tiene DOS PARTES y no se confunden.** La **A manda**: es la

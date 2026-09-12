@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **516 endpoints** montados en `api.main.app`, en **35 routers**.
-- **192 escriben** (POST/PUT/PATCH/DELETE); 324 son de solo lectura.
+- **514 endpoints** montados en `api.main.app`, en **35 routers**.
+- **192 escriben** (POST/PUT/PATCH/DELETE); 322 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 19 | 10 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 17 | 10 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
@@ -2240,7 +2240,7 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 | Pieza | Qué es | Estado |
 |---|---|---|
 | `core/llm.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/ai.py` | tareas registradas, presupuesto diario como kill-switch, y la traza obligatoria | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `investigador`) |
+| `core/ai.py` | tareas registradas, presupuesto diario como kill-switch, y la traza obligatoria | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente`) |
 | `ia.trazas` | una fila por llamada al modelo: tarea, modelo, usuario, tokens, latencia, la pregunta y la respuesta | vacía |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
 
@@ -2302,30 +2302,24 @@ nadie lo miraba.
 - **La vista RESEARCH** — el mail de 1816 se guarda crudo y se muestra tal cual.
   BCRA, FRED y las series de 1816 son ingestas de API, sin modelo en el medio.
 
-> ⚠️ **La excepción, y es la única: el INVESTIGADOR** (`lab/langgraph/`). Es el
-> primer y único consumo de LLM del producto que **razona en varios pasos**: se
-> le da un caso y el modelo elige qué herramientas usar hasta poder concluir.
-> Vive al lado del agente, corre en un hilo de su daemon y **no puede escribir en
-> producción** —la base se lo impide con un rol propio, no el código portándose
-> bien—. Su alcance está declarado en `sql/lab.sql`, que revoca antes de otorgar.
-> Documentación: `docs/AGENT.md` §L.
+> ⚠️ **La excepción, y es la única: el ASISTENTE** (`asistente/`). Es el primer
+> y único consumo de LLM del producto que **razona en varios pasos**: se le hace
+> una pregunta y el modelo elige qué herramientas usar hasta poder contestar. El
+> ciclo completo está escrito a mano en `asistente/ciclo.py` (sin framework), las
+> herramientas sólo LEEN, y **el alcance de cuentas se declara fuera del código**
+> (env var `ASISTENTE_CUENTAS`, fail-closed: vacío = no muestra nada).
 >
-> **Tres endpoints, todos `require_admin` heredado del router de `/api/agente`:**
+> **Un endpoint, `require_admin` heredado del router de `/api/agente`:**
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/investigar` | encola un pedido y devuelve su id. **No espera**: una investigación son 1-2 minutos y el proxy de Next corta a los 30 s — ese corte se ve idéntico a un backend caído |
-> | `GET /api/agente/lab/pedido/{id}` | cómo va, con **los pasos EN VIVO** (qué herramienta pidió, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
-> | `GET /api/agente/lab` | el libro: las últimas investigaciones con su veredicto |
+> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Devuelve la respuesta MÁS `eventos`: la traza del ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
 >
-> El botón de investigar **aparece sólo en los hallazgos cuya habilidad está
-> mapeada** a un tipo de investigación (`investigaciones.DE_LA_HABILIDAD`). Ese
-> mapa vive en el backend a propósito: en el front, agregar un tipo no
-> aparecería y sacar uno dejaría un botón que falla.
+> Síncrono a propósito y medido: una pregunta con una herramienta tarda 4,5 s, y
+> el peor caso (6 vueltas, el techo declarado en `ciclo.MAX_VUELTAS`) queda por
+> debajo de los 30 s del proxy de Next.
 >
-> ¿Acierta? `python -m scripts.eval_investigador` lo compara contra el arreglo
-> que cerró el hallazgo de verdad — determinista, sin un modelo juzgando a otro
-> (invariante #12).
+> Reemplazó al INVESTIGADOR (`lab/langgraph/`), borrado el 2026-09-11 — `docs/AGENT.md` §0.ff.
 
 ### RBAC del prefijo `/api/ia`
 
@@ -2491,7 +2485,7 @@ Manager está pendiente); no convierte monedas.
 
 | Gate | Dónde vive | Dónde se aplica (verificado) | Qué exige |
 |---|---|---|---|
-| `require_admin` | `api/auth.py:398` | **Las 15 rutas de `/api/agente`** (el AV AGENT entero **+ las 3 del INVESTIGADOR**, que heredan el gate del router) + `GET /api/scanner/day-trading`, `GET /api/scanner/companeros/{ticker}`, `POST /api/back-office/senebis/proximo-id`, `POST /api/mesa-dinero/retorno/import` — **19 rutas** (medido con `api/superficie.py`; las 5 de `/api/ia` se borraron el 2026-08-28) | `get_user_role(email) == "admin"` **directo, sin mirar la matriz** → **no delegable** desde el panel. Rechaza guest siempre |
+| `require_admin` | `api/auth.py:398` | **Las rutas de `/api/agente`** (el AV AGENT entero **+ la del ASISTENTE**, que hereda el gate del router) + `GET /api/scanner/day-trading`, `GET /api/scanner/companeros/{ticker}`, `POST /api/back-office/senebis/proximo-id`, `POST /api/mesa-dinero/retorno/import` — **19 rutas** (medido con `api/superficie.py`; las 5 de `/api/ia` se borraron el 2026-08-28) | `get_user_role(email) == "admin"` **directo, sin mirar la matriz** → **no delegable** desde el panel. Rechaza guest siempre |
 | `require_control_comercial` | `api/auth.py:425` | Las 5 rutas `/api/operaciones/comercial/control/*` (objetivos GET+PATCH, objetivos-vs-actual, por-operador, totales) — **incluidas las de lectura** | Permiso **PER-USUARIO**: `admin` **o** flag `control_comercial=true` en `manager.manager_users` (tildado en Manager → Usuarios). Cache 60s. Rechaza guest |
 | `require_no_invitado` | `api/auth.py:442` | Las **5 PATCH** de `/api/derivados/agro/*` | Bloquea www en escrituras que caen dentro de un módulo que el invitado SÍ tiene |
 | `require_lectura_mesa` | `mesa_dinero.py` → `mesa_dinero.puede_ver` | **Las 9 rutas** de `/api/mesa-dinero` (montado a nivel router en `api/main.py`) | Permiso **PER-USUARIO**: admin **o** email en `mesa_dinero_lectores` ∪ `mesa_dinero_escritores`. Cache 60s. **Reemplazó al gate de módulo `operaciones`** (2026-08-11) |

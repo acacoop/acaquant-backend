@@ -319,34 +319,6 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         que_mira="Aunesa, 1816, Interbanking y BCRA, por el rastro de las llamadas reales",
         cada_segundos=5 * _M, ventana="siempre",
         correr=sistema.proveedor_caido,
-        # ⚠️⚠️ **SIN `investigar`: NINGUNA HABILIDAD DISPARA UNA INVESTIGACIÓN
-        # SOLA.** Era la única del catálogo que lo declaraba —o sea: el único
-        # gasto de modelo del sistema que ocurría sin que nadie apretara nada— y
-        # se apagó por decisión del user (2026-09-11), no por un bug.
-        #
-        # El motivo es de MÉTODO y no del código: el investigador se conectó a
-        # producción antes de que existiera un trabajo esperándolo del otro lado.
-        # Es la misma regla que ya está escrita arriba de `core/ai.py` —«¿QUIÉN
-        # MIRA SU SALIDA?»— aplicada a una feature que había entrado por otra
-        # puerta. Medido el mismo día: 1 de 30 habilidades declaraba
-        # `investigar`, y de los cuatro tipos de investigación uno es `libre`
-        # («una pregunta suelta, SIN método declarado»).
-        #
-        # **No se borró nada.** El mecanismo entero sigue en pie —triage, cola,
-        # presupuesto, traza, el botón manual de la tab LAB y las habilidades
-        # que el lab sabe investigar (`lab/langgraph/`)—: lo único que cambia es
-        # que ya no arranca solo. Volver a encenderlo es restituir la línea de
-        # abajo. Historia: `AGENT.md` §0.ff.
-        #
-        # El número de la línea, para el día que vuelva: **20 minutos**, y sale
-        # del propio detector — corre cada 5' y le alcanza UN fallo para cantar,
-        # así que un hallazgo vivo a los 20' lo vieron cuatro pasadas seguidas.
-        # Eso ya no es un parpadeo, es una caída. Aunesa el 04/09 fue el caso
-        # contrario: se cayó 12:35, el hallazgo nació 12:41 y a la tarde ya no
-        # existía — investigarlo al nacer habría sido pagar por algo que se
-        # arregló solo.
-        #
-        #     investigar={"no_responde": 20 * _M}
         umbrales={"ventana_s": 1200, "minimo_fallos": 1}),
 
     Habilidad(

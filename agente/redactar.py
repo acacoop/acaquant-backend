@@ -60,8 +60,8 @@ QUÉ NO ESTÁ ACÁ
 
 SQL. Este módulo es puro: arma el pedido, llama al gateway y valida. Quien lee
 los pendientes y quien escribe la columna es `agente/registro.py` —la puerta
-única (invariante #5)— y quien decide *cuándo* correrlo es `jobs/agente.py`,
-igual que el triage. Este archivo no sabe que existe un daemon.
+única (invariante #5)— y quien decide *cuándo* correrlo es `jobs/agente.py`.
+Este archivo no sabe que existe un daemon.
 """
 from __future__ import annotations
 
@@ -83,8 +83,8 @@ MIN_CHARS = 20
 # rechaza siempre (evidencia pobre, por ejemplo) no puede pagarse en cada
 # pasada del daemon: se queda con el piso, que para eso está.
 MAX_INTENTOS = 2
-# Techo de plata por pasada, declarado. Mismo criterio que `triage.TOPE_DIARIO`
-# y que `vigencia.TOPE_POR_CORRIDA`: un tope que no está escrito no es un tope.
+# Techo de plata por pasada, declarado. Mismo criterio que
+# `vigencia.TOPE_POR_CORRIDA`: un tope que no está escrito no es un tope.
 TOPE_POR_PASADA = 4
 
 _MAX_EV = 2500          # recorte de la evidencia que viaja al modelo

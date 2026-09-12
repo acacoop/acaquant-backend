@@ -656,11 +656,6 @@ def reincidencias(limite: int = 100) -> dict:
     el círculo»*. Una alarma que no puede apagarse deja de ser una alarma, y la
     fila número 16 —la que importaba— no la mira nadie.
 
-    **El criterio NO es nuevo y no se inventa acá**: es el mismo `JOIN` que ya
-    usa `lab.langgraph.cola.investigables()` para ofrecer casos. Estaba escrito
-    en un solo lado y la pantalla usaba otro — la REGLA #9 adentro del agente.
-    Ahora hay UNO.
-
     La fila **no se borra jamás**: «`alta_bono` aguantó 3,6 días sobre M31G6» es
     un hecho, y es la evidencia con la que después se decide qué arreglo es
     confiable. Sólo deja de contar como alarma. `historicas` dice cuántas hay

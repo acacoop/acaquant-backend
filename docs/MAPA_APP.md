@@ -2333,6 +2333,17 @@ nadie lo miraba.
 > | `POST /api/agente/lab/modelo` | fija qué modelo cumple un rol. ⚠️ **Prueba antes de guardar**: le da una herramienta de mentira y mira si la pide. Un modelo que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo (USD por millón de tokens), para ver plata y no sólo tokens |
 >
+> **El control determinístico** (`asistente/control.py`): antes de devolver la
+> respuesta, el código saca sus números y los busca en todo lo que se le dio al
+> modelo más la pregunta. Lo que no sale de ninguna fuente, lo puso él — y acá
+> un número puesto por el modelo es plata que no existe. **Avisa, no bloquea**:
+> el veredicto viaja al lado de la respuesta y la tab lo muestra debajo.
+>
+> No sabe nada de las herramientas (trabaja sobre tres textos), así que una
+> herramienta nueva queda cubierta sin tocarlo. En su primera corrida encontró
+> que el modelo sumaba los totales por mes a mano — y la respuesta no fue
+> aflojar el control, fue darle `por_mes` agregado en SQL.
+>
 > ⚠️ **La elección se guarda POR PROVEEDOR** (`modelo:{proveedor}:{tier}` en
 > `ia.config`). Con una clave por rol a secas, elegir un modelo de OpenAI le
 > cambiaba el modelo también a `agente_texto`, que corre contra DeepSeek: ese

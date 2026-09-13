@@ -87,6 +87,15 @@ def cuentas_disponibles() -> dict:
     }
 
 
+def _por_mes(filas, mon) -> list[dict]:
+    """Un renglón por mes con una clave por moneda. Las monedas NO se suman
+    entre sí ni acá ni en ningún lado: son claves distintas del mismo renglón."""
+    out: dict[str, dict] = {}
+    for mes, moneda, monto in filas:
+        out.setdefault(mes, {"mes": mes})[mon(moneda)] = round(float(monto or 0), 2)
+    return [out[k] for k in sorted(out)]
+
+
 def cobros_futuros(cuenta: str, dias: int) -> dict:
     """Cuánta PLATA va a cobrar una cuenta en los próximos N días, y en qué fechas.
 
@@ -104,6 +113,8 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
     QUÉ DEVUELVE:
       · `total` — la plata del período, SEPARADA POR MONEDA. ⚠️ NUNCA sumes
         pesos con dólares ni conviertas: dalos por separado, tal cual vienen.
+      · `por_mes` — el mismo total abierto mes a mes. Usalo para decir dónde
+        cae el grueso. NO lo calcules sumando `pagos`: ya viene hecho.
       · `titulos` — cuánto paga cada bono en total, y cuándo vence.
       · `pagos` — el detalle, un renglón por fecha y bono.
       · Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.
@@ -197,6 +208,23 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
          GROUP BY t.ticker, t.moneda
          ORDER BY 3 DESC
     """
+    # ⚠️⚠️ **ESTE AGREGADO LO ENCONTRÓ EL CONTROL DE NÚMEROS, EN SU PRIMERA
+    # CORRIDA.** Sin `por_mes`, el modelo contestaba «septiembre 431,23 · octubre
+    # 180,60» sumando los pagos a mano — bien, pero haciendo exactamente lo que
+    # el prompt le prohíbe. Con seis pagos acierta; con sesenta, no hay razón
+    # para creerle, y el error no se vería.
+    #
+    # La respuesta correcta a «el modelo está calculando» nunca es pedirle mejor
+    # que no calcule: es darle el número hecho.
+    sql_mes = f"""
+        SELECT substr(t.fecha_pago, 1, 7) AS mes, t.moneda, sum(t.monto) AS monto
+          FROM operaciones.acreencias t
+         WHERE {permitido.FILTRO_SQL}
+           AND t.fecha_pago >= %(desde)s
+           AND t.fecha_pago <= %(hasta)s
+         GROUP BY 1, t.moneda
+         ORDER BY 1
+    """
     # El total sale de su propia consulta sobre el período ENTERO, no de sumar
     # `pagos` — así el techo de filas del detalle no puede ensuciarlo. Si se
     # corta la lista, el total sigue siendo el de verdad.
@@ -220,6 +248,8 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(sql_total, params)
             tot = cur.fetchall()
+            cur.execute(sql_mes, params)
+            meses = cur.fetchall()
             cur.execute(sql_titulos, params)
             tits = cur.fetchall()
             cur.execute(sql_pagos, params)
@@ -242,6 +272,9 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
         # ⚠️ Diccionario por moneda y NUNCA un número solo: si no existe un
         # total único, el modelo no puede reportar pesos sumados con dólares.
         "total": {_mon(m): round(float(v or 0), 2) for m, v in tot},
+        # El mismo total abierto mes a mes, para que el modelo pueda decir dónde
+        # cae el grueso SIN sumar.
+        "por_mes": _por_mes(meses, _mon),
         "titulos": [{
             "ticker": t[0],
             "emisor": t[3],

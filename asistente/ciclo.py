@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 
+from asistente import control as CTL
 from asistente import herramientas as H
 from core import ai
 
@@ -259,20 +260,21 @@ def preguntar(
             # El gateway se negó: sin clave del proveedor, o ruteo inseguro.
             _ver("corte", motivo="el gateway no dejó salir la llamada")
             return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           error="No se pudo llamar al modelo: falta la clave del "
+                           pregunta=pregunta, error="No se pudo llamar al modelo: falta la clave del "
                                  "proveedor, o el ruteo no es seguro para datos del negocio.")
         tokens_in += r.tokens_in or 0
         tokens_out += r.tokens_out or 0
         if not r.ok:
             _ver("corte", motivo=f"el proveedor falló: {r.error}")
             return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           error=f"El proveedor no contestó: {r.error}")
+                           pregunta=pregunta, error=f"El proveedor no contestó: {r.error}")
 
         # ── PASO 2: ¿terminó, o quiere una herramienta? ──
         if not r.pedidos:
             _ver("texto", texto=r.texto)
             mensajes.append({"role": "assistant", "content": r.texto or ""})
-            return _salida(r.texto, mensajes, vuelta, tokens_in, tokens_out, llamadas)
+            return _salida(r.texto, mensajes, vuelta, tokens_in, tokens_out, llamadas,
+                           pregunta=pregunta)
 
         # ── PASO 3: pidió. Se le devuelve su propio mensaje TAL CUAL y, abajo,
         # un resultado por cada herramienta que pidió. El crudo va sin tocar:
@@ -292,11 +294,38 @@ def preguntar(
 
     _ver("corte", motivo=f"llegué a {MAX_VUELTAS} vueltas sin una respuesta")
     return _salida(None, mensajes, MAX_VUELTAS, tokens_in, tokens_out, llamadas,
-                   error=f"Di {MAX_VUELTAS} vueltas pidiendo herramientas y no llegué "
+                   pregunta=pregunta, error=f"Di {MAX_VUELTAS} vueltas pidiendo herramientas y no llegué "
                          "a una respuesta. Probá con una pregunta más acotada.")
 
 
-def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=None) -> dict:
+def _contexto(mensajes: list[dict], excluir: str | None) -> str:
+    """Todo lo que el modelo tuvo delante, como un solo texto.
+
+    ── SU ROL: es la FUENTE contra la que se revisa la respuesta ──
+
+    Va todo: los resultados de las herramientas de este turno, los de las
+    preguntas anteriores que sigan en el historial, y lo que el propio modelo
+    escribió antes. Si un número está en cualquiera de esos lados, no lo inventó
+    ahora — lo copió, que es lo que queremos.
+
+    ⚠️⚠️ **SE EXCLUYE LA RESPUESTA QUE SE ESTÁ REVISANDO**, y no es un detalle:
+    el ciclo la agrega a `mensajes` antes de devolverla, así que sin este filtro
+    cada número se validaría CONTRA SÍ MISMO y el control no encontraría nada
+    jamás — pasando en verde para siempre, que es la peor forma de no funcionar.
+    """
+    partes = []
+    for m in mensajes:
+        if excluir is not None and m.get("content") == excluir:
+            continue
+        if m.get("content") and m.get("role") != "system":
+            partes.append(str(m["content"]))
+        for p in m.get("tool_calls") or []:
+            partes.append(str((p.get("function") or {}).get("arguments") or ""))
+    return "\n".join(partes)
+
+
+def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=None,
+            pregunta: str = "") -> dict:
     """Lo que devuelve una pregunta. `mensajes` (sin el system, que se agrega
     solo) es lo que hay que pasar como `historial` en la pregunta siguiente."""
     return {
@@ -306,5 +335,9 @@ def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=Non
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "llamadas": llamadas,
+        # ⚠️ El veredicto viaja AL LADO de la respuesta, no en vez de ella: el
+        # control avisa, no bloquea (`asistente/control.py`).
+        "control": CTL.revisar(texto, contexto=_contexto(mensajes, texto),
+                               pregunta=pregunta),
         "mensajes": [m for m in mensajes if m.get("role") != "system"],
     }

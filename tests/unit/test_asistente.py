@@ -620,3 +620,148 @@ def test_el_panel_entra_en_el_techo_del_proxy():
     prueba = inspect.getsource((__import__("asistente.panel", fromlist=["x"])).probar)
     assert "timeout_s=20" in prueba, (
         "la prueba del modelo tiene que entrar en el techo del cliente")
+
+
+# ── EL CONTROL DE NÚMEROS (2026-09-13) ─────────────────────────────────────
+#
+# En esta app un número puesto por el modelo es plata que no existe. El control
+# es código: cero tokens, milisegundos, y sin opinión.
+
+_CTX = """{"total":{"USD":611.83},
+"titulos":[{"ticker":"YFCOO","total":354.2},{"ticker":"AO28","total":89.86}],
+"por_mes":[{"mes":"2026-09","USD":431.23},{"mes":"2026-10","USD":180.6}],
+"pagos":[{"fecha":"2026-09-15","monto":354.2},{"fecha":"2026-09-30","monto":44.93}]}"""
+
+
+def test_un_numero_inventado_se_detecta():
+    from asistente import control
+
+    r = control.revisar("Cobrás USD 700 en total.", contexto=_CTX, pregunta="cuánto cobro")
+    assert not r["ok"]
+    assert "700" in r["hallazgos"][0]["detalle"]
+
+
+def test_la_coma_decimal_y_el_redondeo_NO_son_inventos():
+    """⚠️ **LA FALSA ALARMA ES EL MODO DE FALLA DE ESTE CONTROL.** Una alarma
+    que suena por nada se deja de mirar en una semana, y ahí deja de servir para
+    lo que vino a servir.
+
+    La herramienta devuelve `611.83` y el modelo escribe `USD 611,83`, o `612`,
+    o `unos 600`. Los tres son el mismo número.
+    """
+    from asistente import control
+
+    for texto in ("Cobrás USD 611,83.", "Cobrás unos USD 612.",
+                  "Cobrás alrededor de USD 600.", "Son 6 pagos de 4 títulos."):
+        r = control.revisar(texto, contexto=_CTX, pregunta="cuánto cobro en 60 días")
+        assert r["ok"], f"falsa alarma con: {texto} → {r['hallazgos']}"
+
+
+def test_los_numeros_de_la_pregunta_cuentan_como_fuente():
+    """«En los próximos 60 días» — el 60 lo puso el usuario. Marcarlo sería
+    acusar al modelo de inventar lo que le dijeron."""
+    from asistente import control
+
+    r = control.revisar("En los próximos 90 días cobrás USD 611.83.",
+                        contexto=_CTX, pregunta="cuánto cobro de acá a 90 días")
+    assert r["ok"], r["hallazgos"]
+
+
+def test_la_respuesta_NO_se_valida_contra_si_misma():
+    """⚠️⚠️ **EL BUG QUE HABRÍA DEJADO ESTO EN VERDE PARA SIEMPRE.**
+
+    El ciclo agrega la respuesta a `mensajes` antes de devolverla. Si el
+    contexto se armara con `mensajes` entero, cada número se buscaría a sí
+    mismo y el control no encontraría nada JAMÁS — sin fallar, sin avisar, y
+    con la tranquilidad de un tilde verde.
+
+    Se cazó corriéndolo con datos reales, no leyéndolo.
+    """
+    from asistente import ciclo, control
+
+    resp = "Cobrás USD 700."
+    msgs = [{"role": "user", "content": "cuánto cobro"},
+            {"role": "tool", "tool_call_id": "c1", "content": _CTX},
+            {"role": "assistant", "content": resp}]
+
+    assert resp not in ciclo._contexto(msgs, resp), "la respuesta tiene que quedar afuera"
+    assert not control.revisar(resp, contexto=ciclo._contexto(msgs, resp),
+                               pregunta="cuánto cobro")["ok"]
+    # Y la prueba de que el filtro es lo que lo hace funcionar: sin él, pasa.
+    assert control.revisar(resp, contexto=ciclo._contexto(msgs, None),
+                           pregunta="cuánto cobro")["ok"]
+
+
+def test_el_control_no_sabe_NADA_de_las_herramientas():
+    """Es lo que lo hace servir para las herramientas que todavía no existen.
+
+    Trabaja sobre tres textos —la respuesta, todo lo que se le mandó, y la
+    pregunta— y nada más. Una herramienta nueva queda cubierta sin escribir una
+    línea, igual que la ficha del modelo y el achicado del historial.
+    """
+    # Se miran los IMPORTS, no la prosa: el docstring habla de las herramientas
+    # justamente para explicar que no las conoce, y un test que busque la
+    # palabra suelta se dispara con su propia explicación.
+    import ast
+
+    arbol = ast.parse((RAIZ / "asistente" / "control.py").read_text(encoding="utf-8"))
+    importa = set()
+    for n in ast.walk(arbol):
+        if isinstance(n, ast.Import):
+            importa |= {a.name.split(".")[0] for a in n.names}
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            importa.add(n.module.split(".")[0])
+    assert importa <= {"re", "__future__"}, (
+        f"`control.py` importa {sorted(importa - {'re', '__future__'})}: se acopló "
+        "a algo del proyecto, así que dejó de servir para las herramientas que "
+        "todavía no existen y hay que tocarlo con cada una que se agregue")
+
+    # Y su firma son tres textos: nada de objetos del dominio.
+    import inspect
+
+    from asistente import control
+    for fn in control.CONTROLES:
+        assert list(inspect.signature(fn).parameters) == [
+            "respuesta", "contexto", "pregunta"], (
+            f"`{fn.__name__}` no respeta la firma del registro")
+
+
+def test_avisa_pero_no_bloquea():
+    """El veredicto viaja AL LADO de la respuesta, no en vez de ella.
+
+    Todavía no sabemos cuántas falsas alarmas da. Si bloqueara, la primera te
+    deja sin una respuesta que estaba bien — peor que el problema. Endurecerlo
+    pide un dato que hoy no existe.
+    """
+    cuerpo = (RAIZ / "asistente" / "ciclo.py").read_text(encoding="utf-8")
+    i = cuerpo.index("def _salida(")
+    cuerpo = cuerpo[i:]
+    assert '"control": CTL.revisar(' in cuerpo, "el veredicto tiene que ir en la salida"
+    assert '"respuesta": texto' in cuerpo, (
+        "la respuesta se devuelve igual: el control avisa, no reemplaza")
+    # Y un control que se rompe no puede tirar abajo una respuesta ya escrita.
+    ctl = (RAIZ / "asistente" / "control.py").read_text(encoding="utf-8")
+    assert "except Exception" in ctl.split("def revisar(")[1]
+
+
+def test_sumar_es_trabajo_de_la_HERRAMIENTA_no_del_modelo():
+    """⚠️ **ESTO LO ENCONTRÓ EL CONTROL EN SU PRIMERA CORRIDA**, con la respuesta
+    real de la cuenta 805: marcó `431.23` y `180.6`.
+
+    No eran inventos: el modelo había sumado los pagos de cada mes, y bien. Pero
+    el SYSTEM le dice «no sumes números por tu cuenta», y lo hizo igual sin que
+    nada lo notara. Con seis pagos acierta; con sesenta no hay motivo para
+    creerle, y el error no se vería.
+
+    La respuesta correcta a «el modelo está calculando» no es pedirle mejor que
+    no calcule: es darle el número hecho. Por eso `cobros_futuros` devuelve
+    `por_mes` agregado en SQL.
+    """
+    from asistente import herramientas as H
+
+    cuerpo = _cuerpo("cobros_futuros")
+    assert '"por_mes"' in cuerpo
+    assert "GROUP BY 1, t.moneda" in cuerpo, "el agregado lo hace Postgres"
+    doc = H.cobros_futuros.__doc__ or ""
+    assert "por_mes" in doc and "NO lo calcules" in doc, (
+        "el modelo tiene que saber que existe, o lo suma igual")

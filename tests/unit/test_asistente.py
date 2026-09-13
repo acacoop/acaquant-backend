@@ -984,3 +984,285 @@ def test_no_se_reporta_cuando_corrio_el_job():
     cuerpo = _cuerpo("cobros_futuros")
     assert '"tenencia_del"' in cuerpo
     assert "calculado_el" not in cuerpo and "generado_at" not in cuerpo.split('"""')[-1]
+
+
+# ── EL ESQUEMA: LA FORMA QUE TIENE QUE TENER LA RESPUESTA ───────────────────
+#
+# `asistente/esquema.py`. Cuando el proveedor lo soporta, la respuesta final
+# deja de ser texto libre y pasa a ser un JSON que el proveedor FUERZA.
+#
+# Lo que estos tests congelan no es el JSON: es la decisión de diseño que hace
+# que sirva —**el modelo no escribe datos, sólo dice qué mostrar**— y las tres
+# formas conocidas de perderla sin que nada falle.
+
+_ESQUEMA_SRC = (RAIZ / "asistente" / "esquema.py").read_text(encoding="utf-8")
+
+
+def _sin_docstrings(src: str) -> str:
+    """El código de un archivo SIN lo que está entre triples comillas. Mismo
+    motivo que `_codigo()`: los docstrings de `esquema.py` usan campos reales
+    como EJEMPLO, y un test que busque esos nombres se dispara con la
+    explicación de por qué no están en el código."""
+    return "".join(re.split(r'""".*?"""', src, flags=re.S))
+
+
+def _props(mostrables: list[str]) -> dict:
+    from asistente import esquema as ESQ
+    return ESQ.armar(mostrables)["json_schema"]["schema"]["properties"]
+
+
+def test_el_modelo_NO_escribe_los_datos():
+    """⚠️⚠️ **LA DECISIÓN QUE HACE QUE TODO ESTO SIRVA.**
+
+    Había dos formas de armar el esquema, y la que parece obvia —que el modelo
+    arme la tabla— es una trampa: re-tipea veinte números, se paga tokens de
+    salida por copiar lo que ya teníamos, y se crea un lugar NUEVO donde
+    inventar plata, justo después de poner un control para detectarla.
+
+    Este test es la pared: si mañana alguien agrega un campo al esquema que
+    lleve filas, montos o tickers, esto se pone rojo. Los tres campos no llevan
+    datos: prosa, NOMBRES de lo que hay que dibujar, y qué faltó.
+    """
+    props = _props(["cobros_futuros.por_mes"])
+    assert set(props) == {"respuesta", "mostrar", "falta"}, (
+        "un campo nuevo en el esquema es un lugar nuevo donde el modelo puede "
+        "escribir un número; los datos los dibuja la pantalla, no él")
+    items = props["mostrar"]["items"]
+    assert "properties" not in items and items.get("type") != "object", (
+        "`mostrar` son NOMBRES de campos, no filas")
+
+
+def test_el_esquema_es_una_PARED_y_no_un_pedido():
+    """La diferencia entre poner esto en el prompt y ponerlo en el esquema.
+
+    `strict` + `additionalProperties: false` + los tres campos requeridos es lo
+    que hace que el proveedor RECHACE una respuesta con otra forma. Sin
+    `strict` vuelve a ser una sugerencia, y una sugerencia se cumple casi
+    siempre — que es la peor frecuencia: la pantalla se rompe una de cada
+    treinta veces y nadie sabe por qué.
+    """
+    from asistente import esquema as ESQ
+
+    js = ESQ.armar(["cobros_futuros.por_mes"])["json_schema"]
+    assert js["strict"] is True
+    assert js["schema"]["additionalProperties"] is False
+    assert set(js["schema"]["required"]) == {"respuesta", "mostrar", "falta"}
+
+
+def test_el_enum_se_arma_de_lo_que_DE_VERDAD_volvio():
+    """⚠️ El nombre de un campo inexistente no se pide bien: se vuelve
+    IMPOSIBLE. El `enum` sale de los resultados de ESTE turno, así que el
+    proveedor no deja escribir un nombre que no esté ahí. No es que el modelo
+    se porta bien — es que no puede."""
+    from asistente import esquema as ESQ
+
+    resultados = {"cobros_futuros": {"por_mes": [{"mes": "2026-09"}],
+                                     "titulos": [{"ticker": "AL30"}]}}
+    mostrables = ESQ.campos_mostrables(resultados)
+    assert mostrables == ["cobros_futuros.por_mes", "cobros_futuros.titulos"]
+    assert _props(mostrables)["mostrar"]["items"]["enum"] == mostrables
+
+
+def test_el_nombre_va_COMPLETO_porque_dos_herramientas_repiten_campos():
+    """Un turno puede llamar a dos herramientas y las dos pueden devolver un
+    campo `filas`: uno es lo que cobrás y el otro lo que valen tus posiciones.
+    Con el nombre corto la pantalla dibujaría uno de los dos sin forma de saber
+    cuál quiso el modelo — y dibujar la tabla equivocada no falla: se ve bien."""
+    from asistente import esquema as ESQ
+
+    mostrables = ESQ.campos_mostrables({"cobros_futuros": {"filas": [{"a": 1}]},
+                                        "otra_cosa": {"filas": [{"a": 2}]}})
+    assert mostrables == ["cobros_futuros.filas", "otra_cosa.filas"]
+
+
+def test_lo_que_es_CONTEXTO_no_se_ofrece_para_dibujar():
+    """Una tabla es una lista de filas; todo lo demás se lee mejor en la prosa.
+    `ventana`, `cuenta`, `total`, la fecha de la foto y los contadores son
+    CONTEXTO: ofrecerlos como tabla llena la pantalla de cuadritos de un dato."""
+    from asistente import esquema as ESQ
+
+    assert ESQ.campos_mostrables({"cobros_futuros": {
+        "ventana": {"desde": "2026-09-13", "hasta": "2026-11-12"},
+        "cuenta": {"id_cuenta": "805", "nombre": "FULANO"},
+        "total": {"USD": 611.83},
+        "tenencia_del": "2026-09-10",
+        "cuantos_pagos": 12,
+        "truncado": False,
+        "pagos": [],
+    }}) == [], "sólo las listas NO vacías se pueden dibujar como tabla"
+
+
+def test_el_filtro_es_de_FORMA_y_NO_una_lista_de_nombres():
+    """⚠️ **LO QUE HACE QUE ESTO AGUANTE LA HERRAMIENTA NÚMERO 20.**
+
+    La forma fácil de filtrar `ventana`/`cuenta`/`total` era nombrarlos. Eso
+    acopla `esquema.py` a `cobros_futuros`: con la próxima herramienta habría
+    que venir a agregar los suyos, y el día que alguien se olvide no falla nada
+    —aparece un cuadrito de más y listo—. Filtrando por FORMA (¿es una lista no
+    vacía?) una herramienta nueva se filtra sola y nadie toca este archivo.
+    """
+    from asistente import herramientas as H
+
+    codigo = _sin_docstrings(_ESQUEMA_SRC)
+    for nombre in H.POR_NOMBRE:
+        assert nombre not in codigo, (
+            f"`esquema.py` nombra a {nombre!r}: volvió el filtro por nombre y "
+            "con él la lista paralela que hay que mantener al día")
+    for campo in ("por_mes", "titulos", "pagos", "ventana", "total"):
+        assert campo not in codigo, (
+            f"`esquema.py` nombra el campo {campo!r} de una herramienta")
+
+
+def test_sin_nada_para_mostrar_la_FORMA_no_cambia():
+    """Una pregunta que no usó herramientas igual tiene los tres campos. Con
+    `strict`, sacar `mostrar` cuando no hay nada cambiaría la forma según el
+    turno y la pantalla tendría que contemplar dos. Mejor un campo que siempre
+    está y a veces está vacío."""
+    props = _props([])
+    assert set(props) == {"respuesta", "mostrar", "falta"}
+    assert props["mostrar"]["maxItems"] == 0
+    assert "enum" not in props["mostrar"]["items"], (
+        "un enum vacío es un esquema inválido para el proveedor")
+
+
+def test_los_campos_mostrables_tienen_TECHO():
+    """Cada nombre son tokens que viajan en la llamada final. Con cinco
+    herramientas es nada; el techo está para que una que devuelva un
+    diccionario gigante no infle la llamada sin que nadie lo note."""
+    from asistente import esquema as ESQ
+
+    gigante = {"h": {f"campo_{i}": [{"x": 1}] for i in range(ESQ.MAX_MOSTRABLES * 2)}}
+    assert len(ESQ.campos_mostrables(gigante)) == ESQ.MAX_MOSTRABLES
+
+
+def test_la_PROSA_es_la_respuesta_cuando_el_proveedor_no_soporta_esquema():
+    """⚠️ DeepSeek no acepta `json_schema` (medido). `leer()` corre igual, y ahí
+    lo que llega es prosa: tratarla como un JSON roto sería tirar una respuesta
+    buena por una capacidad que ese proveedor no tiene."""
+    from asistente import esquema as ESQ
+
+    prosa = "Cobrás USD 611,83 en los próximos 60 días."
+    leido = ESQ.leer(prosa, [])
+    assert leido["respuesta"] == prosa
+    assert leido["mostrar"] == [] and leido["aviso"] is None
+
+
+def test_leer_NUNCA_levanta():
+    """El contrato del ciclo es no romperse por lo que conteste el modelo. Un
+    JSON cortado a la mitad, un `null`, una lista: ninguno puede dejar al
+    usuario sin respuesta ni tirar un 500."""
+    from asistente import esquema as ESQ
+
+    for crudo in (None, "", "   ", "{", "[]", "null", '"texto"', "{}",
+                  '{"respuesta": null}', '{"otra_cosa": 1}',
+                  '{"respuesta": "ok", "mostrar": "no soy una lista"}'):
+        leido = ESQ.leer(crudo, ["cobros_futuros.por_mes"])
+        assert set(leido) == {"respuesta", "mostrar", "falta", "aviso"}
+        assert isinstance(leido["mostrar"], list)
+
+
+def test_un_campo_que_no_existe_se_IGNORA_y_SE_AVISA():
+    """El cinturón del enum, para el día que el proveedor lo ignore o se cambie
+    de proveedor. Dos cosas: la respuesta NO se rompe (se descarta ese nombre),
+    y el aviso queda — porque un campo que el modelo quiso mostrar y no existe
+    te está diciendo QUÉ LE FALTA A LA HERRAMIENTA. Es lo mismo que pasó con
+    `por_mes`, que lo encontró el control de números."""
+    from asistente import esquema as ESQ
+
+    leido = ESQ.leer(
+        '{"respuesta": "Ahí va", "mostrar": ["cobros_futuros.por_mes", '
+        '"cobros_futuros.cupones"], "falta": null}',
+        ["cobros_futuros.por_mes"])
+    assert leido["respuesta"] == "Ahí va", "el aviso no puede tapar la respuesta"
+    assert leido["mostrar"] == ["cobros_futuros.por_mes"]
+    assert "cobros_futuros.cupones" in leido["aviso"]
+
+
+def test_el_esquema_se_arma_en_CADA_vuelta_con_lo_que_YA_volvio():
+    """⚠️ No se arma una vez al principio: los campos mostrables CRECEN a medida
+    que las herramientas contestan. Armado antes del bucle, el `enum` estaría
+    siempre vacío y el modelo nunca podría pedir una tabla."""
+    src = (RAIZ / "asistente" / "ciclo.py").read_text(encoding="utf-8")
+    bucle = src.split("for vuelta in range(", 1)[1]
+    assert "campos_mostrables(resultados)" in bucle.split("return _salida", 1)[0]
+    assert "resultados[" in bucle, (
+        "el ciclo tiene que ir guardando lo que devolvió cada herramienta: de "
+        "ahí sale el enum")
+
+
+def test_a_un_proveedor_SIN_esquema_se_le_manda_SIN_esquema():
+    """⚠️ **UNA CAPACIDAD DE MENOS, NO UN CAMINO CORTADO.** DeepSeek contesta
+    HTTP 400 a `json_schema`. Si el esquema viajara igual, elegirlo desde la
+    pantalla dejaría al asistente contestando «el proveedor no contestó» en
+    CADA pregunta, con el motivo enterrado en un error de formato."""
+    from unittest.mock import patch
+
+    from core import ai, llm
+
+    visto: dict = {}
+
+    def fake_chat(mensajes, **kw):
+        visto.clear()
+        visto.update(kw)
+        return llm.RespuestaLLM(ok=True, texto="hola")
+
+    formato = {"type": "json_schema", "json_schema": {"name": "x"}}
+    with patch.object(llm, "chat", fake_chat), \
+         patch.object(llm, "configurado", return_value=True), \
+         patch.object(ai, "_ruteo_seguro", return_value=True), \
+         patch.object(ai, "_trazar", return_value=1):
+        with patch.object(llm, "soporta_esquema", return_value=True):
+            ai.conversar("asistente", mensajes=[], formato=formato)
+            assert visto.get("formato") == formato
+        with patch.object(llm, "soporta_esquema", return_value=False):
+            ai.conversar("asistente", mensajes=[], formato=formato)
+            assert visto.get("formato") is None, (
+                "el esquema viajó a un proveedor que lo rechaza: la pregunta "
+                "vuelve como error de formato en vez de como respuesta")
+
+
+def test_CON_ESQUEMA_la_respuesta_sigue_sin_validarse_contra_si_misma():
+    """⚠️⚠️ **EL MISMO BUG, POR LA PUERTA DE ATRÁS.**
+
+    Al historial va el JSON del modelo TAL CUAL —es lo que el proveedor espera
+    recibir de vuelta—, así que con structured output la prosa viaja ADENTRO de
+    ese JSON. Si el ciclo excluyera del contexto el texto PARSEADO, ese string
+    no coincidiría con ningún mensaje: el JSON quedaría en el contexto, cada
+    número se validaría contra sí mismo y el control volvería a pasar en verde
+    para siempre. Por eso `_salida` excluye el CRUDO.
+
+    Se encontró releyendo el diff, no corriéndolo: el síntoma es que todo anda.
+    """
+    import json as _json
+
+    from asistente import ciclo, control
+
+    resp = "Cobrás USD 700."
+    crudo = _json.dumps({"respuesta": resp, "mostrar": [], "falta": None},
+                        ensure_ascii=False)
+    msgs = [{"role": "user", "content": "cuánto cobro"},
+            {"role": "tool", "tool_call_id": "c1", "content": _CTX},
+            {"role": "assistant", "content": crudo}]
+
+    # Lo que hace el ciclo: excluye el crudo, revisa el texto parseado.
+    ctx = ciclo._contexto(msgs, crudo)
+    assert "700" not in ctx, "el JSON con la respuesta adentro quedó en el contexto"
+    assert not control.revisar(resp, contexto=ctx, pregunta="cuánto cobro")["ok"]
+    # Y la prueba de que excluir el PARSEADO no alcanza: el invento pasa.
+    assert control.revisar(resp, contexto=ciclo._contexto(msgs, resp),
+                           pregunta="cuánto cobro")["ok"], (
+        "si esto falla, el crudo ya no contiene la respuesta y el test perdió "
+        "sentido — revisar qué se escribe en `mensajes`")
+
+
+def test_el_ciclo_le_pasa_al_control_lo_que_de_verdad_escribio_en_el_HISTORIAL():
+    """El contrato de arriba, pero sobre el ciclo entero y no sobre `_contexto`:
+    `_salida` tiene que recibir el crudo del modelo. Sin ese argumento la
+    función sigue andando —el default es el texto— y el control se apaga solo."""
+    from asistente import ciclo
+
+    fuente = (RAIZ / "asistente" / "ciclo.py").read_text(encoding="utf-8")
+    assert "crudo=r.texto" in fuente, (
+        "el camino feliz dejó de pasarle el crudo a `_salida`: el control "
+        "vuelve a validar cada número contra sí mismo")
+    assert "crudo" in ciclo._salida.__code__.co_varnames

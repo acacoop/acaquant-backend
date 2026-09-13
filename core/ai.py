@@ -413,6 +413,7 @@ def conversar(
     herramientas: list[dict] | None = None,
     usuario: str | None = None,
     detalle: str | None = None,
+    formato: dict | None = None,
 ) -> tuple[llm.RespuestaLLM | None, int | None]:
     """UNA vuelta de conversación con el modelo. Devuelve (respuesta, id de traza).
 
@@ -434,7 +435,7 @@ def conversar(
     """
     try:
         return _conversar(tarea, mensajes=mensajes, herramientas=herramientas,
-                          usuario=usuario, detalle=detalle)
+                          usuario=usuario, detalle=detalle, formato=formato)
     except Exception as e:
         # Cinturón: el contrato es no propagar JAMÁS una excepción.
         logger.warning("core.ai: fallo inesperado en %s: %s: %s", tarea, type(e).__name__, e)
@@ -448,16 +449,25 @@ def _conversar(
     herramientas: list[dict] | None,
     usuario: str | None,
     detalle: str | None,
+    formato: dict | None = None,
 ) -> tuple[llm.RespuestaLLM | None, int | None]:
     cfg = _config(tarea)
     # Sin clave o con ruteo inseguro no se traza: sería ruido, no un gasto.
     if not llm.configurado(_proveedor(cfg)) or not _ruteo_seguro(cfg):
         return None, None
     modelo = _modelo(cfg)
+    # ⚠️ **UN PROVEEDOR QUE NO SOPORTA ESQUEMA NO SE ROMPE: SE LE MANDA SIN.**
+    # DeepSeek rechaza `json_schema` con un 400 (medido). Si el esquema viajara
+    # igual, elegirlo desde la pantalla dejaría al asistente contestando «el
+    # proveedor no contestó» en cada pregunta, y el motivo estaría enterrado en
+    # un error de formato. Así, pierde las tablas y sigue contestando prosa.
+    if formato and not llm.soporta_esquema(_proveedor(cfg)):
+        formato = None
 
     r = llm.chat(mensajes, modelo=modelo, max_tokens=cfg["max_tokens"],
                  timeout_s=cfg["timeout_s"], thinking=cfg.get("thinking", "disabled"),
-                 reintentos=1, proveedor=_proveedor(cfg), herramientas=herramientas)
+                 reintentos=1, proveedor=_proveedor(cfg), herramientas=herramientas,
+                 formato=formato)
 
     if not r.ok:
         logger.warning("core.ai %s → %s", tarea, r.error)

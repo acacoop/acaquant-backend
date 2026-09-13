@@ -2345,6 +2345,41 @@ nadie lo miraba.
 > que el modelo sumaba los totales por mes a mano — y la respuesta no fue
 > aflojar el control, fue darle `por_mes` agregado en SQL.
 >
+> **LA FORMA DE LA RESPUESTA** (`asistente/esquema.py`, *structured output*):
+> cuando el proveedor lo soporta, la respuesta final deja de ser texto libre y
+> pasa a ser un JSON de tres campos que **el proveedor FUERZA** — no es un pedido
+> del prompt. Los campos son `respuesta` (la prosa), `mostrar` y `falta`, y
+> **ninguno lleva datos**:
+>
+> ⚠️⚠️ **EL MODELO NO ESCRIBE LA TABLA: DICE CUÁL DIBUJAR.** `mostrar` son
+> NOMBRES (`cobros_futuros.por_mes`) y las filas las dibuja la pantalla leyendo
+> el mismo resultado que ya viaja en `eventos`. La alternativa —que el modelo
+> arme la tabla— hacía pagar tokens de salida por re-tipear lo que ya teníamos y
+> creaba un lugar NUEVO donde inventar plata, justo después de poner un control
+> para detectarla.
+>
+> · **El `enum` se arma de los resultados de ESE turno**, así que nombrar un
+>   campo que no existe no es un error que el modelo pueda cometer: el proveedor
+>   no lo deja escribirlo. Una herramienta nueva aporta sus campos sola — no hay
+>   lista paralela, igual que con la ficha.
+> · **El filtro es de FORMA, no de nombre**: sólo las listas no vacías se
+>   ofrecen. `ventana`, `cuenta` y `total` quedan afuera solos por ser contexto,
+>   sin que `esquema.py` sepa que existe `cobros_futuros` (un test lo congela).
+> · **El nombre va completo** (`herramienta.campo`): dos herramientas de un turno
+>   pueden devolver las dos un campo `filas`, y dibujar la tabla equivocada no
+>   falla — se ve bien.
+> · **`falta`** es qué NO pudo contestar. Sin ese renglón, una pregunta de dos
+>   partes contestada a medias se lee como contestada entera.
+>
+> ⚠️ **Y un proveedor que no lo soporta NO se rompe.** `soporta_esquema` vive en
+> la ficha del proveedor (`core/llm.py`) al lado de `no_entrena`, MEDIDO con
+> `scripts/diag_structured_output.py`: DeepSeek contesta `HTTP 400 — This
+> response_format type is unavailable now`; OpenAI lo acepta **y sigue pidiendo
+> herramientas** cuando le falta el dato (por eso el esquema puede viajar en
+> todas las vueltas). Al que no lo soporta, `core/ai.py` le manda la pregunta sin
+> esquema y contesta prosa: la pantalla dibuja el párrafo de siempre. Una
+> capacidad de menos, no un camino cortado.
+>
 > ⚠️⚠️ **LA ELECCIÓN SE GUARDA POR TAREA** (`tarea:<tarea>` → `proveedor/modelo`
 > en `ia.config`), y las dos partes de esa frase salieron de equivocarse:
 >

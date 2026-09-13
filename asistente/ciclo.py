@@ -32,6 +32,7 @@ import json
 import logging
 
 from asistente import control as CTL
+from asistente import esquema as ESQ
 from asistente import herramientas as H
 from core import ai
 
@@ -290,15 +291,27 @@ def preguntar(
         _ver("achicado", chars=ahorro)
     tokens_in = tokens_out = 0
     llamadas: list[int] = []
+    # Lo que devolvió cada herramienta en ESTE turno. De acá salen los campos
+    # que el modelo puede pedir que se muestren — y por eso el `enum` no puede
+    # contener un campo que no exista: se arma de lo que de verdad volvió.
+    resultados: dict[str, object] = {}
 
     for vuelta in range(1, MAX_VUELTAS + 1):
         _ver("vuelta", n=vuelta)
+        # ⚠️ El esquema se arma DE NUEVO en cada vuelta, porque los campos
+        # mostrables crecen a medida que las herramientas van contestando. Y se
+        # manda siempre: el proveedor entiende que un pedido de herramienta no
+        # es «la respuesta final» y no le exige la forma (medido en
+        # `scripts/diag_structured_output.py`). Si el proveedor no soporta
+        # esquema, `ai.conversar` lo descarta y la respuesta llega como prosa.
+        mostrables = ESQ.campos_mostrables(resultados)
 
         # ── PASO 1: se manda la conversación entera + las herramientas ──
         # Entera, sí: el modelo no recuerda nada de la vuelta anterior. Cada
         # llamada le reenvía todo desde el principio.
         r, llamada_id = ai.conversar(TAREA, mensajes=mensajes, herramientas=H.FICHAS,
-                                   usuario=usuario, detalle=pregunta)
+                                   usuario=usuario, detalle=pregunta,
+                                   formato=ESQ.armar(mostrables))
         if llamada_id:
             llamadas.append(llamada_id)
 
@@ -317,10 +330,18 @@ def preguntar(
 
         # ── PASO 2: ¿terminó, o quiere una herramienta? ──
         if not r.pedidos:
-            _ver("texto", texto=r.texto)
+            # ⚠️ El crudo va al historial TAL CUAL (JSON incluido): es lo que el
+            # proveedor espera recibir de vuelta. Lo que se parsea es lo que va
+            # a la pantalla, no lo que vuelve a la conversación.
             mensajes.append({"role": "assistant", "content": r.texto or ""})
-            return _salida(r.texto, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           pregunta=pregunta)
+            leido = ESQ.leer(r.texto, mostrables)
+            _ver("texto", texto=leido["respuesta"], mostrar=leido["mostrar"])
+            # ⚠️ `crudo` es lo que se escribió en `mensajes`, que CON ESQUEMA no
+            # es lo mismo que la respuesta: es el JSON que la contiene. Ver
+            # `_salida`.
+            return _salida(leido["respuesta"], mensajes, vuelta, tokens_in,
+                           tokens_out, llamadas, pregunta=pregunta, extra=leido,
+                           crudo=r.texto or "")
 
         # ── PASO 3: pidió. Se le devuelve su propio mensaje TAL CUAL y, abajo,
         # un resultado por cada herramienta que pidió. El crudo va sin tocar:
@@ -329,6 +350,7 @@ def preguntar(
         for p in r.pedidos:
             _ver("pide", herramienta=p.get("nombre"), argumentos=p.get("argumentos"))
             resultado = _ejecutar(p)
+            resultados[str(p.get("nombre"))] = resultado
             _ver("resultado", herramienta=p.get("nombre"), resultado=resultado)
             mensajes.append({
                 "role": "tool",
@@ -371,9 +393,23 @@ def _contexto(mensajes: list[dict], excluir: str | None) -> str:
 
 
 def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=None,
-            pregunta: str = "") -> dict:
+            pregunta: str = "", extra: dict | None = None,
+            crudo: str | None = None) -> dict:
     """Lo que devuelve una pregunta. `mensajes` (sin el system, que se agrega
-    solo) es lo que hay que pasar como `historial` en la pregunta siguiente."""
+    solo) es lo que hay que pasar como `historial` en la pregunta siguiente.
+
+    ⚠️⚠️ **`crudo` ES LO QUE SE ESCRIBIÓ EN `mensajes`, Y CON ESQUEMA NO ES LA
+    RESPUESTA.** Al historial va el JSON tal cual —es lo que el proveedor espera
+    recibir de vuelta—, así que la prosa viaja ADENTRO de ese JSON. El control
+    excluye del contexto la respuesta que está revisando; si se le pasara el
+    texto parseado, no encontraría ese string en ningún mensaje, **el JSON
+    quedaría en el contexto y cada número se validaría contra sí mismo**: el
+    control pasaría en verde para siempre, que es la peor forma de no funcionar.
+    Es exactamente el bug que se arregló al nacer el control, y el structured
+    output lo revivía por la puerta de atrás.
+
+    Sin esquema los dos son el mismo string y `crudo` no cambia nada.
+    """
     return {
         "respuesta": texto,
         "error": error,
@@ -383,7 +419,15 @@ def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=Non
         "llamadas": llamadas,
         # ⚠️ El veredicto viaja AL LADO de la respuesta, no en vez de ella: el
         # control avisa, no bloquea (`asistente/control.py`).
-        "control": CTL.revisar(texto, contexto=_contexto(mensajes, texto),
-                               pregunta=pregunta),
+        "control": CTL.revisar(
+            texto, contexto=_contexto(mensajes, crudo if crudo is not None else texto),
+            pregunta=pregunta),
         "mensajes": [m for m in mensajes if m.get("role") != "system"],
+        # Lo que sale del esquema, cuando el proveedor lo soporta. Con prosa
+        # llegan vacíos y la pantalla dibuja el párrafo de siempre.
+        "mostrar": (extra or {}).get("mostrar") or [],
+        "falta": (extra or {}).get("falta"),
+        # El cinturón del enum: un campo que el modelo pidió y no existe. No
+        # rompe la respuesta, y dice QUÉ LE FALTA A LA HERRAMIENTA.
+        "aviso_esquema": (extra or {}).get("aviso"),
     }

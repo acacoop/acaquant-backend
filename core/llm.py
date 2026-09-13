@@ -72,6 +72,16 @@ _PROVEEDORES: dict[str, dict] = {
         "dialecto": "deepseek",
         # ¿se compromete por contrato a NO entrenar con lo que le mandamos?
         "no_entrena": False,
+        # ⚠️ ¿acepta `response_format: json_schema` — o sea, un esquema que la
+        # respuesta tiene que CUMPLIR? MEDIDO, no supuesto
+        # (`scripts/diag_structured_output.py`, 2026-09-13): DeepSeek contesta
+        # `HTTP 400 — This response_format type is unavailable now`. Sí acepta
+        # `json_object`, que garantiza JSON válido pero NO la forma: eso es
+        # volver a pedir en el prompt y validar nosotros, que es otra cosa.
+        #
+        # No es un juicio sobre el proveedor: es una FOTO. El día que lo
+        # soporte, se cambia esta palabra y nada más.
+        "soporta_esquema": False,
     },
     "openai": {
         "key_env": "OPENAI_API_KEY",
@@ -83,6 +93,11 @@ _PROVEEDORES: dict[str, dict] = {
         "max_tokens_param": "max_completion_tokens",
         "dialecto": "openai",
         "no_entrena": True,
+        # Medido el mismo día: acepta el esquema Y sigue pidiendo herramientas
+        # cuando le falta el dato. O sea que el esquema puede ir en todas las
+        # vueltas: el proveedor entiende que un pedido de herramienta no es «la
+        # respuesta final» y no le exige la forma.
+        "soporta_esquema": True,
     },
 }
 
@@ -101,6 +116,22 @@ def configurado(proveedor: str | None = None) -> bool:
     entorno por fuera: cuál es se cambia en este archivo."""
     try:
         return bool(os.getenv(_cfg_proveedor(proveedor)["key_env"]))
+    except ValueError:
+        return False
+
+
+def soporta_esquema(proveedor: str | None = None) -> bool:
+    """¿Le puedo exigir una forma a la respuesta (structured output)?
+
+    Es un HECHO del proveedor, medido, no una opinión — y por eso vive en su
+    ficha al lado de `no_entrena`. El código pregunta; nadie adivina.
+
+    Quien no lo soporta NO se rompe: se le manda la pregunta sin esquema y
+    contesta texto libre, como toda la vida. La pantalla dibuja prosa en vez de
+    tablas. Es una capacidad de menos, no un camino cortado.
+    """
+    try:
+        return bool(_cfg_proveedor(proveedor).get("soporta_esquema"))
     except ValueError:
         return False
 

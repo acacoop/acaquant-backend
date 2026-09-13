@@ -35,11 +35,23 @@ logger = logging.getLogger(__name__)
 # guardaría en un lugar que el gateway no mira: no falla nada, simplemente no
 # tiene efecto.
 CLAVE_TAREA = ai.CLAVE_TAREA
-# Y el precio, para poder mostrar plata. Va en la misma tabla y no en el código
-# porque las tarifas cambian: un precio hardcodeado no falla, miente.
-# Se guarda en USD por MILLÓN de tokens.
-CLAVE_PRECIO_IN = "precio_in:{modelo}"
-CLAVE_PRECIO_OUT = "precio_out:{modelo}"
+# ── LA TARIFA DE UN MODELO ─────────────────────────────────────────────────
+#
+# Va en la misma tabla y no en el código porque las tarifas cambian: un precio
+# hardcodeado no falla, miente — y encima se usa para decidir.
+#
+# ⚠️⚠️ **SON TRES PRECIOS, NO DOS, Y EL TERCERO ES EL QUE MÁS PESA.** La entrada
+# que pega en el CACHÉ del proveedor cuesta una fracción: en gpt-5.6-luna,
+# US$0,02 contra US$0,20 — diez veces menos. Cobrar todo a precio de entrada
+# infla la factura justo en la parte que venimos optimizando, y hace que el hit
+# rate del caché no se vea en el número que mira una persona.
+#
+# ⚠️ **Y LOS TRES VAN EN UN SOLO VALOR** (`entrada/cache/salida`), por lo mismo
+# que el proveedor y el modelo: una tarifa a medias —entrada cargada, caché no—
+# calcularía un costo equivocado sin fallar. Junta, no se puede cargar a medias.
+#
+# En USD por MILLÓN de tokens.
+CLAVE_PRECIO = "precio:{modelo}"
 
 # Qué le preguntamos a un modelo para saber si sabe usar herramientas. Es una
 # herramienta de mentira y una pregunta que obliga a usarla.
@@ -59,12 +71,35 @@ _PRUEBA_MENSAJES = [
 
 # ── QUÉ GASTAMOS ────────────────────────────────────────────────────────────
 
-def _precio(ajustes: dict, modelo: str, salida: bool) -> float | None:
-    clave = (CLAVE_PRECIO_OUT if salida else CLAVE_PRECIO_IN).format(modelo=modelo)
-    try:
-        return float(ajustes[clave])
-    except (KeyError, TypeError, ValueError):
+def _tarifa(ajustes: dict, modelo: str) -> tuple[float, float, float] | None:
+    """`(entrada, entrada_cacheada, salida)` en USD por millón, o None si este
+    modelo no tiene tarifa cargada. None NO es cero: es «no sé»."""
+    crudo = ajustes.get(CLAVE_PRECIO.format(modelo=modelo))
+    if not crudo:
         return None
+    try:
+        e, c, sa = (float(x) for x in str(crudo).split("/"))
+    except (ValueError, TypeError):
+        logger.warning("panel: tarifa ilegible para %r: %r", modelo, crudo)
+        return None
+    return e, c, sa
+
+
+def costo(tarifa, *, cache_hit: int, cache_miss: int, tokens_in: int,
+          tokens_out: int) -> float:
+    """Lo que costó, con la tarifa que corresponde a cada pedazo.
+
+    ⚠️ **SI NO SE SABE CUÁNTO PEGÓ EN CACHÉ, SE COBRA TODO A PRECIO LLENO.**
+    `cache_hit` y `cache_miss` vienen en cero cuando el proveedor no los informó
+    — y cero hit no es lo mismo que «no hubo entrada». Sin esta rama, una
+    llamada sin telemetría de caché costaría cero pesos de entrada: el número
+    quedaría más lindo y más falso.
+    """
+    p_in, p_cache, p_out = tarifa
+    mirado = cache_hit + cache_miss
+    entrada = (cache_hit / 1e6 * p_cache + cache_miss / 1e6 * p_in) if mirado \
+        else tokens_in / 1e6 * p_in
+    return round(entrada + tokens_out / 1e6 * p_out, 6)
 
 
 def gasto(dias: int = 30) -> dict:
@@ -101,14 +136,16 @@ def gasto(dias: int = 30) -> dict:
     except Exception as e:
         return {"error": f"no pude leer el libro de llamadas: {type(e).__name__}: {e}"}
 
-    por_tarea, sin_precio = [], set()
+    por_tarea, sin_precio, vistos = [], set(), set()
     tot = {"llamadas": 0, "tokens_in": 0, "tokens_out": 0,
            "cache_hit": 0, "cache_miss": 0, "usd": 0.0}
     for tarea, modelo, n, fallidas, t_in, t_out, c_hit, c_miss, ultima in filas:
-        p_in, p_out = _precio(aj, modelo, False), _precio(aj, modelo, True)
+        vistos.add(modelo)
+        tarifa = _tarifa(aj, modelo)
         usd = None
-        if p_in is not None and p_out is not None:
-            usd = round(t_in / 1e6 * p_in + t_out / 1e6 * p_out, 4)
+        if tarifa:
+            usd = costo(tarifa, cache_hit=int(c_hit), cache_miss=int(c_miss),
+                        tokens_in=int(t_in), tokens_out=int(t_out))
             tot["usd"] += usd
         else:
             sin_precio.add(modelo)
@@ -137,6 +174,16 @@ def gasto(dias: int = 30) -> dict:
         # Los modelos a los que les falta la tarifa. Sin esto, "usd: null" se
         # lee como "no gastó".
         "sin_precio": sorted(sin_precio),
+        # Las tarifas cargadas, para que la pantalla pueda editarlas sin tener
+        # que adivinar cuáles hay. Se listan TODOS los modelos que aparecieron
+        # en el libro, con o sin tarifa: uno sin cargar es justamente el que hay
+        # que cargar.
+        "tarifas": [{
+            "modelo": m,
+            "entrada": t[0] if t else None,
+            "cache": t[1] if t else None,
+            "salida": t[2] if t else None,
+        } for m, t in sorted((m, _tarifa(aj, m)) for m in vistos)],
     }
 
 
@@ -287,30 +334,46 @@ def volver_al_default(tarea: str, *, por: str) -> dict:
     return {"ok": True, "tarea": tarea, **ai.ficha_de(tarea)}
 
 
-def poner_precio(modelo: str, *, entrada: float, salida: float, por: str) -> dict:
-    """La tarifa de un modelo, en USD por MILLÓN de tokens. Va en `ia.config` y
-    no en el código porque las tarifas cambian — y un precio viejo hardcodeado
-    no falla: miente, y encima se usa para decidir."""
+def poner_precio(modelo: str, *, entrada: float, cache: float, salida: float,
+                 por: str) -> dict:
+    """La tarifa de un modelo, en USD por MILLÓN de tokens. Los TRES juntos.
+
+    ⚠️ **NO SE PUEDE CARGAR A MEDIAS.** Van en un solo valor porque una tarifa
+    con la entrada cargada y el caché en blanco calcularía un costo equivocado
+    sin fallar — y encima al revés de lo que uno espera: sobrecobraría justo la
+    parte más barata.
+
+    Lo que esto NO modela, y hay que saberlo antes de creerle al número:
+      · Las **escrituras de caché** cuestan un poco más que la entrada normal, y
+        `ia.llamadas` no distingue una entrada que se cacheó de una que no. El
+        total es un piso, corto en esa diferencia.
+      · El **contexto largo** cuesta el doble en OpenAI a partir de cierto
+        tamaño, y no guardamos el tamaño de contexto de cada llamada.
+      · DeepSeek cobra distinto en **horario pico**; acá hay un solo precio.
+        Cargá el que de verdad pagás.
+    """
     modelo = str(modelo or "").strip()
     if not modelo:
         return {"ok": False, "error": "falta el nombre del modelo"}
     try:
-        pares = [(CLAVE_PRECIO_IN.format(modelo=modelo), str(float(entrada))),
-                 (CLAVE_PRECIO_OUT.format(modelo=modelo), str(float(salida)))]
+        valores = [float(entrada), float(cache), float(salida)]
     except (TypeError, ValueError):
         return {"ok": False, "error": "los precios tienen que ser números"}
+    if any(v < 0 for v in valores):
+        return {"ok": False, "error": "un precio no puede ser negativo"}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
-            for clave, valor in pares:
-                cur.execute(
-                    "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
-                    "  updated_at = now(), updated_by = EXCLUDED.updated_by",
-                    (clave, valor, por))
+            cur.execute(
+                "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s) "
+                "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
+                "  updated_at = now(), updated_by = EXCLUDED.updated_by",
+                (CLAVE_PRECIO.format(modelo=modelo),
+                 "/".join(str(v) for v in valores), por))
     except Exception as e:
         return {"ok": False, "error": f"no pude guardar: {type(e).__name__}: {e}"}
     ai.olvidar_ajustes()
-    return {"ok": True, "modelo": modelo, "entrada": entrada, "salida": salida}
+    return {"ok": True, "modelo": modelo, "entrada": valores[0],
+            "cache": valores[1], "salida": valores[2]}
 
 
 def vista(dias: int = 30) -> dict:

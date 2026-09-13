@@ -327,16 +327,25 @@ def lab_modelo(body: ElegirModelo, email: str = Depends(get_user_email)):
 
 class PonerPrecio(BaseModel):
     modelo: str = Field(..., min_length=1, max_length=120)
-    # USD por MILLÓN de tokens.
+    # USD por MILLÓN de tokens. Los TRES juntos: una tarifa a medias calcula un
+    # costo equivocado sin fallar.
     entrada: float = Field(..., ge=0, le=10_000)
+    cache: float = Field(..., ge=0, le=10_000)
     salida: float = Field(..., ge=0, le=10_000)
 
 
 @router.post("/lab/precio")
 def lab_precio(body: PonerPrecio, email: str = Depends(get_user_email)):
-    """La tarifa de un modelo, para poder ver plata y no sólo tokens. Va en
-    `ia.config` y no en el código: una tarifa vieja hardcodeada no falla, miente
-    — y encima se usa para decidir."""
+    """La tarifa de un modelo, para poder ver plata y no sólo tokens.
+
+    Son TRES precios y el del caché es el que más cambia el número: la entrada
+    que pega en el caché del proveedor cuesta una fracción (en gpt-5.6-luna,
+    diez veces menos). Cobrar todo a precio de entrada infla la factura justo en
+    la parte que venimos optimizando.
+
+    Van en `ia.config` y no en el código: una tarifa vieja hardcodeada no falla,
+    miente — y encima se usa para decidir.
+    """
     from asistente import panel
-    return panel.poner_precio(body.modelo, entrada=body.entrada,
+    return panel.poner_precio(body.modelo, entrada=body.entrada, cache=body.cache,
                               salida=body.salida, por=email)

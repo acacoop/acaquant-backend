@@ -2330,9 +2330,9 @@ nadie lo miraba.
 > | Endpoint | Qué hace |
 > |---|---|
 > | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
-> | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas`, el **hit rate del caché**, y qué modelo cumple cada rol en cada proveedor (lista pedida al proveedor en vivo) |
+> | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas` (con el costo calculado por pedazo: lo cacheado a precio de caché), el **hit rate**, las tarifas cargadas, y con qué proveedor/modelo corre cada TAREA |
 > | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
-> | `POST /api/agente/lab/precio` | la tarifa de un modelo (USD por millón de tokens), para ver plata y no sólo tokens |
+> | `POST /api/agente/lab/precio` | la tarifa de un modelo: **TRES precios** (entrada · entrada cacheada · salida) en USD por millón, y van en un solo valor. El del caché es el que más cambia el total — esa entrada cuesta una fracción (en `gpt-5.6-luna`, 10× menos), así que cobrar todo a precio de entrada infla la factura justo en la parte que el diseño viene optimizando |
 >
 > **El control determinístico** (`asistente/control.py`): antes de devolver la
 > respuesta, el código saca sus números y los busca en todo lo que se le dio al

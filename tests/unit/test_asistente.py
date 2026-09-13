@@ -651,6 +651,64 @@ def test_la_plata_no_se_estima_cuando_falta_el_precio():
         "hay una tarifa hardcodeada: las tarifas cambian y esto no avisa")
 
 
+def test_lo_que_pega_en_CACHE_se_cobra_a_precio_de_cache():
+    """⚠️⚠️ **EL ERROR QUE ESTO CORRIGE, CON LOS NÚMEROS DEL PROVEEDOR.** En
+    `gpt-5.6-luna` la entrada cuesta US$0,20 por millón y la entrada CACHEADA
+    US$0,02: diez veces menos.
+
+    Cobrando todo a precio de entrada, la factura se infla justo en la parte que
+    veníamos optimizando — y el hit rate del caché, que es la palanca más barata
+    que tenemos, no se vería en el único número que mira una persona.
+
+    Los tres pedazos ya estaban guardados por llamada en `ia.llamadas`. Sólo
+    faltaba usarlos.
+    """
+    from asistente import panel
+
+    luna = (0.20, 0.02, 1.20)
+    sin_cache = panel.costo(luna, cache_hit=0, cache_miss=2100,
+                            tokens_in=2100, tokens_out=60)
+    con_cache = panel.costo(luna, cache_hit=1800, cache_miss=300,
+                            tokens_in=2100, tokens_out=60)
+    assert con_cache < sin_cache, "el caché tiene que salir más barato"
+    assert con_cache * 2 < sin_cache, (
+        "la diferencia tiene que notarse: si no, el número no sirve para decidir")
+
+
+def test_sin_telemetria_de_cache_se_cobra_TODO_a_precio_lleno():
+    """`cache_hit` y `cache_miss` vienen en cero cuando el proveedor no los
+    informó. Cero hit NO es «no hubo entrada»: sin esta rama, una llamada sin
+    telemetría de caché costaría cero pesos de entrada — el número quedaría más
+    lindo y más falso.
+
+    Es la misma regla que el resto: el silencio no es un dato.
+    """
+    from asistente import panel
+
+    luna = (0.20, 0.02, 1.20)
+    mudo = panel.costo(luna, cache_hit=0, cache_miss=0,
+                       tokens_in=2100, tokens_out=60)
+    lleno = panel.costo(luna, cache_hit=0, cache_miss=2100,
+                        tokens_in=2100, tokens_out=60)
+    assert mudo == lleno > 0
+
+
+def test_una_tarifa_no_se_puede_cargar_a_MEDIAS():
+    """Entrada cargada y caché en blanco calcularía un costo equivocado sin
+    fallar, y encima al revés de lo que uno espera: sobrecobraría la parte más
+    barata. Por eso los tres van en UN valor — igual que `proveedor/modelo`."""
+    from asistente import panel
+
+    assert panel.CLAVE_PRECIO == "precio:{modelo}"
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    i = cuerpo.index("def poner_precio(")
+    cuerpo = cuerpo[i:cuerpo.index("\ndef ", i + 10)] if "\ndef " in cuerpo[i:] else cuerpo[i:]
+    assert '"/".join(' in cuerpo, "los tres precios van en un solo valor"
+    # Y una tarifa ilegible se ignora entera: media tarifa es peor que ninguna.
+    assert panel._tarifa({"precio:x": "0.2/0.02"}, "x") is None
+    assert panel._tarifa({"precio:x": "0.2/0.02/1.2"}, "x") == (0.2, 0.02, 1.2)
+
+
 def test_el_panel_no_replica_la_precedencia_del_gateway():
     """Con qué modelo corre una tarea lo decide `core/ai.py` (elección > env >
     default). El panel lo PREGUNTA, no lo recalcula: dos versiones de la misma

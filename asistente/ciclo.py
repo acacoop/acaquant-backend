@@ -96,6 +96,39 @@ PLANTILLA_ACHICADO = (
 )
 
 
+def _instruccion() -> str:
+    """El SYSTEM completo: el bloque fijo de arriba MÁS las cuentas habilitadas.
+
+    ── SU ROL EN EL CICLO: le evita al modelo una vuelta entera ──
+
+    Sin esto, el modelo tenía que llamar una herramienta sólo para traducir «la
+    805» a un `id_cuenta` válido, y de paso preguntaba. Con la lista delante no
+    llama nada y no pregunta: contesta.
+
+    ⚠️ **LO VARIABLE VA AL FINAL, Y ESE ES TODO EL PUNTO.** El proveedor cachea
+    el PREFIJO del prompt; cualquier cosa que cambie rompe el caché de todo lo
+    que viene después. Las cuentas cambian (se editan en el `.env`), el bloque
+    de arriba no. Poniéndolas al final, el día que cambien se pierde el caché de
+    tres renglones en vez del de la instrucción entera.
+
+    Si no se pueden leer, se sigue sin ellas: el modelo va a preguntar, que es
+    el comportamiento de antes. Una lista que no se pudo traer no puede dejar al
+    asistente sin contestar.
+    """
+    try:
+        r = H.cuentas_disponibles()
+        filas = r.get("cuentas") or []
+    except Exception as e:
+        logger.warning("asistente: no pude listar las cuentas para el system (%s)", e)
+        filas = []
+    if not filas:
+        return SYSTEM
+    lista = "\n".join(f"  {c['id_cuenta']} — {c['nombre']}" for c in filas)
+    return (f"{SYSTEM}\n"
+            f"Cuentas habilitadas (son las ÚNICAS que podés consultar; el número "
+            f"es el `cuenta` que llevan las herramientas):\n{lista}\n")
+
+
 def _achicar(historial: list[dict]) -> tuple[list[dict], int]:
     """Reemplaza los resultados de herramienta VIEJOS por un resumen de una
     línea. Devuelve el historial nuevo y cuántos caracteres se ahorraron.
@@ -144,11 +177,24 @@ def _quien_fue(historial: list[dict], tool_call_id) -> tuple[str, str]:
 
 # ── LA INSTRUCCIÓN ──────────────────────────────────────────────────────────
 #
-# Es lo primero que lee el modelo y va en cada llamada. Corta a propósito:
-# cuantas más reglas tiene, más despareja las aplica — y las que se saltea no
-# fallan, simplemente desaparecen de la respuesta. Cuando esto pase de unas 40
-# líneas, la señal no es «escribir mejor»: es que hace falta un segundo agente
-# que revise, y eso es otra pieza.
+# El primer mensaje de la conversación, con rol `system`: las reglas de la casa.
+# Es lo primero que lee el modelo y **va en CADA llamada** — no recuerda nada,
+# así que esto se reenvía entero en cada vuelta y en cada pregunta.
+#
+# Por eso va PRIMERO y es FIJO: el proveedor cachea el principio del prompt, y
+# el principio es esto. Lo fijo adelante no es prolijidad, es dónde el caché
+# puede pegar.
+#
+# Corta a propósito: cuantas más reglas tiene, más despareja las aplica — y las
+# que se saltea no fallan, simplemente desaparecen de la respuesta. Cuando esto
+# pase de unas 40 líneas, la señal no es «escribir mejor»: es que hace falta un
+# segundo agente que revise, y eso es otra pieza.
+#
+# ⚠️⚠️ **Y REPETIR UNA REGLA LA VUELVE MÁS PESADA DE LO QUE QUERÉS** (visto en
+# producción, 2026-09-13). «Preguntá de qué cuenta» estaba escrito en tres
+# lugares —acá y en dos docstrings— y el modelo pidió confirmación de una cuenta
+# que el usuario YA había nombrado: un turno entero de más, 2.110 tokens, para
+# no enterarse de nada. La regla está ahora en UN solo lado.
 SYSTEM = """\
 Sos el asistente de una mesa de renta fija argentina. Te habla el admin de la
 plataforma. Contestás en castellano, corto y concreto.
@@ -163,8 +209,8 @@ Si un resultado trae la fecha de los datos, decila: los números son de esa
 foto, no de este momento. Y si trae una lista de lo que quedó afuera,
 nombrala — lo que no se pudo mirar no se omite.
 
-Si el usuario no dijo de qué cuenta habla, mirá cuáles hay y PREGUNTALE cuál
-quiere. No elijas vos ni asumas que las quiere todas.
+Si el usuario ya nombró una cuenta, usala. Si no nombró ninguna y hay más de
+una habilitada, preguntale cuál quiere: no elijas vos.
 
 No conviertas, redondees ni sumes números por tu cuenta. Reportá los que
 devolvió la herramienta, con su moneda.
@@ -235,7 +281,7 @@ def preguntar(
     # para abajo el bucle trabaja con la conversación completa de ESTA pregunta.
     historial, ahorro = _achicar(historial)
 
-    mensajes = [{"role": "system", "content": SYSTEM}]
+    mensajes = [{"role": "system", "content": _instruccion()}]
     mensajes += list(historial)
     mensajes.append({"role": "user", "content": pregunta})
 

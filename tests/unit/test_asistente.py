@@ -149,8 +149,13 @@ def test_la_cuenta_es_OBLIGATORIA_para_el_modelo():
             f"`{fn.__name__}.cuenta` tiene default: el modelo puede omitirla")
         ficha = next(f for f in H.FICHAS if f["function"]["name"] == fn.__name__)
         assert "cuenta" in ficha["function"]["parameters"]["required"]
-    # Y la herramienta para conseguirla existe.
-    assert "cuentas_disponibles" in H.POR_NOMBRE
+    # Y el modelo tiene de dónde sacarla: la lista va en el SYSTEM.
+    from unittest.mock import patch
+
+    from asistente import ciclo
+    fake = {"cuentas": [{"id_cuenta": "805", "nombre": "FULANO"}], "cuantas": 1}
+    with patch.object(ciclo.H, "cuentas_disponibles", return_value=fake):
+        assert "805" in ciclo._instruccion()
 
 
 # ── COBROS FUTUROS — la plata que entra (2026-09-12) ────────────────────────
@@ -291,15 +296,17 @@ def test_un_vencimiento_es_el_ultimo_cobro_de_un_bono():
 
 def test_la_respuesta_dice_de_cuando_son_los_datos():
     """`operaciones.acreencias` la recalcula un cron una vez por día. «Vas a
-    cobrar X» sobre una foto de hace cuatro días es otra respuesta.
+    cobrar X» sobre una foto de hace cuatro días es otra respuesta, y el modelo
+    tiene que poder decirlo.
 
-    Son DOS fechas y no una: cuándo se sacó la foto de cartera
-    (`tenencia_del`) y cuándo corrió el cálculo (`calculado_el`). Una compra de
-    ayer no está en ninguna de las dos, y el modelo tiene que poder decirlo.
+    ⚠️ UNA fecha, no dos. Viajaba también `calculado_el` (cuándo corrió el job) y
+    se sacó: el usuario pregunta AHORA, así que eso no le dice nada que no sepa
+    — y el modelo lo repetía en cada respuesta. Si el job quedó viejo, la foto
+    también, así que `tenencia_del` ya lo delata.
     """
     from asistente.herramientas import cobros_futuros
 
-    assert '"tenencia_del"' in FUENTE and '"calculado_el"' in FUENTE
+    assert '"tenencia_del"' in FUENTE
     doc = cobros_futuros.__doc__ or ""
     assert "tenencia_del" in doc
 
@@ -765,3 +772,76 @@ def test_sumar_es_trabajo_de_la_HERRAMIENTA_no_del_modelo():
     doc = H.cobros_futuros.__doc__ or ""
     assert "por_mes" in doc and "NO lo calcules" in doc, (
         "el modelo tiene que saber que existe, o lo suma igual")
+
+
+# ── LAS CUENTAS VAN EN EL SYSTEM (2026-09-13) ──────────────────────────────
+
+
+def test_las_cuentas_van_en_el_system_y_al_FINAL():
+    """⚠️ **LO VARIABLE AL FINAL, Y ESE ES TODO EL PUNTO.** El proveedor cachea
+    el PREFIJO del prompt: lo que cambia rompe el caché de todo lo que viene
+    después. Las cuentas cambian (se editan en el `.env`), el bloque de reglas
+    no. Al final, el día que cambien se pierde el caché de tres renglones en vez
+    del de la instrucción entera.
+    """
+    from unittest.mock import patch
+
+    from asistente import ciclo
+
+    fake = {"cuentas": [{"id_cuenta": "805", "nombre": "FULANO"},
+                        {"id_cuenta": "1346", "nombre": "MENGANO"}], "cuantas": 2}
+    with patch.object(ciclo.H, "cuentas_disponibles", return_value=fake):
+        txt = ciclo._instruccion()
+    assert txt.startswith(ciclo.SYSTEM), (
+        "el bloque fijo tiene que quedar intacto y primero, o el caché no pega")
+    assert "805" in txt and "FULANO" in txt
+
+
+def test_si_no_se_pueden_leer_las_cuentas_el_asistente_sigue():
+    """Una lista que no se pudo traer no puede dejar al asistente sin contestar:
+    cae al bloque fijo y el modelo pregunta, que es el comportamiento de antes."""
+    from unittest.mock import patch
+
+    from asistente import ciclo
+
+    with patch.object(ciclo.H, "cuentas_disponibles", side_effect=RuntimeError("caída")):
+        assert ciclo._instruccion() == ciclo.SYSTEM
+
+
+def test_la_regla_de_la_cuenta_esta_escrita_en_UN_solo_lugar():
+    """⚠️⚠️ **VISTO EN PRODUCCIÓN (2026-09-13).** «Preguntá de qué cuenta» estaba
+    en TRES lugares —el SYSTEM y dos docstrings— y el modelo pidió confirmación
+    de una cuenta que el usuario YA había nombrado: un turno entero de más,
+    2.110 tokens de entrada, para no enterarse de nada.
+
+    Repetir una instrucción no la refuerza: la vuelve más pesada de lo que
+    querías, y el modelo la sobre-aplica. Va en el SYSTEM y en ningún otro lado.
+    """
+    from asistente import ciclo
+
+    assert "preguntale cuál quiere" in ciclo.SYSTEM
+    fuente = (RAIZ / "asistente" / "herramientas.py").read_text(encoding="utf-8")
+    assert "PREGUNTALE" not in fuente, (
+        "volvió la orden de preguntar a un docstring: con la regla en dos lados "
+        "el modelo pide confirmación de lo que ya le dijiste")
+
+
+def test_cuentas_disponibles_no_se_le_ofrece_al_modelo():
+    """La lista ya está en el SYSTEM. Ofrecerla además sería pagar su ficha en
+    cada llamada y darle una opción más para elegir mal, por un dato que tiene
+    delante. La función queda: es de donde el SYSTEM la saca."""
+    from asistente import herramientas as H
+
+    assert "cuentas_disponibles" not in H.POR_NOMBRE
+    assert hasattr(H, "cuentas_disponibles"), "la función tiene que seguir existiendo"
+    assert len(H.FICHAS) == len(H.DISPONIBLES)
+
+
+def test_no_se_reporta_cuando_corrio_el_job():
+    """El usuario pregunta AHORA: «calculado el …» no le dice nada que no sepa, y
+    el modelo lo repetía en cada respuesta. Lo que importa es de cuándo es la
+    FOTO — y si el job quedó viejo, la foto también, así que `tenencia_del` ya
+    lo delata."""
+    cuerpo = _cuerpo("cobros_futuros")
+    assert '"tenencia_del"' in cuerpo
+    assert "calculado_el" not in cuerpo and "generado_at" not in cuerpo.split('"""')[-1]

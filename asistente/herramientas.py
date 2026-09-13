@@ -53,13 +53,14 @@ MAX_PAGOS = 300
 def cuentas_disponibles() -> dict:
     """Las cuentas que podés consultar, con su nombre.
 
-    Usala cuando el usuario nombre una cuenta, pregunte cuáles puede ver, o
-    cuando no sepas a cuál se refiere. Si hay más de una y el usuario no dijo
-    cuál, PREGUNTALE antes de llamar a otra herramienta — no elijas vos, y no
-    supongas que quiere todas.
+    ⚠️ **YA NO SE LE OFRECE AL MODELO COMO HERRAMIENTA**, y sigue acá a
+    propósito: es de donde `ciclo._instruccion()` saca la lista que le pone
+    delante en el SYSTEM. Con la lista arriba, el modelo no necesita pedirla —
+    se ahorra una vuelta entera por conversación, y una ficha menos viaja en
+    cada llamada.
 
-    Devuelve el `id_cuenta` (que es lo que hay que pasarle a las otras
-    herramientas) y la denominación del titular.
+    Devuelve el `id_cuenta` (que es lo que hay que pasarle a las herramientas) y
+    la denominación del titular.
     """
     try:
         params = permitido.parametros()
@@ -106,9 +107,8 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
       · «¿qué bono me vence?» — un vencimiento es el ÚLTIMO cobro de un bono.
         Cada título trae su fecha de vencimiento en `vence`.
 
-    ⚠️ `cuenta` es OBLIGATORIA. Si el usuario no dijo de qué cuenta habla,
-    llamá primero a `cuentas_disponibles` y PREGUNTALE cuál quiere. No elijas
-    vos y no consultes una al azar.
+    ⚠️ `cuenta` es OBLIGATORIA: el `id_cuenta` sale de la lista que tenés en las
+    instrucciones.
 
     QUÉ DEVUELVE:
       · `total` — la plata del período, SEPARADA POR MONEDA. ⚠️ NUNCA sumes
@@ -236,11 +236,16 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
            AND t.fecha_pago <= %(hasta)s
          GROUP BY t.moneda
     """
-    # De cuándo son los datos, y quién es el titular. Los dos son de la cuenta
-    # entera, así que no se filtran por fecha de pago.
+    # De cuándo es la foto de cartera, y quién es el titular. Los dos son de la
+    # cuenta entera, así que no se filtran por fecha de pago.
+    #
+    # ⚠️ **NO viaja cuándo corrió el JOB** (`generado_at`), y se sacó a propósito:
+    # el usuario pregunta AHORA, así que «calculado el …» no le dice nada que no
+    # sepa, y el modelo lo repetía en cada respuesta. Lo que sí importa es de
+    # cuándo es la FOTO: si el job quedó viejo, la foto también, así que
+    # `snapshot` ya lo delata.
     sql_ficha = f"""
-        SELECT max(t.data->>'snapshot'), max(t.data->>'generado_at'),
-               max(t.data->>'cliente')
+        SELECT max(t.data->>'snapshot'), max(t.data->>'cliente')
           FROM operaciones.acreencias t
          WHERE {permitido.FILTRO_SQL}
     """
@@ -255,7 +260,7 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
             cur.execute(sql_pagos, params)
             filas = cur.fetchall()
             cur.execute(sql_ficha, params)
-            snapshot, generado, nombre = cur.fetchone()
+            snapshot, nombre = cur.fetchone()
     except Exception as e:
         # El error vuelve como DATO, no como excepción: el ciclo se lo cuenta al
         # modelo y el modelo puede decir "no pude mirar" en vez de inventar.
@@ -268,7 +273,6 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
         "ventana": {"desde": params["desde"], "hasta": params["hasta"], "dias": n},
         "cuenta": {"id_cuenta": pedida, "nombre": nombre},
         "tenencia_del": snapshot,
-        "calculado_el": generado,
         # ⚠️ Diccionario por moneda y NUNCA un número solo: si no existe un
         # total único, el modelo no puede reportar pesos sumados con dólares.
         "total": {_mon(m): round(float(v or 0), 2) for m, v in tot},
@@ -334,7 +338,10 @@ def ficha(fn) -> dict:
 
 # Las herramientas disponibles. Sumar una es agregarla a esta lista y nada más:
 # la ficha se arma sola desde la función.
-DISPONIBLES = (cuentas_disponibles, cobros_futuros)
+# ⚠️ `cuentas_disponibles` NO está: su lista va en el SYSTEM
+# (`ciclo._instruccion()`). Ofrecérsela además sería pagar su ficha en cada
+# llamada y darle una opción más para elegir mal, por un dato que ya tiene.
+DISPONIBLES = (cobros_futuros,)
 
 # nombre → función, para que el ciclo pueda ejecutar lo que el modelo pidió.
 POR_NOMBRE = {f.__name__: f for f in DISPONIBLES}

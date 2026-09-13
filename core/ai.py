@@ -165,11 +165,26 @@ def _ruteo_seguro(cfg: dict) -> bool:
     Existe porque sin esto la garantía dependía de que el que llama pasara el
     nombre de tarea correcto: una tarea de negocio mal ruteada mandaba los
     números de la empresa justo al proveedor que este ruteo evita.
+
+    ⚠️ **HOY ESTÁ AFLOJADO POR `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA`**, que
+    es donde está escrito el motivo entero y cuándo hay que volverlo atrás. El
+    mecanismo queda igual: con esa constante en False, este portazo se reactiva
+    completo sin tocar nada más.
     """
     if cfg.get("datos") != "negocio":
         return True
     prov = _proveedor(cfg)
     if llm.no_entrena(prov):
+        return True
+
+    from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
+
+    if IA_PERMITE_PROVEEDOR_QUE_ENTRENA:
+        # WARNING y no silencio: que esté permitido no lo vuelve normal. Cada
+        # llamada así deja rastro en el log, además de la fila en `ia.llamadas`.
+        logger.warning("core.ai: tarea de negocio hacia %r, que ENTRENA con lo que "
+                       "se le manda. Permitido por IA_PERMITE_PROVEEDOR_QUE_ENTRENA.",
+                       prov)
         return True
     logger.error("core.ai: RUTEO INSEGURO — tarea de negocio hacia %r (entrena). "
                  "Se NIEGA la llamada.", prov)

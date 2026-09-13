@@ -9,15 +9,20 @@ features que usan IA no se enteran.
 
 Hay dos proveedores y NO son intercambiables:
 
-  deepseek  barato. Pero sus términos le permiten entrenar con lo que le
-            mandamos → SOLO datos públicos de mercado.
-  openai    más caro. No entrena con lo que entra por la API → es el único
-            al que se le pueden mandar datos de la empresa.
+  deepseek  barato. Pero sus términos le permiten ENTRENAR con lo que le
+            mandamos (`no_entrena: False`).
+  openai    más caro. No entrena con lo que entra por la API.
+
+Este archivo sólo DECLARA esa diferencia; quién puede recibir qué lo decide
+`core/ai.py::_ruteo_seguro()`. ⚠️ Y desde el 2026-09-13 ese portazo está
+aflojado por `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA` — el motivo entero y
+cuándo hay que volverlo atrás están escritos ahí y en `docs/SECURITY.md`. La
+ficha de acá no cambió: es la que hace que volver atrás sea una línea.
 
 ⚠️ Si el proveedor que le toca a una tarea no tiene su clave puesta, la
-llamada NO SE HACE y no se manda a otro. Mandarla al otro sería justamente
-filtrarle datos de la empresa al que puede entrenar con ellos. Prefiere no
-funcionar antes que funcionar mal y en silencio.
+llamada NO SE HACE y no se manda a otro. Que el ruteo esté aflojado no
+significa que el fallback esté permitido: caer al otro proveedor por una clave
+faltante sería un cambio de destino que nadie decidió.
 
 Quién lo llama: `core/ai.py` (que además lleva el presupuesto y la traza) y
 `agente/explicar.py` para preguntar si hay clave puesta.
@@ -215,7 +220,8 @@ class RespuestaLLM:
 
 def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict],
                 max_tokens: int, thinking: str | None,
-                herramientas: list[dict] | None = None) -> dict:
+                herramientas: list[dict] | None = None,
+                formato: dict | None = None) -> dict:
     """Arma el pedido en el idioma del proveedor. Los dos hablan parecido pero
     no igual, y esta función es la que traduce."""
     body: dict = {"model": modelo_id, "messages": mensajes,
@@ -230,6 +236,16 @@ def _armar_body(cfg: dict, *, modelo_id: str, mensajes: list[dict],
     # openai), así que por ahora no hace falta traducir nada.
     if herramientas:
         body["tools"] = herramientas
+    # ── El esquema que la respuesta tiene que cumplir (structured output) ──
+    #
+    # Va crudo, tal cual lo espera el proveedor. Los dos lo llaman igual
+    # (`response_format`) pero NO está medido que lo soporten igual, ni cómo se
+    # lleva con `tools` en el mismo pedido — un modelo que prefiere cumplir el
+    # esquema antes que pedir una herramienta le rompe el ciclo al asistente, y
+    # no falla: contesta sin datos. Por eso primero se mide
+    # (`scripts/diag_structured_output.py`) y recién después se usa.
+    if formato:
+        body["response_format"] = formato
     if cfg["dialecto"] == "openai":
         # Que openai NO guarde la conversación de su lado. Va siempre, sin
         # depender de que el interruptor de la cuenta esté bien puesto.
@@ -295,6 +311,7 @@ def chat(
     reintentos: int = 0,
     proveedor: str | None = None,
     herramientas: list[dict] | None = None,
+    formato: dict | None = None,
 ) -> RespuestaLLM:
     """Una llamada al modelo. Es lo único que hace este archivo.
 
@@ -307,6 +324,12 @@ def chat(
       pasás alguna, puede contestar `pedidos` en vez de `texto` — ver
       `RespuestaLLM`. Si no le pasás ninguna, contesta texto y listo, que es
       como funcionaba hasta hoy.
+    - `formato`: el `response_format` del proveedor — un esquema JSON que la
+      respuesta tiene que cumplir. No es un pedido como los del prompt: el
+      proveedor lo FUERZA. Va crudo, tal cual lo espera el proveedor, porque
+      todavía no sabemos si los dos lo aceptan igual ni cómo se lleva con las
+      herramientas: eso lo mide `scripts/diag_structured_output.py` antes de que
+      nadie lo use en producción.
 
     NUNCA levanta una excepción. Si algo falla, devuelve ok=False y el motivo.
     """
@@ -326,7 +349,7 @@ def chat(
     url = _base_url(cfg) + "/chat/completions"
     body = _armar_body(cfg, modelo_id=modelo, mensajes=mensajes,
                        max_tokens=max_tokens, thinking=thinking,
-                       herramientas=herramientas)
+                       herramientas=herramientas, formato=formato)
 
     t0 = time.perf_counter()
     ultimo_error: str | None = None

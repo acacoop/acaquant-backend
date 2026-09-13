@@ -269,8 +269,8 @@ run es un proceso nuevo).
 | `FINNHUB_API_KEY` | Data de mercado externa. | Dashboard de Finnhub. |
 | `RESEARCH_IMAP_USER` / `RESEARCH_IMAP_PASSWORD` / `RESEARCH_MAIL_FROM` | Casilla que recibe el research diario + app password + remitente(s) — los lee `jobs/research_mail.py` (IMAP readonly, QuantAI P6). OJO: la app password da acceso de LECTURA a toda la casilla — usar una app password dedicada, jamás la contraseña real. | Gmail: Cuenta → Seguridad → Contraseñas de aplicaciones → revocar y generar otra → `.env` (el cron la toma solo). |
 | `FRED_API_KEY` | API key de FRED (Federal Reserve de St. Louis) — la lee `core/fred_api.py` (tab DATOS INTERNACIONALES de Research, `jobs/fred_research.py`). Gratis, solo lectura de data pública sin cargo: si se filtra, el daño máximo es que un tercero use tu cuota. Sin ella, la tab FRED queda sin datos (todo lo demás sigue igual). | fredaccount.stlouisfed.org/apikeys → regenerar → `.env` (el cron la toma solo; restart API para que sirva la tab). |
-| `DEEPSEEK_API_KEY` | Proveedor LLM **default** del gateway (`core/llm.py`). ⚠️ **ES LA CLAVE QUE USAN TODAS LAS TAREAS DE IA DE HOY** — `agente_texto` (el texto de los avisos, que corre SOLO en cada pasada del daemon), `agente_emisor` y `explicar_error`. Ninguna tarea declara proveedor, así que todas caen en el default, que es éste. **Sacarla del `.env` apaga la IA del agente en silencio.** Cuenta prepaga, saldo chico: si se filtra, el daño máximo es quemar el saldo. ⚠ Este proveedor SÍ puede entrenar con lo que se le manda → jamás datos del negocio. | platform.deepseek.com → API Keys → regenerar → `.env` → restart API. Para apagar la IA sin tocar la clave: `AGENTE_REDACTA=0` frena lo único que gasta solo. Sacar la key del `.env` también funciona, pero apaga las cuatro tareas de golpe y sin avisar. |
-| `OPENAI_API_KEY` | Proveedor LLM para tareas marcadas `datos:"negocio"` — se eligió por su compromiso de NO entrenar con datos de API + borrado a 30 días (decisión user 2026-07-21). El gateway es **fail-closed**: sin esta key, una tarea de negocio NO cae a DeepSeek, se niega. ⚠️ **LA USA LA TAREA `asistente`** (`asistente/ciclo.py`, admin-only: la tab LAB del modal del AV AGENT y `scripts/asistente.py`): es la primera del sistema marcada `datos:"negocio"`, o sea la primera que ejerce este ruteo de verdad. Sin la key, el asistente no arranca y lo dice — no degrada a DeepSeek. | platform.openai.com → API keys → regenerar → `.env` → restart API. Data controls: sharing en **Disabled**, API call logging **Disabled**, audit logging **Enabled**. |
+| `DEEPSEEK_API_KEY` | Proveedor LLM **default** del gateway (`core/llm.py`). ⚠️ **ES LA CLAVE QUE USAN TODAS LAS TAREAS DE IA DE HOY** — `agente_texto` (el texto de los avisos, que corre SOLO en cada pasada del daemon), `agente_emisor` y `explicar_error`. Ninguna tarea declara proveedor, así que todas caen en el default, que es éste. **Sacarla del `.env` apaga la IA del agente en silencio.** Cuenta prepaga, saldo chico: si se filtra, el daño máximo es quemar el saldo. ⚠️⚠️ **Este proveedor SÍ puede entrenar con lo que se le manda, y desde el 2026-09-13 PUEDE recibir datos del negocio** — ver `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA`. | platform.deepseek.com → API Keys → regenerar → `.env` → restart API. Para apagar la IA sin tocar la clave: `AGENTE_REDACTA=0` frena lo único que gasta solo. Sacar la key del `.env` también funciona, pero apaga las cuatro tareas de golpe y sin avisar. |
+| `OPENAI_API_KEY` | Proveedor LLM para tareas marcadas `datos:"negocio"` — se eligió por su compromiso de NO entrenar con datos de API + borrado a 30 días (decisión user 2026-07-21). El gateway ERA fail-closed para esto; hoy el portazo está aflojado por `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA` (ver abajo). ⚠️ **LA USA LA TAREA `asistente`** (`asistente/ciclo.py`, admin-only: la tab LAB del modal del AV AGENT y `scripts/asistente.py`): es la primera del sistema marcada `datos:"negocio"`, o sea la primera que ejerce este ruteo de verdad. Sin la key, el asistente no arranca y lo dice. | platform.openai.com → API keys → regenerar → `.env` → restart API. Data controls: sharing en **Disabled**, API call logging **Disabled**, audit logging **Enabled**. |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | LLM del asistente (legacy, no en uso hoy). | Consola Anthropic / Google. |
 
 ### 🟢 Config sensible (no son secretos, pero cuidá quién los edita)
@@ -281,6 +281,26 @@ run es un proceso nuevo).
 | `CF_TRUSTED_SERVICE_TOKENS` | `common_names` de máquinas confiables (ej. el frontend Vercel). |
 | `MANAGER_EMAILS` | Emails admin de bootstrap (fallback al RBAC de `manager.manager_users`). |
 | `ENV` | `prod` activa el fail-closed de auth (EXT-AUTH1). |
+| `IA_PERMITE_PROVEEDOR_QUE_ENTRENA` | **Ver abajo.** Default `1`. |
+
+### ⚠️ Datos del negocio hacia un proveedor que entrena
+
+**Estado: PERMITIDO.** Decisión del user (2026-09-13), revirtiendo la del
+2026-07-21. `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA` viene en `True`.
+
+| | |
+|---|---|
+| **Qué apaga** | `core/ai.py::_ruteo_seguro()` negaba una llamada cuando una tarea marcada `datos: "negocio"` iba hacia un proveedor con `no_entrena: False` (hoy, DeepSeek). Ahora sale, con un `WARNING` en el log y su fila en `ia.llamadas`. |
+| **Por qué** | Poder usar DeepSeek por costo mientras el asistente se construye. Palabras del user: *«la restricción la agregaré más adelante cuando esto escale, de momento lo estoy usando solo con cuentas habilitadas y permitidas»*. |
+| **Qué acota el alcance igual** | El asistente ve SÓLO las cuentas de `ASISTENTE_CUENTAS` (`asistente/permitido.py`, fail-closed, se editan entrando al Droplet) y la tab es admin-only. |
+| **Qué se acepta** | DeepSeek se reserva el derecho de entrenar con lo que se le manda. Los datos de esas cuentas pueden quedar en un modelo de un tercero, y eso no se deshace. |
+| **Cuándo volver a `False`** | Cuando el asistente deje de ser una herramienta del admin sobre cuentas elegidas a mano: si `ASISTENTE_CUENTAS` crece, si lo usa alguien más, o si aparece una herramienta que lee la cartera entera. |
+
+⚠️ **El mecanismo NO se borró**: la ficha `no_entrena` de cada proveedor sigue
+declarada en `core/llm.py` y los dos lugares que la miran —el gateway y el panel
+del LAB— leen **la misma constante**. Volver atrás es esa línea, no reconstruir
+nada. Un test (`test_el_ruteo_por_proveedor_lo_decide_UNA_constante`) congela que
+no aparezca una segunda regla en paralelo.
 
 ### Frontend (env vars en Vercel, no en el `.env` del Droplet)
 

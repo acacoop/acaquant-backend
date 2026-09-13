@@ -145,12 +145,16 @@ def gasto(dias: int = 30) -> dict:
 def modelos() -> dict:
     """Qué modelo cumple cada rol hoy, y qué ofrece cada proveedor.
 
-    La lista sale del proveedor en vivo (`llm.disponibles`). DeepSeek aparece
-    **listado y deshabilitado**, con el motivo: puede entrenar con lo que se le
-    manda, así que no puede ver datos del negocio. Se muestra en vez de
-    esconderse a propósito — si desaparece, dentro de seis meses alguien lo
-    "arregla" sin saber qué está rompiendo.
+    La lista sale del proveedor en vivo (`llm.disponibles`).
+
+    ⚠️ **UN PROVEEDOR QUE ENTRENA SE PUEDE ELEGIR, PERO SE AVISA.** Hoy
+    `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA` está en True por decisión del user
+    (ver el motivo entero ahí). Entonces DeepSeek es elegible — y aun así viaja
+    su `aviso`, para que el que lo elige sepa qué está eligiendo. Un permiso que
+    no se explica se vuelve un default que nadie recuerda haber decidido.
     """
+    from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
+
     aj = ai.ajustes()
     provs = []
     for p in llm.proveedores():
@@ -158,13 +162,14 @@ def modelos() -> dict:
         provs.append({
             "proveedor": p,
             "configurado": llm.configurado(p),
-            # ⚠️ Se lista igual y se marca por qué no se puede usar, en vez de
-            # esconderlo: si DeepSeek desapareciera del panel, dentro de seis
-            # meses alguien lo "arregla" sin saber qué está rompiendo.
-            "usable": seguro,
-            "motivo": None if seguro else (
-                "puede entrenar con lo que se le manda → no puede ver datos del "
-                "negocio (core/ai.py::_ruteo_seguro)"),
+            "usable": seguro or IA_PERMITE_PROVEEDOR_QUE_ENTRENA,
+            # ⚠️ `aviso` NO es `motivo`: antes decía por qué NO se podía usar;
+            # ahora dice qué implica usarlo. El dato es el mismo y la
+            # consecuencia cambió, así que cambió el nombre — un campo que dice
+            # una cosa y significa otra es cómo se leen mal las pantallas.
+            "aviso": None if seguro else (
+                "entrena con lo que se le manda: los datos de las cuentas "
+                "habilitadas pueden quedar en un modelo de un tercero"),
             "modelos": llm.disponibles(p) if llm.configurado(p) else [],
             "roles": {rol: {
                 "elegido": aj.get(CLAVE_MODELO.format(proveedor=p, tier=rol)),
@@ -225,14 +230,17 @@ def elegir_modelo(proveedor: str, rol: str, modelo: str, *, por: str) -> dict:
 
     if proveedor not in llm.proveedores():
         return {"ok": False, "error": f"proveedor {proveedor!r} desconocido"}
-    # ⚠️ El mismo portazo que da el gateway en cada llamada, dado también acá:
-    # si el proveedor entrena con lo que le mandamos, no puede quedar elegido
-    # para nada. Que la pantalla lo muestre deshabilitado es UX; esto es el
-    # permiso. Una pantalla no es una barrera.
-    if not llm.no_entrena(proveedor):
+    # ⚠️ El MISMO criterio que aplica el gateway en cada llamada, aplicado
+    # también acá y leyendo la MISMA constante: dos reglas para lo mismo se
+    # desincronizan, y el día que pase la pantalla dejaría elegir algo que
+    # después el gateway rechaza en cada pregunta, sin que nadie entienda por qué.
+    from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
+
+    if not llm.no_entrena(proveedor) and not IA_PERMITE_PROVEEDOR_QUE_ENTRENA:
         return {"ok": False, "error": (
             f"{proveedor} puede entrenar con lo que se le manda: no puede correr "
-            "tareas que ven datos del negocio")}
+            "tareas que ven datos del negocio "
+            "(config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA)")}
 
     prueba = probar(modelo, proveedor=proveedor)
     if not prueba["ok"]:

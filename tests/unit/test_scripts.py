@@ -60,6 +60,10 @@ HERRAMIENTAS: dict[str, str] = {
     "diag_byma_red":         "¿por qué el Droplet no llega a `api.byma.com.ar`? Separa «BYMA filtra "
                              "nuestra IP» de «el Droplet bloquea la salida» — dos causas con "
                              "soluciones opuestas. Read-only, sin credenciales.",
+    "diag_structured_output": "¿el proveedor acepta un esquema de salida (`response_format`) en la "
+                             "MISMA llamada que trae herramientas, y sigue pidiéndolas? Es la "
+                             "medición que decide si structured output se puede aplicar en todas "
+                             "las vueltas del asistente o sólo en la última.",
     "audit_superficie_http": "inventario de la superficie HTTP por categoría — la contracara de audit_rbac.",
     "diag_fci_primary":      "qué FCI lista Primary, qué campos trae y si hay histórico (no lo hay): "
                              "es la medición que decide la fuente del mercado FCI (docs/FCI.md) y "

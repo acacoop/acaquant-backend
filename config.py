@@ -311,3 +311,37 @@ EXT_ISSUER = os.getenv("EXT_ISSUER", "https://api.acaquant.com/ext").strip()
 # API que usa toda la mesa. Deliberadamente ALTO: en uso normal no se alcanza, y
 # el que lo alcanza recibe un mensaje que le dice que consulte por mes.
 EXT_MAX_FILAS = int(os.getenv("EXT_MAX_FILAS", "20000"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IA — el ruteo por proveedor del gateway
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ⚠️⚠️ **ESTA CONSTANTE AFLOJA UNA GARANTÍA, A PROPÓSITO Y POR DECISIÓN DEL USER
+# (2026-09-13).** Leerla entera antes de tocarla.
+#
+# Qué apaga: `core/ai.py::_ruteo_seguro()` niega una llamada cuando una tarea
+# marcada `datos: "negocio"` (ve tenencias, cuentas, plata de la casa) va hacia
+# un proveedor cuya ficha dice `no_entrena: False`. Con esto en True, sale igual
+# y queda un WARNING en el log.
+#
+# Por qué se aflojó, con las palabras del user: *«en esta etapa es fundamental
+# poder usarla por lo barata que es (…) la restricción la agregaré más adelante
+# cuando esto escale, de momento lo estoy usando solo con cuentas habilitadas y
+# permitidas»*.
+#
+# Qué SIGUE acotando el alcance, y no es poco: el asistente ve únicamente las
+# cuentas de `ASISTENTE_CUENTAS` (`asistente/permitido.py`, fail-closed) y la
+# tab es admin-only. Lo que puede salir está limitado a un puñado de cuentas
+# elegidas a mano, no a la cartera de la casa.
+#
+# ⚠️ **CUÁNDO VUELVE A `False`**: cuando el asistente deje de ser una
+# herramienta del admin sobre cuentas elegidas a mano. Si `ASISTENTE_CUENTAS`
+# empieza a crecer, si lo usa alguien más, o si aparece una herramienta que lee
+# la cartera entera. El mecanismo entero sigue en pie e intacto — por eso no se
+# borró: volver atrás es esta línea, no reconstruirlo.
+#
+# El registro de qué se mandó, a quién y con qué modelo queda igual en
+# `ia.llamadas`.
+IA_PERMITE_PROVEEDOR_QUE_ENTRENA = os.getenv(
+    "IA_PERMITE_PROVEEDOR_QUE_ENTRENA", "1").strip().lower() in ("1", "true", "yes")

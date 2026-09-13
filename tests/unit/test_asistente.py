@@ -508,26 +508,51 @@ def test_el_modelo_elegido_se_guarda_POR_PROVEEDOR():
     assert panel.CLAVE_MODELO is ai.CLAVE_MODELO
 
 
-def test_no_se_puede_elegir_un_proveedor_que_entrena():
-    """La pantalla muestra DeepSeek deshabilitado. Eso es UX, y una pantalla no
-    es una barrera: el portazo tiene que estar también del lado del servidor.
+def test_el_ruteo_por_proveedor_lo_decide_UNA_constante():
+    """⚠️ El portazo a un proveedor que entrena con lo que se le manda está
+    **aflojado por decisión del user** (`config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA`,
+    2026-09-13). Este test NO congela que esté abierto ni cerrado: congela que
+    la decisión viva en UN solo lugar.
 
-    Es la misma regla que el resto del repo — esconder una solapa no es un
-    permiso; el único gate real es el backend.
+    El gateway (`core/ai.py::_ruteo_seguro`) y la pantalla (`panel.elegir_modelo`)
+    tienen que leer la MISMA constante. Con dos reglas para lo mismo, el día que
+    se desincronicen la pantalla dejaría elegir un modelo que después el gateway
+    rechaza en cada pregunta — y nadie entendería por qué.
+
+    Y el mecanismo tiene que seguir entero: volver atrás es poner la constante
+    en False, no reconstruirlo.
     """
-    from asistente import panel
     from core import llm
 
-    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
-    i = cuerpo.index("def elegir_modelo(")
-    cuerpo = cuerpo[i:cuerpo.index("\ndef ", i + 10)]
-    assert "llm.no_entrena(proveedor)" in cuerpo, (
-        "`elegir_modelo` no chequea si el proveedor entrena: con eso, un POST "
-        "directo deja los datos del negocio saliendo hacia el que entrena")
-    # Y el chequeo va ANTES de guardar.
-    assert cuerpo.index("no_entrena") < cuerpo.index("INSERT INTO ia.config")
+    ai_src = (RAIZ / "core" / "ai.py").read_text(encoding="utf-8")
+    panel_src = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+
+    for fuente, donde in ((ai_src, "core/ai.py"), (panel_src, "asistente/panel.py")):
+        assert "IA_PERMITE_PROVEEDOR_QUE_ENTRENA" in fuente, (
+            f"{donde} decide por su cuenta si un proveedor que entrena puede "
+            "correr tareas de negocio, en vez de leer la constante")
+
+    # El mecanismo sigue en pie: la ficha de cada proveedor lo sigue declarando.
     assert not llm.no_entrena("deepseek") and llm.no_entrena("openai")
-    assert panel.ROLES
+
+    # Y el chequeo de la pantalla sigue ANTES de guardar.
+    i = panel_src.index("def elegir_modelo(")
+    cuerpo = panel_src[i:panel_src.index("\ndef ", i + 10)]
+    assert cuerpo.index("no_entrena") < cuerpo.index("INSERT INTO ia.config")
+
+
+def test_un_proveedor_que_entrena_avisa_aunque_se_pueda_elegir():
+    """Un permiso que no se explica se vuelve un default que nadie recuerda
+    haber decidido. DeepSeek es elegible, y aun así viaja el aviso de qué
+    implica elegirlo."""
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    i = cuerpo.index("def modelos(")
+    cuerpo = cuerpo[i:cuerpo.index("\ndef ", i + 10)]
+    assert '"aviso"' in cuerpo and "entrena con lo que se le manda" in cuerpo
+    # Y en el log queda rastro de cada llamada así, no sólo en la pantalla.
+    ai_src = (RAIZ / "core" / "ai.py").read_text(encoding="utf-8")
+    i = ai_src.index("def _ruteo_seguro(")
+    assert "logger.warning" in ai_src[i:ai_src.index("\ndef ", i + 10)]
 
 
 def test_probar_el_modelo_es_parte_de_guardar_y_no_un_boton():

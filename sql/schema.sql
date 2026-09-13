@@ -3443,6 +3443,11 @@ CREATE TABLE IF NOT EXISTS ia.config (
 );
 ALTER TABLE ia.config ALTER COLUMN valor TYPE text;
 DELETE FROM ia.config WHERE clave LIKE 'budget_%';
+-- ⚠️ Las claves `modelo:<proveedor>:<tier>` quedaron INERTES: la elección pasó
+-- a ser por TAREA (`tarea:<tarea>` → `proveedor/modelo`). Se borran en vez de
+-- dejarlas: una fila que nadie lee es una pregunta abierta para el próximo que
+-- mire la tabla, y encima muestra una elección que ya no tiene efecto.
+DELETE FROM ia.config WHERE clave LIKE 'modelo:%';
 
 
 

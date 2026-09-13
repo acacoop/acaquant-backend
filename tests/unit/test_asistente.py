@@ -487,25 +487,79 @@ def test_el_libro_de_llamadas_se_llama_llamadas():
 # ── EL PANEL DEL LAB (2026-09-12) ──────────────────────────────────────────
 
 
-def test_el_modelo_elegido_se_guarda_POR_PROVEEDOR():
-    """⚠️⚠️ **EL BUG QUE ESTE TEST IMPIDE, y estuvo escrito antes de existir.**
+def test_lo_que_se_elige_es_UNA_TAREA_y_no_un_rol():
+    """⚠️⚠️ **LA PANTALLA MOSTRABA UN DESPLEGABLE QUE NO HACÍA NADA** (visto en
+    producción, 2026-09-13). La elección se guardaba por `proveedor × rol`, así
+    que el user configuró «deepseek · pro» y el asistente siguió andando con
+    openai — porque a esa tarea nunca le tocaba esa combinación. No falló nada:
+    simplemente el cambio no tenía efecto, y no había forma de saberlo.
 
-    La primera versión guardaba la elección por rol a secas (`modelo_pro`). Con
-    eso, elegir un modelo de OpenAI desde la tab LAB **le cambiaba el modelo
-    también a `agente_texto`**, que corre contra DeepSeek. Ese nombre allá no
-    existe, así que el agente se quedaba sin texto todas las noches — por un
-    cambio hecho en otra pantalla, y sin que nada conectara una cosa con la otra.
-
-    Un nombre de modelo sólo existe para su proveedor. La clave lo lleva adentro.
+    **Una fila de la pantalla tiene que ser una cosa que corre**, y lo que corre
+    es una TAREA: el chat del LAB, el texto de los avisos, el botón explicámelo.
+    «El pro de openai» es una abstracción interna que no le sirve a nadie.
     """
     from asistente import panel
     from core import ai
 
-    assert "{proveedor}" in ai.CLAVE_MODELO and "{tier}" in ai.CLAVE_MODELO
-    # Y la pantalla usa LA MISMA clave que el gateway lee, no una copia: con dos
+    assert ai.CLAVE_TAREA == "tarea:{tarea}"
+    # La pantalla usa LA MISMA clave que el gateway lee, no una copia: con dos
     # formatos distintos la pantalla guardaría donde nadie mira — no falla nada,
     # simplemente el cambio no tiene efecto.
-    assert panel.CLAVE_MODELO is ai.CLAVE_MODELO
+    assert panel.CLAVE_TAREA is ai.CLAVE_TAREA
+    # Y las tareas salen de `_TAREAS`, no de una lista aparte: una tarea nueva
+    # aparece sola en la pantalla.
+    assert set(ai.tareas()) == set(ai._TAREAS)
+    assert "asistente" in ai.tareas()
+
+
+def test_proveedor_y_modelo_van_en_UN_valor():
+    """Un nombre de modelo sólo existe para su proveedor. Con dos claves
+    separadas se puede guardar `deepseek` + `gpt-5.6-terra` — un pedido que
+    ningún proveedor entiende, y que no falla hasta la próxima llamada.
+
+    Guardados juntos (`proveedor/modelo`), esa combinación **no se puede ni
+    escribir**. Es la REGLA #9: dos copias de un hecho apareado necesitan un
+    árbitro, y lo más barato es que sean una sola.
+    """
+    from asistente import panel
+
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    i = cuerpo.index("def elegir_modelo(")
+    cuerpo = cuerpo[i:cuerpo.index("\ndef ", i + 10)]
+    assert 'f"{proveedor}/{modelo}"' in cuerpo, (
+        "el valor tiene que llevar las dos cosas juntas")
+    assert hasattr(panel, "volver_al_default"), (
+        "«elegí mal y quiero deshacerlo» no se resuelve eligiendo otra cosa: "
+        "tiene que poder borrarse la elección")
+
+
+def test_cada_tarea_dice_PARA_QUE_es():
+    """«asistente» y «agente_emisor» no le dicen nada a nadie que no haya
+    escrito `core/ai.py`. La pantalla muestra una línea en criollo, y sale de la
+    misma fila que declara la tarea — no de una tabla de nombres en el front,
+    que quedaría vieja sin que nada falle.
+    """
+    from core import ai
+
+    for t in ai.tareas():
+        f = ai.ficha_de(t)
+        assert f["para_que"], f"la tarea «{t}» no dice para qué es"
+        assert f["proveedor"] and f["modelo"]
+
+
+def test_solo_se_le_exige_tool_calling_a_la_tarea_que_usa_herramientas():
+    """Exigirle tool calling a `agente_texto`, que sólo redacta, dejaría afuera
+    modelos perfectamente buenos para eso. Y NO exigírselo al asistente dejaría
+    entrar uno que lo deja contestando de memoria.
+
+    Quién usa herramientas lo declara la tarea, no lo adivina la pantalla.
+    """
+    from core import ai
+
+    assert ai.ficha_de("asistente")["usa_herramientas"] is True
+    assert ai.ficha_de("agente_texto")["usa_herramientas"] is False
+    cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
+    assert 'exigir_herramienta=ficha["usa_herramientas"]' in cuerpo
 
 
 def test_el_ruteo_por_proveedor_lo_decide_UNA_constante():
@@ -607,8 +661,10 @@ def test_el_panel_no_replica_la_precedencia_del_gateway():
 
     assert hasattr(ai, "modelo_de") and hasattr(ai, "proveedor_de")
     cuerpo = (RAIZ / "asistente" / "panel.py").read_text(encoding="utf-8")
-    assert "ai.modelo_de(" in cuerpo and "ai.proveedor_de(" in cuerpo
-    assert panel.TAREA == "asistente"
+    assert "ai.ficha_de(" in cuerpo, (
+        "la pantalla tiene que PREGUNTAR con qué corre cada tarea, no "
+        "recalcular la precedencia (elegido > declarado > default) por su cuenta")
+    assert panel.modelos
 
 
 def test_la_lista_de_modelos_sale_del_proveedor_y_no_del_codigo():

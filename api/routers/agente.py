@@ -299,22 +299,30 @@ def lab_panel(dias: int = 30):
 
 
 class ElegirModelo(BaseModel):
-    proveedor: str = Field(..., min_length=1, max_length=32)
-    rol: str = Field(..., min_length=1, max_length=16)
-    modelo: str = Field(..., min_length=1, max_length=120)
+    # La TAREA, no un rol: `asistente`, `agente_texto`, … Una fila de la
+    # pantalla es una cosa que corre.
+    tarea: str = Field(..., min_length=1, max_length=48)
+    proveedor: str = Field("", max_length=32)
+    modelo: str = Field("", max_length=120)
 
 
 @router.post("/lab/modelo")
 def lab_modelo(body: ElegirModelo, email: str = Depends(get_user_email)):
-    """Deja fijado qué modelo cumple un rol. **Prueba antes de guardar**: si el
-    modelo no sabe pedir una herramienta, no se guarda y queda el anterior.
+    """Deja fijado con qué proveedor y modelo corre UNA tarea. **Prueba antes de
+    guardar**: si el modelo no sirve, no se guarda y queda el anterior.
 
     Eso no es un paso opcional que la pantalla podría saltear — vive adentro de
-    `panel.elegir_modelo`. Un modelo que ignora `tools` deja al asistente
-    contestando de memoria, con el mismo tono de siempre y sin un solo error.
+    `panel.elegir_modelo`. Qué se le exige depende de la tarea: si ofrece
+    herramientas, el modelo tiene que PEDIR una; un modelo que ignora `tools`
+    deja al asistente contestando de memoria, sin un solo error.
+
+    Sin `modelo` vuelve al default que declara `core/ai.py` — «elegí mal y
+    quiero deshacerlo» no se resuelve eligiendo otra cosa.
     """
     from asistente import panel
-    return panel.elegir_modelo(body.proveedor, body.rol, body.modelo, por=email)
+    if not body.modelo.strip():
+        return panel.volver_al_default(body.tarea, por=email)
+    return panel.elegir_modelo(body.tarea, body.proveedor, body.modelo, por=email)
 
 
 class PonerPrecio(BaseModel):

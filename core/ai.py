@@ -59,6 +59,11 @@ logger = logging.getLogger(__name__)
 #           quema tokens que no se ven.
 # datos     "negocio" marca que la tarea ve números de la empresa. Sin la
 #           marca, se asume que son datos públicos de mercado.
+# para_que  UNA línea, en criollo, de qué es esto. La muestra el panel del LAB:
+#           «asistente» no le dice nada a nadie que no escribió este archivo.
+# usa_herramientas  la tarea le OFRECE herramientas al modelo. Cambia qué se le
+#           exige a un modelo para poder elegirlo: uno que ignora `tools` deja
+#           al asistente contestando de memoria, sin un solo error.
 #
 # Cada fila dice QUIÉN MIRA SU SALIDA. Una tarea sin esa respuesta no va.
 
@@ -66,7 +71,8 @@ _TAREAS: dict[str, dict] = {
     # La mira: el botón «explicámelo» del panel HABILIDADES. Sólo a pedido de
     # una persona, y cacheada por error: el mismo error no se paga dos veces.
     "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
-                       "thinking": "disabled"},
+                       "thinking": "disabled",
+                       "para_que": "el botón «explicámelo» de HABILIDADES"},
 
     # La mira: el texto de cada aviso del AV AGENT en la tab AHORA. Es la única
     # que corre SOLA, sin que nadie apriete, así que trae guardas que las de a
@@ -75,7 +81,9 @@ _TAREAS: dict[str, dict] = {
     # 400 tokens porque la salida es una o dos frases: darle más es invitarlo
     # a escribir de más.
     "agente_texto": {"tier": "flash", "max_tokens": 400, "timeout_s": 45,
-                     "thinking": "disabled"},
+                     "thinking": "disabled",
+                     "para_que": "el texto de cada aviso del agente en AHORA "
+                                 "(lo único que corre SOLO, sin que nadie apriete)"},
 
     # La mira: el listado de «completar ficha» en la tab ENCONTRÓ. Propone el
     # emisor de los títulos que ninguna regla puede derivar, eligiendo de una
@@ -84,7 +92,9 @@ _TAREAS: dict[str, dict] = {
     # Plus» es un fondo de IEB no sale de leer el nombre —, y equivocarse
     # escribe un dato en un campo por el que se agrupa plata.
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
-                      "thinking": "disabled"},
+                      "thinking": "disabled",
+                      "para_que": "las propuestas de emisor en «completar ficha» "
+                                  "(ENCONTRÓ)"},
 
     # La mira: una persona con rol admin, en pantalla, mientras conversa.
     #
@@ -104,7 +114,8 @@ _TAREAS: dict[str, dict] = {
     # mal la herramienta es contestar con seguridad sobre otra cosa.
     "asistente": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
                   "thinking": "disabled", "proveedor": "openai",
-                  "datos": "negocio"},
+                  "datos": "negocio", "usa_herramientas": True,
+                  "para_que": "el chat de la tab LAB"},
 }
 
 # Si alguien pide una tarea que no está en la tabla, corre igual con esto (y
@@ -114,40 +125,110 @@ _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60,
 
 
 def _config(tarea: str) -> dict:
+    """La fila de una tarea. Le inyecta su propio NOMBRE, porque `_proveedor()`
+    y `_modelo()` lo necesitan para buscar si hay una elección guardada — y
+    pasarlo como argumento hasta ahí obligaba a tocar todas las llamadas."""
     cfg = _TAREAS.get(tarea)
     if cfg is None:
         logger.warning("core.ai: tarea desconocida %r — uso config default (flash)", tarea)
         cfg = _DEFAULT_TAREA
-    return cfg
+    return {**cfg, "_tarea": tarea}
+
+
+# ⚠️⚠️ **UNA CLAVE POR TAREA, Y EL VALOR LLEVA LAS DOS COSAS: `proveedor/modelo`.**
+#
+# Dos decisiones acá, y las dos salieron de equivocarse antes:
+#
+# 1. **Por TAREA y no por `proveedor × rol`.** Lo que corre no es «el pro de
+#    openai»: es EL ASISTENTE. El user configuró «deepseek · pro» en la pantalla
+#    y el asistente siguió andando con openai, porque nunca le tocaba esa
+#    combinación — un desplegable que no hacía nada y no había forma de saberlo.
+#    Una fila de la pantalla tiene que ser una cosa que corre.
+#
+# 2. **Proveedor y modelo en UN valor, no en dos claves.** Un nombre de modelo
+#    sólo existe para su proveedor: con dos claves separadas se puede guardar
+#    `deepseek` + `gpt-5.6-terra`, que es un pedido que ningún proveedor entiende.
+#    Guardados juntos, esa combinación no se puede ni escribir. Es la REGLA #9:
+#    dos copias de un hecho que va apareado necesitan un árbitro, y la forma más
+#    barata de no necesitarlo es que sean una sola.
+CLAVE_TAREA = "tarea:{tarea}"
+
+
+def _elegido(cfg: dict) -> tuple[str, str] | None:
+    """`(proveedor, modelo)` si hay una elección guardada para esta tarea."""
+    crudo = ajustes().get(CLAVE_TAREA.format(tarea=cfg.get("_tarea", "")))
+    if not crudo or "/" not in crudo:
+        return None
+    prov, _, mod = crudo.partition("/")
+    prov, mod = prov.strip(), mod.strip()
+    # Un proveedor que ya no existe (se renombró, se sacó de la tabla) hace que
+    # la elección entera se ignore y se caiga al default del código. Callarlo
+    # sería mandar la llamada a un lugar que no está declarado en ningún lado.
+    if not mod or prov not in _PROVEEDORES_CONOCIDOS():
+        logger.warning("core.ai: elección guardada inválida para %r: %r — uso el "
+                       "default del código", cfg.get("_tarea"), crudo)
+        return None
+    return prov, mod
+
+
+def _PROVEEDORES_CONOCIDOS() -> set[str]:
+    return set(llm.proveedores())
 
 
 def _proveedor(cfg: dict) -> str:
+    """Hacia qué proveedor sale esta tarea: lo elegido en la tab LAB, y si no
+    hay nada, lo que declara su fila de `_TAREAS`."""
+    elegido = _elegido(cfg)
+    if elegido:
+        return elegido[0]
     return cfg.get("proveedor") or llm.PROVEEDOR_DEFAULT
 
 
-# Cómo se llama en `ia.config` la elección de modelo. ⚠️ La clave lleva el
-# PROVEEDOR adentro, y no es un detalle: un nombre de modelo sólo existe para su
-# proveedor. Con una clave por rol a secas (`modelo_pro`), elegir un modelo de
-# OpenAI en la pantalla le cambiaría el modelo también a `agente_texto`, que
-# corre contra DeepSeek — y ese nombre allá no existe, así que el agente se
-# quedaría sin texto todas las noches por un cambio hecho en otra pantalla.
-CLAVE_MODELO = "modelo:{proveedor}:{tier}"
-
-
 def _modelo(cfg: dict) -> str:
-    """El modelo que le toca a una tarea. El código pide un ROL (`flash`/`pro`)
-    y acá se resuelve a un nombre concreto: primero lo que se haya elegido en la
-    tab LAB (`ia.config`), y si no hay nada, el default de `core/llm.py`."""
-    tier = cfg.get("tier", "flash")
-    prov = _proveedor(cfg)
-    elegido = ajustes().get(CLAVE_MODELO.format(proveedor=prov, tier=tier))
-    return elegido or llm.modelo(tier, prov)
+    """Con qué modelo corre: lo elegido en la tab LAB, y si no hay nada, el que
+    sale del ROL que declara la tarea (`flash`/`pro`) en `core/llm.py`."""
+    elegido = _elegido(cfg)
+    if elegido:
+        return elegido[1]
+    return llm.modelo(cfg.get("tier", "flash"), _proveedor(cfg))
+
+
+def tareas() -> list[str]:
+    """Las tareas declaradas. Sale de `_TAREAS`, no de una lista aparte: una
+    tarea nueva aparece sola en la pantalla del panel."""
+    return sorted(_TAREAS)
+
+
+def ficha_de(tarea: str) -> dict:
+    """Todo lo que la pantalla necesita saber de una tarea, resuelto acá.
+
+    La precedencia (elegido > declarado > default) vive en este archivo y en
+    ningún otro: replicarla en la pantalla daría dos respuestas que se
+    desincronizan, y cuando pase la pantalla mostraría un modelo y el sistema
+    usaría otro, sin que nada falle.
+    """
+    cfg = _config(tarea)
+    elegido = _elegido(cfg)
+    return {
+        "tarea": tarea,
+        "para_que": cfg.get("para_que", ""),
+        "proveedor": _proveedor(cfg),
+        "modelo": _modelo(cfg),
+        # De dónde sale lo de arriba: `elegido` en la pantalla, o el default del
+        # código. Sin esto, «lo configuré» y «viene así de fábrica» se ven igual.
+        "elegido": bool(elegido),
+        "declarado": {"proveedor": cfg.get("proveedor") or llm.PROVEEDOR_DEFAULT,
+                      "tier": cfg.get("tier", "flash")},
+        # ⚠️ Si la tarea PIDE herramientas, el modelo que se elija tiene que
+        # saber pedirlas. Uno que ignora `tools` deja al asistente contestando
+        # de memoria, sin un solo error.
+        "usa_herramientas": bool(cfg.get("usa_herramientas")),
+        "datos_negocio": cfg.get("datos") == "negocio",
+    }
 
 
 def modelo_de(tarea: str) -> str:
-    """Con qué modelo corre HOY una tarea. Lo usa la pantalla del panel para no
-    tener que replicar la precedencia (elección > env > default) por su cuenta:
-    replicarla sería dos versiones de la misma regla sin árbitro."""
+    """Con qué modelo corre HOY una tarea."""
     return _modelo(_config(tarea))
 
 

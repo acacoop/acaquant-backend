@@ -9,9 +9,14 @@ Dos cosas, y ninguna es el ciclo:
      `core/ai.py` lee con precedencia sobre el default del código. Sin deploy y
      sin entrar al Droplet.
 
-⚠️ **EL CÓDIGO PIDE UN ROL, NUNCA UN NOMBRE.** Las tareas declaran `tier:
-flash|pro`; qué modelo cumple cada rol se decide desde la pantalla. Los nombres
-de modelo cambian cada pocos meses y el repo no tiene por qué enterarse.
+⚠️ **UNA FILA DE LA PANTALLA ES UNA TAREA: una cosa que corre.** No «el pro de
+openai» — eso es una abstracción interna, y cuando la pantalla la mostraba el
+user configuró «deepseek · pro» y el asistente siguió andando con openai, sin
+que nada dijera que ese desplegable no hacía nada.
+
+El código declara un default por tarea (`core/ai.py::_TAREAS`); la pantalla lo
+pisa por tarea. Los nombres de modelo cambian cada pocos meses y el repo no
+tiene por qué enterarse: pide una TAREA, nunca un nombre.
 
 Capa pura: sin FastAPI. El router es `api/routers/agente.py`.
 """
@@ -19,22 +24,17 @@ from __future__ import annotations
 
 import logging
 
-from asistente.ciclo import TAREA
 from core import ai, llm
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-# Los dos roles que el código sabe pedir.
-ROLES = ("flash", "pro")
-
 # ⚠️ La clave de la elección la define `core/ai.py`, no este archivo — es él
 # quien la lee para resolver qué modelo usar. Repetir acá el formato serían dos
 # versiones de la misma regla sin árbitro, y el día que difieran la pantalla
 # guardaría en un lugar que el gateway no mira: no falla nada, simplemente no
-# tiene efecto. Lleva el PROVEEDOR adentro porque un nombre de modelo sólo
-# existe para su proveedor.
-CLAVE_MODELO = ai.CLAVE_MODELO
+# tiene efecto.
+CLAVE_TAREA = ai.CLAVE_TAREA
 # Y el precio, para poder mostrar plata. Va en la misma tabla y no en el código
 # porque las tarifas cambian: un precio hardcodeado no falla, miente.
 # Se guarda en USD por MILLÓN de tokens.
@@ -143,19 +143,23 @@ def gasto(dias: int = 30) -> dict:
 # ── CON QUÉ MODELO CORREMOS ─────────────────────────────────────────────────
 
 def modelos() -> dict:
-    """Qué modelo cumple cada rol hoy, y qué ofrece cada proveedor.
+    """Qué corre HOY cada tarea, y qué modelos ofrece cada proveedor.
 
-    La lista sale del proveedor en vivo (`llm.disponibles`).
+    ⚠️⚠️ **UNA FILA POR TAREA, NO POR `proveedor × rol`.** Así estaba antes y
+    era un desplegable que no hacía nada: el user eligió «deepseek · pro» y el
+    asistente siguió andando con openai, porque a esa tarea nunca le tocaba esa
+    combinación. **Una fila de la pantalla tiene que ser una cosa que corre.**
 
-    ⚠️ **UN PROVEEDOR QUE ENTRENA SE PUEDE ELEGIR, PERO SE AVISA.** Hoy
-    `config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA` está en True por decisión del user
-    (ver el motivo entero ahí). Entonces DeepSeek es elegible — y aun así viaja
-    su `aviso`, para que el que lo elige sepa qué está eligiendo. Un permiso que
-    no se explica se vuelve un default que nadie recuerda haber decidido.
+    Cada tarea trae `para_que` en criollo: «asistente» no le dice nada a nadie
+    que no haya escrito `core/ai.py`.
+
+    Lo que corre lo resuelve `ai.ficha_de()`, que aplica la precedencia
+    (elegido > declarado > default). Replicarla acá sería repetir la regla en
+    dos lados, y cuando se desincronicen la pantalla mostraría un modelo y el
+    sistema usaría otro sin que nada falle.
     """
     from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
 
-    aj = ai.ajustes()
     provs = []
     for p in llm.proveedores():
         seguro = llm.no_entrena(p)
@@ -163,30 +167,19 @@ def modelos() -> dict:
             "proveedor": p,
             "configurado": llm.configurado(p),
             "usable": seguro or IA_PERMITE_PROVEEDOR_QUE_ENTRENA,
-            # ⚠️ `aviso` NO es `motivo`: antes decía por qué NO se podía usar;
-            # ahora dice qué implica usarlo. El dato es el mismo y la
-            # consecuencia cambió, así que cambió el nombre — un campo que dice
-            # una cosa y significa otra es cómo se leen mal las pantallas.
+            # ⚠️ `aviso` NO es «no se puede»: dice qué implica usarlo. Un
+            # permiso que no se explica se vuelve un default que nadie recuerda
+            # haber decidido.
             "aviso": None if seguro else (
                 "entrena con lo que se le manda: los datos de las cuentas "
                 "habilitadas pueden quedar en un modelo de un tercero"),
             "modelos": llm.disponibles(p) if llm.configurado(p) else [],
-            "roles": {rol: {
-                "elegido": aj.get(CLAVE_MODELO.format(proveedor=p, tier=rol)),
-                "default": llm.modelo(rol, p),
-            } for rol in ROLES},
         })
-    # Con qué corre HOY el asistente. Sale de `core/ai.py`, que es quien aplica
-    # la precedencia (elección > env > default): replicarla acá sería repetir la
-    # regla en dos lados.
-    return {
-        "proveedores": provs,
-        "asistente": {"tarea": TAREA, "proveedor": ai.proveedor_de(TAREA),
-                      "modelo": ai.modelo_de(TAREA)},
-    }
+    return {"tareas": [ai.ficha_de(t) for t in ai.tareas()], "proveedores": provs}
 
 
-def probar(modelo: str, *, proveedor: str | None = None) -> dict:
+def probar(modelo: str, *, proveedor: str | None = None,
+           exigir_herramienta: bool = True) -> dict:
     """¿Este modelo sabe PEDIR una herramienta? Una llamada mínima y barata.
 
     ⚠️ **POR QUÉ ESTO EXISTE.** La lista del proveedor trae nombres, no
@@ -203,9 +196,14 @@ def probar(modelo: str, *, proveedor: str | None = None) -> dict:
     # un modelo que quieras para esto.
     r = llm.chat(_PRUEBA_MENSAJES, modelo=modelo, max_tokens=64, timeout_s=20,
                  thinking="disabled", proveedor=proveedor,
-                 herramientas=_PRUEBA_HERRAMIENTA)
+                 herramientas=_PRUEBA_HERRAMIENTA if exigir_herramienta else None)
     if not r.ok:
         return {"ok": False, "motivo": f"el proveedor rechazó el modelo: {r.error}"}
+    if not exigir_herramienta:
+        # La tarea no ofrece herramientas: alcanza con que conteste algo.
+        if not (r.texto or "").strip():
+            return {"ok": False, "motivo": "contestó vacío"}
+        return {"ok": True, "contesto": (r.texto or "")[:80]}
     if not r.pedidos:
         return {"ok": False,
                 "motivo": ("contestó sin pedir la herramienta: este modelo ignora "
@@ -214,35 +212,43 @@ def probar(modelo: str, *, proveedor: str | None = None) -> dict:
     return {"ok": True, "pidio": r.pedidos[0].get("nombre")}
 
 
-def elegir_modelo(proveedor: str, rol: str, modelo: str, *, por: str) -> dict:
-    """Deja fijado qué modelo cumple un rol. **Prueba antes de guardar.**
+def elegir_modelo(tarea: str, proveedor: str, modelo: str, *, por: str) -> dict:
+    """Deja fijado con qué proveedor y modelo corre UNA tarea. **Prueba antes
+    de guardar.**
 
-    ⚠️ La prueba NO es un botón que se puede saltear: es parte de guardar. Si el
-    modelo no sabe pedir una herramienta, no se guarda y queda el anterior. Es
-    la misma decisión que con `cuenta` en las herramientas — lo que se puede
-    mover de «acordate de hacerlo» a «no podés no hacerlo», se mueve.
+    ⚠️ La prueba no es un botón que se pueda saltear: vive acá adentro, antes
+    del INSERT. Si el modelo no sirve, no se guarda y queda el anterior. Misma
+    decisión que `cuenta` en las herramientas — lo que se puede mover de
+    «acordate de hacerlo» a «no podés no hacerlo», se mueve.
+
+    Qué se le exige depende de la tarea: si OFRECE herramientas (`asistente`),
+    el modelo tiene que PEDIR una; si no, alcanza con que conteste. Exigirle
+    tool calling a `agente_texto`, que sólo redacta, dejaría afuera modelos
+    perfectamente buenos para eso.
     """
-    if rol not in ROLES:
-        return {"ok": False, "error": f"rol {rol!r} desconocido (hay: {list(ROLES)})"}
+    if tarea not in ai.tareas():
+        return {"ok": False, "error": f"tarea {tarea!r} desconocida (hay: {ai.tareas()})"}
     modelo = str(modelo or "").strip()
     if not modelo:
         return {"ok": False, "error": "falta el nombre del modelo"}
-
     if proveedor not in llm.proveedores():
         return {"ok": False, "error": f"proveedor {proveedor!r} desconocido"}
-    # ⚠️ El MISMO criterio que aplica el gateway en cada llamada, aplicado
-    # también acá y leyendo la MISMA constante: dos reglas para lo mismo se
-    # desincronizan, y el día que pase la pantalla dejaría elegir algo que
-    # después el gateway rechaza en cada pregunta, sin que nadie entienda por qué.
+
+    ficha = ai.ficha_de(tarea)
+    # ⚠️ El MISMO criterio que aplica el gateway en cada llamada, leyendo la
+    # MISMA constante: con dos reglas para lo mismo, la pantalla dejaría elegir
+    # algo que el gateway después rechaza en cada pregunta, sin que nadie
+    # entienda por qué.
     from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
 
-    if not llm.no_entrena(proveedor) and not IA_PERMITE_PROVEEDOR_QUE_ENTRENA:
+    if (ficha["datos_negocio"] and not llm.no_entrena(proveedor)
+            and not IA_PERMITE_PROVEEDOR_QUE_ENTRENA):
         return {"ok": False, "error": (
-            f"{proveedor} puede entrenar con lo que se le manda: no puede correr "
-            "tareas que ven datos del negocio "
-            "(config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA)")}
+            f"{proveedor} puede entrenar con lo que se le manda y «{tarea}» ve "
+            "datos del negocio (config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA)")}
 
-    prueba = probar(modelo, proveedor=proveedor)
+    prueba = probar(modelo, proveedor=proveedor,
+                    exigir_herramienta=ficha["usa_herramientas"])
     if not prueba["ok"]:
         return {"ok": False, "error": prueba["motivo"], "probado": modelo,
                 "guardado": False}
@@ -252,14 +258,33 @@ def elegir_modelo(proveedor: str, rol: str, modelo: str, *, por: str) -> dict:
                 "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s) "
                 "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
                 "  updated_at = now(), updated_by = EXCLUDED.updated_by",
-                (CLAVE_MODELO.format(proveedor=proveedor, tier=rol), modelo, por))
+                (CLAVE_TAREA.format(tarea=tarea), f"{proveedor}/{modelo}", por))
     except Exception as e:
         return {"ok": False, "error": f"no pude guardar: {type(e).__name__}: {e}"}
     # El caché de ajustes vive 60 s: sin esto el cambio no se vería hasta que
     # venza, y parecería que no se guardó.
     ai.olvidar_ajustes()
-    return {"ok": True, "proveedor": proveedor, "rol": rol, "modelo": modelo,
+    return {"ok": True, "tarea": tarea, "proveedor": proveedor, "modelo": modelo,
             "guardado": True}
+
+
+def volver_al_default(tarea: str, *, por: str) -> dict:
+    """Borra la elección de una tarea: vuelve a lo que declara `core/ai.py`.
+
+    Existe porque «elegí mal y quiero deshacerlo» no se resuelve eligiendo otra
+    cosa: se resuelve sacando la elección. Sin esto, una fila de `ia.config`
+    puesta una vez se queda para siempre.
+    """
+    if tarea not in ai.tareas():
+        return {"ok": False, "error": f"tarea {tarea!r} desconocida"}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ia.config WHERE clave = %s",
+                        (CLAVE_TAREA.format(tarea=tarea),))
+    except Exception as e:
+        return {"ok": False, "error": f"no pude borrar: {type(e).__name__}: {e}"}
+    ai.olvidar_ajustes()
+    return {"ok": True, "tarea": tarea, **ai.ficha_de(tarea)}
 
 
 def poner_precio(modelo: str, *, entrada: float, salida: float, por: str) -> dict:

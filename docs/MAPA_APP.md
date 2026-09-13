@@ -2331,7 +2331,7 @@ nadie lo miraba.
 > |---|---|
 > | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
 > | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas`, el **hit rate del caché**, y qué modelo cumple cada rol en cada proveedor (lista pedida al proveedor en vivo) |
-> | `POST /api/agente/lab/modelo` | fija qué modelo cumple un rol. ⚠️ **Prueba antes de guardar**: le da una herramienta de mentira y mira si la pide. Un modelo que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
+> | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo (USD por millón de tokens), para ver plata y no sólo tokens |
 >
 > **El control determinístico** (`asistente/control.py`): antes de devolver la
@@ -2345,11 +2345,19 @@ nadie lo miraba.
 > que el modelo sumaba los totales por mes a mano — y la respuesta no fue
 > aflojar el control, fue darle `por_mes` agregado en SQL.
 >
-> ⚠️ **La elección se guarda POR PROVEEDOR** (`modelo:{proveedor}:{tier}` en
-> `ia.config`). Con una clave por rol a secas, elegir un modelo de OpenAI le
-> cambiaba el modelo también a `agente_texto`, que corre contra DeepSeek: ese
-> nombre allá no existe y el agente se quedaba sin texto todas las noches, por
-> un cambio hecho en otra pantalla.
+> ⚠️⚠️ **LA ELECCIÓN SE GUARDA POR TAREA** (`tarea:<tarea>` → `proveedor/modelo`
+> en `ia.config`), y las dos partes de esa frase salieron de equivocarse:
+>
+> · **Por TAREA y no por `proveedor × rol`.** Lo que corre no es «el pro de
+>   openai»: es EL ASISTENTE. Con la clave por rol, el user configuró
+>   «deepseek · pro» en la pantalla y el asistente siguió andando con openai,
+>   porque a esa tarea nunca le tocaba esa combinación — un desplegable que no
+>   hacía nada y no había forma de saberlo. Una fila de la pantalla tiene que
+>   ser una cosa que corre.
+>
+> · **Proveedor y modelo en UN valor.** Un nombre de modelo sólo existe para su
+>   proveedor: con dos claves se puede guardar `deepseek` + `gpt-5.6-terra`, un
+>   pedido que ningún proveedor entiende. Juntos, no se puede ni escribir.
 >
 > Síncrono a propósito y medido: una pregunta con una herramienta tarda 4,5 s, y
 > el peor caso (6 vueltas, el techo declarado en `ciclo.MAX_VUELTAS`) queda por

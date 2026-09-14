@@ -75,6 +75,7 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
         return {"fecha": None, "filas": [], "total_filas": 0, "cuentas": 0,
                 "sin_asset": 0, "trabado": 0, "difieren": 0, "sin_comparar": 0,
                 "truncado": False, "actualizado_at": None, "fecha_aunesa": None,
+                "actualizado_aunesa": None,
                 "estados": [],
                 "aviso": "todavía no entró ninguna foto de la Caja de Valores"}
 
@@ -92,7 +93,7 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
         )
         SELECT b.id_cuenta, cu.denominacion, b.cvsa_id, b.unidad, a.ticker,
                b.estados, b.vn_byma, b.trabado, b.actualizado_at,
-               t.cantidad, t.gar_cantidad, t.fecha
+               t.cantidad, t.gar_cantidad, t.fecha, t.actualizado_at AS act_aunesa
           FROM byma b
           LEFT JOIN clientes.cuentas   cu ON cu.id_cuenta = b.id_cuenta
           LEFT JOIN portafolio.assets   a ON a.unidad     = b.unidad
@@ -115,13 +116,14 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
     cuentas: set[str] = set()
     por_estado: dict[str, int] = {}
     sin_asset = difieren = sin_comparar = 0
-    trabado_total = 0.0
+    trabado_filas = 0
     ultimo = None
     fecha_aunesa = None
+    ultimo_aunesa = None
 
     for r in crudas:
         (cta, denom, cvsa_id, unidad, ticker, estados,
-         vn_byma, trabado, act, cant, gar, f_aun) = r
+         vn_byma, trabado, act, cant, gar, f_aun, act_aun) = r
 
         vn_byma = float(vn_byma or 0)
         trabado = float(trabado or 0)
@@ -142,11 +144,18 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
         for e in (estados or "").split(" · "):
             if e:
                 por_estado[e] = por_estado.get(e, 0) + 1
-        trabado_total += trabado
+        # CUENTA DE FILAS, no suma de nominales: el chip que lo muestra está al
+        # lado de los de estado, que cuentan filas. Un total en nominales ahí
+        # se lee como si fueran filas y no significa nada sumado entre papeles
+        # distintos (¿mil bonos más mil acciones son dos mil qué?).
+        if trabado:
+            trabado_filas += 1
         if ultimo is None or (act and act > ultimo):
             ultimo = act
         if f_aun and (fecha_aunesa is None or f_aun > fecha_aunesa):
             fecha_aunesa = f_aun
+        if act_aun and (ultimo_aunesa is None or act_aun > ultimo_aunesa):
+            ultimo_aunesa = act_aun
 
         filas.append({
             "id_cuenta": cta, "cuenta": denom, "cvsa_id": cvsa_id,
@@ -166,11 +175,12 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
         # La fecha de la OTRA foto. Si no coinciden, la comparación mezcla dos
         # momentos y la pantalla tiene que poder decirlo.
         "fecha_aunesa": fecha_aunesa.isoformat() if fecha_aunesa else None,
+        "actualizado_aunesa": ultimo_aunesa.isoformat() if ultimo_aunesa else None,
         "filas": filas,
         "total_filas": len(filas),
         "cuentas": len(cuentas),
         "sin_asset": sin_asset,
-        "trabado": round(trabado_total, 2),
+        "trabado": trabado_filas,
         "difieren": difieren,
         "sin_comparar": sin_comparar,
         "truncado": len(filas) >= LIMITE_FILAS,

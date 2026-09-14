@@ -440,6 +440,26 @@ def tenencia_actual(cuenta: str, horizonte: str = "t1") -> dict:
         } for p in filas[:MAX_POSICIONES]],
         "cuantas": len(filas),
         "truncado": len(filas) > MAX_POSICIONES,
+        # ⚠️⚠️ **LA HERRAMIENTA DECLARA SU TABLA, Y NO LA ELIGE EL MODELO.**
+        #
+        # Hubo una versión donde el modelo nombraba qué dibujar; con tres campos
+        # disponibles nombró los tres y contestó «¿cuánto tengo?» con tres
+        # tablas del mismo total. Acá no hay nada que elegir: una tenencia SON
+        # posiciones, y las posiciones SON esa tabla.
+        #
+        # Las claves con `_` no viajan al modelo (las saca `ciclo._para_el_modelo`):
+        # son para la pantalla, y él no paga tokens por ellas ni puede
+        # confundirse con un campo que no es un dato.
+        #
+        # El front la dibuja leyendo el MISMO objeto que leyó el modelo, así que
+        # no re-tipea un solo número — y una herramienta nueva declara la suya
+        # sin que el front cambie una línea.
+        "_tabla": {
+            "campo": "posiciones",
+            "columnas": ["ticker", "emisor", "cantidad", "valuacion", "share"],
+            "total": "total",
+            "moneda": "ARS",
+        },
     }
 
 

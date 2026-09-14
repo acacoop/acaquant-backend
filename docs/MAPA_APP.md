@@ -2321,6 +2321,8 @@ nadie lo miraba.
 >
 > ⚠️ **Las dos herramientas se parecen y el modelo tiene que elegir**, así que cada docstring dice cuál es la OTRA: «esto es lo que tenés, no lo que vas a cobrar» y al revés. No es redundancia — ya pasó que `bonos_que_vencen` le ganara al docstring por el nombre.
 >
+> ⚠️ **LA TABLA LA DECLARA LA HERRAMIENTA, NO LA ELIGE EL MODELO.** El resultado de `tenencia_actual` trae `_tabla` —qué campo suyo es una lista de filas, con qué columnas y cuál es su total— y la pantalla la dibuja leyendo **ese mismo objeto**, así que el modelo no re-tipea un número. Las claves que empiezan con `_` NO viajan al modelo (`ciclo._para_el_modelo`): son instrucción de pantalla, no dato. Hubo una versión donde el modelo NOMBRABA qué dibujar (campo `mostrar` del esquema) y, con tres campos disponibles, nombró los tres: «¿cuánto cobro?» se contestaba con tres tablas del mismo total. La diferencia no es el tope — es que acá **no hay nada que elegir**: una tenencia SON posiciones. `cobros_futuros` no declara tabla y sigue contestando en prosa.
+>
 > ⚠️ **`tenencia_actual` NO escribe SQL, y eso abre un agujero que hubo que tapar aparte.** `posiciones_actuales` no conoce las cuentas habilitadas (su control de acceso vive en el router de `/api/valuaciones`), y el test que congela «todo SELECT lleva `FILTRO_SQL`» pasa sin mirar nada cuando no hay SELECT. La pared es una validación explícita contra `permitido.cuentas()` antes de llamar al service, congelada por `test_toda_herramienta_con_cuenta_valida_contra_el_permiso`. **`con_pnl` va apagado**: cuesta una corrida del motor y «qué tengo» no necesita el cost-basis.
 >
 > ⚠️ `cuenta` **no tiene default**, así que la ficha la marca `required` y el

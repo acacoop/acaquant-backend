@@ -1248,3 +1248,53 @@ def test_un_docstring_dice_QUE_HACE_la_herramienta_y_NUNCA_como_contestar():
                 f"`{fn.__name__}` le dice al modelo CÓMO contestar ({frase!r}): "
                 "eso manda en las respuestas de TODAS las herramientas. Va en "
                 "`ciclo.SYSTEM`, una sola vez")
+
+
+# ── LA TABLA: LA DECLARA LA HERRAMIENTA, NO LA ELIGE EL MODELO ──────────────
+
+
+def test_lo_que_empieza_con_guion_bajo_NO_viaja_al_modelo():
+    """`_tabla` es una instrucción de PANTALLA, no un dato. Mandársela sería
+    pagar tokens por algo que el modelo no puede usar, y darle un campo más
+    donde buscar un número que no está ahí. El front sí la recibe entera, por
+    el evento `resultado`."""
+    from asistente import ciclo
+
+    r = {"total": 1, "posiciones": [{"a": 1}], "_tabla": {"campo": "posiciones"}}
+    assert ciclo._para_el_modelo(r) == {"total": 1, "posiciones": [{"a": 1}]}
+    # No se rompe con lo que no es un dict (un error de herramienta, por caso).
+    assert ciclo._para_el_modelo("texto") == "texto"
+
+
+def test_la_tabla_la_declara_la_HERRAMIENTA_y_el_modelo_no_elige():
+    """⚠️⚠️ **LA DIFERENCIA CON LA VERSIÓN QUE FALLÓ.**
+
+    Hubo un campo `mostrar` donde el modelo nombraba qué dibujar. Con tres
+    campos disponibles nombró los tres, y «¿cuánto tengo?» se contestó con tres
+    tablas del mismo total.
+
+    Acá no hay nada que elegir: una tenencia SON posiciones. La tabla existe
+    porque la herramienta dice que existe, y el esquema de la respuesta no tiene
+    ningún campo para pedir tablas — si vuelve, este test se pone rojo.
+    """
+    from asistente import esquema as ESQ
+    from asistente import herramientas as H
+
+    assert '"_tabla"' in _codigo("tenencia_actual")
+    assert set(ESQ.FORMATO["json_schema"]["schema"]["properties"]) == {"respuesta", "falta"}
+    # Y `cobros_futuros` NO declara tabla: sigue contestando en prosa.
+    assert "_tabla" not in _codigo("cobros_futuros")
+    assert set(H.POR_NOMBRE) >= {"cobros_futuros", "tenencia_actual"}
+
+
+def test_las_columnas_declaradas_EXISTEN_en_las_filas():
+    """⚠️ Una columna mal escrita no falla: dibuja una columna vacía, y una
+    tenencia con la valuación en blanco se lee como «no tiene». Las columnas y
+    las claves de las filas se escriben en la misma función, a diez líneas de
+    distancia, así que separarse es cuestión de un renombre."""
+    cuerpo = _codigo("tenencia_actual")
+    declaradas = ["ticker", "emisor", "cantidad", "valuacion", "share"]
+    for col in declaradas:
+        assert f'"{col}":' in cuerpo, (
+            f"la tabla declara la columna {col!r} y las filas no la traen")
+    assert '"total"' in cuerpo, "la tabla declara un total que el resultado no tiene"

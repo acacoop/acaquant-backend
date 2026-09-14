@@ -219,6 +219,9 @@ moneda, decila una vez y no en cada renglón.
 
 Cuando enumeres, un renglón corto por ítem: lo que contesta la pregunta y nada
 más. No repitas en cada renglón lo que ya dijiste arriba.
+
+Si un resultado trae una tabla, la dibuja la pantalla: no la enumeres vos.
+Contestá en una o dos frases y dejá que la tabla hable.
 """
 
 
@@ -251,6 +254,23 @@ def _ejecutar(pedido: dict) -> dict:
     except Exception as e:
         logger.warning("asistente: %s reventó (%s)", nombre, e)
         return {"error": f"la herramienta falló: {type(e).__name__}: {e}"}
+
+
+def _para_el_modelo(resultado):
+    """El resultado SIN las claves que empiezan con `_`.
+
+    ── SU ROL: separar lo que es DATO de lo que es INSTRUCCIÓN DE PANTALLA ──
+
+    Una herramienta puede declarar cómo se dibuja lo que devuelve (hoy `_tabla`:
+    qué campo es una tabla y con qué columnas). Eso es para el front, no para el
+    modelo: mandárselo sería pagar tokens por algo que no puede usar, y darle un
+    campo más donde confundirse buscando un dato.
+
+    El front SÍ lo recibe: viaja en el evento `resultado`, que va entero.
+    """
+    if not isinstance(resultado, dict):
+        return resultado
+    return {k: v for k, v in resultado.items() if not str(k).startswith("_")}
 
 
 def preguntar(
@@ -351,7 +371,7 @@ def preguntar(
             mensajes.append({
                 "role": "tool",
                 "tool_call_id": p.get("id"),
-                "content": json.dumps(resultado, ensure_ascii=False,
+                "content": json.dumps(_para_el_modelo(resultado), ensure_ascii=False,
                                       default=str)[:MAX_RESULTADO_CHARS],
             })
         # ── PASO 4: y se vuelve a empezar.

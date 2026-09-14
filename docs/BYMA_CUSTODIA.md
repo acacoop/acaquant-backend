@@ -108,12 +108,30 @@ una por cada cuenta que participa. Medido contra producción:
 
 No son dos movimientos: es **uno con dos patas**. De ahí salen dos decisiones:
 
-- **`instructionReference` NO puede ser la PK.** Con esa clave se pierde una de
-  las dos patas en silencio — el peor error posible: no falla nada y el número
-  queda mal. La PK vive hoy en las cinco columnas candidatas y el ingest **mide**
-  en cada lote cuántas combinaciones distintas hay para cada candidata
-  (`custodia_escritura.contar_claves`, campo `claves` de la respuesta). Se
-  angosta con el número real, no antes (REGLA #2).
+- **`instructionReference` NO puede ser la PK**, y las cinco columnas **hacen
+  falta**. Medido sobre el primer lote real (116 filas, 87 referencias):
+
+  | Clave candidata | Combinaciones | |
+  |---|---|---|
+  | `referencia` | 87 | pierde 29 filas |
+  | `referencia + cuenta` | 106 | pierde 10 |
+  | `referencia + cuenta + instrumento` | 106 | el papel no aporta nada |
+  | `+ sub_balance_type` | **116** | ✅ la única que conserva todo |
+
+  O sea: hay **10 filas donde la misma cuenta liquida el mismo papel repartido en
+  dos sub-balances** (parte disponible, parte trabado) — igual que en tenencias.
+  Angostar la clave por el camino que parecía obvio (`referencia + cuenta`)
+  habría borrado esas 10 en silencio. El ingest sigue midiendo cada lote
+  (`custodia_escritura.contar_claves`, campo `claves` de la respuesta): si
+  apareciera una combinación que ni esta clave separa, se ve en el acto.
+
+- **Un movimiento puede tener MÁS DE DOS PATAS** — consecuencia directa de lo
+  anterior, y la primera versión del plegado lo hacía mal: tomaba el volumen de
+  la PRIMERA pata, así que esos 10 movimientos mostraban un nominal **parcial**,
+  más chico que el real, sin que nada fallara. Ahora el nominal se **acumula por
+  lado** (`_entra` / `_sale`) y el mayor de los dos es el movimiento. Si de un
+  lado hubiera dos cuentas distintas, la pantalla dice `"N cuentas"` en vez de
+  elegir una al azar. Congelado por test.
 - **La tabla guarda patas; la pantalla muestra movimientos.** El plegado (dos
   patas → una fila `entrega → recibe`) lo hace `custodia_sql._plegar`, en el
   backend: el front de esta app no deriva ni suma nada. Un movimiento contra un

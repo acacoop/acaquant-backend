@@ -279,3 +279,50 @@ def test_una_pata_sola_no_es_un_descalce():
     m = out["movimientos"][0]
     assert m["patas"] == 1 and m["descalce"] is False
     assert out["sin_par"] == 1, "se cuenta aparte para que la pantalla lo pueda decir"
+
+
+def test_tres_patas_no_muestran_un_nominal_PARCIAL():
+    """MEDIDO en el primer lote real: 116 filas, 106 combinaciones distintas de
+    `referencia+cuenta+instrumento`. O sea **10 filas donde la misma cuenta
+    liquida el mismo papel repartido en dos sub-balances**.
+
+    La primera versión tomaba el volumen de la PRIMERA pata: esos movimientos
+    habrían mostrado un nominal más chico que el real, sin que nada fallara.
+    """
+    from datetime import date as _d
+
+    f = _d(2026, 4, 10)
+    patas = [
+        # Una cuenta entrega 100; la otra los recibe partidos en dos sub-balances.
+        (f, "REF3", "3", "5921", "AL30", "AVAILABLE", -100.0, -1000.0,
+         "ARS", "0", None, None, None, None, "today", None),
+        (f, "REF3", "600613", "5921", "AL30", "AVAILABLE", 60.0, 600.0,
+         "ARS", "0", None, None, None, None, "today", None),
+        (f, "REF3", "600613", "5921", "AL30", "BLOCKED_FOR_PLEDGE", 40.0, 400.0,
+         "ARS", "0", None, None, None, None, "today", None),
+    ]
+    m = cs._plegar(patas, fecha=f, dias=1)["movimientos"][0]
+    assert m["patas"] == 3
+    assert m["volumen"] == 100.0, "el nominal es el TOTAL del lado, no el de una pata"
+    assert m["monto"] == 1000.0
+    assert m["entrega"] == "3"
+    assert m["recibe"] == "600613", "las dos patas son de la MISMA cuenta: no se duplica"
+    assert m["descalce"] is False, "netea a cero aunque sean tres patas"
+
+
+def test_dos_cuentas_de_un_mismo_lado_se_DICEN_no_se_eligen():
+    """Mostrar una al azar sería contestar seguro con media verdad."""
+    from datetime import date as _d
+
+    f = _d(2026, 4, 10)
+    patas = [
+        (f, "REF4", "3", "5921", "AL30", "AVAILABLE", -70.0, None,
+         "ARS", "0", None, None, None, None, "today", None),
+        (f, "REF4", "9", "5921", "AL30", "AVAILABLE", -30.0, None,
+         "ARS", "0", None, None, None, None, "today", None),
+        (f, "REF4", "600613", "5921", "AL30", "AVAILABLE", 100.0, None,
+         "ARS", "0", None, None, None, None, "today", None),
+    ]
+    m = cs._plegar(patas, fecha=f, dias=1)["movimientos"][0]
+    assert m["entrega"] == "2 cuentas"
+    assert m["volumen"] == 100.0

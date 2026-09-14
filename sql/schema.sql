@@ -1664,12 +1664,17 @@ CREATE INDEX IF NOT EXISTS ix_custodia_trabado
 -- NO puede ser la PK — con esa clave se pierde una de las dos patas en silencio,
 -- que es el peor error posible: no falla nada y el número queda mal.
 --
--- ⚠️ LA PK ES PROVISORIA (REGLA #2). Sabemos que `(fecha, referencia)` no
--- alcanza; NO sabemos si una misma referencia puede tocar la misma cuenta dos
--- veces con distinto `sub_balance_type`. Por eso la clave incluye hoy las cinco
--- columnas candidatas y el ingest MIDE en cada lote cuántas combinaciones
--- distintas hay para cada candidata (`custodia_escritura.contar_claves`). Con el
--- número real en la mano se angosta. Angostarla antes es adivinar.
+-- ⚠️ LA PK ESTÁ MEDIDA, NO SUPUESTA (REGLA #2), y las cinco columnas HACEN FALTA.
+-- Primer lote real, 116 filas:
+--     referencia sola ................................  87   pierde 29 filas
+--     referencia + cuenta ............................ 106   pierde 10
+--     referencia + cuenta + instrumento .............. 106   el papel no aporta
+--     referencia + cuenta + instrumento + sub_balance  116   ✅
+-- O sea: hay 10 filas donde la MISMA cuenta liquida el MISMO papel repartido en
+-- DOS sub-balances (parte disponible, parte trabado). Angostar la clave por el
+-- camino "obvio" —referencia + cuenta— habría borrado esas 10 en silencio.
+-- El ingest sigue midiendo cada lote (`custodia_escritura.contar_claves`): si
+-- algún día aparece una combinación que ni esta clave separa, se ve en el acto.
 --
 -- Las tres fuentes traen DISTINTA cantidad de columnas (9 / 11 / 13). Las que un
 -- método no trae quedan NULL y el UPSERT **no las pisa** (`COALESCE`): el POST

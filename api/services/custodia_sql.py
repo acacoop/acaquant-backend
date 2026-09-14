@@ -277,6 +277,14 @@ def _fecha_movimientos(cur, fecha: str | date | None) -> date | None:
     return fila[0] if fila else None
 
 
+def _una_cuenta(ctas: set) -> str | None:
+    """La cuenta de ese lado. `None` si no hay pata nuestra; si hubiera más de
+    una cuenta, lo DICE en vez de elegir una al azar."""
+    if not ctas:
+        return None
+    return next(iter(ctas)) if len(ctas) == 1 else f"{len(ctas)} cuentas"
+
+
 def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
     """Agrupa las patas por `(fecha, referencia)` en un movimiento cada una.
 
@@ -287,6 +295,15 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
     ⚠️ `sin_par` NO es un error: un movimiento contra una cuenta de otro agente
     solo tiene UNA pata nuestra. Se cuenta para que la pantalla lo pueda mostrar
     tal cual, en vez de aparentar una partida rota.
+
+    ⚠️ **UN MOVIMIENTO PUEDE TENER MÁS DE DOS PATAS, y está MEDIDO.** El primer
+    lote real (116 filas, 87 referencias) dio 106 combinaciones distintas de
+    `referencia+cuenta+instrumento` y 116 sumando `sub_balance_type`: o sea **10
+    filas donde la MISMA cuenta liquida el MISMO papel repartido en dos
+    sub-balances** (igual que en tenencias, parte AVAILABLE y parte trabado).
+    Por eso el volumen del movimiento se ACUMULA por lado (`entra` / `sale`) y no
+    se toma de la primera pata: tomándola, esos 10 movimientos mostrarían un
+    nominal PARCIAL —más chico que el real— sin que nada falle.
     """
     grupos: dict[tuple, dict] = {}
     sin_asset = 0
@@ -321,6 +338,10 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
                 "contraparte_cta": cparte_cta,
                 "patas": 0,
                 "neto": 0.0,           # tiene que dar 0 si las dos patas están
+                # Acumuladores por lado. Privados: se resuelven al cerrar.
+                "_entra": 0.0, "_sale": 0.0,
+                "_monto_entra": 0.0, "_monto_sale": 0.0,
+                "_ctas_entrega": set(), "_ctas_recibe": set(),
             }
         # Lo que solo trae un método no puede quedar afuera por el orden de las
         # patas: se completa con lo primero que no sea None.
@@ -334,14 +355,17 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
         v = None if vol is None else float(vol)
         if v is not None:
             g["neto"] += v
-            if g["volumen"] is None:
-                g["volumen"] = abs(v)
+            # El signo ES el dato: sale la cuenta con volumen < 0, entra la de > 0.
             if v < 0:
-                g["entrega"] = cta
+                g["_sale"] += -v
+                g["_ctas_entrega"].add(cta)
+                if monto is not None:
+                    g["_monto_sale"] += abs(float(monto))
             elif v > 0:
-                g["recibe"] = cta
-        if monto is not None and g["monto"] is None:
-            g["monto"] = abs(float(monto))
+                g["_entra"] += v
+                g["_ctas_recibe"].add(cta)
+                if monto is not None:
+                    g["_monto_entra"] += abs(float(monto))
         if sub:
             por_estado[sub] = por_estado.get(sub, 0) + 1
 
@@ -351,6 +375,16 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
         # deja residuos de 1e-9 que no son un descalce.
         m["neto"] = round(m["neto"], 6)
         m["descalce"] = m["patas"] > 1 and abs(m["neto"]) > 1e-6
+        # El nominal del movimiento es el TOTAL de un lado, no el de una pata.
+        # Con las dos puntas nuestras `entra == sale`; con una sola, el lado que
+        # exista es el movimiento entero.
+        m["volumen"] = round(max(m.pop("_entra"), m.pop("_sale")), 6) or None
+        m["monto"] = round(max(m.pop("_monto_entra"), m.pop("_monto_sale")), 6) or None
+        # Con el papel repartido en dos sub-balances, las dos patas son de la
+        # MISMA cuenta y el set colapsa solo. Si de verdad hubiera dos cuentas de
+        # un lado, decirlo es más honesto que mostrar una al azar.
+        m["entrega"] = _una_cuenta(m.pop("_ctas_entrega"))
+        m["recibe"] = _una_cuenta(m.pop("_ctas_recibe"))
 
     return {
         "fecha": fecha.isoformat(),

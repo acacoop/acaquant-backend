@@ -53,6 +53,7 @@ HERRAMIENTAS: dict[str, str] = {
                              "abierto y alimenta /api/ingest/eikon/*. Sin esto la tab REUTERS no tiene datos.",
     "ext_ver":               "inspector de la API externa (/ext): qué ve un accionista con SU token.",
     # contratos y auditoría (dan un veredicto, no una opinión)
+    "diag_herramienta":      "corre UNA herramienta del asistente SIN el modelo y muestra el JSON\n                             exacto que recibiría, su peso en tokens y cuánto tardó. Separa «el dato\n                             está mal» de «el modelo lo usó mal», que sin esto se adivinan.",
     "asistente":             "la terminal del ASISTENTE conversacional (`asistente/ciclo.py`) desde el "
                              "Droplet: misma pregunta, mismas herramientas y mismo ciclo que la tab "
                              "LAB, pero mostrando cada paso. Es como se prueba un cambio del ciclo "

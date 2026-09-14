@@ -2344,6 +2344,18 @@ nadie lo miraba.
 > | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo: **TRES precios** (entrada · entrada cacheada · salida) en USD por millón, y van en un solo valor. El del caché es el que más cambia el total — esa entrada cuesta una fracción (en `gpt-5.6-luna`, 10× menos), así que cobrar todo a precio de entrada infla la factura justo en la parte que el diseño viene optimizando |
 >
+> **LA PODA** (`ciclo._podar`, §0.fk): la conversación no crece sin límite.
+> Antes de empezar se conservan los últimos `TURNOS_QUE_QUEDAN` turnos completos
+> (de `user` a `user`) y nunca más de `MENSAJES_QUE_QUEDAN` mensajes (un turno
+> no tiene tamaño fijo: el modelo puede pedir varias herramientas en una
+> vuelta), tirando turnos enteros; después `_achicar` baja el peso de lo que
+> quedó. **Por turnos, nunca por mensajes sueltos**: un `tool` sin el
+> `assistant` que lo pidió hace que el proveedor rechace la llamada entera. La respuesta
+> devuelve el historial ya podado, así que el navegador nunca acumula más que
+> eso, y el tope del router (600) pasa a ser de sanidad. Antes era 60 sin poda:
+> a la pregunta 15 el request volvía 422 y la charla moría sin explicación.
+> Podar es seguro recién desde que el foco vive en `estado`, aparte del historial.
+>
 > **EL ESTADO** (`asistente/estado.py`, §0.fj): lo que el asistente SABE de la
 > conversación, aparte de lo que se DIJO. Hoy una clave: la `cuenta` de la que
 > se viene hablando. Viaja ida y vuelta con el historial pero **aparte de él**:

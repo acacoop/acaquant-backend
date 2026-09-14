@@ -1566,3 +1566,96 @@ def test_el_estado_INFORMA_al_modelo_y_no_le_completa_la_cuenta_a_la_herramienta
         p = inspect.signature(fn).parameters.get("cuenta")
         assert p is not None and p.default is inspect._empty, (
             f"`{fn.__name__}`: `cuenta` volvió a tener default")
+
+
+# ── LA PODA: la conversación no crece sin límite ────────────────────────────
+
+
+def test_se_poda_por_TURNOS_y_nunca_queda_un_resultado_huerfano():
+    """⚠️⚠️ **LO QUE ROMPE LA LLAMADA ENTERA.** Un `tool` sin el `assistant`
+    con `tool_calls` que lo pidió hace que el proveedor rechace la conversación
+    completa. Se poda por turnos (de `user` a `user`): un pedido y su resultado
+    viven o mueren juntos. Y lo que queda empieza siempre por una pregunta."""
+    from unittest.mock import patch
+
+    from asistente import ciclo
+
+    hist = _charla() * 6  # 12 turnos de 4 mensajes
+    with patch.object(ciclo, "TURNOS_QUE_QUEDAN", 3):
+        nuevo, turnos, msgs = ciclo._podar(hist)
+    assert (turnos, msgs) == (9, 36)
+    assert len(nuevo) == 12 and nuevo[0]["role"] == "user"
+    pedidos = {p["id"] for m in nuevo for p in m.get("tool_calls") or []}
+    for m in nuevo:
+        if m.get("role") == "tool":
+            assert m["tool_call_id"] in pedidos, "quedó un resultado sin su pedido"
+    # Con menos turnos que el tope no se toca nada.
+    assert ciclo._podar(_charla()) == (_charla(), 0, 0)
+    assert ciclo._podar([]) == ([], 0, 0)
+    # Lo que cuelga antes del primer `user` se tira entero.
+    assert ciclo._podar([{"role": "assistant", "content": "x"}] + _charla()) == (_charla(), 0, 1)
+
+
+def test_un_turno_no_tiene_tamano_fijo_y_por_eso_hay_techo_de_MENSAJES():
+    """⚠️ El modelo puede pedir varias herramientas en UNA vuelta: un turno de
+    cuatro mensajes es lo normal, no una garantía. Si N turnos igual se pasan
+    del techo, se tiran turnos enteros —el más viejo primero— hasta entrar.
+    El más reciente queda siempre. Así lo que se devuelve nunca supera el
+    techo pase lo que pase adentro de un turno, y el router puede confiar."""
+    from unittest.mock import patch
+
+    from asistente import ciclo
+
+    def turno_gordo(n_tools: int) -> list[dict]:
+        pedido = {"role": "assistant", "content": None, "tool_calls": [
+            {"id": f"g{i}", "type": "function",
+             "function": {"name": "tenencia_actual", "arguments": "{}"}} for i in range(n_tools)]}
+        return ([{"role": "user", "content": "todo"}, pedido]
+                + [{"role": "tool", "tool_call_id": f"g{i}", "content": "{}"} for i in range(n_tools)]
+                + [{"role": "assistant", "content": "listo"}])
+
+    hist = turno_gordo(10) * 5  # 5 turnos de 13 mensajes = 65
+    with patch.object(ciclo, "TURNOS_QUE_QUEDAN", 8), patch.object(ciclo, "MENSAJES_QUE_QUEDAN", 30):
+        nuevo, turnos, msgs = ciclo._podar(hist)
+    assert len(nuevo) == 26 and (turnos, msgs) == (3, 39)
+    assert nuevo[0]["role"] == "user" and nuevo[2]["role"] == "tool"
+    # Un solo turno que él solo supere el techo queda igual: no se parte.
+    with patch.object(ciclo, "MENSAJES_QUE_QUEDAN", 5):
+        nuevo, turnos, msgs = ciclo._podar(turno_gordo(10))
+    assert len(nuevo) == 13 and (turnos, msgs) == (0, 0)
+
+
+def test_la_respuesta_devuelve_el_historial_YA_podado():
+    """Así el navegador nunca acumula más de N turnos: lo que manda de vuelta es
+    lo que recibió. El tope del router pasa a ser de sanidad, no el límite real
+    de la charla — antes, a la pregunta 15, era un 422 sin explicación."""
+    from unittest.mock import patch
+
+    from api.routers import agente as R
+    from asistente import ciclo
+    from core import llm
+
+    eventos: list[dict] = []
+    with patch.object(ciclo.ai, "conversar",
+                      lambda *a, **k: (llm.RespuestaLLM(ok=True, texto="ok"), 1)), \
+         patch.object(ciclo.H, "cuentas_disponibles", return_value={"cuentas": [], "cuantas": 0}), \
+         patch.object(ciclo, "TURNOS_QUE_QUEDAN", 2):
+        r = ciclo.preguntar("otra", usuario="t", historial=_charla() * 10,
+                            ver=eventos.append)
+    # 2 turnos viejos + el de esta pregunta (user + assistant).
+    assert sum(1 for m in r["mensajes"] if m["role"] == "user") == 3
+    assert {"tipo": "podado", "turnos": 18, "mensajes": 72} in eventos
+    # El router acepta lo que una charla larga puede llegar a mandar.
+    R.Preguntar(pregunta="x", historial=_charla() * 25)
+    assert R.Preguntar.model_fields["historial"].metadata, "el tope de sanidad tiene que seguir"
+
+
+def test_primero_se_poda_y_despues_se_achica():
+    """Achicar lo que se va a tirar es trabajo perdido, y el ahorro reportado
+    mentiría (contaría caracteres que igual no viajaban)."""
+    import inspect
+
+    from asistente import ciclo
+
+    cuerpo = inspect.getsource(ciclo.preguntar)
+    assert cuerpo.index("_podar(") < cuerpo.index("_achicar("), "la poda va antes del achicado"

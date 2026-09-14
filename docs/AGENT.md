@@ -7337,3 +7337,33 @@ módulo no cambia de forma, cambia de dónde carga.
 **Cuesta** ~25 tokens por pregunta a partir de la segunda. La tab muestra «📌 en
 foco» y lo cuenta como evento del ciclo cuando cambia — que en diez preguntas
 sobre la misma cuenta es una vez.
+
+---
+
+### 0.fk LA CHARLA MORÍA A LA PREGUNTA 15 — poda por turnos, no por mensajes (2026-09-14)
+
+Encontrado revisando el cambio de §0.fj: `Preguntar.historial` tenía
+`max_length=60` en el router y la tab mandaba de vuelta TODOS los mensajes.
+Cada pregunta con herramienta deja cuatro (user, pedido, resultado, respuesta):
+a la pregunta 15 el body superaba los 60, Pydantic contestaba 422, la tab
+mostraba un error genérico y la única salida era «empezar de nuevo». Funcionaba
+perfecto catorce veces y se rompía a la quince sin decir por qué.
+
+**Lo que se hizo: `ciclo._podar`**, al lado de `_achicar`. Antes de empezar se
+conservan los últimos `TURNOS_QUE_QUEDAN` (8) turnos completos y se tira el
+resto; después se achica lo que quedó. Tres decisiones:
+
+| Decisión | Por qué así |
+|---|---|
+| **por turnos, nunca por mensajes sueltos** — con un techo de mensajes además del de turnos, porque un turno no tiene tamaño fijo (varios `tool_calls` en una vuelta) | el proveedor exige que cada `tool` conteste a un `assistant` con `tool_calls` presente; cortar entre los dos rechaza la llamada entera con un error de formato. Un pedido y su resultado viven o mueren juntos (mismo invariante que el `tool_call_id` del achicado) |
+| la respuesta devuelve el historial **ya podado** | el navegador manda lo que recibió: nunca acumula más de N turnos. El tope del router sube a 600 y pasa a ser de sanidad contra un cliente roto, no el límite de la charla |
+| primero se poda, después se achica | achicar lo que se va a tirar es trabajo perdido y el ahorro reportado mentiría |
+
+**Por qué recién ahora.** Podar pierde lo que se DIJO hace más de N preguntas.
+Hasta §0.fj lo que se SABÍA (la cuenta) vivía sólo ahí adentro; con el foco en
+`estado`, aparte del historial, la poda no le saca nada al modelo que no pueda
+volver a pedir. Es la otra mitad de la compactación de ADK: el historial se
+recorta, el estado no.
+
+La tab lo cuenta como paso del ciclo (`✂️ podado: N turnos`), al lado del
+`achicado` que ya existía y que hasta hoy la pantalla no dibujaba.

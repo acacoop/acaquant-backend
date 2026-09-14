@@ -266,7 +266,13 @@ class Preguntar(BaseModel):
     # Los mensajes de las preguntas anteriores, tal cual los devolvió la
     # respuesta anterior. El modelo no recuerda nada: la conversación la
     # sostiene la pantalla mandando esto de vuelta.
-    historial: list[dict] = Field(default_factory=list, max_length=60)
+    #
+    # ⚠️ El tope es de SANIDAD (un cliente roto), no el límite de la charla:
+    # quien poda es `ciclo._podar`, por turnos y con techo de mensajes, y
+    # devuelve el historial ya podado — así que lo que vuelve nunca pasa de
+    # `MENSAJES_QUE_QUEDAN` más un turno. Esto es el doble. Con 60 acá y sin
+    # poda, la pregunta 15 volvía 422 y la conversación moría (§0.fk).
+    historial: list[dict] = Field(default_factory=list, max_length=600)
     # Lo que quedó en foco (la cuenta de la que se viene hablando), tal cual lo
     # devolvió la respuesta anterior. Viaja APARTE del historial porque el
     # achicado del historial no lo toca. El backend lo reduce a lo declarado

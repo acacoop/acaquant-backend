@@ -136,6 +136,63 @@ def _instruccion(estado: dict[str, str] | None = None) -> str:
             f"es el `cuenta` que llevan las herramientas):\n{lista}\n{foco}")
 
 
+# ── PODAR LA CONVERSACIÓN VIEJA ─────────────────────────────────────────────
+#
+# `_achicar` baja el PESO de cada mensaje viejo; esto baja la CANTIDAD. Sin
+# esto la conversación crecía sin límite: cada pregunta con herramienta deja
+# cuatro mensajes, el navegador los manda todos de vuelta, y el router los
+# topeaba en 60 — a la pregunta 15 el request volvía 422 y la charla moría con
+# un error que no decía por qué (`docs/AGENT.md` §0.fk).
+#
+# ⚠️⚠️ **SE PODA POR TURNOS, NUNCA POR MENSAJES.** Un turno es lo que va desde
+# un mensaje `user` hasta el siguiente: la pregunta, los pedidos del modelo, los
+# resultados y la respuesta. El proveedor exige que cada `tool` conteste a un
+# `assistant` con `tool_calls` que esté en la conversación; cortar entre los
+# dos deja un resultado huérfano y la llamada ENTERA se rechaza, con un error
+# de formato que no dice nada del contenido. Un pedido y su resultado viven o
+# mueren juntos.
+#
+# Lo que se pierde al podar es lo que se DIJO hace más de N preguntas. Lo que
+# se SABE (la cuenta en foco) vive en `estado`, aparte, y no se toca: por eso
+# podar es seguro recién desde que el estado existe. Y como la respuesta
+# devuelve el historial YA podado, el navegador nunca acumula más que esto.
+#
+# Cuántos turnos completos se conservan. Un turno tiene 1 mensaje `user`, hasta
+# MAX_VUELTAS pedidos con sus resultados, y la respuesta.
+TURNOS_QUE_QUEDAN = 8
+# ⚠️ Y un techo de MENSAJES además del de turnos, porque un turno no tiene
+# tamaño fijo: el modelo puede pedir varias herramientas en UNA vuelta (el
+# proveedor manda `tool_calls` como lista), y nada en el código lo impide. Si
+# con N turnos igual se pasa de esto, se tiran turnos enteros hasta entrar. Es
+# lo que garantiza que lo que se devuelve nunca crece más que esto, pase lo que
+# pase adentro de un turno — el tope del router es el doble, de sanidad.
+MENSAJES_QUE_QUEDAN = 300
+
+
+def _podar(historial: list[dict]) -> tuple[list[dict], int, int]:
+    """Deja los últimos `TURNOS_QUE_QUEDAN` turnos completos, y nunca más de
+    `MENSAJES_QUE_QUEDAN` mensajes (tirando turnos enteros, el más viejo
+    primero). Devuelve el historial nuevo, cuántos turnos se tiraron y cuántos
+    mensajes eran.
+
+    Lo que haya antes del primer `user` (un historial recortado a mano) se
+    tira también: sin su pregunta, esos mensajes no le dicen nada al modelo.
+    """
+    historial = list(historial or [])
+    inicios = [i for i, m in enumerate(historial) if m.get("role") == "user"]
+    if not inicios:
+        return [], 0, len(historial)
+    desde = max(0, len(inicios) - TURNOS_QUE_QUEDAN)
+    # El turno más viejo se va mientras lo que queda siga pasado del techo; el
+    # más reciente queda siempre, aunque él solo lo supere.
+    while desde < len(inicios) - 1 and len(historial) - inicios[desde] > MENSAJES_QUE_QUEDAN:
+        desde += 1
+    corte = inicios[desde]
+    if corte == 0:
+        return historial, 0, 0
+    return historial[corte:], desde, corte
+
+
 def _achicar(historial: list[dict]) -> tuple[list[dict], int]:
     """Reemplaza los resultados de herramienta VIEJOS por un resumen de una
     línea. Devuelve el historial nuevo y cuántos caracteres se ahorraron.
@@ -326,6 +383,9 @@ def preguntar(
 
     # ⚠️ Acá, y en ningún otro lado: lo viejo se achica ANTES de empezar. De acá
     # para abajo el bucle trabaja con la conversación completa de ESTA pregunta.
+    # Primero la cantidad (`_podar`), después el peso (`_achicar`): achicar lo
+    # que se va a tirar sería trabajo perdido.
+    historial, turnos_podados, msgs_podados = _podar(historial)
     historial, ahorro = _achicar(historial)
     # Lo que llega de afuera se reduce a lo declarado ANTES de tocar el SYSTEM.
     # Y es el estado de ANTES de esta pregunta el que lee el modelo: lo que se
@@ -337,6 +397,8 @@ def preguntar(
     mensajes.append({"role": "user", "content": pregunta})
 
     _ver("pregunta", texto=pregunta, herramientas=sorted(H.POR_NOMBRE))
+    if turnos_podados:
+        _ver("podado", turnos=turnos_podados, mensajes=msgs_podados)
     if ahorro:
         _ver("achicado", chars=ahorro)
     tokens_in = tokens_out = 0

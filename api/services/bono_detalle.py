@@ -230,6 +230,10 @@ def get_bono(ticker: str) -> dict:
         # la de la TEA. Verla en el modal es cómo se descubre que un bono está mal
         # clasificado sin tener que abrir el motor.
         "rama": rama,
+        # Cuál de las `patas` es la principal, dicho por quien tiene el criterio
+        # (el `ajuste` del master). Un consumidor que tomara `patas[0]` estaría
+        # confiando en el orden de una lista que nadie le prometió.
+        "pata_principal": principal.get("pata") if principal else None,
         "unidad_flujo": unidad,
         "nota_flujo": nota,
         "flujos": flujos,

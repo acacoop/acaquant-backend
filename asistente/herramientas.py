@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import inspect
 from datetime import date, timedelta
+from typing import Literal, get_args, get_origin
 
 from asistente import permitido
 from core.postgres import get_pool
@@ -337,7 +338,7 @@ _TIPOS = {int: "integer", float: "number", str: "string", bool: "boolean"}
 
 
 
-def tenencia_actual(cuenta: str, horizonte: str = "t1") -> dict:
+def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
     """Qué TIENE hoy una cuenta: los títulos, cuántos nominales y cuánto valen.
 
     Es la posición, la cartera, el patrimonio: lo que está en la cuenta AHORA.
@@ -480,8 +481,22 @@ def ficha(fn) -> dict:
     para decidir si la usa.
     """
     props, requeridos = {}, []
-    for nombre, p in inspect.signature(fn).parameters.items():
-        props[nombre] = {"type": _TIPOS.get(p.annotation, "string")}
+    # ⚠️ `eval_str=True`, y no es un detalle: con `from __future__ import
+    # annotations` las anotaciones llegan como TEXTO (`"int"`), y `_TIPOS` no
+    # las encontraba — `dias: int` viajó al modelo como `string` desde el primer
+    # día sin que nada fallara (el proveedor acepta "60" y Python lo convierte).
+    # Un test lo congela ahora.
+    for nombre, p in inspect.signature(fn, eval_str=True).parameters.items():
+        # ⚠️ **UNA LISTA CERRADA EN LA FIRMA ES UNA PARED, igual que «sin
+        # default».** `Literal["cer", "tasa_fija"]` viaja como `enum`: el
+        # proveedor rechaza cualquier otro valor ANTES de que cueste una vuelta.
+        # Sin esto, «CER » o «bonos cer» llegaban a la función, volvían como
+        # `error`, y el modelo gastaba un turno en corregirse.
+        if get_origin(p.annotation) is Literal:
+            valores = list(get_args(p.annotation))
+            props[nombre] = {"type": "string", "enum": valores}
+        else:
+            props[nombre] = {"type": _TIPOS.get(p.annotation, "string")}
         if p.default is inspect.Parameter.empty:
             requeridos.append(nombre)
     return {
@@ -495,12 +510,246 @@ def ficha(fn) -> dict:
     }
 
 
-# Las herramientas disponibles. Sumar una es agregarla a esta lista y nada más:
-# la ficha se arma sola desde la función.
+# ── EL MERCADO: lo que hay, sin importar quién lo tenga ─────────────────────
+#
+# Historia y decisiones de este mundo: `docs/AGENT.md` §0.fm.
+#
+# Las dos de arriba miran UNA CUENTA. Las dos de acá miran el MERCADO: no
+# reciben `cuenta`, no pasan por el permiso, no dejan nada en foco. Es el
+# segundo mundo del asistente, y lo que le permite CRUZAR: «¿qué bono CER
+# rinde más que los que tengo?» es `tenencia_actual` + `curva`.
+#
+# Las dos leen el MISMO master que la pantalla CURVAS (`mercado.curvas` y su
+# vista): un vencimiento acá y en `cobros_futuros.vence` sale de la misma fila.
+
+# Tope de instrumentos de una curva. Una curva tiene 20–140 títulos; el
+# modelo pide los N que rinden más, no el catálogo.
+MAX_INSTRUMENTOS = 50
+# Tope de pagos futuros en la ficha de un bono. Un CER a 2038 tiene 50 cupones;
+# los próximos alcanzan para contestar, y el cronograma pasado no viaja.
+MAX_FLUJOS = 24
+
+# ⚠️ Las listas cerradas van en la FIRMA (`Literal`), no sólo en el `if`: así
+# la ficha las manda como `enum` y el modelo no puede mandar otra cosa. Un test
+# las ata a las del código que manda (regla #9: dos copias con árbitro).
+#
+# Las curvas son las PILLS de la pantalla CURVAS (`core.curvas_ejes.PILLS`), no
+# las de `/api/analitica/listar-curva`: la herramienta lee la MISMA vista que
+# la pantalla, así que habla su mismo idioma.
+Curva = Literal["tasa_fija", "cer", "hard_dolar", "dolar_linked", "tamar"]
+OrdenCurva = Literal["tea", "vencimiento", "duration", "volumen_dia"]
+
+
+def _ordenar(filas: list[dict], por: str) -> list[dict]:
+    """El orden lo pone la herramienta, no el service — y se DICE en el
+    docstring. Con `tea` los que más rinden primero; una tasa ruidosa o
+    ausente va al final, porque no es comparable. `volumen_dia` de mayor a
+    menor; `vencimiento` y `duration` de menor a mayor, sin dato al final."""
+    if por == "tea":
+        return sorted(filas, key=lambda f: (f["tasa_ruido"] or f["tea_pct"] is None,
+                                            -(f["tea_pct"] or 0)))
+    if por == "volumen_dia":
+        return sorted(filas, key=lambda f: (f["volumen_dia"] is None, -(f["volumen_dia"] or 0)))
+    return sorted(filas, key=lambda f: (f[por] is None, f[por] or 0))
+
+
+def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15) -> dict:
+    """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
+
+    Es el MERCADO, no una cuenta: acá no hay nominales de nadie ni plata que
+    entra. Para «qué tengo» está `tenencia_actual`; para «qué cobro»,
+    `cobros_futuros`. Esto contesta «qué hay», «qué rinde más», «qué vence en
+    tal plazo», «cuál conviene».
+
+    Curvas: `cer` (ajustan por inflación), `tasa_fija` (LECAP/BONCAP y tasa
+    fija en pesos), `hard_dolar` (bonos en dólares: AL, GD, ONs), `dolar_linked`,
+    `tamar`. Si el usuario dice «bonos CER» es `cer`; «en dólares», «soberanos»
+    o «hard dollar» es `hard_dolar`; «letras» o «tasa fija» es `tasa_fija`.
+
+    QUÉ DEVUELVE:
+      · `instrumentos` — una fila por título: `ticker`, `emisor`, `vencimiento`,
+        `meses_al_vencimiento`, `precio`, `tea_pct` y `tem_pct` (YA en
+        porcentaje), `paridad_pct`, `duration` (años), `volumen_dia` y
+        `tasa_ruido`. ⚠️ Si `tasa_ruido` es true, la tasa NO es comparable
+        (el bono vence en días y anualizar amplifica centavos): no la uses para
+        decir cuál rinde más.
+      · `cuantos` — cuántos hay en la curva en total; `truncado` si entraron
+        menos que eso en `instrumentos`.
+      · Todo lo que hay que calcular YA VIENE CALCULADO. No conviertas tasas.
+
+    Args:
+        curva: cuál de las curvas mirar.
+        ordenar_por: cómo ordenar; con `tea` los que más rinden van primero.
+            Si el usuario no dijo, es `tea` y no hace falta preguntar.
+        limit: cuántos instrumentos traer, de 1 a 50. Si no dijo, 15.
+    """
+    from api.services import curvas_vista as CV
+    from core import curvas_ejes as ce
+
+    if curva not in ce.pills_disponibles():
+        return {"error": f"`curva` tiene que ser una de {list(ce.pills_disponibles())}, "
+                         f"llegó {curva!r}"}
+    if ordenar_por not in get_args(OrdenCurva):
+        return {"error": f"`ordenar_por` tiene que ser uno de {list(get_args(OrdenCurva))}, "
+                         f"llegó {ordenar_por!r}"}
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        return {"error": f"`limit` tiene que ser un número entero, llegó {limit!r}"}
+    n = max(1, min(n, MAX_INSTRUMENTOS))
+
+    try:
+        bonos = [b for b in CV.get_curvas_vista().get("bonos") or [] if b.get("pill") == curva]
+    except Exception as e:
+        return {"error": f"no pude leer la curva: {type(e).__name__}: {e}"}
+
+    hoy = date.today()
+    filas = [_instrumento(b, hoy) for b in bonos]
+    filas = _ordenar(filas, ordenar_por)
+    return {
+        "curva": curva,
+        "ordenado_por": ordenar_por,
+        "instrumentos": filas[:n],
+        "cuantos": len(filas),
+        "truncado": len(filas) > n,
+        "_tabla": {
+            "campo": "instrumentos",
+            "columnas": ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
+        },
+    }
+
+
+def _pct(x):
+    """TEA y TEM salen del motor como DECIMAL (0,35 = 35%) y la pantalla las
+    multiplica al dibujar. El modelo tiene prohibido convertir, así que se le
+    dan ya en porcentaje. Paridad ya viene en porcentaje: no pasa por acá."""
+    return round(float(x) * 100, 2) if x is not None else None
+
+
+def _num(x, dec: int = 2):
+    return round(float(x), dec) if x is not None else None
+
+
+def _instrumento(b: dict, hoy: date) -> dict:
+    """Una fila de la vista de CURVAS, con lo que el modelo puede usar."""
+    m = b.get("metrics") or {}
+    vto = b.get("vencimiento")
+    try:
+        meses = round((date.fromisoformat(str(vto)[:10]) - hoy).days / 30.44, 1) if vto else None
+    except ValueError:
+        meses = None
+    return {
+        "ticker": b.get("ticker_corto"),
+        "emisor": b.get("emisor"),
+        "vencimiento": str(vto)[:10] if vto else None,
+        "meses_al_vencimiento": meses,
+        "precio": _num(m.get("last_price"), 4),
+        "tea_pct": _pct(m.get("TEA")),
+        "tem_pct": _pct(m.get("TEM")),
+        "paridad_pct": _num(m.get("paridad")),
+        "duration": _num(m.get("duration")),
+        "volumen_dia": _num(m.get("total_nominals"), 0),
+        "tasa_ruido": bool(b.get("tasa_ruido")),
+    }
+
+
+def ficha_bono(ticker: str) -> dict:
+    """Qué ES un bono: quién lo emite, en qué moneda paga, cómo ajusta, cuándo
+    vence, qué cupón tiene, qué paga en los próximos meses y cómo cotiza hoy.
+
+    Es la ficha del INSTRUMENTO, sin importar quién lo tenga. NO dice cuánto
+    cobra una cuenta de ese bono: eso depende de cuántos nominales tiene, y lo
+    contesta `cobros_futuros`. Los montos acá son por 100 de valor nominal.
+
+    QUÉ DEVUELVE:
+      · `ficha` — emisor, tipo, curva, moneda, ajuste, ley, emisión,
+        vencimiento, valor nominal, cupón anual.
+      · `proximos_pagos` — un renglón por fecha futura: `fecha`, `interes`,
+        `amortizacion`, `monto`, por 100 VN. `cuantos_pagos` y `truncado`
+        dicen si entraron todos.
+      · `hoy` — precio, `tea_pct` y `tem_pct` (YA en porcentaje), paridad y
+        duration de la cotización de hoy, si el bono cotizó.
+      · Un bono que no existe devuelve `error`: decilo, no adivines otro.
+
+    Args:
+        ticker: el ticker CORTO del bono, en mayúsculas: `AL30`, `TX26`,
+            `S31O5`. Sin sufijo de moneda (`AL30D` es la misma especie que
+            `AL30`; usá `AL30`).
+    """
+    from api.services import bono_detalle as BD
+
+    tk = str(ticker or "").strip().upper()
+    if not tk:
+        return {"error": "`ticker` está vacío"}
+    try:
+        r = BD.get_bono(tk)
+    except Exception as e:
+        return {"error": f"no pude leer la ficha: {type(e).__name__}: {e}"}
+    if r.get("error"):
+        return {"error": r["error"],
+                "que_hacer": "Decile al usuario que ese ticker no está en el master de "
+                             "curvas. NO pruebes con otro ticker parecido: preguntale."}
+
+    futuros = [f for f in r.get("flujos") or [] if f.get("futuro")]
+    # La pata PRINCIPAL del bono (un dual tiene dos): sus métricas de hoy. Cuál
+    # es la principal lo dice el SERVICE (`pata_principal`), que es quien tiene
+    # el criterio; acá no se reimplementa ni se confía en el orden de la lista.
+    patas = r.get("patas") or []
+    principal = next((p for p in patas if p.get("pata") == r.get("pata_principal")), None)
+    m = (principal or {}).get("metrics") or {}
+
+    return {
+        "ticker": r.get("ticker"),
+        "ficha": {k: v for k, v in (r.get("ficha") or {}).items()
+                  if k in ("emisor", "emisor_tipo", "tipo", "curva", "moneda", "moneda_flujo",
+                           "ajuste", "ley", "fecha_emision", "fecha_vencimiento",
+                           "valor_nominal", "cupon_anual", "cer_fijado")},
+        "unidad": r.get("unidad_flujo"),
+        "nota": r.get("nota_flujo"),
+        "proximos_pagos": [{
+            "fecha": f.get("fecha"),
+            "interes": f.get("interes"),
+            "amortizacion": f.get("amortizacion"),
+            "monto": f.get("monto"),
+        } for f in futuros[:MAX_FLUJOS]],
+        "cuantos_pagos": len(futuros),
+        "truncado": len(futuros) > MAX_FLUJOS,
+        "hoy": {
+            "precio": _num(m.get("last_price"), 4),
+            "tea_pct": _pct(m.get("TEA")),
+            "tem_pct": _pct(m.get("TEM")),
+            "paridad_pct": _num(m.get("paridad")),
+            "duration": _num(m.get("duration")),
+        } if m else None,
+        "_tabla": {
+            "campo": "proximos_pagos",
+            "columnas": ["fecha", "interes", "amortizacion", "monto"],
+        },
+    }
+
+
+# Las herramientas disponibles, por MUNDO. Sumar una es agregarla a su lista y
+# nada más: la ficha se arma sola desde la función.
+#
+# ⚠️ **EL MUNDO SE DECLARA, NO SE DEDUCE.** Las de la CUENTA reciben `cuenta`
+# y pasan por el permiso; las del MERCADO no la reciben — y un test exige las
+# dos cosas, porque una herramienta de mercado con `cuenta` sería un alcance
+# que se filtra por la puerta de atrás. El día que el portal invitado tenga
+# asistente (REGLA #8), la lista que le toca ya está separada.
+#
 # ⚠️ `cuentas_disponibles` NO está: su lista va en el SYSTEM
 # (`ciclo._instruccion()`). Ofrecérsela además sería pagar su ficha en cada
 # llamada y darle una opción más para elegir mal, por un dato que ya tiene.
-DISPONIBLES = (cobros_futuros, tenencia_actual)
+DE_LA_CUENTA = (cobros_futuros, tenencia_actual)
+DEL_MERCADO = (curva, ficha_bono)
+DISPONIBLES = DE_LA_CUENTA + DEL_MERCADO
+
+# ⚠️ **EL TECHO DE UNA FICHA, Y ES POR HERRAMIENTA.** Cada docstring viaja en
+# TODAS las llamadas; con cuatro herramientas son ~1.700 tokens fijos por
+# vuelta. Un test lo congela: la #8 con un docstring de dos páginas rompe la
+# suite, que es mejor que romper la factura en silencio. Cuando el catálogo
+# pase de seis, la señal es medir en el panel y decidir — no seguir sumando.
+MAX_FICHA_CHARS = 2_300
 
 # nombre → función, para que el ciclo pueda ejecutar lo que el modelo pidió.
 POR_NOMBRE = {f.__name__: f for f in DISPONIBLES}

@@ -1562,7 +1562,7 @@ def test_el_estado_INFORMA_al_modelo_y_no_le_completa_la_cuenta_a_la_herramienta
     assert "estado" not in inspect.signature(ciclo._ejecutar).parameters
     cuerpo = inspect.getsource(ciclo._ejecutar)
     assert "EST." not in cuerpo and "estado" not in cuerpo
-    for fn in H.DISPONIBLES:
+    for fn in H.DE_LA_CUENTA:
         p = inspect.signature(fn).parameters.get("cuenta")
         assert p is not None and p.default is inspect._empty, (
             f"`{fn.__name__}`: `cuenta` volvió a tener default")
@@ -1757,3 +1757,161 @@ def test_el_costo_de_una_conversacion_sigue_las_reglas_del_gasto():
 def inspect_sql(fn) -> str:
     import inspect
     return inspect.getsource(fn)
+
+
+
+# ── EL MERCADO: el segundo mundo, y lo que escala con él ────────────────────
+
+
+def test_el_mundo_de_cada_herramienta_se_DECLARA_y_los_dos_se_excluyen():
+    """Las de la cuenta reciben `cuenta` y pasan por el permiso; las del
+    mercado NO la reciben. Una herramienta de mercado con `cuenta` sería un
+    alcance que se filtra por la puerta de atrás; una de cuenta sin `cuenta`
+    contestaría sobre la plata de nadie. Y toda herramienta está en UN mundo."""
+    import inspect
+
+    from asistente import herramientas as H
+
+    assert set(H.DISPONIBLES) == set(H.DE_LA_CUENTA) | set(H.DEL_MERCADO)
+    assert not set(H.DE_LA_CUENTA) & set(H.DEL_MERCADO)
+    for fn in H.DE_LA_CUENTA:
+        assert "cuenta" in inspect.signature(fn).parameters, f"`{fn.__name__}` es de la cuenta"
+    for fn in H.DEL_MERCADO:
+        assert "cuenta" not in inspect.signature(fn).parameters, (
+            f"`{fn.__name__}` es del mercado y recibe `cuenta`: eso es un alcance sin permiso")
+
+
+def test_una_lista_cerrada_en_la_firma_viaja_como_ENUM_y_los_tipos_son_los_de_verdad():
+    """⚠️ Dos cosas de `ficha()`. (1) `Literal[...]` va como `enum`: el proveedor
+    rechaza otro valor antes de que cueste una vuelta. (2) Los tipos salen de la
+    anotación REAL: con `from __future__ import annotations` llegan como texto,
+    y `dias: int` viajó como `string` desde el primer día sin que nada fallara."""
+    from typing import get_args
+
+    from asistente import herramientas as H
+    from core import curvas_ejes as ce
+
+    props = H.ficha(H.curva)["function"]["parameters"]["properties"]
+    assert props["curva"]["enum"] == list(get_args(H.Curva))
+    assert props["ordenar_por"]["enum"] == list(get_args(H.OrdenCurva))
+    assert props["limit"] == {"type": "integer"}
+    assert H.ficha(H.cobros_futuros)["function"]["parameters"]["properties"]["dias"] == {"type": "integer"}
+    # Las curvas de la firma son las PILLS de la pantalla CURVAS, con árbitro
+    # (REGLA #9): la herramienta lee la misma vista y habla su mismo idioma.
+    assert set(get_args(H.Curva)) == set(ce.PILLS)
+    import inspect
+    hz = inspect.signature(H.tenencia_actual, eval_str=True).parameters["horizonte"].annotation
+    assert set(get_args(hz)) == set(H.HORIZONTES)
+
+
+def test_cada_ficha_entra_en_su_TECHO():
+    """Cada docstring viaja en TODAS las llamadas. El techo es por herramienta
+    y está congelado: la #8 con un docstring de dos páginas rompe acá, que es
+    mejor que romper la factura en silencio."""
+    import json
+
+    from asistente import herramientas as H
+
+    for f in H.FICHAS:
+        n = len(json.dumps(f, ensure_ascii=False))
+        assert n <= H.MAX_FICHA_CHARS, (
+            f"la ficha de `{f['function']['name']}` pesa {n} chars (techo {H.MAX_FICHA_CHARS})")
+
+
+def test_la_curva_lee_la_MISMA_vista_que_la_pantalla_y_ordena_de_verdad():
+    """⚠️⚠️ **LO QUE EL PRIMER BORRADOR HIZO MAL, Y EL MOCK TAPÓ.** Usaba
+    `listar_curva`, que ordena `tea` ASCENDENTE: «los que más rinden» salían al
+    revés, y el test no lo vio porque mockeaba el service con TEAs iguales. Acá
+    la fuente es la vista de CURVAS (la de la pantalla, con `tasa_ruido`), el
+    orden lo pone la herramienta, y se prueba con valores DISTINTOS y en el
+    orden contrario al esperado."""
+    from datetime import date
+    from unittest.mock import patch
+
+    from api.services import curvas_vista as CV
+    from asistente import herramientas as H
+
+    def bono(i, tea, pill="cer", ruido=False, vto="2027-01-01"):
+        return {"ticker_corto": f"T{i}", "pill": pill, "emisor": "Tesoro", "vencimiento": vto,
+                "tasa_ruido": ruido,
+                "metrics": {"last_price": 100.0 + i, "TEA": tea, "TEM": 0.0254,
+                            "paridad": 98.7, "duration": 1.234 + i, "total_nominals": 1000 * i}}
+
+    # TEAs crecientes en la entrada, una ruidosa altísima, una sin tasa, y una
+    # de OTRA curva que no tiene que aparecer.
+    vista = {"bonos": [bono(i, 0.10 + i / 100) for i in range(60)]
+             + [bono(99, 9.99, ruido=True), bono(98, None), bono(97, 0.5, pill="tasa_fija")]}
+    with patch.object(CV, "get_curvas_vista", return_value=vista), \
+         patch("asistente.herramientas.date", wraps=date) as d:
+        d.today.return_value = date(2026, 1, 1)
+        r = H.curva("cer", ordenar_por="tea", limit=10)
+        assert r["cuantos"] == 62 and r["truncado"] and len(r["instrumentos"]) == 10
+        i0 = r["instrumentos"][0]
+        # El que MÁS rinde primero: T59 (0,69 → 69%), no T0 ni la ruidosa.
+        assert i0["ticker"] == "T59" and i0["tea_pct"] == 69.0
+        assert (i0["tem_pct"], i0["paridad_pct"], i0["duration"], i0["precio"]) == (2.54, 98.7, 60.23, 159.0)
+        assert i0["meses_al_vencimiento"] == 12.0 and i0["vencimiento"] == "2027-01-01"
+        assert all(t["ticker"] != "T97" for t in r["instrumentos"]), "otra curva no entra"
+        # La ruidosa y la sin tasa van ÚLTIMAS, no primeras.
+        with patch.object(H, "MAX_INSTRUMENTOS", 100):
+            todo = H.curva("cer", ordenar_por="tea", limit=100)["instrumentos"]
+        assert len(todo) == 62
+        assert [t["ticker"] for t in todo[-2:]] == ["T99", "T98"] and todo[-2]["tasa_ruido"]
+        # Los otros órdenes también van para el lado que dicen.
+        assert H.curva("cer", ordenar_por="volumen_dia", limit=1)["instrumentos"][0]["ticker"] == "T99"
+        assert H.curva("cer", ordenar_por="duration", limit=1)["instrumentos"][0]["ticker"] == "T0"
+        # El tope es el tope aunque el modelo pida más.
+        assert len(H.curva("cer", limit=10_000)["instrumentos"]) == H.MAX_INSTRUMENTOS
+        for c in r["_tabla"]["columnas"]:
+            assert c in i0
+    # Una curva que no existe vuelve como dato, no como excepción.
+    assert "error" in H.curva("bonos")
+
+
+def test_la_ficha_de_un_bono_NO_adivina_otro_ticker():
+    """REGLA #9: `AL30` y `AL30D` son la misma especie pero `BPOA7`/`BPA7D` no
+    siguen ninguna regla. Un ticker que no está en el master vuelve como error
+    con la instrucción de PREGUNTAR, nunca de probar con otro parecido."""
+    from unittest.mock import patch
+
+    from api.services import bono_detalle as BD
+    from asistente import herramientas as H
+
+    with patch.object(BD, "get_bono", return_value={"error": "XX no está en el master de curvas"}):
+        r = H.ficha_bono("xx")
+    assert "error" in r and "preguntale" in r["que_hacer"].lower()
+    assert "error" in H.ficha_bono("")
+
+    flujos = [{"fecha": f"2026-{m:02d}-15", "interes": 1.0, "amortizacion": 0.0, "monto": 1.0,
+               "futuro": m >= 10} for m in range(1, 13)] + \
+             [{"fecha": f"2027-{m:02d}-15", "interes": 1.0, "amortizacion": 0.0, "monto": 1.0,
+               "futuro": True} for m in range(1, 13)] + \
+             [{"fecha": f"2028-{m:02d}-15", "interes": 1.0, "amortizacion": 0.0, "monto": 1.0,
+               "futuro": True} for m in range(1, 13)]
+    ficha = {"ticker": "AL30", "ficha": {"emisor": "Tesoro", "moneda": "USD", "ley": "AR",
+                                          "fecha_vencimiento": "2030-07-09", "cupon_anual": 0.75,
+                                          "ajuste": "hard_dollar", "tipo": "bono", "curva": "soberanos",
+                                          "emisor_tipo": "soberano", "moneda_flujo": "USD",
+                                          "fecha_emision": "2020-09-04", "valor_nominal": 100,
+                                          "cer_fijado": False, "flujo_vencimiento": None},
+             "unidad_flujo": "por 100 VN", "nota_flujo": None, "flujos": flujos,
+             # Dos patas, y la principal NO es la primera: la dice el service.
+             "pata_principal": "hard_dollar",
+             "patas": [{"pata": "cer", "metrics": {"last_price": 1.0, "TEA": 0.9}},
+                       {"pata": "hard_dollar",
+                        "metrics": {"last_price": 71.5, "TEA": 0.1234, "TEM": 0.0097,
+                                    "paridad": 80.2, "duration": 2.345}}]}
+    with patch.object(BD, "get_bono", return_value=ficha):
+        r = H.ficha_bono(" al30 ")
+    assert r["ticker"] == "AL30" and r["ficha"]["emisor"] == "Tesoro"
+    assert "flujo_vencimiento" not in r["ficha"], "sólo viaja lo que el modelo puede usar"
+    # Sólo los pagos FUTUROS, con tope y aviso.
+    assert r["cuantos_pagos"] == 27 and r["truncado"] and len(r["proximos_pagos"]) == H.MAX_FLUJOS
+    assert r["proximos_pagos"][0]["fecha"] == "2026-10-15"
+    assert r["hoy"] == {"precio": 71.5, "tea_pct": 12.34, "tem_pct": 0.97,
+                        "paridad_pct": 80.2, "duration": 2.35}
+    for c in r["_tabla"]["columnas"]:
+        assert c in r["proximos_pagos"][0]
+    # El service es quien dice cuál es la pata principal, y lo dice.
+    import inspect
+    assert "pata_principal" in inspect.getsource(BD.get_bono)

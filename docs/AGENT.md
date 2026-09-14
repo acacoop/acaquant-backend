@@ -7397,3 +7397,50 @@ los mensajes siguen en el navegador y «empezar de nuevo» los borra. Reabrir un
 conversación de ayer sigue sin existir hasta que exista la pregunta que lo pida.
 Cuando exista, el id ya está, y con él se agrupan las llamadas que ya quedaron
 anotadas desde hoy.
+
+---
+
+### 0.fm EL ASISTENTE MIRA EL MERCADO — dos mundos declarados, listas cerradas como pared, y un `int` que viajaba como `string` (2026-09-14)
+
+Hasta hoy las dos herramientas miraban UNA cuenta. Se suman `curva` (qué hay en
+una curva y cuánto rinde) y `ficha_bono` (qué es un bono), sobre lo que ya
+existía: `curvas_vista.get_curvas_vista` (la vista de CURVAS → LIVE) y
+`bono_detalle.get_bono` (el del modal de la ficha). Cero cálculo nuevo, y el
+vencimiento sale del mismo master que `cobros_futuros.vence` (REGLA #9).
+
+**Lo que el revisor cazó antes del push, y es la lección del día.** El primer
+borrador de `curva` usaba `renta_fija_sql.listar_curva`, que (a) ordena `tea`
+ASCENDENTE —«los que más rinden» salían al revés— y (b) no es la fuente de la
+pantalla: CURVAS → LIVE dejó de leerla justamente porque «dos fuentes para el
+mismo panel siempre terminan discrepando». El test no lo vio porque mockeaba el
+service con TEAs iguales: **un mock con valores iguales no prueba una
+dirección.** Ahora la herramienta lee la misma vista que la pantalla (con
+`tasa_ruido`: la TEA de un bono que vence en días no es comparable y va
+última), ordena ella misma, y el test entra con valores crecientes y exige
+que salga el mayor. De paso: `ficha_bono` leía `price` donde la vista dice
+`last_price` (mismo mock, mismo silencio), y tomaba `patas[0]` como pata
+principal confiando en el orden de una lista; ahora `get_bono` declara
+`pata_principal` y la herramienta la busca por nombre.
+
+**Tres piezas de estructura, porque cuatro herramientas ya no son dos:**
+
+| Pieza | Qué es | Qué compra |
+|---|---|---|
+| **el mundo se declara** (`DE_LA_CUENTA` / `DEL_MERCADO`) | las de la cuenta reciben `cuenta` y pasan por el permiso; las del mercado no la reciben | un test exige las dos cosas: una de mercado con `cuenta` sería un alcance que se filtra por la puerta de atrás. Y la lista del portal invitado, si algún día conversa, ya está separada |
+| **listas cerradas en la firma** (`Literal` → `enum` en la ficha) | `curva`, `ordenar_por` y ahora `horizonte` | el proveedor rechaza otro valor ANTES de que cueste una vuelta. Las listas de la firma se atan por test a las del service |
+| **techo por ficha** (`MAX_FICHA_CHARS`, test) | cada docstring viaja en todas las llamadas | con cuatro son ~1.700 tokens fijos por vuelta; la #8 con dos páginas rompe la suite, no la factura |
+
+**El bug que apareció de paso.** `ficha()` arma el esquema desde la firma, y
+con `from __future__ import annotations` las anotaciones llegan como TEXTO:
+`_TIPOS.get("int")` no encontraba nada y `dias: int` viajó al modelo como
+`string` desde el primer día. No falló nunca — el proveedor manda `"60"` y
+Python lo convierte. Se arregló con `eval_str=True` y un test lo congela: los
+tipos que ve el modelo son los de verdad.
+
+**Las tasas van en porcentaje.** El motor da TEA y TEM como decimal (0,35) y la
+pantalla multiplica al dibujar. El modelo tiene prohibido convertir, así que
+la herramienta le da `tea_pct` hecho; paridad ya venía en porcentaje.
+
+**Lo que se dejó para después, a propósito:** `ticker` y `curva` como claves de
+foco («¿y su duration?», «¿y a 12 meses?»). Entran en `EN_FOCO` sin cambiarlo
+—las dos tienen lista cerrada—, pero primero hay que ver si el modelo los pide.

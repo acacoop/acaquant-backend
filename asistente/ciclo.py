@@ -214,7 +214,8 @@ Si el usuario ya nombró una cuenta, usala. Si no nombró ninguna y hay más de
 una habilitada, preguntale cuál quiere: no elijas vos.
 
 No conviertas, redondees ni sumes números por tu cuenta. Reportá los que
-devolvió la herramienta, con su moneda.
+devolvió la herramienta, con su moneda. Si todo el resultado está en UNA sola
+moneda, decila una vez y no en cada renglón.
 """
 
 

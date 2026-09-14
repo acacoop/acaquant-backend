@@ -83,8 +83,15 @@ if not filas:
     raise SystemExit("0 filas: CVSA todavia no armo el dia. No se manda nada.")
 
 # 4. A la app
-r = post(f"{API}/api/ingest/custodia/holdings",
-         json.dumps({"fecha": HOY, "docs": filas}).encode(),
-         {"Content-Type": "application/json", "X-Ingest-Token": INGEST_TOKEN,
-          "CF-Access-Client-Id": CF_ID, "CF-Access-Client-Secret": CF_SECRET})
-print(r.read().decode())
+try:
+    r = post(f"{API}/api/ingest/custodia/holdings",
+             json.dumps({"fecha": HOY, "docs": filas}).encode(),
+             {"Content-Type": "application/json", "X-Ingest-Token": INGEST_TOKEN,
+              "CF-Access-Client-Id": CF_ID, "CF-Access-Client-Secret": CF_SECRET})
+    print(r.read().decode())
+except urllib.error.HTTPError as e:
+    # El cuerpo dice DE QUIEN es el error, y sin el no se puede distinguir:
+    # HTML = lo corto Cloudflare Access (service token). JSON = llego a la API.
+    cuerpo = e.read().decode("utf-8", "replace")
+    quien = "CLOUDFLARE ACCESS" if "<html" in cuerpo[:200].lower() else "LA API"
+    raise SystemExit(f"{quien} rechazo el POST: HTTP {e.code}\n{cuerpo[:500]}") from e

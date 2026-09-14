@@ -1625,6 +1625,7 @@ CREATE TABLE IF NOT EXISTS portafolio.control_saldos_ocultas (
 -- Se guarda igual — la tenencia existe aunque no sepamos cómo se llama acá.
 CREATE TABLE IF NOT EXISTS portafolio.custodia_cvsa (
     fecha            date NOT NULL,
+    participante     text NOT NULL DEFAULT '',  -- '74' | '70074' | '80074'
     id_cuenta        text NOT NULL,          -- '805' (el lado derecho de '74/805')
     cvsa_id          text NOT NULL,          -- '5921' — código de la Caja
     sub_balance_type text NOT NULL,          -- AVAILABLE | EMBARGO | ...
@@ -1633,7 +1634,7 @@ CREATE TABLE IF NOT EXISTS portafolio.custodia_cvsa (
     account_number   text,                   -- '74/805' crudo, para auditar
     ident_composite  text,                   -- id interno de la cuenta en CVSA
     actualizado_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (fecha, id_cuenta, cvsa_id, sub_balance_type)
+    PRIMARY KEY (fecha, participante, id_cuenta, cvsa_id, sub_balance_type)
 );
 -- La vista arranca por FECHA y agrupa por cuenta: columna líder `fecha`.
 CREATE INDEX IF NOT EXISTS ix_custodia_fecha_cuenta
@@ -1681,6 +1682,7 @@ CREATE INDEX IF NOT EXISTS ix_custodia_trabado
 -- agrega el estado sin borrar la contraparte que trajo `today`.
 CREATE TABLE IF NOT EXISTS portafolio.custodia_movimientos (
     fecha_liq        date NOT NULL,          -- settlementDate
+    participante     text NOT NULL DEFAULT '',  -- '74' | '70074' | '80074'
     id_cuenta        text NOT NULL,          -- '805' (lado derecho de '74/805')
     cvsa_id          text NOT NULL,
     sub_balance_type text NOT NULL DEFAULT '',
@@ -1697,7 +1699,7 @@ CREATE TABLE IF NOT EXISTS portafolio.custodia_movimientos (
     estado_motivo    text,                   -- solo lo trae el POST
     fuente           text NOT NULL,          -- today | transactions | byreference
     actualizado_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (fecha_liq, referencia, id_cuenta, cvsa_id, sub_balance_type)
+    PRIMARY KEY (fecha_liq, referencia, participante, id_cuenta, cvsa_id, sub_balance_type)
 );
 -- La pantalla arranca por FECHA y pliega por referencia.
 CREATE INDEX IF NOT EXISTS ix_custmov_fecha_ref
@@ -1708,6 +1710,72 @@ CREATE INDEX IF NOT EXISTS ix_custmov_cuenta
 -- El drawer de detalle busca por referencia sola, sin saber la fecha.
 CREATE INDEX IF NOT EXISTS ix_custmov_referencia
     ON portafolio.custodia_movimientos(referencia);
+
+-- ⚠️ MIGRACIÓN — el participante entra en la CLAVE de las dos tablas.
+--
+-- Nacieron con la PK sobre `id_cuenta` pelado, que es MEDIA identidad: CVSA usa
+-- TRES espacios de numeración para el mismo agente —`74` comitentes, `70074`
+-- liquidadoras, `80074` garantías— y el lado derecho se repite entre ellos.
+-- Con la PK vieja, un `80074/555555555` y un `74/555555555` se pisaban: una de
+-- las dos filas desaparecía sin que nada fallara. Ver `core/custodia_cuentas.py`.
+--
+-- Se backfillea desde `account_number`, que SÍ se venía guardando crudo — por eso
+-- no hay que re-bajar nada de BYMA. Son tablas de días, no de años: el UPDATE
+-- toca miles de filas, no millones, y está scopeado a las que faltan (REGLA #4).
+-- Las dos tablas YA existen en la base: `CREATE TABLE IF NOT EXISTS` no agrega
+-- columnas, así que la columna se suma acá. Con DEFAULT '' las filas viejas
+-- quedan marcadas como "todavía sin clasificar" y el UPDATE de abajo las llena.
+ALTER TABLE portafolio.custodia_cvsa
+    ADD COLUMN IF NOT EXISTS participante text NOT NULL DEFAULT '';
+ALTER TABLE portafolio.custodia_movimientos
+    ADD COLUMN IF NOT EXISTS participante text NOT NULL DEFAULT '';
+
+UPDATE portafolio.custodia_cvsa
+   SET participante = split_part(account_number, '/', 1)
+ WHERE participante = '' AND account_number LIKE '%/%';
+
+UPDATE portafolio.custodia_movimientos
+   SET participante = split_part(account_number, '/', 1)
+ WHERE participante = '' AND account_number LIKE '%/%';
+
+DO $$
+DECLARE cols int;
+BEGIN
+    SELECT count(*) INTO cols
+    FROM information_schema.key_column_usage k
+    JOIN information_schema.table_constraints t
+      ON t.constraint_name = k.constraint_name AND t.table_schema = k.table_schema
+    WHERE t.table_schema = 'portafolio' AND t.table_name = 'custodia_cvsa'
+      AND t.constraint_type = 'PRIMARY KEY';
+
+    IF cols = 4 THEN
+        ALTER TABLE portafolio.custodia_cvsa DROP CONSTRAINT custodia_cvsa_pkey;
+        ALTER TABLE portafolio.custodia_cvsa
+            ADD PRIMARY KEY (fecha, participante, id_cuenta, cvsa_id, sub_balance_type);
+        RAISE NOTICE 'custodia_cvsa: PK ampliada con participante';
+    END IF;
+
+    SELECT count(*) INTO cols
+    FROM information_schema.key_column_usage k
+    JOIN information_schema.table_constraints t
+      ON t.constraint_name = k.constraint_name AND t.table_schema = k.table_schema
+    WHERE t.table_schema = 'portafolio' AND t.table_name = 'custodia_movimientos'
+      AND t.constraint_type = 'PRIMARY KEY';
+
+    IF cols = 5 THEN
+        ALTER TABLE portafolio.custodia_movimientos DROP CONSTRAINT custodia_movimientos_pkey;
+        ALTER TABLE portafolio.custodia_movimientos
+            ADD PRIMARY KEY (fecha_liq, referencia, participante, id_cuenta, cvsa_id, sub_balance_type);
+        RAISE NOTICE 'custodia_movimientos: PK ampliada con participante';
+    END IF;
+END $$;
+
+-- «¿Qué tienen las cuentas que NO son comitentes?» — la pregunta que no se podía
+-- hacer hasta que el participante existió como columna.
+CREATE INDEX IF NOT EXISTS ix_custodia_participante
+    ON portafolio.custodia_cvsa(fecha, participante);
+CREATE INDEX IF NOT EXISTS ix_custmov_participante
+    ON portafolio.custodia_movimientos(fecha_liq, participante);
 
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (

@@ -233,6 +233,49 @@ Ninguna está en el OpenAPI. Las ocho viven resueltas en `core/byma_custodia.py`
 
 ## 4. ⚠️ Identidad — REGLA #9
 
+### ⚠️ LA CUENTA ES UN PAR, NO UN NÚMERO — los TRES espacios de CVSA
+
+CVSA usa **tres espacios de numeración para el MISMO agente**, y el número de la
+derecha **se repite entre ellos**. Declarados en `core/custodia_cuentas.py`:
+
+| Prefijo | Espacio | Qué es |
+|---|---|---|
+| `74` | comitentes | las cuentas de clientes — el único cruzable con `clientes.cuentas` |
+| `70074` | liquidadoras | por donde pasan los títulos al liquidar |
+| `80074` | garantías | lo afectado a garantía en la cámara |
+
+Las cinco con nombre propio (`ESPECIALES`, las pasó la mesa desde la ficha):
+
+```
+70074/10000      Cta. Liquidadora gral.
+70074/50000      Cta. Liquidadora Licis
+80074/555555555  Cta. Gtías. Clientes
+80074/222222222  Cta. Gtías. House
+80074/888888888  Cta. Gtías. Default funds
+```
+
+**Guardar solo el lado derecho era un bug de REGLA #9 en su forma más cara.**
+`80074/555555555` y `74/555555555` colapsaban al mismo `"555555555"`, y eso
+rompía en tres lugares a la vez, ninguno de los cuales fallaba:
+
+1. **La PK**: las dos filas se pisaban. Una desaparecía y nadie se enteraba.
+2. **El join a `clientes.cuentas`**: la Cta. Gtías. Clientes mostraba el nombre
+   de un comitente que no tiene nada que ver con ella.
+3. **La comparación contra Aunesa**: se restaba la tenencia de un cliente contra
+   el saldo de la cámara, y la diferencia salía en rojo por una razón inventada.
+
+Por eso `participante` es una **columna y parte de la PK** de las dos tablas, y
+los joins con comitentes van **filtrados por `participante = '74'`**. Un prefijo
+que no esté declarado devuelve `espacio = None` y la pantalla lo marca en ámbar:
+si CVSA agrega un espacio nuevo queremos verlo, no que el código lo clasifique
+de prepo con una regla de strings. Congelado por seis tests.
+
+⚠️ **`/holdings` devuelve SOLO el participante que se le pide**, así que el feed
+los pide los tres — y los manda **en un solo envío**: el endpoint reemplaza la
+foto del día entera, de modo que tres envíos separados harían que el último
+borre a los dos anteriores. Sin filas faltantes visibles, solo cuentas que
+desaparecen.
+
 ### La cuenta: se PARTE, no se interpreta
 
 ```
@@ -439,3 +482,12 @@ descalce: la vista lo canta con un cartel en vez de dejar que se lea como real.
   asíncrono, el POST **lee**, `currency` es un código. PK provisoria a la espera
   de la medición del primer lote real; el detalle por referencia queda apagado
   hasta el whitelist de IP del Droplet.
+
+- **v3 — LAS CUENTAS, MODELADAS.** `core/custodia_cuentas.py` declara los tres
+  espacios de numeración de CVSA y las cinco cuentas con nombre propio.
+  `participante` pasa a ser columna y parte de la PK de `custodia_cvsa` y
+  `custodia_movimientos` (migración guardada en `schema.sql`, backfilleada desde
+  `account_number`, sin re-bajar nada). Los joins con comitentes quedan
+  filtrados al espacio `74`. El feed pide los tres espacios en un solo envío. En
+  la pantalla, cada cuenta se muestra con su par completo y su etiqueta
+  (CLIENTE / LIQUIDADORA / GARANTÍAS), y TENENCIAS suma chips para aislarlas.

@@ -246,18 +246,18 @@ def test_las_patas_se_pliegan_en_un_movimiento_con_entrega_y_recibe():
 
     f = _d(2026, 4, 10)
     patas = [
-        # (fecha, ref, cuenta, cvsa, unidad, sub, volumen, monto, moneda, cod,
-        #  contraparte, contraparte_cta, estado, motivo, fuente, actualizado)
-        (f, "SUSC20260410272", "3", "5921", "AL30", "AVAILABLE", -280958.5138, 0,
+        # (fecha, ref, participante, cuenta, cvsa, unidad, sub, volumen, monto,
+        #  moneda, cod, contraparte, contraparte_cta, estado, motivo, fuente, act)
+        (f, "SUSC20260410272", "74", "3", "5921", "AL30", "AVAILABLE", -280958.5138, 0,
          "USD", "1", None, None, None, None, "today", None),
-        (f, "SUSC20260410272", "600613", "5921", "AL30", "AVAILABLE", 280958.5138, 0,
+        (f, "SUSC20260410272", "74", "600613", "5921", "AL30", "AVAILABLE", 280958.5138, 0,
          "USD", "1", "BANCO X", "6/600613", "Settled", None, "byreference", None),
     ]
     out = cs._plegar(patas, fecha=f, dias=1)
     assert out["total"] == 1, "dos patas son UN movimiento"
     assert out["patas"] == 2
     m = out["movimientos"][0]
-    assert m["entrega"] == "3" and m["recibe"] == "600613"
+    assert m["entrega"] == "74/3" and m["recibe"] == "74/600613"
     assert m["volumen"] == 280958.5138, "el volumen del movimiento va en positivo"
     assert m["descalce"] is False, "las dos patas netean a cero"
     # Lo que trae un solo método completa el movimiento sin importar el orden.
@@ -273,7 +273,7 @@ def test_una_pata_sola_no_es_un_descalce():
     from datetime import date as _d
 
     f = _d(2026, 4, 10)
-    out = cs._plegar([(f, "REF1", "3", "5921", "AL30", "AVAILABLE", -100.0, 0,
+    out = cs._plegar([(f, "REF1", "74", "3", "5921", "AL30", "AVAILABLE", -100.0, 0,
                        "ARS", "0", None, None, None, None, "today", None)],
                      fecha=f, dias=1)
     m = out["movimientos"][0]
@@ -294,19 +294,19 @@ def test_tres_patas_no_muestran_un_nominal_PARCIAL():
     f = _d(2026, 4, 10)
     patas = [
         # Una cuenta entrega 100; la otra los recibe partidos en dos sub-balances.
-        (f, "REF3", "3", "5921", "AL30", "AVAILABLE", -100.0, -1000.0,
+        (f, "REF3", "74", "3", "5921", "AL30", "AVAILABLE", -100.0, -1000.0,
          "ARS", "0", None, None, None, None, "today", None),
-        (f, "REF3", "600613", "5921", "AL30", "AVAILABLE", 60.0, 600.0,
+        (f, "REF3", "74", "600613", "5921", "AL30", "AVAILABLE", 60.0, 600.0,
          "ARS", "0", None, None, None, None, "today", None),
-        (f, "REF3", "600613", "5921", "AL30", "BLOCKED_FOR_PLEDGE", 40.0, 400.0,
+        (f, "REF3", "74", "600613", "5921", "AL30", "BLOCKED_FOR_PLEDGE", 40.0, 400.0,
          "ARS", "0", None, None, None, None, "today", None),
     ]
     m = cs._plegar(patas, fecha=f, dias=1)["movimientos"][0]
     assert m["patas"] == 3
     assert m["volumen"] == 100.0, "el nominal es el TOTAL del lado, no el de una pata"
     assert m["monto"] == 1000.0
-    assert m["entrega"] == "3"
-    assert m["recibe"] == "600613", "las dos patas son de la MISMA cuenta: no se duplica"
+    assert m["entrega"] == "74/3"
+    assert m["recibe"] == "74/600613", "las dos patas son de la MISMA cuenta: no se duplica"
     assert m["descalce"] is False, "netea a cero aunque sean tres patas"
 
 
@@ -316,13 +316,87 @@ def test_dos_cuentas_de_un_mismo_lado_se_DICEN_no_se_eligen():
 
     f = _d(2026, 4, 10)
     patas = [
-        (f, "REF4", "3", "5921", "AL30", "AVAILABLE", -70.0, None,
+        (f, "REF4", "74", "3", "5921", "AL30", "AVAILABLE", -70.0, None,
          "ARS", "0", None, None, None, None, "today", None),
-        (f, "REF4", "9", "5921", "AL30", "AVAILABLE", -30.0, None,
+        (f, "REF4", "74", "9", "5921", "AL30", "AVAILABLE", -30.0, None,
          "ARS", "0", None, None, None, None, "today", None),
-        (f, "REF4", "600613", "5921", "AL30", "AVAILABLE", 100.0, None,
+        (f, "REF4", "74", "600613", "5921", "AL30", "AVAILABLE", 100.0, None,
          "ARS", "0", None, None, None, None, "today", None),
     ]
     m = cs._plegar(patas, fecha=f, dias=1)["movimientos"][0]
     assert m["entrega"] == "2 cuentas"
     assert m["volumen"] == 100.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LA CUENTA ES UN PAR — REGLA #9 en su forma más cara
+# ─────────────────────────────────────────────────────────────────────────────
+from core import custodia_cuentas as cc
+
+
+def test_la_cuenta_son_las_DOS_mitades_no_el_numero():
+    """CVSA usa TRES espacios de numeración para el mismo agente y el lado
+    derecho SE REPITE entre ellos. Guardando solo la derecha, la cuenta de
+    garantías de clientes y un comitente son el mismo string — y el que pise
+    último gana, sin que nada falle.
+    """
+    assert cc.partir("80074/555555555") == ("80074", "555555555")
+    assert cc.partir("74/805") == ("74", "805")
+    # Media cuenta no es una cuenta: se ve, no se adivina.
+    assert cc.partir("805") is None
+    assert cc.partir("74/") is None
+    assert cc.partir("") is None
+    assert cc.partir(None) is None
+
+    # EL BUG, en una línea: estas dos NO son la misma cuenta.
+    assert cc.partir("80074/555555555") != cc.partir("74/555555555")
+
+
+def test_solo_el_espacio_74_se_cruza_con_comitentes():
+    """Joinear una liquidadora o una de garantías contra `clientes.cuentas`
+    devuelve el nombre de un cliente que no tiene nada que ver con ella."""
+    assert cc.es_comitente("74") is True
+    assert cc.es_comitente("70074") is False
+    assert cc.es_comitente("80074") is False
+    assert cc.es_comitente(None) is False
+
+
+def test_los_espacios_se_DECLARAN_no_se_deducen_del_string():
+    """Un prefijo nuevo tiene que VERSE, no clasificarse de prepo."""
+    assert cc.espacio("74") == "comitentes"
+    assert cc.espacio("70074") == "liquidadoras"
+    assert cc.espacio("80074") == "garantias"
+    assert cc.espacio("90074") is None, "un espacio no declarado es DESCONOCIDO"
+    assert cc.espacio("") is None
+
+
+def test_las_cuentas_especiales_tienen_nombre_y_los_comitentes_no():
+    """El nombre de un comitente vive en `clientes.cuentas`: duplicarlo acá
+    sería una segunda copia capaz de quedar vieja (REGLA #9 B)."""
+    assert cc.denominacion("80074/222222222") == "Cta. Gtías. House"
+    assert cc.denominacion("70074/10000") == "Cta. Liquidadora gral."
+    assert cc.denominacion("74/805") is None, "el nombre del comitente NO se duplica acá"
+    # Las cinco que pasó la mesa, todas de espacios que no son comitentes.
+    assert len(cc.ESPECIALES) == 5
+    assert all(not cc.es_comitente(cc.partir(a)[0]) for a in cc.ESPECIALES)
+
+
+def test_la_ficha_de_una_cuenta_de_garantias():
+    f = cc.ficha("80074/222222222")
+    assert f == {"participante": "80074", "id_cuenta": "222222222",
+                 "espacio": "garantias", "denominacion": "Cta. Gtías. House",
+                 "es_comitente": False}
+    # Ilegible → todo None. Que se vea, no que se invente.
+    assert cc.ficha("222222222")["participante"] is None
+
+
+def test_el_writer_guarda_el_participante_y_no_lo_tira(monkeypatch):
+    """Congelado porque es exactamente lo que se perdía antes."""
+    monkeypatch.setattr(ce, "mapa_codigo_a_unidad", dict)
+    filas = [{"accountNumber": "80074/222222222", "settlementDate": "2026-04-10",
+              "cvsaIdentifier": "5921", "securitiesSubBalanceType": "AVAILABLE",
+              "volume": "-100", "amount": "0", "currency": "1",
+              "instructionReference": "REF9"}]
+    registros, _ = ce._normalizar_movimientos(filas, fuente="today")
+    assert registros[0]["participante"] == "80074"
+    assert registros[0]["id_cuenta"] == "222222222"

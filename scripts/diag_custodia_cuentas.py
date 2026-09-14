@@ -21,12 +21,13 @@ READ-ONLY: no escribe ni una fila. Uso:
 """
 from __future__ import annotations
 
+from core import custodia_cuentas as cuentas
 from core.postgres import get_pool
 
 SQL = """
 WITH mov AS (
     SELECT DISTINCT id_cuenta, account_number,
-           split_part(account_number, '/', 1) AS participante
+           participante
       FROM portafolio.custodia_movimientos
      WHERE fecha_liq = (SELECT max(fecha_liq) FROM portafolio.custodia_movimientos)
 )
@@ -38,11 +39,15 @@ SELECT m.participante,
        COALESCE(h.filas, 0)                            AS filas_en_holdings,
        h.nominales
   FROM mov m
+  -- ⚠️ Solo el espacio 74 se cruza con comitentes: joinear una liquidadora o
+  -- una de garantías por el número pelado devuelve un cliente que no es.
   LEFT JOIN clientes.cuentas c ON c.id_cuenta = m.id_cuenta
+                              AND m.participante = '74'
   LEFT JOIN LATERAL (
        SELECT count(*) AS filas, sum(cantidad) AS nominales
          FROM portafolio.custodia_cvsa k
-        WHERE k.id_cuenta = m.id_cuenta
+        WHERE k.participante = m.participante
+          AND k.id_cuenta = m.id_cuenta
           AND k.fecha = (SELECT max(fecha) FROM portafolio.custodia_cvsa)
   ) h ON true
  ORDER BY m.participante, m.id_cuenta
@@ -75,12 +80,24 @@ def main() -> None:
     else:
         print("  todas del mismo participante: `id_cuenta` alcanza.\n")
 
-    print(f"{'PART':>5} {'ACCOUNT_NUMBER':>18} {'NUESTRA':>8} {'HOLDINGS':>9} "
+    print(f"{'ESPACIO':>13} {'ACCOUNT_NUMBER':>18} {'NUESTRA':>8} {'HOLDINGS':>9} "
           f"{'NOMINALES':>16}  DENOMINACIÓN")
     for part, acc, _idc, nuestra, deno, n_hold, nominales in filas:
-        print(f"{part:>5} {acc:>18} {'sí' if nuestra else 'NO':>8} {n_hold:>9} "
-              f"{(f'{nominales:,.2f}' if nominales is not None else '—'):>16}  "
-              f"{deno or ''}")
+        # El nombre sale del catálogo declarado cuando no es un comitente.
+        nombre = deno or cuentas.denominacion(acc) or ""
+        print(f"{cuentas.espacio(part) or '⚠ DESCONOCIDO':>13} {acc:>18} "
+              f"{'sí' if nuestra else 'NO':>8} {n_hold:>9} "
+              f"{(f'{nominales:,.2f}' if nominales is not None else '—'):>16}  {nombre}")
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT participante, count(*), count(DISTINCT id_cuenta) "
+                    "  FROM portafolio.custodia_cvsa "
+                    " WHERE fecha = (SELECT max(fecha) FROM portafolio.custodia_cvsa) "
+                    " GROUP BY participante ORDER BY participante")
+        print("\nTENENCIAS por espacio (esto dice si el feed está trayendo los tres):")
+        for part, n, ctas in cur.fetchall():
+            print(f"  {part or '(vacío)':>8} {cuentas.espacio(part) or '⚠ DESCONOCIDO':>13} "
+                  f"{n:>7} filas  {ctas:>5} cuentas")
 
     sin_hold = [f for f in filas if f[5] == 0]
     ajenas = [f for f in filas if not f[3]]

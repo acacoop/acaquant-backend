@@ -21,7 +21,8 @@ import logging
 from datetime import date, datetime
 from typing import Any
 
-from core.byma_custodia import id_cuenta, moneda
+from core.byma_custodia import moneda
+from core.custodia_cuentas import partir
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -85,17 +86,21 @@ def guardar(fecha: date, filas: list[dict]) -> dict:
     sin_cuenta = 0
     sin_unidad: set[str] = set()
     for f in filas:
-        cta = id_cuenta(f.get("accountNumber", ""))
-        if not cta:
+        # ⚠️ La cuenta son las DOS mitades. Guardar solo la derecha hacía que
+        # `80074/555555555` (garantías) y `74/555555555` (un comitente) fueran la
+        # misma fila: una pisaba a la otra sin que nada fallara.
+        partido = partir(f.get("accountNumber", ""))
+        if partido is None:
             # Un accountNumber con otra forma no se adivina: se cuenta y se mira.
             sin_cuenta += 1
             continue
+        part, cta = partido
         cvsa_id = (f.get("cvsaIdentifier") or "").strip()
         unidad = mapa.get(cvsa_id)
         if not unidad:
             sin_unidad.add(cvsa_id)
         registros.append((
-            fecha, cta, cvsa_id,
+            fecha, part, cta, cvsa_id,
             (f.get("subBalanceType") or "").strip() or "SIN_ESTADO",
             _cantidad(f.get("holding")), unidad,
             f.get("accountNumber"), f.get("identAccountComposite"),
@@ -103,7 +108,14 @@ def guardar(fecha: date, filas: list[dict]) -> dict:
 
     stats["sin_cuenta_reconocible"] = sin_cuenta
     stats["codigos_sin_asset"] = len(sin_unidad)
-    stats["cuentas"] = len({r[1] for r in registros})
+    stats["cuentas"] = len({(r[1], r[2]) for r in registros})
+    # Cuántas filas trajo cada espacio de numeración. Es LA pregunta que no se
+    # podía contestar antes: si `70074`/`80074` no aparecen acá, es que
+    # `/holdings` de nuestro participante no los devuelve y hay que pedirlos.
+    por_participante: dict[str, int] = {}
+    for r in registros:
+        por_participante[r[1]] = por_participante.get(r[1], 0) + 1
+    stats["por_participante"] = por_participante
 
     if not registros:
         # Llegaron filas pero ninguna se pudo interpretar. Tampoco se borra:
@@ -118,10 +130,10 @@ def guardar(fecha: date, filas: list[dict]) -> dict:
         cur.execute("DELETE FROM portafolio.custodia_cvsa WHERE fecha = %s", (fecha,))
         cur.executemany(
             "INSERT INTO portafolio.custodia_cvsa "
-            "(fecha, id_cuenta, cvsa_id, sub_balance_type, cantidad, unidad, "
-            " account_number, ident_composite) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
-            "ON CONFLICT (fecha, id_cuenta, cvsa_id, sub_balance_type) DO UPDATE "
+            "(fecha, participante, id_cuenta, cvsa_id, sub_balance_type, cantidad, "
+            " unidad, account_number, ident_composite) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (fecha, participante, id_cuenta, cvsa_id, sub_balance_type) DO UPDATE "
             "SET cantidad = EXCLUDED.cantidad, unidad = EXCLUDED.unidad, "
             "    actualizado_at = now()",
             registros)
@@ -142,8 +154,9 @@ def guardar(fecha: date, filas: list[dict]) -> dict:
 CLAVES_CANDIDATAS: tuple[tuple[str, ...], ...] = (
     ("referencia",),
     ("referencia", "id_cuenta"),
-    ("referencia", "id_cuenta", "cvsa_id"),
-    ("referencia", "id_cuenta", "cvsa_id", "sub_balance_type"),
+    ("referencia", "participante", "id_cuenta"),
+    ("referencia", "participante", "id_cuenta", "cvsa_id"),
+    ("referencia", "participante", "id_cuenta", "cvsa_id", "sub_balance_type"),
 )
 
 
@@ -172,10 +185,11 @@ def _normalizar_movimientos(filas: list[dict], *, fuente: str) -> tuple[list[dic
     registros: list[dict] = []
 
     for f in filas:
-        cta = id_cuenta(f.get("accountNumber", ""))
-        if not cta:
+        partido = partir(f.get("accountNumber", ""))
+        if partido is None:
             stats["sin_cuenta_reconocible"] += 1
             continue
+        part, cta = partido
         fecha_liq = _fecha_liq(f.get("settlementDate"))
         if fecha_liq is None:
             # Sin fecha de liquidación no hay dónde guardarlo: es parte de la PK.
@@ -188,6 +202,7 @@ def _normalizar_movimientos(filas: list[dict], *, fuente: str) -> tuple[list[dic
         codigo_moneda = (f.get("currency") or "").strip() or None
         registros.append({
             "fecha_liq": fecha_liq,
+            "participante": part,
             "id_cuenta": cta,
             "cvsa_id": cvsa_id,
             "sub_balance_type": (f.get("securitiesSubBalanceType") or "").strip(),
@@ -250,7 +265,8 @@ def guardar_movimientos(filas: list[dict], *, fuente: str) -> dict:
         logger.warning("custodia_movimientos (%s): %s", fuente, stats["motivo"])
         return stats
 
-    campos = ("fecha_liq", "id_cuenta", "cvsa_id", "sub_balance_type", "referencia",
+    campos = ("fecha_liq", "participante", "id_cuenta", "cvsa_id",
+              "sub_balance_type", "referencia",
               "volumen", "monto", "moneda", "moneda_codigo", "unidad",
               "account_number", "contraparte", "contraparte_cta",
               "estado", "estado_motivo", "fuente")
@@ -258,7 +274,8 @@ def guardar_movimientos(filas: list[dict], *, fuente: str) -> dict:
         cur.executemany(
             f"INSERT INTO portafolio.custodia_movimientos ({', '.join(campos)}) "
             f"VALUES ({', '.join(['%s'] * len(campos))}) "
-            "ON CONFLICT (fecha_liq, referencia, id_cuenta, cvsa_id, sub_balance_type) "
+            "ON CONFLICT (fecha_liq, referencia, participante, id_cuenta, cvsa_id, "
+            "             sub_balance_type) "
             "DO UPDATE SET "
             "  volumen        = EXCLUDED.volumen, "
             "  monto          = EXCLUDED.monto, "

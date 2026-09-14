@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from core import custodia_cuentas as cuentas_cvsa
 from core.postgres import get_pool
 
 # Todo lo que no es AVAILABLE es tenencia que NO se puede entregar ni garantizar.
@@ -95,12 +96,12 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
                 "sin_asset": 0, "trabado": 0, "difieren": 0, "sin_comparar": 0,
                 "truncado": False, "actualizado_at": None, "fecha_aunesa": None,
                 "actualizado_aunesa": None,
-                "estados": [],
+                "espacios": [], "estados": [],
                 "aviso": "todavía no entró ninguna foto de la Caja de Valores"}
 
     sql = """
         WITH byma AS (
-            SELECT id_cuenta, unidad, cvsa_id,
+            SELECT participante, id_cuenta, unidad, cvsa_id,
                    SUM(cantidad)                                   AS vn_byma,
                    SUM(cantidad) FILTER (WHERE sub_balance_type <> %(disp)s) AS trabado,
                    string_agg(DISTINCT sub_balance_type, ' · ' ORDER BY sub_balance_type)
@@ -108,20 +109,28 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
                    max(actualizado_at)                             AS actualizado_at
               FROM portafolio.custodia_cvsa
              WHERE fecha = %(f)s
-             GROUP BY id_cuenta, unidad, cvsa_id
+             GROUP BY participante, id_cuenta, unidad, cvsa_id
         )
-        SELECT b.id_cuenta, cu.denominacion, b.cvsa_id, b.unidad, a.ticker,
+        SELECT b.participante, b.id_cuenta, cu.denominacion, b.cvsa_id, b.unidad, a.ticker,
                b.estados, b.vn_byma, b.trabado, b.actualizado_at,
                t.cantidad, t.gar_cantidad, t.fecha, t.actualizado_at AS act_aunesa
           FROM byma b
+          -- ⚠️ SOLO el espacio 74 se cruza con comitentes. Sin ese filtro, la
+          -- cuenta de garantías `80074/555555555` matchea con el comitente
+          -- `555555555` y la pantalla muestra el nombre de un cliente que no
+          -- tiene nada que ver — sin que falle nada. Ídem con Aunesa: compararía
+          -- la tenencia de un cliente contra la cámara.
           LEFT JOIN clientes.cuentas   cu ON cu.id_cuenta = b.id_cuenta
+                                         AND b.participante = %(comitentes)s
           LEFT JOIN portafolio.assets   a ON a.unidad     = b.unidad
           -- El join con Aunesa solo puede existir si sabemos cómo se llama el
           -- papel de este lado: con `unidad` NULL no matchea y queda sin comparar.
           LEFT JOIN ({aunesa}) t
                  ON t.id_cuenta = b.id_cuenta
                 AND t.unidad    = b.unidad
-         ORDER BY b.id_cuenta, a.ticker NULLS LAST, b.unidad NULLS LAST, b.cvsa_id
+                AND b.participante = %(comitentes)s
+         ORDER BY b.participante, b.id_cuenta, a.ticker NULLS LAST,
+                  b.unidad NULLS LAST, b.cvsa_id
          LIMIT %(lim)s
     """
 
@@ -142,7 +151,8 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(sql.format(aunesa=aunesa),
-                    {"f": f, "disp": DISPONIBLE, "lim": LIMITE_FILAS})
+                    {"f": f, "disp": DISPONIBLE, "lim": LIMITE_FILAS,
+                     "comitentes": cuentas_cvsa.COMITENTES})
         crudas = cur.fetchall()
 
     filas = []
@@ -154,9 +164,17 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
     fecha_aunesa = None
     ultimo_aunesa = None
 
+    espacios: dict[str, int] = {}
     for r in crudas:
-        (cta, denom, cvsa_id, unidad, ticker, estados,
+        (part, cta, denom, cvsa_id, unidad, ticker, estados,
          vn_byma, trabado, act, cant, gar, f_aun, act_aun) = r
+
+        # La cuenta se nombra por su FICHA, no por el número: una liquidadora y
+        # un comitente pueden compartir el número y son cosas distintas.
+        account_number = f"{part}/{cta}" if part else cta
+        espacio = cuentas_cvsa.espacio(part)
+        denom = denom or cuentas_cvsa.denominacion(account_number)
+        espacios[espacio or "desconocido"] = espacios.get(espacio or "desconocido", 0) + 1
 
         vn_byma = float(vn_byma or 0)
         trabado = float(trabado or 0)
@@ -173,7 +191,7 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
         elif abs(dif or 0) > TOLERANCIA:
             difieren += 1
 
-        cuentas.add(cta)
+        cuentas.add(account_number)
         for e in (estados or "").split(" · "):
             if e:
                 por_estado[e] = por_estado.get(e, 0) + 1
@@ -192,6 +210,11 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
 
         filas.append({
             "id_cuenta": cta, "cuenta": denom, "cvsa_id": cvsa_id,
+            # La identidad completa, para que la pantalla no muestre un número
+            # suelto que puede ser de tres cuentas distintas.
+            "participante": part, "account_number": account_number,
+            "espacio": espacio,
+            "comitente": cuentas_cvsa.es_comitente(part),
             "unidad": unidad, "ticker": ticker, "estados": estados,
             "vn_byma": vn_byma,
             "vn_aunesa": vn_aunesa,
@@ -219,6 +242,10 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
         "sin_comparar": sin_comparar,
         "truncado": len(filas) >= LIMITE_FILAS,
         "actualizado_at": ultimo.isoformat() if ultimo else None,
+        # Cuántas filas hay en cada espacio de numeración. Es lo que contesta
+        # «¿tenemos la tenencia de las liquidadoras y las de garantías?».
+        "espacios": sorted(({"espacio": k, "n": v} for k, v in espacios.items()),
+                           key=lambda x: -x["n"]),
         "estados": sorted(({"estado": k, "n": v} for k, v in por_estado.items()),
                           key=lambda x: -x["n"]),
     }
@@ -250,11 +277,12 @@ def movimientos(*, fecha: str | date | None = None, dias: int = 1) -> dict:
         f = _fecha_movimientos(cur, fecha)
         if f is None:
             return {"fecha": None, "dias": dias, "movimientos": [], "total": 0,
-                    "patas": 0, "sin_par": 0, "sin_asset": 0, "estados": [],
+                    "patas": 0, "sin_par": 0, "descalces": 0, "sin_asset": 0,
+                    "cuentas": {}, "estados": [],
                     "truncado": False, "actualizado_at": None}
 
         cur.execute(
-            "SELECT fecha_liq, referencia, id_cuenta, cvsa_id, unidad, "
+            "SELECT fecha_liq, referencia, participante, id_cuenta, cvsa_id, unidad, "
             "       sub_balance_type, volumen, monto, moneda, moneda_codigo, "
             "       contraparte, contraparte_cta, estado, estado_motivo, "
             "       fuente, actualizado_at "
@@ -275,6 +303,21 @@ def _fecha_movimientos(cur, fecha: str | date | None) -> date | None:
     cur.execute("SELECT max(fecha_liq) FROM portafolio.custodia_movimientos")
     fila = cur.fetchone()
     return fila[0] if fila else None
+
+
+def _cuenta_ficha(participante: str | None, id_cuenta: str) -> dict:
+    """Qué ES esta cuenta, sin tocar la base. Ver `core/custodia_cuentas.py`.
+
+    Las liquidadoras y las de garantías NO son comitentes: su nombre sale del
+    catálogo declarado, no de `clientes.cuentas` — joinearlas por el número
+    pelado devolvería el nombre de un cliente que no tiene nada que ver.
+    """
+    acc = f"{participante}/{id_cuenta}" if participante else id_cuenta
+    return {"account_number": acc, "participante": participante,
+            "id_cuenta": id_cuenta,
+            "espacio": cuentas_cvsa.espacio(participante),
+            "denominacion": cuentas_cvsa.denominacion(acc),
+            "comitente": cuentas_cvsa.es_comitente(participante)}
 
 
 def _una_cuenta(ctas: set) -> str | None:
@@ -306,12 +349,17 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
     nominal PARCIAL —más chico que el real— sin que nada falle.
     """
     grupos: dict[tuple, dict] = {}
+    fichas: dict[str, dict] = {}     # account_number → qué es esa cuenta
     sin_asset = 0
     por_estado: dict[str, int] = {}
     ultimo = None
 
-    for (fliq, ref, cta, cvsa, unidad, sub, vol, monto, mon, mon_cod,
+    for (fliq, ref, part, cta, cvsa, unidad, sub, vol, monto, mon, mon_cod,
          cparte, cparte_cta, estado, motivo, fuente, act) in patas:
+        # La cuenta se identifica por el PAR. `555555555` puede ser la cuenta de
+        # garantías de clientes (80074) o un comitente: no son la misma.
+        cuenta = _cuenta_ficha(part, cta)
+        fichas.setdefault(cuenta["account_number"], cuenta)
         if ultimo is None or (act and act > ultimo):
             ultimo = act
         if not unidad:
@@ -358,12 +406,12 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
             # El signo ES el dato: sale la cuenta con volumen < 0, entra la de > 0.
             if v < 0:
                 g["_sale"] += -v
-                g["_ctas_entrega"].add(cta)
+                g["_ctas_entrega"].add(cuenta["account_number"])
                 if monto is not None:
                     g["_monto_sale"] += abs(float(monto))
             elif v > 0:
                 g["_entra"] += v
-                g["_ctas_recibe"].add(cta)
+                g["_ctas_recibe"].add(cuenta["account_number"])
                 if monto is not None:
                     g["_monto_entra"] += abs(float(monto))
         if sub:
@@ -392,6 +440,9 @@ def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
         "movimientos": movs,
         "total": len(movs),
         "patas": len(patas),
+        # Las fichas de todas las cuentas que aparecen, para que la pantalla
+        # muestre «Cta. Gtías. House» y no `222222222` a secas.
+        "cuentas": fichas,
         "sin_par": sum(1 for m in movs if m["patas"] == 1),
         "descalces": sum(1 for m in movs if m["descalce"]),
         "sin_asset": sin_asset,

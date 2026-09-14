@@ -15,6 +15,13 @@ from datetime import date
 CLIENT_ID = ""
 CLIENT_SECRET = ""
 PARTICIPANT = "74"
+# CVSA usa TRES espacios de numeracion para el MISMO agente. Las tenencias hay
+# que pedirlas para los tres: /holdings devuelve solo el que se le pide.
+#   74     comitentes     las cuentas de clientes
+#   70074  liquidadoras   70074/10000 gral, 70074/50000 Licis
+#   80074  garantias      80074/555555555 clientes, /222222222 house,
+#                         /888888888 default funds
+PARTICIPANTES = ("74", "70074", "80074")
 INGEST_TOKEN = ""
 CF_ID = ""
 CF_SECRET = ""
@@ -109,9 +116,25 @@ def mandar(ruta, cuerpo, que):
         raise SystemExit(f"{quien} rechazo {que}: HTTP {e.code}\n{cuerpo_err[:500]}") from e
 
 
-filas = bajar(f"{BYMA}/holdings?balanceDate={HOY}&participantCode={PARTICIPANT}",
-              COLS, "holdings")
-print(f"{len(filas)} tenencias de BYMA")
+# ⚠️ LOS TRES ESPACIOS VAN EN UN SOLO ENVIO. El endpoint REEMPLAZA la foto del
+# dia entera (DELETE + INSERT), asi que mandarlos por separado haria que el
+# segundo BORRE lo que subio el primero — y no fallaria nada, simplemente
+# faltarian cuentas. Se juntan aca y se manda una vez.
+filas = []
+for pc in PARTICIPANTES:
+    try:
+        parcial = bajar(f"{BYMA}/holdings?balanceDate={HOY}&participantCode={pc}",
+                        COLS, f"holdings {pc}")
+    except SystemExit as e:
+        # Best-effort: si un espacio no existe o falla, los otros igual suben.
+        # Perder las liquidadoras es peor que perder todo? No: peor es no subir
+        # NADA por una cuenta que quizas ni tenga tenencia hoy.
+        print(f"  holdings {pc}: {e}")
+        continue
+    print(f"  {pc}: {len(parcial)} filas")
+    filas.extend(parcial)
+
+print(f"{len(filas)} tenencias de BYMA (los {len(PARTICIPANTES)} espacios)")
 if filas:
     mandar("/api/ingest/custodia/holdings", {"fecha": HOY, "docs": filas}, "tenencias")
 else:

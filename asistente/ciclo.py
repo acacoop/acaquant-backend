@@ -34,6 +34,7 @@ import logging
 from asistente import control as CTL
 from asistente import esquema as ESQ
 from asistente import herramientas as H
+from asistente import puerta
 from core import ai
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,16 @@ def _ejecutar(pedido: dict) -> dict:
         return {"error": "no pude leer tus argumentos: no son un JSON válido",
                 "recibido": pedido.get("argumentos_crudos"),
                 "que_hacer": "Volvé a pedir la herramienta con los argumentos bien armados."}
+    # ── LA PUERTA (`asistente/puerta.py`) ──────────────────────────────
+    # Corre para TODA herramienta, entre el pedido del modelo y la ejecución.
+    # Un corte acá NO es una excepción: es el resultado que lee el modelo, así
+    # que puede corregir o decir que no pudo, igual que con cualquier error.
+    #
+    # Es la red, no el único piso: cada herramienta sigue validando lo suyo,
+    # porque no toda llamada pasa por el ciclo (`scripts/diag_herramienta.py`
+    # corre la función directo).
+    if (corte := puerta.revisar(nombre, args)) is not None:
+        return corte
     try:
         return fn(**args)
     except TypeError as e:

@@ -1298,3 +1298,97 @@ def test_las_columnas_declaradas_EXISTEN_en_las_filas():
         assert f'"{col}":' in cuerpo, (
             f"la tabla declara la columna {col!r} y las filas no la traen")
     assert '"total"' in cuerpo, "la tabla declara un total que el resultado no tiene"
+
+
+# ── LA PUERTA: toda herramienta pasa por acá antes de correr ────────────────
+
+
+def test_la_puerta_corre_para_TODA_herramienta_y_ANTES_de_ejecutarla():
+    """⚠️ Si la puerta corriera después, ya se consultó la base: el corte
+    llegaría tarde justo en el caso que importa (una cuenta que nadie
+    habilitó)."""
+    src = (RAIZ / "asistente" / "ciclo.py").read_text(encoding="utf-8")
+    cuerpo = src.split("\ndef _ejecutar(", 1)[1].split("\ndef ", 1)[0]
+    assert "puerta.revisar" in cuerpo
+    assert cuerpo.index("puerta.revisar") < cuerpo.index("fn(**args)"), (
+        "la puerta corre DESPUÉS de ejecutar la herramienta: no corta nada")
+
+
+def test_la_puerta_NO_nombra_ninguna_herramienta():
+    """⚠️⚠️ **LO QUE HACE QUE ESTO SIRVA PARA LA HERRAMIENTA #8.**
+
+    Los controles se disparan por el ARGUMENTO (`cuenta`), no por la
+    herramienta. Un `if nombre == "cobros_futuros"` acá adentro sería una lista
+    paralela que hay que mantener al día — y el día que alguien se olvide de
+    agregar la herramienta nueva, no falla nada: simplemente deja de estar
+    protegida.
+    """
+    from asistente import herramientas as H
+
+    src = (RAIZ / "asistente" / "puerta.py").read_text(encoding="utf-8")
+    codigo = "".join(re.split(r'""".*?"""', src, flags=re.S))
+    for nombre in H.POR_NOMBRE:
+        assert nombre not in codigo, (
+            f"`puerta.py` nombra a {nombre!r}: un control que sabe de UNA "
+            "herramienta va adentro de esa herramienta, no en la puerta")
+
+
+def test_ninguna_herramienta_le_pone_otro_nombre_a_la_CUENTA():
+    """⚠️⚠️ **LA CONTRACARA DE MIRAR EL NOMBRE DEL ARGUMENTO.**
+
+    La puerta se dispara con `cuenta`. Una herramienta que llame `id_cuenta` a
+    lo mismo **pasa de largo en silencio** — contesta bien, no falla nada, y
+    nadie se entera de que esa herramienta no tiene permiso.
+
+    Por eso el nombre del parámetro es parte del contrato, no una preferencia.
+    """
+    import inspect
+
+    from asistente import herramientas as H
+
+    ALIAS = ("id_cuenta", "account", "cliente", "comitente", "nro_cuenta")
+    for fn in H.DISPONIBLES:
+        params = set(inspect.signature(fn).parameters)
+        for alias in ALIAS:
+            assert alias not in params, (
+                f"`{fn.__name__}` recibe la cuenta como {alias!r}: la puerta "
+                "busca `cuenta` y esta herramienta se le escapa")
+
+
+def test_una_cuenta_inventada_NO_LLEGA_a_la_herramienta():
+    """El corte es real, no un aviso: la función no se ejecuta. Es lo que hace
+    que una cuenta que el modelo se inventó no toque la base."""
+    import os
+    from unittest.mock import patch
+
+    from asistente import ciclo
+
+    corrio = []
+
+    def espia(cuenta, **kw):
+        corrio.append(cuenta)
+        return {"ok": True}
+
+    with patch.dict(os.environ, {"ASISTENTE_CUENTAS": "805"}), \
+         patch.dict(ciclo.H.POR_NOMBRE, {"espia": espia}):
+        malo = ciclo._ejecutar({"nombre": "espia", "argumentos": {"cuenta": "999"}})
+        assert "no está habilitada" in malo["error"]
+        assert corrio == [], "la herramienta corrió igual con una cuenta no habilitada"
+        # Y la habilitada sí pasa: la puerta corta, no bloquea todo.
+        assert ciclo._ejecutar({"nombre": "espia", "argumentos": {"cuenta": "805"}}) \
+            == {"ok": True}
+        assert corrio == ["805"]
+
+
+def test_un_control_de_la_puerta_que_revienta_NO_corta_la_conversacion():
+    """La puerta es la red, no el único piso: cada herramienta valida lo suyo
+    igual. Un bug en un control no puede dejar al asistente sin contestar."""
+    from unittest.mock import patch
+
+    from asistente import puerta
+
+    def explota(nombre, args):
+        raise RuntimeError("bug")
+
+    with patch.object(puerta, "CONTROLES", (explota,)):
+        assert puerta.revisar("cualquiera", {"cuenta": "805"}) is None

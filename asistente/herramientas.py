@@ -28,6 +28,14 @@ from core.postgres import get_pool
 # conversación, que se paga por token.
 MAX_DIAS = 730
 
+# ⚠️ **`dias` TIENE DEFAULT Y `cuenta` NO, Y NO ES SIMETRÍA: ES RIESGO.**
+# Un parámetro sin default la ficha lo marca `required`, y entonces el modelo no
+# puede llamar sin él: su única salida es preguntarte. Con `cuenta` eso es lo que
+# queremos (adivinarla es contestar sobre la plata de otro, y no se nota).
+# Con `dias` era una vuelta entera perdida —1.178 tokens para preguntarte
+# «¿cuántos días?»— por un error que además SE VE: la respuesta dice la ventana,
+# y si no era esa, repreguntás.
+
 
 # ── CUÁNTA PLATA ENTRA, Y CUÁNDO ────────────────────────────────────────────
 #
@@ -97,7 +105,7 @@ def _por_mes(filas, mon) -> list[dict]:
     return [out[k] for k in sorted(out)]
 
 
-def cobros_futuros(cuenta: str, dias: int) -> dict:
+def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
     """Cuánta PLATA va a cobrar una cuenta en los próximos N días, y en qué fechas.
 
     Es la única herramienta de plata que hay, y contesta las dos preguntas que
@@ -132,7 +140,8 @@ def cobros_futuros(cuenta: str, dias: int) -> dict:
 
     Args:
         cuenta: el `id_cuenta` a mirar. Sale de `cuentas_disponibles`.
-        dias: cuántos días para adelante mirar. Entre 1 y 730.
+        dias: cuántos días para adelante mirar. Entre 1 y 730; si el usuario
+            no dijo un plazo, son 90 y NO hace falta preguntárselo.
     """
     try:
         n = int(dias)

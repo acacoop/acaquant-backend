@@ -2319,7 +2319,10 @@ nadie lo miraba.
 > | `cobros_futuros(cuenta, dias)` | **cuánta plata cobra esa cuenta y cuándo** — cupones y amortizaciones juntos, por moneda, con el total por título y el detalle por fecha. Cada título trae su `vence`, así que contesta también «¿qué bono me vence?» | `operaciones.acreencias`, que ya precomputa el cron de `jobs/acreencias.py` (12:45 UTC L-V) cruzando la tenencia contra el cronograma de cada bono. **No recalcula nada y NO mira la tenencia**: rehacer esa multiplicación serían dos versiones del mismo número sin árbitro |
 >
 > ⚠️ `cuenta` **no tiene default**, así que la ficha la marca `required` y el
-> modelo no puede omitirla. Y la lista de cuentas habilitadas viaja en el
+> modelo no puede omitirla. **`dias` sí tiene** (90), y no es asimetría sino
+> riesgo: adivinar la cuenta es contestar sobre la plata de otro y no se nota;
+> adivinar la ventana se VE en la respuesta. Sin default, el modelo gastaba una
+> vuelta entera (1.178 tokens medidos) sólo en preguntar cuántos días. Y la lista de cuentas habilitadas viaja en el
 > **SYSTEM** (`ciclo._instruccion()`, al final del bloque fijo para no romperle
 > el caché), así que no necesita pedirla ni preguntar: se ahorra una vuelta por
 > conversación. `cuentas_disponibles()` sigue existiendo —es de donde el SYSTEM

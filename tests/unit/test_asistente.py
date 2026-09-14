@@ -158,6 +158,25 @@ def test_la_cuenta_es_OBLIGATORIA_para_el_modelo():
         assert "805" in ciclo._instruccion()
 
 
+
+def test_dias_NO_es_obligatorio_y_por_eso_no_se_pierde_una_vuelta():
+    """La contracara del test de arriba, y la diferencia es el RIESGO.
+
+    Sin default, la ficha lo marca `required` y el modelo no puede llamar: su
+    única salida es preguntarte «¿cuántos días?» — una vuelta entera (1.178
+    tokens medidos) que no averigua nada. Adivinar 90 días no es como adivinar
+    la cuenta: el error SE VE, porque la respuesta dice la ventana.
+    """
+    import inspect
+
+    from asistente import herramientas as H
+
+    p = inspect.signature(H.cobros_futuros).parameters["dias"]
+    assert p.default == 90
+    ficha = next(f for f in H.FICHAS if f["function"]["name"] == "cobros_futuros")
+    assert "dias" not in ficha["function"]["parameters"]["required"]
+
+
 # ── COBROS FUTUROS — la plata que entra (2026-09-12) ────────────────────────
 
 

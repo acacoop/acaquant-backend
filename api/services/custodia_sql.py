@@ -24,6 +24,20 @@ from core.postgres import get_pool
 
 # Todo lo que no es AVAILABLE es tenencia que NO se puede entregar ni garantizar.
 # Es la información que Aunesa no da, así que la vista la cuenta aparte.
+# ⚠️ LA CONCILIACIÓN CONTRA HYGIRUS (T0) TODAVÍA NO ESTÁ ACÁ, Y ES A PROPÓSITO.
+#
+# Comparar `custodia_cvsa` contra `portafolio.tenencia_live` (horizonte 't0') es
+# el producto de esta vista, pero antes hay que medir siete cosas que no se
+# pueden asumir: el grano (CVSA tiene una fila por estado y Hygirus una por
+# papel), si corresponde el filtro `aum='si'`, las filas sin instrumento, que
+# las dos fotos sean del mismo día, el universo de cuentas, el signo (Aunesa
+# manda tenencias invertidas en otro endpoint) y si Hygirus cuenta o no lo
+# trabado. Errar cualquiera de esas muestra diferencias que no existen — y una
+# pantalla que grita en falso se deja de mirar en una semana.
+#
+# Chequeo previo, read-only: `python -m scripts.diag_custodia_vs_hygirus`.
+# Con esos números se decide la comparación correcta y recién ahí se escribe.
+
 DISPONIBLE = "AVAILABLE"
 
 # Techo duro del payload. Medido: una foto real son ~2.800 filas. Si alguna vez

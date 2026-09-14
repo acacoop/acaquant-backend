@@ -58,6 +58,10 @@ HERRAMIENTAS: dict[str, str] = {
                              "Droplet: misma pregunta, mismas herramientas y mismo ciclo que la tab "
                              "LAB, pero mostrando cada paso. Es como se prueba un cambio del ciclo "
                              "sin pasar por el front.",
+    "diag_custodia_cuentas": "¿quién es la cuenta que aparece en un movimiento de custodia? Dice "
+                             "si es NUESTRA, si tiene tenencia en la Caja, y —lo importante— de "
+                             "qué PARTICIPANTE es: `id_cuenta` tira ese prefijo, así que dos "
+                             "agentes con el mismo número se ven idénticos (REGLA #9).",
     "diag_byma_red":         "¿por qué el Droplet no llega a `api.byma.com.ar`? Separa «BYMA filtra "
                              "nuestra IP» de «el Droplet bloquea la salida» — dos causas con "
                              "soluciones opuestas. Read-only, sin credenciales.",

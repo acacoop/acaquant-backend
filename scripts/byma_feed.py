@@ -112,6 +112,20 @@ def token() -> str:
     if faltan:
         raise SystemExit(f"Falta completar en este archivo: {', '.join(faltan)}")
 
+    # Los errores tontos que dan un 400 y no se ven a simple vista. Se muestra
+    # la LONGITUD, nunca el valor: alcanza para saber si llegan enteras.
+    # Referencia medida en el portal: client_id 20 chars, client_secret 64.
+    for nombre, valor, largo in (("BYMA_CLIENT_ID", BYMA_CLIENT_ID, 20),
+                                 ("BYMA_CLIENT_SECRET", BYMA_CLIENT_SECRET, 64)):
+        aviso = ""
+        if valor != valor.strip():
+            aviso = "  <-- TIENE ESPACIOS al principio o al final"
+        elif '"' in valor or "'" in valor:
+            aviso = "  <-- TIENE COMILLAS adentro del valor"
+        elif len(valor) != largo:
+            aviso = f"  <-- ojo: en el portal es de {largo} caracteres"
+        print(f"  {nombre:20} {len(valor)} caracteres{aviso}")
+
     data = urllib.parse.urlencode({
         "client_id": BYMA_CLIENT_ID, "client_secret": BYMA_CLIENT_SECRET,
         "grant_type": "client_credentials", "scope": SCOPE}).encode()
@@ -119,13 +133,24 @@ def token() -> str:
         with _post(TOKEN_URL, data,
                    {"Content-Type": "application/x-www-form-urlencoded"}, 20) as r:
             j = json.loads(r.read())
+    # ⚠️ HTTPError PRIMERO: es subclase de URLError, así que al revés el except
+    # de red se lo traga y muestra el consejo del timeout ante un 400 — que es
+    # justo el caso en que la red anda perfecto y el cuerpo del error tiene la
+    # respuesta. Pasó en la primera corrida real.
+    except urllib.error.HTTPError as e:
+        cuerpo = e.read()[:400].decode("utf-8", "replace")
+        raise SystemExit(
+            f"BYMA rechazo el token: HTTP {e.code}\n"
+            f"  cuerpo: {cuerpo}\n\n"
+            ">> La red esta BIEN (llegaste hasta BYMA y te contesto).\n"
+            ">> Es la credencial: revisa que client_id y client_secret sean los que\n"
+            ">> muestra el portal AHORA. Si el secret se regenero alguna vez, el\n"
+            ">> anterior deja de andar y este es el error exacto que da.") from e
     except urllib.error.URLError as e:
         raise SystemExit(
-            f"No se pudo pedir el token: {e}\n\n"
+            f"No se pudo llegar a BYMA: {e}\n\n"
             ">> Si es un TIMEOUT: fijate que AppGate/Okta este CONECTADO.\n"
             ">> Las APIs de BYMA no se alcanzan desde internet abierta.") from e
-    except urllib.error.HTTPError as e:
-        raise SystemExit(f"Token HTTP {e.code}: {e.read()[:300].decode('utf-8','replace')}") from e
 
     print(f"  token OK (dura {j.get('expires_in')}s, scope {j.get('scope')})")
     return j["access_token"]

@@ -4,6 +4,13 @@
 el/los instrumento(s) acá; la API los persiste en SQL `valuaciones.dolar_oficial_live`.
 Así la oficina NO necesita acceso directo a la base. Ver docs/SECURITY.md.
 
+`POST /api/ingest/custodia/holdings` — la tenencia de la CAJA DE VALORES. Mismo
+patrón, por el MISMO motivo que MAE y Eikon: las APIs de BYMA están publicadas
+detrás de AppGate SDP y **el Droplet no las alcanza** (medido: timeout de TCP
+contra api.byma.com.ar, mientras Aunesa/BCRA/Finnhub conectan sin problema).
+El que sí entra es la PC con Okta, así que ella pega a BYMA y manda las filas
+acá. `scripts/byma_feed.py`. Ver `docs/BYMA_CUSTODIA.md`.
+
 `/api/ingest/eikon/*` — mismo patrón para el feed Eikon/Workspace
 (`scripts/eikon_feed_simple.py`, PRUEBA): universo de underlyings+RICs (GET), RICs
 resueltos por symbology (POST rics, solo llena vacíos) y quotes live del
@@ -15,11 +22,13 @@ Auth en 2 capas:
     la PC de oficina; si se filtra, solo permite escribir estas tablas de mercado).
 """
 import secrets
+from datetime import date
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
+from core.custodia_escritura import guardar as guardar_custodia
 from core.dolar_oficial import upsert_oficial
 from core.eikon_bonos import universo_bonos_off, upsert_bonos_off, upsert_cierres_off
 from core.eikon_chicago import universo_chicago, upsert_chicago
@@ -229,3 +238,42 @@ def eikon_segmentos(
             status_code=422,
             detail="ningún doc válido (falta ticker/fecha/segmento/ingresos o eran todos totales)")
     return {"ok": True, "escritos": escritos}
+
+
+# ── CUSTODIA CVSA (BYMA) ─────────────────────────────────────────────────────
+
+
+class CustodiaHoldingsPayload(BaseModel):
+    """Las filas CRUDAS de `GET /holdings`, tal como las devuelve BYMA.
+
+    El script local NO interpreta nada: pega y reenvía. Toda la lógica —traducir
+    el código de la Caja a nuestro instrumento, las guardas, el reemplazo de la
+    foto— vive del lado del servidor, donde ya está escrita y testeada. Así la
+    PC de oficina es una pieza tonta y reemplazable, y el día que el Droplet
+    pueda llegar a BYMA no hay una segunda implementación que migrar.
+
+    El tope de 50.000 filas es holgado: una foto real son ~2.300.
+    """
+
+    fecha: str = Field(..., description="balanceDate consultado, YYYY-MM-DD")
+    docs: list[dict] = Field(..., min_length=1, max_length=50_000)
+
+
+@router.post("/custodia/holdings")
+def ingest_custodia_holdings(
+    payload: CustodiaHoldingsPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    """Reemplaza la foto de CVSA de esa fecha con las filas recibidas.
+
+    Idempotente: mandar dos veces la misma foto deja el mismo estado.
+    """
+    try:
+        fecha = date.fromisoformat(payload.fecha)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"fecha inválida: {payload.fecha}") from e
+    # `docs` viene con min_length=1, así que acá nunca entra una lista vacía: un
+    # POST sin filas es un error del cliente (422 de pydantic) y no un borrado
+    # silencioso de la foto del día. La guarda de "vacío no borra" igual vive en
+    # `guardar`, para el otro llamador.
+    return {"ok": True, **guardar_custodia(fecha, payload.docs)}

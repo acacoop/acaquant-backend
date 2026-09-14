@@ -55,8 +55,8 @@ import logging
 from datetime import date, timedelta
 
 from core import byma_custodia as byma
+from core import custodia_escritura
 from core.job_runs import JobRunLogger
-from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -65,99 +65,19 @@ logger = logging.getLogger(__name__)
 DIAS_MAX_ATRAS = 7
 
 
-def _mapa_codigo_a_unidad() -> dict[str, str]:
-    """`assets.codigo_cnv` → `assets.unidad`.
-
-    ⚠️ `codigo_cnv` guarda el código de CVSA (pese al nombre). NO es único: el
-    código es por INSTRUMENTO y varios assets pueden compartirlo (AL30 y AL30D
-    son el mismo 5921). Con `ORDER BY unidad` la elección es estable corrida a
-    corrida — que el mapeo no cambie solo importa más que cuál de los dos gane.
-    """
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT btrim(codigo_cnv), unidad FROM portafolio.assets "
-                    "WHERE codigo_cnv IS NOT NULL AND btrim(codigo_cnv) <> '' "
-                    "ORDER BY unidad")
-        mapa: dict[str, str] = {}
-        for codigo, unidad in cur.fetchall():
-            mapa.setdefault(codigo, unidad)
-        return mapa
-
-
-def _cantidad(valor: str | None):
-    """`holding` viene como string. Una cantidad ilegible es None, no 0.
-
-    Cero y «no sé» son cosas distintas: un 0 se suma y desaparece en un total,
-    un None se ve.
-    """
-    try:
-        return float(str(valor).strip().replace(",", "."))
-    except (TypeError, ValueError):
-        return None
-
-
 def correr(fecha: date) -> dict:
-    """Baja la tenencia de CVSA de `fecha` y reemplaza la foto de ese día."""
-    stats: dict = {"fecha": fecha.isoformat()}
+    """Baja la tenencia de CVSA de `fecha` y reemplaza la foto de ese día.
 
-    # 1. BYMA primero. Si se cae, sale acá y la base no se toca (GUARDA 2).
+    ⚠️ BYMA primero, base después. Si BYMA se cae, `BymaCaido` sale ACÁ y la base
+    no se toca: lo de ayer queda. Una foto vieja es información; una tabla vacía
+    es una mentira.
+
+    La persistencia está en `core/custodia_escritura.py` porque tiene otro
+    llamador —el endpoint de ingesta que usa la PC con Okta— y las dos tienen
+    que comportarse idéntico.
+    """
     filas = byma.holdings(fecha.isoformat())
-    stats["filas_byma"] = len(filas)
-
-    if not filas:
-        # GUARDA 1: vacío no es "no hay tenencia", es "todavía no la armaron".
-        stats["escrito"] = 0
-        stats["motivo"] = "BYMA devolvió 0 filas: no se toca la foto anterior"
-        logger.warning("custodia_cvsa %s: 0 filas, no se escribe nada", fecha)
-        return stats
-
-    # 2. Traducir el código de la Caja a nuestro instrumento.
-    mapa = _mapa_codigo_a_unidad()
-    stats["assets_con_codigo"] = len(mapa)
-
-    registros = []
-    sin_cuenta = 0
-    sin_unidad = set()
-    for f in filas:
-        id_cta = byma.id_cuenta(f.get("accountNumber", ""))
-        if not id_cta:
-            # Un accountNumber con otra forma no se adivina: se cuenta y se mira.
-            sin_cuenta += 1
-            continue
-        cvsa_id = (f.get("cvsaIdentifier") or "").strip()
-        unidad = mapa.get(cvsa_id)
-        if not unidad:
-            sin_unidad.add(cvsa_id)
-        registros.append((
-            fecha, id_cta, cvsa_id,
-            (f.get("subBalanceType") or "").strip() or "SIN_ESTADO",
-            _cantidad(f.get("holding")), unidad,
-            f.get("accountNumber"), f.get("identAccountComposite"),
-        ))
-
-    stats["sin_cuenta_reconocible"] = sin_cuenta
-    stats["codigos_sin_asset"] = len(sin_unidad)
-    stats["cuentas"] = len({r[1] for r in registros})
-
-    # 3. DELETE + INSERT de la fecha, en UNA transacción: o queda la foto nueva
-    #    entera o queda la vieja entera. Nunca una mezcla de dos horas.
-    #    La PK absorbe el caso de que BYMA repita una fila (visto en la muestra).
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM portafolio.custodia_cvsa WHERE fecha = %s", (fecha,))
-        cur.executemany(
-            "INSERT INTO portafolio.custodia_cvsa "
-            "(fecha, id_cuenta, cvsa_id, sub_balance_type, cantidad, unidad, "
-            " account_number, ident_composite) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
-            "ON CONFLICT (fecha, id_cuenta, cvsa_id, sub_balance_type) DO UPDATE "
-            "SET cantidad = EXCLUDED.cantidad, unidad = EXCLUDED.unidad, "
-            "    actualizado_at = now()",
-            registros)
-        conn.commit()
-
-    stats["escrito"] = len(registros)
-    logger.info("custodia_cvsa %s: %d filas, %d cuentas, %d códigos sin asset",
-                fecha, len(registros), stats["cuentas"], len(sin_unidad))
-    return stats
+    return custodia_escritura.guardar(fecha, filas)
 
 
 def main() -> int:

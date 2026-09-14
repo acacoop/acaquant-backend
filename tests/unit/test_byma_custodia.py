@@ -79,3 +79,44 @@ def test_no_expone_el_metodo_que_escribe():
     """
     assert not hasattr(bc, "transactions_by_reference")
     assert "transactionsbyreference" not in dir(bc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# La ESCRITURA — las guardas que impiden que una foto vacía borre el día.
+# ─────────────────────────────────────────────────────────────────────────────
+from datetime import date
+
+from core import custodia_escritura as ce
+
+
+def test_cero_filas_no_borra_la_foto(monkeypatch, caplog):
+    """Temprano BYMA contesta 200 sin filas. Si eso borrara el día, la pantalla
+    diría «sin tenencia» con total seguridad — peor que mostrarla vieja."""
+    def explotar():
+        raise AssertionError("no tiene que tocar la base con 0 filas")
+    monkeypatch.setattr(ce, "mapa_codigo_a_unidad", explotar)
+    monkeypatch.setattr(ce, "get_pool", explotar)
+
+    stats = ce.guardar(date(2026, 9, 14), [])
+    assert stats["escrito"] == 0
+    assert "no se toca" in stats["motivo"]
+
+
+def test_filas_ilegibles_tampoco_borran(monkeypatch):
+    """Llegaron filas pero ninguna tiene accountNumber usable. No saber LEER la
+    respuesta no es lo mismo que no haya tenencia: tampoco se borra."""
+    monkeypatch.setattr(ce, "mapa_codigo_a_unidad", dict)
+    monkeypatch.setattr(ce, "get_pool",
+                        lambda: (_ for _ in ()).throw(AssertionError("no debe escribir")))
+    stats = ce.guardar(date(2026, 9, 14), [{"accountNumber": "sin-barra", "holding": "1"}])
+    assert stats["escrito"] == 0
+    assert stats["sin_cuenta_reconocible"] == 1
+
+
+def test_cantidad_ilegible_es_none_y_no_cero():
+    """Cero y «no sé» son cosas distintas: un 0 se suma y desaparece en un total."""
+    assert ce._cantidad("580") == 580.0
+    assert ce._cantidad("1.234,5") is None or isinstance(ce._cantidad("1234.5"), float)
+    assert ce._cantidad(None) is None
+    assert ce._cantidad("") is None
+    assert ce._cantidad("n/d") is None

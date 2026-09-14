@@ -504,12 +504,20 @@
 # quinto reloj, y salir de los cuatro relojes fue todo el punto del rediseño.
 */15 13-19 * * 1-5 /root/TradingAV/deploy/run_job.sh agente_tasa 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.agente_tasa'
 
-# ── CUSTODIA CVSA (BYMA) — la tenencia según la Caja de Valores ──────────────
-# CADA HORA, de 8 a 24 ART (= 11:00-02:59 UTC), L-V. El ritmo NO es arbitrario:
-# el gateway de BYMA declara cache_milliseconds=3.600.000, o sea que cachea su
-# propia respuesta 60 minutos — pedirla más seguido devuelve lo mismo y gasta
-# cuota. Consumo real: ~80 requests de los 10.000 diarios.
-# Son DOS líneas porque la ventana horaria cruza la medianoche UTC: la segunda
-# (0-2 UTC de martes a sábado) es el tramo 21-23:59 ART de lunes a viernes.
-0 11-23 * * 1-5 /root/TradingAV/deploy/run_job.sh custodia_cvsa 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.custodia_cvsa'
-0 0-2 * * 2-6 /root/TradingAV/deploy/run_job.sh custodia_cvsa 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.custodia_cvsa'
+# ── CUSTODIA CVSA (BYMA) — APAGADO: EL DROPLET NO LLEGA ──────────────────────
+# Medido el 2026-09-12 (`scripts/diag_byma_red.py`): los tres hosts de BYMA dan
+# TIMEOUT de TCP desde acá, mientras Aunesa, BCRA y Finnhub conectan sin
+# problema y no hay firewall de salida (ufw inactivo, OUTPUT ACCEPT). Las APIs
+# de BYMA están publicadas detrás de AppGate SDP, no en internet abierta.
+#
+# Mientras tanto la tenencia entra por la PC de oficina, que sí está en el
+# túnel: `scripts/byma_feed.py` → `POST /api/ingest/custodia/holdings`. Mismo
+# patrón que MAE y Eikon.
+#
+# ⚠️ NO BORRAR estas dos líneas. El día que BYMA habilite la IP del Droplet
+# (157.230.211.57) esto se descomenta y el camino vuelve solo — el job usa la
+# MISMA función de escritura que la ingesta, así que no hay nada que migrar.
+# Si se descomentan, hay que devolverle la `unidad` a su Pieza en
+# `api/services/diagnostico_registry.py` (un test cruza el crontab con ese árbol).
+#0 11-23 * * 1-5 /root/TradingAV/deploy/run_job.sh custodia_cvsa 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.custodia_cvsa'
+#0 0-2 * * 2-6 /root/TradingAV/deploy/run_job.sh custodia_cvsa 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.custodia_cvsa'

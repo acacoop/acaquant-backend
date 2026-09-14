@@ -179,7 +179,61 @@ es parte de la PK de `portafolio.custodia_cvsa`.
 
 ---
 
-## 6. Changelog
+## 6. ⚠️ EL CAMINO DE RED — por qué el feed corre en la PC, no en el Droplet
+
+**Las APIs de BYMA no están publicadas en internet abierta.** Están detrás de
+**AppGate SDP**, el mismo túnel por el que se entra al portal (en AppGate figuran
+como aplicaciones `CUSTODIA` y `CUSTODIA QA`).
+
+Medido el 2026-09-12, y la prueba es inequívoca:
+
+| Desde | AppGate | IP pública | Resultado |
+|---|---|---|---|
+| PC oficina | **ON** | 186.22.18.181 | **conecta** |
+| PC oficina | **OFF** | 186.22.18.181 | **timeout** |
+| Mac personal | (no tiene) | otra | timeout |
+| Droplet | (no tiene) | 157.230.211.57 | timeout |
+
+**La misma IP pública da resultados opuestos según el túnel.** Eso descarta un
+filtro por IP: AppGate no cambia la salida a internet, tunelea ciertos destinos.
+
+Y no es un problema del Droplet: `scripts/diag_byma_red.py` confirma que desde
+ahí Aunesa, BCRA y Finnhub conectan sin problema, con `ufw` inactivo y política
+`OUTPUT ACCEPT`.
+
+### Cómo entra la tenencia hoy
+
+```
+PC con Okta ──AppGate──> BYMA /holdings
+     │
+     └── POST /api/ingest/custodia/holdings  (X-Ingest-Token + CF Access)
+              └──> core/custodia_escritura.guardar() ──> portafolio.custodia_cvsa
+```
+
+Mismo patrón que **MAE** (dólar oficial) y **Eikon/Refinitiv**: la oficina tiene
+el acceso, el servidor tiene la lógica, y el puente es un POST con token
+dedicado. Ver `docs/SECURITY.md`.
+
+- **En la PC**: `scripts/byma_feed.py` (+ `byma_feed.bat`). Standalone —solo
+  stdlib— para no copiar el repo. **No interpreta nada**: pega y reenvía crudo.
+- **En el server**: `core/custodia_escritura.guardar()`, con las guardas.
+
+### El día que habiliten la IP
+
+`jobs/custodia_cvsa.py` y las dos líneas del crontab **están escritas y
+comentadas**, listas. Descomentar y devolverle la `unidad` a su Pieza en
+`api/services/diagnostico_registry.py` (un test cruza el crontab con ese árbol).
+
+**No hay nada que migrar**: el job y el endpoint de ingesta llaman a la MISMA
+función de escritura. Si cada uno tuviera su copia, el día del cambio tendríamos
+dos escrituras capaces de divergir sin que falle nada.
+
+Pedido pendiente a BYMA: habilitar `157.230.211.57`, o provisionar un cliente
+headless de AppGate para el servidor.
+
+---
+
+## 7. Changelog
 
 - **v1** — Discovery completo contra producción, cliente, maestro de especies
   cargado en `assets.codigo_cnv` (154 completados + 254 que ya coincidían), tabla

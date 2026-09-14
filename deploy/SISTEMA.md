@@ -68,9 +68,7 @@
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral` + `jobs.ops_tasa_mav'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
-| cada hora · 0-2h · Mar-Sáb | `jobs.custodia_cvsa'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
-| cada hora · 11-23h · L-V | `jobs.custodia_cvsa'` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 12:00 · L-V | `jobs.mercado_1816_discovery` |
 | 12,14,16,18,20,22:0 · L-V | `jobs.interbanking_sync'` |

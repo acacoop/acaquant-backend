@@ -53,9 +53,20 @@ def _motores_reales() -> set[str]:
 
 
 def _crons_reales() -> set[str]:
-    txt = CRONTAB.read_text(encoding="utf-8")
+    """Los jobs que CORREN de verdad. Una línea comentada no corre.
+
+    ⚠️ Antes se leía el archivo entero de una: un cron COMENTADO seguía contando
+    como activo y este test exigía tenerlo en el árbol del Diagnóstico. Se
+    descubrió al apagar `custodia_cvsa` (el Droplet no alcanza a BYMA, la
+    tenencia entra por la PC de oficina) — nunca había habido un `-m jobs.x`
+    comentado, así que el bug estaba latente. Un job apagado no tiene que pedir
+    frescura: si la pidiera, el Diagnóstico mostraría en rojo algo que nadie
+    espera que corra, y ese rojo permanente entrena a ignorar la pantalla.
+    """
+    lineas = [ln for ln in CRONTAB.read_text(encoding="utf-8").splitlines()
+              if not ln.lstrip().startswith("#")]
     # Captura cada `python -m jobs.x` / `-m engines.x` del crontab.
-    return set(re.findall(r"-m\s+((?:jobs|engines)\.[A-Za-z0-9_]+)", txt))
+    return set(re.findall(r"-m\s+((?:jobs|engines)\.[A-Za-z0-9_]+)", "\n".join(lineas)))
 
 
 def test_motores_registro_matchea_systemd():

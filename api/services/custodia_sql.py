@@ -115,20 +115,28 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
                b.estados, b.vn_byma, b.trabado, b.actualizado_at,
                t.cantidad, t.gar_cantidad, t.fecha, t.actualizado_at AS act_aunesa
           FROM byma b
-          -- ⚠️ SOLO el espacio 74 se cruza con comitentes. Sin ese filtro, la
+          -- ⚠️ DOS condiciones, no una. (1) Solo un espacio de comitentes: sin eso, la
           -- cuenta de garantías `80074/555555555` matchea con el comitente
           -- `555555555` y la pantalla muestra el nombre de un cliente que no
-          -- tiene nada que ver — sin que falle nada. Ídem con Aunesa: compararía
-          -- la tenencia de un cliente contra la cámara.
+          -- tiene nada que ver. (2) Y ADEMÁS las declaradas quedan afuera aunque
+          -- vivan en el espacio 74: `74/3` es de cuotapartes de FCI Bilaterales,
+          -- no del comitente 3. Ninguna de las dos fallaría — devolverían un
+          -- nombre, y estaría mal.
           LEFT JOIN clientes.cuentas   cu ON cu.id_cuenta = b.id_cuenta
-                                         AND b.participante = %(comitentes)s
+                                         AND b.participante = ANY(%(comitentes)s)
+                                         AND (b.participante || '/' || b.id_cuenta)
+                                             <> ALL(%(no_comitentes)s)
           LEFT JOIN portafolio.assets   a ON a.unidad     = b.unidad
           -- El join con Aunesa solo puede existir si sabemos cómo se llama el
           -- papel de este lado: con `unidad` NULL no matchea y queda sin comparar.
           LEFT JOIN ({aunesa}) t
                  ON t.id_cuenta = b.id_cuenta
                 AND t.unidad    = b.unidad
-                AND b.participante = %(comitentes)s
+                -- Mismas dos condiciones: comparar una cuenta de FCI o de
+                -- garantías contra la tenencia de un cliente daría un
+                -- descalce inventado.
+                AND b.participante = ANY(%(comitentes)s)
+                AND (b.participante || '/' || b.id_cuenta) <> ALL(%(no_comitentes)s)
          ORDER BY b.participante, b.id_cuenta, a.ticker NULLS LAST,
                   b.unidad NULLS LAST, b.cvsa_id
          LIMIT %(lim)s
@@ -152,7 +160,8 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(sql.format(aunesa=aunesa),
                     {"f": f, "disp": DISPONIBLE, "lim": LIMITE_FILAS,
-                     "comitentes": cuentas_cvsa.COMITENTES})
+                     "comitentes": list(cuentas_cvsa.ESPACIOS_COMITENTES),
+                     "no_comitentes": list(cuentas_cvsa.no_comitentes_del_espacio())})
         crudas = cur.fetchall()
 
     filas = []
@@ -173,7 +182,9 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
         # un comitente pueden compartir el número y son cosas distintas.
         account_number = f"{part}/{cta}" if part else cta
         espacio = cuentas_cvsa.espacio(part)
-        denom = denom or cuentas_cvsa.denominacion(account_number)
+        # La declaración GANA: es lo único que sabemos con certeza. `74/3` no
+        # puede quedarse con el nombre del comitente 3 si además existiera.
+        denom = cuentas_cvsa.denominacion(account_number) or denom
         espacios[espacio or "desconocido"] = espacios.get(espacio or "desconocido", 0) + 1
 
         vn_byma = float(vn_byma or 0)
@@ -214,7 +225,7 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
             # suelto que puede ser de tres cuentas distintas.
             "participante": part, "account_number": account_number,
             "espacio": espacio,
-            "comitente": cuentas_cvsa.es_comitente(part),
+            "comitente": cuentas_cvsa.es_comitente(account_number),
             "unidad": unidad, "ticker": ticker, "estados": estados,
             "vn_byma": vn_byma,
             "vn_aunesa": vn_aunesa,
@@ -317,7 +328,7 @@ def _cuenta_ficha(participante: str | None, id_cuenta: str) -> dict:
             "id_cuenta": id_cuenta,
             "espacio": cuentas_cvsa.espacio(participante),
             "denominacion": cuentas_cvsa.denominacion(acc),
-            "comitente": cuentas_cvsa.es_comitente(participante)}
+            "comitente": cuentas_cvsa.es_comitente(acc)}
 
 
 def _una_cuenta(ctas: set) -> str | None:

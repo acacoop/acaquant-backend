@@ -352,13 +352,33 @@ def test_la_cuenta_son_las_DOS_mitades_no_el_numero():
     assert cc.partir("80074/555555555") != cc.partir("74/555555555")
 
 
-def test_solo_el_espacio_74_se_cruza_con_comitentes():
-    """Joinear una liquidadora o una de garantías contra `clientes.cuentas`
-    devuelve el nombre de un cliente que no tiene nada que ver con ella."""
-    assert cc.es_comitente("74") is True
-    assert cc.es_comitente("70074") is False
-    assert cc.es_comitente("80074") is False
+def test_ser_comitente_NO_se_decide_solo_por_el_espacio():
+    """Dos reglas, y la segunda es la que casi se nos pasa.
+
+    (1) El espacio tiene que ser de comitentes. (2) Y la cuenta no puede estar
+    DECLARADA: `74/3` vive en el espacio 74 y es de cuotapartes de FCI
+    Bilaterales, no del comitente 3. Sin la segunda, la pantalla mostraría el
+    nombre de un cliente que no tiene nada que ver — el mismo bug con otra ropa.
+    """
+    assert cc.es_comitente("74/805") is True
+    assert cc.es_comitente("74/3") is False, "declarada: FCI Bilaterales, no el comitente 3"
+    assert cc.es_comitente("74/111111111") is False
+    assert cc.es_comitente("70074/10000") is False
+    assert cc.es_comitente("80074/222222222") is False
     assert cc.es_comitente(None) is False
+
+    # Un espacio que ni siquiera está declarado tampoco es de comitentes: por
+    # default NO se cruza con clientes. Fail-closed.
+    assert cc.espacio("6406") is None
+    assert cc.es_comitente("6406/155") is False
+
+
+def test_las_declaradas_del_espacio_74_salen_del_join():
+    """El SQL no puede llamar a `es_comitente()` fila por fila: necesita la
+    lista para excluirlas."""
+    fuera = cc.no_comitentes_del_espacio()
+    assert set(fuera) == {"74/3", "74/111111111"}
+    assert all(cc.partir(a)[0] == "74" for a in fuera)
 
 
 def test_los_espacios_se_DECLARAN_no_se_deducen_del_string():
@@ -370,15 +390,16 @@ def test_los_espacios_se_DECLARAN_no_se_deducen_del_string():
     assert cc.espacio("") is None
 
 
-def test_las_cuentas_especiales_tienen_nombre_y_los_comitentes_no():
-    """El nombre de un comitente vive en `clientes.cuentas`: duplicarlo acá
-    sería una segunda copia capaz de quedar vieja (REGLA #9 B)."""
+def test_solo_las_que_NO_son_comitentes_tienen_nombre_declarado():
+    """El nombre de un cliente vive en `clientes.cuentas`: duplicarlo acá sería
+    una segunda copia capaz de quedar vieja (REGLA #9 B)."""
     assert cc.denominacion("80074/222222222") == "Cta. Gtías. House"
     assert cc.denominacion("70074/10000") == "Cta. Liquidadora gral."
+    assert cc.denominacion("74/3") == "Cuotapartes FCI Bilaterales"
     assert cc.denominacion("74/805") is None, "el nombre del comitente NO se duplica acá"
-    # Las cinco que pasó la mesa, todas de espacios que no son comitentes.
-    assert len(cc.ESPECIALES) == 5
-    assert all(not cc.es_comitente(cc.partir(a)[0]) for a in cc.ESPECIALES)
+    # La invariante que mantiene honesto al catálogo: TODO lo declarado deja de
+    # ser comitente. Si alguien declara un cliente acá, este test lo frena.
+    assert all(not cc.es_comitente(a) for a in cc.ESPECIALES)
 
 
 def test_la_ficha_de_una_cuenta_de_garantias():

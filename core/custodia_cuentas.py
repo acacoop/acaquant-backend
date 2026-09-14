@@ -7,7 +7,7 @@ existió, el sistema guardaba solo la derecha — y `"74/222222222"` y
 de la REGLA #9 en su forma más cara: no falla nada, el join encuentra un
 comitente que no es, y la pantalla contesta segura el nombre equivocado.
 
-Los ESPACIOS de numeración son tres y se DECLARAN, no se adivinan del string:
+Los ESPACIOS de numeración se DECLARAN, no se adivinan del string:
 
     74     comitentes    las cuentas de clientes (`clientes.cuentas.id_cuenta`)
     70074  liquidadoras  por donde pasan los títulos al liquidar
@@ -17,17 +17,25 @@ Un prefijo que no esté acá devuelve `None` y la pantalla lo muestra como
 DESCONOCIDO. Es a propósito: si CVSA agrega un espacio nuevo queremos VERLO, no
 que el código lo clasifique de prepo con una regla de strings.
 
-⚠️ **Solo el espacio `74` se puede cruzar con `clientes.cuentas`.** Las
-liquidadoras y las de garantías NO son comitentes: si se las joinea por el
-número pelado, `80074/555555555` matchea con el comitente `555555555` si existe.
-Quien lea estas tablas tiene que filtrar por participante — no es una
-optimización, es lo que separa un dato correcto de uno inventado.
+⚠️ **El espacio NO alcanza para saber si una cuenta es un comitente.** Hay dos
+reglas y las dos importan:
+
+  1. Solo los espacios de `ESPACIOS_COMITENTES` se cruzan con `clientes.cuentas`.
+     Una liquidadora o una de garantías joineada por el número pelado matchea con
+     el comitente que tenga ese número, si existe, y muestra su nombre.
+  2. **Y dentro del espacio 74 hay cuentas que TAMPOCO son comitentes**:
+     `74/3` y `74/111111111` son de cuotapartes de FCI Bilaterales. Están
+     declaradas en `ESPECIALES` y por eso quedan excluidas del cruce. Sin esa
+     segunda regla, `74/3` traería el nombre del comitente 3 —si existe— y sería
+     el mismo bug con otra ropa.
+
+O sea: **una cuenta es comitente si su espacio lo es Y no está declarada.** La
+declaración siempre gana; es lo único que sabemos con certeza.
 
 Regla de capas: `core/` no importa nada del proyecto.
 """
 from __future__ import annotations
 
-# El espacio de los comitentes. Es el único cruzable con `clientes.cuentas`.
 COMITENTES = "74"
 
 ESPACIOS: dict[str, str] = {
@@ -36,10 +44,25 @@ ESPACIOS: dict[str, str] = {
     "80074": "garantias",
 }
 
+# ⚠️ Los espacios cuyo número de la derecha ES un `clientes.cuentas.id_cuenta`.
+#
+# Es una lista aparte de `ESPACIOS` a propósito: conocer un espacio y poder
+# cruzarlo con clientes son dos cosas distintas. Un espacio nuevo entra primero
+# en `ESPACIOS` (para que se vea) y acá SOLO cuando alguien confirmó que sus
+# números son de clientes — coincidir con un comitente no es serlo, y si no lo
+# es la pantalla muestra el nombre de alguien que no tiene nada que ver.
+ESPACIOS_COMITENTES: frozenset[str] = frozenset({COMITENTES})
+
 # Las cuentas con nombre propio. Las pasó la mesa desde la ficha de CVSA; no se
 # derivan de ningún dato, por eso están escritas. Clave: el `accountNumber`
 # COMPLETO — que es la identidad.
+#
+# ⚠️ Estar acá significa DOS cosas: que la cuenta tiene este nombre, y que **NO
+# es un comitente** aunque viva en el espacio 74. Las dos primeras son el caso:
+# están bajo `74/` y no son de ningún cliente.
 ESPECIALES: dict[str, str] = {
+    "74/3":            "Cuotapartes FCI Bilaterales",
+    "74/111111111":    "Cuotapartes FCI Bilaterales",
     "70074/10000":     "Cta. Liquidadora gral.",
     "70074/50000":     "Cta. Liquidadora Licis",
     "80074/555555555": "Cta. Gtías. Clientes",
@@ -71,18 +94,38 @@ def espacio(participante: str | None) -> str | None:
     return ESPACIOS.get((participante or "").strip())
 
 
-def es_comitente(participante: str | None) -> bool:
-    """¿Esta cuenta se puede cruzar con `clientes.cuentas`? Solo el espacio 74."""
-    return (participante or "").strip() == COMITENTES
+def es_comitente(account_number: str | None) -> bool:
+    """¿El número de esta cuenta ES un `clientes.cuentas.id_cuenta`?
+
+    Recibe la cuenta COMPLETA, no el participante, porque las dos mitades
+    deciden: el espacio tiene que ser de comitentes **y** la cuenta no puede
+    estar declarada (`74/3` vive en el espacio 74 y es de cuotapartes de FCI).
+    """
+    acc = (account_number or "").strip()
+    partido = partir(acc)
+    if partido is None:
+        return False
+    return partido[0] in ESPACIOS_COMITENTES and acc not in ESPECIALES
+
+
+def no_comitentes_del_espacio() -> tuple[str, ...]:
+    """Las cuentas declaradas que viven en un espacio de comitentes.
+
+    Son las que hay que EXCLUIR del join con `clientes.cuentas` en SQL, donde no
+    se puede llamar a `es_comitente()` fila por fila. Hoy: `74/3` y
+    `74/111111111`.
+    """
+    return tuple(a for a in ESPECIALES
+                 if (partir(a) or ("", ""))[0] in ESPACIOS_COMITENTES)
 
 
 def denominacion(account_number: str | None) -> str | None:
-    """El nombre de la cuenta si es una de las declaradas. None si no.
+    """El nombre declarado de la cuenta. None si no está declarada.
 
-    Para las del espacio 74 devuelve None SIEMPRE: su nombre vive en
-    `clientes.cuentas` y duplicarlo acá crearía una segunda copia capaz de
-    quedar vieja (REGLA #9 B). Este catálogo es solo para las que no son
-    comitentes y por eso no tienen dónde más estar.
+    Solo tienen nombre acá las que NO son comitentes: el nombre de un cliente
+    vive en `clientes.cuentas` y duplicarlo sería una segunda copia capaz de
+    quedar vieja (REGLA #9 B). Por eso un `74/805` cualquiera devuelve None —
+    pero `74/3` sí tiene nombre, porque no es de ningún cliente.
     """
     return ESPECIALES.get((account_number or "").strip())
 
@@ -101,4 +144,4 @@ def ficha(account_number: str | None) -> dict:
     part, idc = partido
     return {"participante": part, "id_cuenta": idc, "espacio": espacio(part),
             "denominacion": denominacion(account_number),
-            "es_comitente": es_comitente(part)}
+            "es_comitente": es_comitente(account_number)}

@@ -240,13 +240,15 @@ derecha **se repite entre ellos**. Declarados en `core/custodia_cuentas.py`:
 
 | Prefijo | Espacio | Qué es |
 |---|---|---|
-| `74` | comitentes | las cuentas de clientes — el único cruzable con `clientes.cuentas` |
+| `74` | comitentes | las cuentas de clientes — el único cruzable con `clientes.cuentas`, **menos las declaradas** |
 | `70074` | liquidadoras | por donde pasan los títulos al liquidar |
 | `80074` | garantías | lo afectado a garantía en la cámara |
 
-Las cinco con nombre propio (`ESPECIALES`, las pasó la mesa desde la ficha):
+Las que tienen nombre propio (`ESPECIALES`, las pasó la mesa desde la ficha):
 
 ```
+74/3             Cuotapartes FCI Bilaterales
+74/111111111     Cuotapartes FCI Bilaterales
 70074/10000      Cta. Liquidadora gral.
 70074/50000      Cta. Liquidadora Licis
 80074/555555555  Cta. Gtías. Clientes
@@ -264,8 +266,17 @@ rompía en tres lugares a la vez, ninguno de los cuales fallaba:
 3. **La comparación contra Aunesa**: se restaba la tenencia de un cliente contra
    el saldo de la cámara, y la diferencia salía en rojo por una razón inventada.
 
+⚠️ **Y el espacio NO alcanza para saber si una cuenta es un cliente.** Dentro
+del espacio `74` hay cuentas que TAMPOCO son comitentes: `74/3` y `74/111111111`
+son de **cuotapartes de FCI Bilaterales**. Están declaradas en `ESPECIALES` y
+por eso quedan fuera del cruce — sin eso, `74/3` traería el nombre del comitente
+`3`, si existe, y sería el mismo bug con otra ropa. La regla es: **una cuenta es
+comitente si su espacio lo es Y no está declarada.** La declaración siempre gana.
+
 Por eso `participante` es una **columna y parte de la PK** de las dos tablas, y
-los joins con comitentes van **filtrados por `participante = '74'`**. Un prefijo
+los joins con comitentes van **filtrados por espacio Y por la lista de
+declaradas** (`no_comitentes_del_espacio()`, porque el SQL no puede llamar a
+`es_comitente()` fila por fila). Un prefijo
 que no esté declarado devuelve `espacio = None` y la pantalla lo marca en ámbar:
 si CVSA agrega un espacio nuevo queremos verlo, no que el código lo clasifique
 de prepo con una regla de strings. Congelado por seis tests.
@@ -491,3 +502,11 @@ descalce: la vista lo canta con un cartel en vez de dejar que se lea como real.
   filtrados al espacio `74`. El feed pide los tres espacios en un solo envío. En
   la pantalla, cada cuenta se muestra con su par completo y su etiqueta
   (CLIENTE / LIQUIDADORA / GARANTÍAS), y TENENCIAS suma chips para aislarlas.
+
+- **v3.1** — `74/3` y `74/111111111` declaradas: son cuotapartes de **FCI
+  Bilaterales**, no comitentes, aunque vivan en el espacio `74`. Ser comitente
+  pasa a decidirse por DOS reglas (espacio + no estar declarada), no solo por el
+  prefijo. Los espacios que aparezcan y no estén declarados quedan como
+  DESCONOCIDO y **fail-closed**: no se cruzan con clientes. Es el caso de
+  `6406` (cheques/pagarés del MAV), que hoy solo aparece en movimientos y se
+  declarará el día que haya que mover títulos ahí.

@@ -1450,6 +1450,15 @@ CREATE TABLE IF NOT EXISTS portafolio.tenencia (
     tipo_titulo text,                          -- tipoTitulo crudo de Aunesa (motor PnL _aplicar_normalizer)
     PRIMARY KEY (fecha, id_cuenta, unidad)
 );
+-- ⚠️ COLUMNA QUE EL CÓDIGO ESCRIBE Y ESTE ARCHIVO NO DECLARABA. La agrega
+-- `jobs/portafolio_backfill.py` con su propio ALTER, así que en la base REAL
+-- existe — pero el `CREATE TABLE` de arriba no la tenía, y una base restaurada
+-- desde este schema nacía sin ella. La leen `api/services/tenencia_hd.py` y la
+-- vista de CUSTODIA (`VN AUNESA = cantidad - gar_cantidad`), que devolverían mal
+-- en silencio hasta que alguien corriera el backfill. Mismo caso que las ocho
+-- columnas de `clientes.comitentes`: la base venía adelante del schema.
+-- Son los nominales que Aunesa marca en GARANTÍA (estado='GAR').
+ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS gar_cantidad numeric;
 CREATE INDEX IF NOT EXISTS ix_tenencia_cuenta_fecha ON portafolio.tenencia(id_cuenta, fecha);
 -- (fecha, unidad) — las vistas que arrancan por INSTRUMENTO y no por cuenta
 -- (FINANCIAMIENTO: "qué papeles vivos hay y quién los tiene") filtran por `fecha`

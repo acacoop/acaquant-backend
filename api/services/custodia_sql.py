@@ -26,6 +26,23 @@ from core.postgres import get_pool
 # Es la información que Aunesa no da, así que la vista la cuenta aparte.
 DISPONIBLE = "AVAILABLE"
 
+# Las dos formas de mirar la tenencia de Aunesa, y cuándo sirve cada una.
+#
+# BYMA actualiza sus tenencias DESPUÉS DE LAS 21. Durante el día, la foto de la
+# Caja refleja el cierre anterior: un bono comprado el viernes en T+1 liquida
+# hoy, Hygirus ya lo muestra y BYMA todavía no. Comparar contra T0 a las 15
+# marca ese desfasaje como si fueran descalces.
+#
+#   t0      → `tenencia_live` horizonte t0: liquidada a HOY. Es la correcta para
+#             la CONCILIACIÓN NOCTURNA, cuando las dos fotos ya son del mismo
+#             momento.
+#   cierre  → `portafolio.tenencia`, la foto conciliada e inmutable. Es lo
+#             comparable con BYMA DURANTE EL DÍA.
+#
+# Las dos tienen `gar_cantidad`, así que la regla de descontar garantías es la
+# misma en ambas: no hay caso especial.
+FUENTES = ("t0", "cierre")
+
 # Dos nominales que difieren en centavos no son un descalce: es redondeo.
 TOLERANCIA = 0.01
 
@@ -42,7 +59,7 @@ def ultima_fecha() -> date | None:
         return (cur.fetchone() or [None])[0]
 
 
-def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
+def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any]:
     """La foto de CVSA de un día, cruzada contra la tenencia de Aunesa (T0).
 
     EL UNIVERSO LO DEFINE BYMA. Se parte de lo que trae la Caja y se le busca su
@@ -70,9 +87,11 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
     tablas vivas, y persistirlo crearía una tercera copia capaz de quedar vieja
     mientras las otras dos se mueven.
     """
+    if fuente not in FUENTES:
+        fuente = "t0"
     f = fecha or ultima_fecha()
     if f is None:
-        return {"fecha": None, "filas": [], "total_filas": 0, "cuentas": 0,
+        return {"fecha": None, "fuente": fuente, "filas": [], "total_filas": 0, "cuentas": 0,
                 "sin_asset": 0, "trabado": 0, "difieren": 0, "sin_comparar": 0,
                 "truncado": False, "actualizado_at": None, "fecha_aunesa": None,
                 "actualizado_aunesa": None,
@@ -99,17 +118,31 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
           LEFT JOIN portafolio.assets   a ON a.unidad     = b.unidad
           -- El join con Aunesa solo puede existir si sabemos cómo se llama el
           -- papel de este lado: con `unidad` NULL no matchea y queda sin comparar.
-          LEFT JOIN portafolio.tenencia_live t
+          LEFT JOIN ({aunesa}) t
                  ON t.id_cuenta = b.id_cuenta
                 AND t.unidad    = b.unidad
-                AND t.horizonte = 't0'
-                AND t.fecha     = (SELECT max(fecha) FROM portafolio.tenencia_live)
          ORDER BY b.id_cuenta, a.ticker NULLS LAST, b.unidad NULLS LAST, b.cvsa_id
          LIMIT %(lim)s
     """
 
+    # Cada fuente trae las MISMAS cuatro columnas, así que el resto de la query
+    # no sabe de dónde salieron. `actualizado_at` no existe en la foto
+    # conciliada (es inmutable y no se refresca): va NULL y la vista muestra
+    # solo la fecha.
+    if fuente == "cierre":
+        aunesa = ("SELECT id_cuenta, unidad, cantidad, gar_cantidad, fecha, "
+                  "       NULL::timestamptz AS actualizado_at "
+                  "  FROM portafolio.tenencia "
+                  " WHERE fecha = (SELECT max(fecha) FROM portafolio.tenencia)")
+    else:
+        aunesa = ("SELECT id_cuenta, unidad, cantidad, gar_cantidad, fecha, actualizado_at "
+                  "  FROM portafolio.tenencia_live "
+                  " WHERE horizonte = 't0' "
+                  "   AND fecha = (SELECT max(fecha) FROM portafolio.tenencia_live)")
+
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, {"f": f, "disp": DISPONIBLE, "lim": LIMITE_FILAS})
+        cur.execute(sql.format(aunesa=aunesa),
+                    {"f": f, "disp": DISPONIBLE, "lim": LIMITE_FILAS})
         crudas = cur.fetchall()
 
     filas = []
@@ -172,6 +205,7 @@ def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
 
     return {
         "fecha": f.isoformat(),
+        "fuente": fuente,
         # La fecha de la OTRA foto. Si no coinciden, la comparación mezcla dos
         # momentos y la pantalla tiene que poder decirlo.
         "fecha_aunesa": fecha_aunesa.isoformat() if fecha_aunesa else None,

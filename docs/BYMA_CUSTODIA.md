@@ -278,6 +278,34 @@ la Caja no tiene instrumento en `assets` viajan con `vn_aunesa = null` y se
 muestran como *"sin comparar"*, con su propio contador. Contarlas como descalce
 sería inventar un problema donde lo que falta es una traducción.
 
+### ⏱ EL DESFASAJE HORARIO — por qué hay dos fuentes
+
+**BYMA actualiza sus tenencias después de las 21.** Durante el día, la foto de la
+Caja refleja **el cierre anterior**: un bono comprado el viernes en T+1 liquida
+hoy, Hygirus ya lo muestra y CVSA todavía no. Comparar contra T0 a las 15 marca
+ese desfasaje como si fueran descalces.
+
+Por eso la vista deja elegir contra qué compara:
+
+| | Sale de | Cuándo sirve |
+|---|---|---|
+| **T0** *(default)* | `tenencia_live` horizonte `t0` | La **conciliación nocturna**: después de las 21 las dos fotos son del mismo momento |
+| **CIERRE** | `portafolio.tenencia` | **Durante el día**: la foto conciliada es lo comparable con una CVSA que todavía no actualizó |
+
+Las dos tienen `gar_cantidad`, así que la regla de descontar garantías es la
+misma en ambas — no hay caso especial.
+
+Y la pantalla avisa sola: con T0 puesto, si la foto de BYMA es de hoy y todavía
+no son las 21, sale un cartel diciendo que use CIERRE. Ese dato vivía en la
+cabeza de la mesa; puesto ahí, el que abre la vista a las 15 entiende por qué
+hay diferencias en vez de salir a buscar un problema que no existe.
+
+⚠️ `portafolio.tenencia.gar_cantidad` la crea `jobs/portafolio_backfill.py` con
+un `ALTER`, y el `CREATE TABLE` de `sql/schema.sql` **no la declaraba**: una base
+restaurada nacía sin ella y todo lo que la lee devolvía mal en silencio. Está
+agregada como `ALTER ... IF NOT EXISTS`, igual que las ocho columnas de
+`clientes.comitentes`.
+
 ### Dónde vive el cruce
 
 **En la LECTURA, y no se guarda.** La diferencia es un derivado de dos tablas

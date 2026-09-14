@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/back-office/custodia", tags=["Custodia"])
 @router.get("/tenencias")
 def tenencias(
     fecha: date | None = Query(None, description="YYYY-MM-DD. Default: la última foto."),
+    fuente: str = Query("t0", description="Contra qué se compara Aunesa: 't0' o 'cierre'."),
 ) -> dict:
     """La foto de la Caja de Valores de un día, entera, con sus contadores.
 
@@ -31,5 +32,9 @@ def tenencias(
     trabado, sin instrumento) los aplica la pantalla sobre estas mismas filas:
     la foto de un día es un conjunto cerrado, así que filtrar en memoria es
     instantáneo y los contadores no pueden contradecir a la lista.
+
+    `fuente` SÍ va al backend porque cambia de qué tabla sale la comparación:
+    't0' (liquidada a hoy, para la conciliación nocturna) o 'cierre' (la foto
+    conciliada, comparable con BYMA durante el día, que actualiza tras las 21).
     """
-    return custodia_sql.tenencias(fecha=fecha)
+    return custodia_sql.tenencias(fecha=fecha, fuente=fuente)

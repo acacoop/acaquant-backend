@@ -1219,3 +1219,32 @@ def test_CADA_herramienta_dice_lo_que_NO_ES():
 
     assert "tenencia_actual" in (H.cobros_futuros.__doc__ or "")
     assert "cobros_futuros" in (H.tenencia_actual.__doc__ or "")
+
+
+def test_un_docstring_dice_QUE_HACE_la_herramienta_y_NUNCA_como_contestar():
+    """⚠️⚠️ **UNA REGLA DE REDACCIÓN EN UN DOCSTRING ES GLOBAL POR ACCIDENTE.**
+
+    El ciclo manda TODAS las fichas en TODAS las llamadas, así que el modelo lee
+    los docstrings de todas las herramientas aunque use una sola. Visto en
+    producción: `cobros_futuros` pedía «aclarás de qué cuenta hablás» y el
+    modelo encabezaba con «Cuenta 805 — …» también las respuestas de
+    `tenencia_actual`, que no lo pide por ningún lado. Y la fecha, escrita en el
+    SYSTEM Y en un docstring, salía DOS veces en la misma respuesta.
+
+    Con ocho herramientas son ocho reglas de redacción compitiendo, y ninguna
+    falla: sólo hacen la respuesta más larga y más cara, turno a turno.
+
+    Cómo contestar va en el SYSTEM. Acá se describe lo que la herramienta hace
+    y lo que devuelve.
+    """
+    from asistente import herramientas as H
+
+    PROHIBIDAS = ("al contestar", "aclarás siempre", "aclaras siempre",
+                  "decila siempre", "decilo siempre", "aclará siempre")
+    for fn in H.DISPONIBLES:
+        doc = (fn.__doc__ or "").lower()
+        for frase in PROHIBIDAS:
+            assert frase not in doc, (
+                f"`{fn.__name__}` le dice al modelo CÓMO contestar ({frase!r}): "
+                "eso manda en las respuestas de TODAS las herramientas. Va en "
+                "`ciclo.SYSTEM`, una sola vez")

@@ -14,6 +14,20 @@ si usa una herramienta es, literalmente, el docstring de la función — lo arma
 `ficha()` acá abajo. No es documentación para un programador: es la instrucción
 con la que el modelo elige. Si el modelo llama a la herramienta equivocada, o
 con los argumentos equivocados, **el bug está en el docstring**.
+
+⚠️⚠️ **UN DOCSTRING DICE QUÉ HACE LA HERRAMIENTA. NUNCA CÓMO CONTESTAR.**
+
+Eso último va en el SYSTEM (`ciclo.py`) y en ningún otro lado, y el motivo es
+estructural, no de estilo: **el ciclo manda TODAS las fichas en TODAS las
+llamadas**, así que un «al contestar, aclarás siempre X» escrito adentro de una
+herramienta es una regla GLOBAL por accidente — se aplica también a las
+respuestas de las otras.
+
+Visto en producción: `cobros_futuros` decía «aclarás de qué cuenta hablás» y el
+modelo encabezaba con «Cuenta 805 — MOLLO NICOLAS EZEQUIEL» también las
+respuestas de `tenencia_actual`, que no lo pide por ningún lado. Y la fecha,
+que estaba pedida en el SYSTEM Y en un docstring, salía DOS veces en la misma
+respuesta. Con ocho herramientas eso son ocho reglas de redacción compitiendo.
 """
 from __future__ import annotations
 
@@ -137,14 +151,11 @@ def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
         cae el grueso. NO lo calcules sumando `pagos`: ya viene hecho.
       · `titulos` — cuánto paga cada bono en total, y cuándo vence.
       · `pagos` — el detalle, un renglón por fecha y bono.
-      · Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.
-
-    AL CONTESTAR, aclarás siempre:
-      · De qué cuenta hablás (viene en `cuenta`, con su nombre).
-      · Sobre qué foto de cartera se proyectó (`tenencia_del`). Si es de hace
-        varios días, decilo: una compra o una venta posterior no está adentro.
-      · Si `truncado` es true, hubo más pagos de los que entraron en `pagos`.
+      · `tenencia_del` — sobre qué foto de cartera se proyectó. Una compra o una
+        venta posterior a esa fecha no está adentro.
+      · `truncado` — true si hubo más pagos de los que entraron en `pagos`.
         `total` y `titulos` siguen siendo del período COMPLETO.
+      · Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.
 
     Los montos son el bruto contractual en la moneda del bono; los CER ya vienen
     ajustados por el último CER publicado. NO devuelve nominales ni valuación:
@@ -343,9 +354,9 @@ def tenencia_actual(cuenta: str, horizonte: str = "t1") -> dict:
       · `posiciones` — una fila por título: ticker, emisor, clase de activo,
         cartera, nominales (`cantidad`), precio, valuación y `share` (qué % de la
         cuenta es ese título, YA CALCULADO — no lo dividas vos).
-      · `fecha` — de cuándo es la posición. **Decila siempre**: si no es de hoy,
-        es la última foto conciliada y no incluye lo de después.
-      · Si `truncado` es true, hay más títulos de los que entraron en la lista;
+      · `fecha` — de cuándo es la posición. Si no es de hoy, es la última foto
+        conciliada y no incluye lo de después.
+      · `truncado` — true si hay más títulos de los que entraron en la lista;
         `total` y `cuantas` siguen siendo de la cuenta COMPLETA.
 
     Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.

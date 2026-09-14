@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
 
 from asistente import control as CTL
 from asistente import esquema as ESQ
@@ -97,6 +99,27 @@ PLANTILLA_ACHICADO = (
     "Si necesitás el detalle, volvé a llamar a la herramienta: "
     "además te va a llegar más fresco.]"
 )
+
+
+# ── LA IDENTIDAD DE LA CONVERSACIÓN ─────────────────────────────────────────
+#
+# Un id por charla. Nace acá, en la primera pregunta, y el navegador lo devuelve
+# en las siguientes junto con el historial y el estado. Cada llamada al modelo
+# lo lleva a su fila de `ia.llamadas`: es lo que permite decir «esta charla
+# costó tanto» en vez de mirar llamadas sueltas (`docs/AGENT.md` §0.fl).
+#
+# ⚠️ Lo que llega de afuera se valida por FORMA, no se confía: un id que no
+# sea un uuid hex se descarta y nace uno nuevo. Es la misma regla que el
+# estado — lo que viaja por el navegador se acepta sólo si tiene la forma que
+# el backend mismo produjo.
+_SESION_RE = re.compile(r"[0-9a-f]{32}")
+
+
+def _sesion(pedida: str | None) -> str:
+    """El id de la conversación: el que vino, si tiene forma de uuid; si no,
+    uno nuevo."""
+    s = str(pedida or "").strip().lower()
+    return s if _SESION_RE.fullmatch(s) else uuid.uuid4().hex
 
 
 def _instruccion(estado: dict[str, str] | None = None) -> str:
@@ -353,6 +376,7 @@ def preguntar(
     usuario: str,
     historial: list[dict] | None = None,
     estado: dict | None = None,
+    sesion: str | None = None,
     ver=None,
 ) -> dict:
     """Una pregunta, de punta a punta. Devuelve la respuesta y qué pasó.
@@ -366,6 +390,9 @@ def preguntar(
     `estado` es lo que quedó en foco de esas preguntas (`asistente/estado.py`):
     viaja ida y vuelta igual que el historial, pero aparte de él — por eso
     sobrevive al achicado. En la respuesta viene `estado`, ya actualizado.
+
+    `sesion` es el id de la conversación. Si no viene, nace acá; en la
+    respuesta viene `sesion`, y es lo que hay que devolver la próxima vez.
 
     `ver` es una función que se llama en cada paso, con un diccionario que dice
     qué pasó. Es lo que los frameworks llaman «eventos». Acá no es una feature
@@ -391,12 +418,13 @@ def preguntar(
     # Y es el estado de ANTES de esta pregunta el que lee el modelo: lo que se
     # aprenda adentro va al que se devuelve (ver `asistente/estado.py`).
     estado = EST.sanear(estado)
+    sesion = _sesion(sesion)
 
     mensajes = [{"role": "system", "content": _instruccion(estado)}]
     mensajes += list(historial)
     mensajes.append({"role": "user", "content": pregunta})
 
-    _ver("pregunta", texto=pregunta, herramientas=sorted(H.POR_NOMBRE))
+    _ver("pregunta", texto=pregunta, herramientas=sorted(H.POR_NOMBRE), sesion=sesion)
     if turnos_podados:
         _ver("podado", turnos=turnos_podados, mensajes=msgs_podados)
     if ahorro:
@@ -416,7 +444,7 @@ def preguntar(
         # llamada le reenvía todo desde el principio.
         r, llamada_id = ai.conversar(TAREA, mensajes=mensajes, herramientas=H.FICHAS,
                                    usuario=usuario, detalle=pregunta,
-                                   formato=ESQ.FORMATO)
+                                   formato=ESQ.FORMATO, sesion=sesion)
         if llamada_id:
             llamadas.append(llamada_id)
 
@@ -424,7 +452,7 @@ def preguntar(
             # El gateway se negó: sin clave del proveedor, o ruteo inseguro.
             _ver("corte", motivo="el gateway no dejó salir la llamada")
             return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           pregunta=pregunta, estado=estado,
+                           pregunta=pregunta, estado=estado, sesion=sesion,
                            error="No se pudo llamar al modelo: falta la clave del "
                                  "proveedor, o el ruteo no es seguro para datos del negocio.")
         tokens_in += r.tokens_in or 0
@@ -432,7 +460,7 @@ def preguntar(
         if not r.ok:
             _ver("corte", motivo=f"el proveedor falló: {r.error}")
             return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           pregunta=pregunta, estado=estado,
+                           pregunta=pregunta, estado=estado, sesion=sesion,
                            error=f"El proveedor no contestó: {r.error}")
 
         # ── PASO 2: ¿terminó, o quiere una herramienta? ──
@@ -447,7 +475,7 @@ def preguntar(
             # es lo mismo que la respuesta: es el JSON que la contiene. Ver
             # `_salida`.
             return _salida(leido["respuesta"], mensajes, vuelta, tokens_in,
-                           tokens_out, llamadas, pregunta=pregunta, estado=estado,
+                           tokens_out, llamadas, pregunta=pregunta, estado=estado, sesion=sesion,
                            extra=leido, crudo=r.texto or "")
 
         # ── PASO 3: pidió. Se le devuelve su propio mensaje TAL CUAL y, abajo,
@@ -475,7 +503,7 @@ def preguntar(
 
     _ver("corte", motivo=f"llegué a {MAX_VUELTAS} vueltas sin una respuesta")
     return _salida(None, mensajes, MAX_VUELTAS, tokens_in, tokens_out, llamadas,
-                   pregunta=pregunta, estado=estado,
+                   pregunta=pregunta, estado=estado, sesion=sesion,
                    error=f"Di {MAX_VUELTAS} vueltas pidiendo herramientas y no llegué "
                          "a una respuesta. Probá con una pregunta más acotada.")
 
@@ -508,7 +536,8 @@ def _contexto(mensajes: list[dict], excluir: str | None) -> str:
 
 def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=None,
             pregunta: str = "", estado: dict[str, str] | None = None,
-            extra: dict | None = None, crudo: str | None = None) -> dict:
+            sesion: str = "", extra: dict | None = None,
+            crudo: str | None = None) -> dict:
     """Lo que devuelve una pregunta. `mensajes` (sin el system, que se agrega
     solo) es lo que hay que pasar como `historial` en la pregunta siguiente.
 
@@ -540,6 +569,8 @@ def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=Non
         # Lo que quedó en foco. Va APARTE de `mensajes` a propósito: es lo
         # único de la conversación que el achicado no toca.
         "estado": dict(estado or {}),
+        # La identidad de la conversación. El navegador la devuelve con lo demás.
+        "sesion": sesion,
         # Qué NO pudo contestar, cuando el proveedor soporta esquema. Sin este
         # renglón, una pregunta de dos partes contestada a medias se lee como
         # contestada entera.

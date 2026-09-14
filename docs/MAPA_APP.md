@@ -2241,7 +2241,7 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 |---|---|---|
 | `core/llm.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
 | `core/ai.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente`) |
-| `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta. Se llamaba `ia.trazas` | la lee la tab LAB |
+| `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta, y `sesion` (a qué conversación del asistente pertenece; NULL en las demás tareas). Se llamaba `ia.trazas` | la lee la tab LAB |
 | `ia.config` | ajustes editables sin deploy. Hoy guarda UNA cosa: qué modelo cumple cada rol (`modelo_flash`, `modelo_pro`) | la escribe la tab LAB |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
 
@@ -2339,10 +2339,21 @@ nadie lo miraba.
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Recibe `historial` y `estado` tal cual los devolvió la anterior. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió, qué quedó en foco). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
+> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Recibe `historial`, `estado` y `sesion` tal cual los devolvió la anterior. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió, qué quedó en foco) MÁS `sesion`: el id de la charla y lo que lleva gastado (llamadas, tokens, caché, USD). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
 > | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas` (con el costo calculado por pedazo: lo cacheado a precio de caché), el **hit rate**, las tarifas cargadas, y con qué proveedor/modelo corre cada TAREA |
 > | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo: **TRES precios** (entrada · entrada cacheada · salida) en USD por millón, y van en un solo valor. El del caché es el que más cambia el total — esa entrada cuesta una fracción (en `gpt-5.6-luna`, 10× menos), así que cobrar todo a precio de entrada infla la factura justo en la parte que el diseño viene optimizando |
+>
+> **LA IDENTIDAD DE LA CONVERSACIÓN** (`ciclo._sesion`, §0.fl): un uuid por
+> charla que nace en el backend en la primera pregunta y el navegador devuelve
+> en las siguientes, con el historial y el estado. Cada vuelta lo lleva a su
+> fila de `ia.llamadas.sesion`; `panel.conversacion()` las junta y la tab
+> muestra «esta conversación: N llamadas · tokens · caché · USD» en cada
+> respuesta. Es el `conv_id` que se borró el 28/08 por no tener lector,
+> de vuelta **con su lector**. Lo que llega de afuera se valida por forma
+> (uuid hex) o se descarta y nace uno nuevo. Es la caja *Identification* de la
+> sesión de ADK; las otras dos son el historial (*Event History*) y `estado`
+> (*State*). No hay persistencia de la charla: la sostiene el navegador.
 >
 > **LA PODA** (`ciclo._podar`, §0.fk): la conversación no crece sin límite.
 > Antes de empezar se conservan los últimos `TURNOS_QUE_QUEDAN` turnos completos

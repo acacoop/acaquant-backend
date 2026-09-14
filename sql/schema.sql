@@ -3556,6 +3556,18 @@ ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS cache_miss_tokens integer;
 -- el schema.
 ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS conv_id;
 ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS feedback;
+-- La CONVERSACIÓN a la que pertenece la llamada: un id que nace en el backend
+-- en la primera pregunta del asistente y que el navegador devuelve en las
+-- siguientes (`asistente/ciclo.py`). ⚠️ Es el `conv_id` de arriba, de vuelta —
+-- aquél se borró por no tener lector; éste nace con el suyo:
+-- `asistente/panel.conversacion()`, que la tab LAB muestra en cada respuesta
+-- (docs/AGENT.md §0.fl). Solo el asistente lo escribe; el resto queda NULL.
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS sesion text;
+-- CONCURRENTLY: no bloquea las escrituras de la tabla mientras se construye
+-- (apply_schema corre cada statement con autocommit, que es lo que exige).
+-- Nadie midió el tamaño de `ia.llamadas` antes de este deploy, y así no hace
+-- falta: cuesta lo mismo sobre una tabla chica y no muerde sobre una grande.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ia_llamadas_sesion_ts ON ia.llamadas (sesion, ts) WHERE sesion IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_ts         ON ia.llamadas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_tarea_ts   ON ia.llamadas (tarea, ts);

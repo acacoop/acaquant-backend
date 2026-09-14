@@ -278,6 +278,10 @@ class Preguntar(BaseModel):
     # achicado del historial no lo toca. El backend lo reduce a lo declarado
     # en `asistente/estado.py` antes de usarlo: acá sólo se recibe.
     estado: dict = Field(default_factory=dict)
+    # El id de la conversación, tal cual lo devolvió la respuesta anterior.
+    # Vacío en la primera pregunta: nace en el backend. Un id con otra forma
+    # se descarta ahí y nace uno nuevo (`ciclo._sesion`).
+    sesion: str = Field("", max_length=64)
 
 
 @router.post("/lab/preguntar")
@@ -288,12 +292,15 @@ def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
     qué argumentos, qué devolvió). Viaja a la pantalla porque el punto de esta
     tab es VER el ciclo, no solo su resultado.
     """
-    from asistente import ciclo
+    from asistente import ciclo, panel
 
     eventos: list[dict] = []
     r = ciclo.preguntar(body.pregunta, usuario=email, historial=body.historial,
-                        estado=body.estado, ver=eventos.append)
-    return {**r, "eventos": eventos}
+                        estado=body.estado, sesion=body.sesion, ver=eventos.append)
+    # Lo que lleva gastado ESTA conversación, recién anotada la pregunta. Es
+    # el lector de `ia.llamadas.sesion` (§0.fl): sin esto el id sería una
+    # columna que nadie mira, que es por lo que se borró la anterior.
+    return {**r, "sesion": panel.conversacion(r["sesion"]), "eventos": eventos}
 
 
 # ── EL PANEL DEL LAB — qué gastamos y con qué modelo corremos ───────────────

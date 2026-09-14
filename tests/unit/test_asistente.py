@@ -1659,3 +1659,101 @@ def test_primero_se_poda_y_despues_se_achica():
 
     cuerpo = inspect.getsource(ciclo.preguntar)
     assert cuerpo.index("_podar(") < cuerpo.index("_achicar("), "la poda va antes del achicado"
+
+
+# ── LA IDENTIDAD DE LA CONVERSACIÓN: `sesion` ────────────────────────────────
+
+
+def test_la_sesion_nace_en_el_backend_y_se_conserva_si_tiene_forma():
+    """Sin id, nace uno. Con un id con forma de uuid, se conserva. Con
+    cualquier otra cosa (un cliente roto, un intento de meter texto en la
+    base), se descarta y nace uno nuevo: se valida por FORMA, como el estado."""
+    from asistente import ciclo
+
+    nuevo = ciclo._sesion(None)
+    assert ciclo._SESION_RE.fullmatch(nuevo) and ciclo._sesion("") != nuevo
+    assert ciclo._sesion(nuevo) == nuevo
+    assert ciclo._sesion("  " + nuevo.upper() + " ") == nuevo
+    for raro in ("abc", "805; DROP TABLE", nuevo + "x", 12345):
+        assert ciclo._sesion(raro) != raro and ciclo._SESION_RE.fullmatch(ciclo._sesion(raro))
+
+
+def test_cada_vuelta_lleva_la_sesion_a_su_fila_de_llamadas():
+    """⚠️ Es lo que permite juntar después las vueltas de una charla. El ciclo
+    se la pasa al gateway en CADA vuelta, y el gateway la escribe en la traza —
+    en el camino feliz y en el de error. Sin esto, la columna vuelve a ser la
+    que se borró por no tener ni escritor ni lector."""
+    from unittest.mock import patch
+
+    from asistente import ciclo
+    from core import ai, llm
+
+    trazado: list[dict] = []
+
+    def fake_trazar(*a, **kw):
+        trazado.append(kw)
+        return 1
+
+    with patch.object(llm, "chat", lambda *a, **k: llm.RespuestaLLM(ok=True, texto="ok")), \
+         patch.object(llm, "configurado", return_value=True), \
+         patch.object(ai, "_ruteo_seguro", return_value=True), \
+         patch.object(ai, "_trazar", fake_trazar):
+        ai.conversar("asistente", mensajes=[], sesion="s1")
+        with patch.object(llm, "chat", lambda *a, **k: llm.RespuestaLLM(ok=False, error="x")):
+            ai.conversar("asistente", mensajes=[], sesion="s1")
+    assert [t.get("sesion") for t in trazado] == ["s1", "s1"]
+
+    visto: list[str | None] = []
+
+    def fake_conversar(tarea, **kw):
+        visto.append(kw.get("sesion"))
+        return llm.RespuestaLLM(ok=True, texto="ok"), 1
+
+    sid = "a" * 32
+    with patch.object(ciclo.ai, "conversar", fake_conversar), \
+         patch.object(ciclo.H, "cuentas_disponibles", return_value={"cuentas": [], "cuantas": 0}):
+        r = ciclo.preguntar("hola", usuario="t", sesion=sid)
+    assert visto == [sid] and r["sesion"] == sid
+    # Y cuando el gateway se niega (sin clave, ruteo inseguro) la respuesta
+    # igual devuelve la sesión: la charla sigue siendo la misma.
+    with patch.object(ciclo.ai, "conversar", lambda *a, **k: (None, None)), \
+         patch.object(ciclo.H, "cuentas_disponibles", return_value={"cuentas": [], "cuantas": 0}):
+        r = ciclo.preguntar("hola", usuario="t", sesion=sid)
+    assert r["error"] and r["sesion"] == sid
+
+
+def test_el_costo_de_una_conversacion_sigue_las_reglas_del_gasto():
+    """Lo cacheado a precio de caché; y si a UN modelo de la charla le falta la
+    tarifa, `usd` es None y se dice cuál — un costo a medias se lee como un
+    costo. Es el LECTOR de `ia.llamadas.sesion`: la columna existe porque
+    existe esto."""
+    from unittest.mock import MagicMock, patch
+
+    from asistente import panel
+
+    filas = [("m-caro", 3, 1_000_000, 100_000, 800_000, 200_000),
+             ("m-sin-precio", 1, 10, 10, 0, 0)]
+    cur = MagicMock()
+    cur.fetchall.return_value = filas
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
+    tarifas = {panel.CLAVE_PRECIO.format(modelo="m-caro"): "1/0.1/2"}
+    with patch.object(panel, "get_pool", return_value=pool), \
+         patch.object(panel.ai, "ajustes", return_value=tarifas):
+        r = panel.conversacion("s1")
+    assert r["llamadas"] == 4 and r["tokens_in"] == 1_000_010
+    assert r["cache_pct"] == 80.0
+    assert r["usd"] is None and r["sin_precio"] == ["m-sin-precio"]
+    # Con todas las tarifas, la plata sale y el caché se cobra a su precio.
+    tarifas[panel.CLAVE_PRECIO.format(modelo="m-sin-precio")] = "1/1/1"
+    with patch.object(panel, "get_pool", return_value=pool), \
+         patch.object(panel.ai, "ajustes", return_value=tarifas):
+        r = panel.conversacion("s1")
+    # m-caro: 0.8M×0.1 + 0.2M×1 = 0.28 entrada + 0.1M×2 = 0.2 salida → 0.48
+    assert r["usd"] == round(0.48 + 20 / 1e6, 4)
+    assert "sesion = %(s)s" in inspect_sql(panel.conversacion), "la consulta filtra por sesión"
+
+
+def inspect_sql(fn) -> str:
+    import inspect
+    return inspect.getsource(fn)

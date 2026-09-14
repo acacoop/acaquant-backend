@@ -187,6 +187,55 @@ def gasto(dias: int = 30) -> dict:
     }
 
 
+def conversacion(sesion: str) -> dict:
+    """Cuánto costó UNA conversación: sus llamadas al modelo juntas, en tokens,
+    caché y plata. Es el lector del `sesion` de `ia.llamadas` (§0.fl) — la
+    columna volvió porque ahora hay quien la mire, en cada respuesta de la tab.
+
+    Mismas reglas que `gasto()`: la plata sólo sale si TODOS los modelos que
+    intervinieron tienen tarifa; si a uno le falta, `usd` es None y se dice
+    cuál. Un costo a medias se lee como un costo.
+    """
+    sql = """
+        SELECT modelo,
+               count(*)                            AS llamadas,
+               coalesce(sum(tokens_in), 0)         AS tokens_in,
+               coalesce(sum(tokens_out), 0)        AS tokens_out,
+               coalesce(sum(cache_hit_tokens), 0)  AS cache_hit,
+               coalesce(sum(cache_miss_tokens), 0) AS cache_miss
+          FROM ia.llamadas
+         WHERE sesion = %(s)s
+         GROUP BY modelo
+    """
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, {"s": sesion})
+            filas = cur.fetchall()
+    except Exception as e:
+        return {"id": sesion, "error": f"no pude leer la conversación: {type(e).__name__}: {e}"}
+
+    aj = ai.ajustes()
+    tot = {"llamadas": 0, "tokens_in": 0, "tokens_out": 0, "cache_hit": 0, "cache_miss": 0}
+    usd, sin_precio = 0.0, []
+    for modelo, n, t_in, t_out, c_hit, c_miss in filas:
+        for k, v in zip(tot, (n, t_in, t_out, c_hit, c_miss)):
+            tot[k] += int(v)
+        tarifa = _tarifa(aj, modelo)
+        if tarifa:
+            usd += costo(tarifa, cache_hit=int(c_hit), cache_miss=int(c_miss),
+                         tokens_in=int(t_in), tokens_out=int(t_out))
+        else:
+            sin_precio.append(modelo)
+    mirado = tot["cache_hit"] + tot["cache_miss"]
+    return {
+        "id": sesion,
+        **tot,
+        "cache_pct": round(100.0 * tot["cache_hit"] / mirado, 1) if mirado else None,
+        "usd": None if sin_precio or not filas else round(usd, 4),
+        "sin_precio": sorted(sin_precio),
+    }
+
+
 # ── CON QUÉ MODELO CORREMOS ─────────────────────────────────────────────────
 
 def modelos() -> dict:

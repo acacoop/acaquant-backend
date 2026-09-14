@@ -7367,3 +7367,33 @@ recorta, el estado no.
 
 La tab lo cuenta como paso del ciclo (`✂️ podado: N turnos`), al lado del
 `achicado` que ya existía y que hasta hoy la pantalla no dibujaba.
+
+---
+
+### 0.fl LA CONVERSACIÓN TIENE NOMBRE — vuelve el `conv_id`, esta vez con lector (2026-09-14)
+
+Tercera caja de la anatomía de sesión de ADK (§0.fj es *State*, el historial es
+*Event History*): **Identification**. Hasta hoy dos preguntas de la misma charla
+no estaban ligadas por nada: `ia.llamadas` tenía una fila por vuelta, sueltas.
+Para saber cuánto costó una conversación había que adivinar por hora y usuario.
+
+**Lo que se hizo.** Un uuid por charla (`ciclo._sesion`) que nace en el backend
+en la primera pregunta y el navegador devuelve en las siguientes, con el
+historial y el estado. Cada `ai.conversar` lo lleva a la fila de
+`ia.llamadas.sesion`. El lector es `panel.conversacion()`, que el router llama
+en cada respuesta: la tab muestra «esta conversación: N llamadas · tokens ·
+caché · USD» al lado del foco, con las mismas reglas de plata que el panel (lo
+cacheado a precio de caché; si a un modelo le falta la tarifa, `usd` es null y
+se dice cuál).
+
+**Por qué vuelve algo que se borró.** El 28/08 se sacó `conv_id` de esta misma
+tabla con el argumento correcto: cero referencias en el repo, una columna que
+nadie escribe ni lee es una pregunta abierta. La columna vuelve porque **nace
+con su escritor y su lector en el mismo commit**, y un test congela los dos: si
+el ciclo dejara de pasarla al gateway, o el gateway de escribirla, falla.
+
+**Lo que NO se hizo.** Persistir la charla. `sesion` identifica, no guarda:
+los mensajes siguen en el navegador y «empezar de nuevo» los borra. Reabrir una
+conversación de ayer sigue sin existir hasta que exista la pregunta que lo pida.
+Cuando exista, el id ya está, y con él se agrupan las llamadas que ya quedaron
+anotadas desde hoy.

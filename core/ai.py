@@ -337,24 +337,28 @@ def _trazar(
     razonamiento: str | None = None,
     cache_hit: int | None = None,
     cache_miss: int | None = None,
+    sesion: str | None = None,
 ) -> int | None:
     """Guarda la fila y devuelve su id. Si la base no responde devuelve None y
-    la llamada sigue igual: perder la traza es malo, cortar la feature es peor."""
+    la llamada sigue igual: perder la traza es malo, cortar la feature es peor.
+
+    `sesion` es la conversación a la que pertenece la llamada (la manda el
+    asistente; el resto de las tareas no conversan y lo dejan en NULL)."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO ia.llamadas (tarea, modelo, usuario, tokens_in, tokens_out,"
                 " latencia_ms, ok, error, detalle, respuesta, razonamiento,"
-                " cache_hit_tokens, cache_miss_tokens)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                " cache_hit_tokens, cache_miss_tokens, sesion)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " RETURNING id",
                 (tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms, ok,
                  error[:_MAX_ERROR_CHARS] if error else None,
                  detalle[:_MAX_DETALLE_CHARS] if detalle else None,
                  respuesta[:_MAX_RESPUESTA_CHARS] if respuesta else None,
                  razonamiento[:_MAX_RAZONAMIENTO_CHARS] if razonamiento else None,
-                 cache_hit, cache_miss),
+                 cache_hit, cache_miss, sesion),
             )
             return cur.fetchone()[0]
     except Exception as e:
@@ -414,8 +418,12 @@ def conversar(
     usuario: str | None = None,
     detalle: str | None = None,
     formato: dict | None = None,
+    sesion: str | None = None,
 ) -> tuple[llm.RespuestaLLM | None, int | None]:
     """UNA vuelta de conversación con el modelo. Devuelve (respuesta, id de traza).
+
+    `sesion` identifica la conversación: viaja a la fila de `ia.llamadas` y es
+    lo que permite juntar después las vueltas de una misma charla.
 
     ── SU ROL EN EL CICLO: es la puerta por la que pasa CADA vuelta ──
 
@@ -435,7 +443,8 @@ def conversar(
     """
     try:
         return _conversar(tarea, mensajes=mensajes, herramientas=herramientas,
-                          usuario=usuario, detalle=detalle, formato=formato)
+                          usuario=usuario, detalle=detalle, formato=formato,
+                          sesion=sesion)
     except Exception as e:
         # Cinturón: el contrato es no propagar JAMÁS una excepción.
         logger.warning("core.ai: fallo inesperado en %s: %s: %s", tarea, type(e).__name__, e)
@@ -450,6 +459,7 @@ def _conversar(
     usuario: str | None,
     detalle: str | None,
     formato: dict | None = None,
+    sesion: str | None = None,
 ) -> tuple[llm.RespuestaLLM | None, int | None]:
     cfg = _config(tarea)
     # Sin clave o con ruteo inseguro no se traza: sería ruido, no un gasto.
@@ -472,7 +482,7 @@ def _conversar(
     if not r.ok:
         logger.warning("core.ai %s → %s", tarea, r.error)
         traza_id = _trazar(tarea, modelo, usuario, None, None, r.latencia_ms, False,
-                           r.error, detalle=detalle)
+                           r.error, detalle=detalle, sesion=sesion)
         return r, traza_id
 
     # Una vuelta que pide herramientas no trae texto, y eso NO es una respuesta
@@ -485,7 +495,8 @@ def _conversar(
                        None if hubo_algo else "respuesta vacía",
                        detalle=detalle, respuesta=texto or None,
                        razonamiento=r.razonamiento,
-                       cache_hit=r.cache_hit, cache_miss=r.cache_miss)
+                       cache_hit=r.cache_hit, cache_miss=r.cache_miss,
+                       sesion=sesion)
     return r, traza_id
 
 

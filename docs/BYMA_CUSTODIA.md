@@ -241,7 +241,57 @@ headless de AppGate para el servidor.
 
 ---
 
-## 7. Changelog
+## 7. La comparación contra AUNESA (T0)
+
+La vista cruza cada fila de la Caja contra `portafolio.tenencia_live` con
+`horizonte = 't0'` — la posición **liquidada a HOY**, que el código define como
+*"lo que está en custodia y se puede entregar, garantizar o caucionar"*.
+
+### Las cuatro reglas
+
+**① El universo lo define BYMA.** Se parte de lo que trae la Caja y se le busca
+su contraparte en Aunesa, nunca al revés. En Hygirus hay mucho que no está en
+CVSA (FCI, entre otros) y arrastrarlo sería llenar la pantalla de descalces que
+no son descalces. La Caja es la fuente de verdad; lo que ella no registra, esta
+vista no lo discute.
+
+**② El grano es (cuenta, papel).** CVSA informa una fila por `sub_balance_type`
+—el mismo papel puede estar parte `AVAILABLE` y parte `EMBARGO`—; Aunesa informa
+una sola. Se **suman los estados** de CVSA antes de comparar: sin eso, el valor
+de Aunesa se repetiría en cada fila y la diferencia daría mal en todas.
+
+**③ ⚠️ `VN AUNESA` NO es `cantidad` a secas.**
+
+```
+VN AUNESA = cantidad − gar_cantidad        (gar_cantidad NULL → cantidad tal cual)
+DIFERENCIA = VN BYMA − VN AUNESA
+```
+
+BYMA informa la tenencia **sin lo afectado en garantía**. Comparar contra el
+total de Aunesa marcaría en rojo toda cuenta con algo caucionado — cientos de
+descalces falsos el primer día. La celda muestra un `*` y el detalle en el
+tooltip cuando hubo garantía descontada, porque es lo primero que se pregunta
+cuando aparece una diferencia.
+
+**④ Lo que no se puede comparar no es una diferencia.** Las filas cuyo código de
+la Caja no tiene instrumento en `assets` viajan con `vn_aunesa = null` y se
+muestran como *"sin comparar"*, con su propio contador. Contarlas como descalce
+sería inventar un problema donde lo que falta es una traducción.
+
+### Dónde vive el cruce
+
+**En la LECTURA, y no se guarda.** La diferencia es un derivado de dos tablas
+vivas; persistirla crearía una tercera copia capaz de quedar vieja mientras las
+otras dos se mueven — el patrón que describe `core/duplicados.py`. Calculada en
+la query no puede mentir: siempre refleja las dos fotos del momento.
+
+Por eso mismo la cabecera muestra **las dos fechas**. Si no coinciden, la
+comparación mezcla dos momentos y cualquier diferencia puede ser eso y no un
+descalce: la vista lo canta con un cartel en vez de dejar que se lea como real.
+
+---
+
+## 8. Changelog
 
 - **v1** — Discovery completo contra producción, cliente, maestro de especies
   cargado en `assets.codigo_cnv` (154 completados + 254 que ya coincidían), tabla

@@ -24,24 +24,14 @@ from core.postgres import get_pool
 
 # Todo lo que no es AVAILABLE es tenencia que NO se puede entregar ni garantizar.
 # Es la información que Aunesa no da, así que la vista la cuenta aparte.
-# ⚠️ LA CONCILIACIÓN CONTRA HYGIRUS (T0) TODAVÍA NO ESTÁ ACÁ, Y ES A PROPÓSITO.
-#
-# Comparar `custodia_cvsa` contra `portafolio.tenencia_live` (horizonte 't0') es
-# el producto de esta vista, pero antes hay que medir siete cosas que no se
-# pueden asumir: el grano (CVSA tiene una fila por estado y Hygirus una por
-# papel), si corresponde el filtro `aum='si'`, las filas sin instrumento, que
-# las dos fotos sean del mismo día, el universo de cuentas, el signo (Aunesa
-# manda tenencias invertidas en otro endpoint) y si Hygirus cuenta o no lo
-# trabado. Errar cualquiera de esas muestra diferencias que no existen — y una
-# pantalla que grita en falso se deja de mirar en una semana.
-#
-# Chequeo previo, read-only: `python -m scripts.diag_custodia_vs_hygirus`.
-# Con esos números se decide la comparación correcta y recién ahí se escribe.
-
 DISPONIBLE = "AVAILABLE"
 
-# Techo duro del payload. Medido: una foto real son ~2.800 filas. Si alguna vez
-# se toca, la respuesta lo dice (`truncado`) en vez de mentir por lo bajo.
+# Dos nominales que difieren en centavos no son un descalce: es redondeo.
+TOLERANCIA = 0.01
+
+# Techo duro del payload. Medido: una foto real son ~2.800 filas de BYMA, que
+# agrupadas por (cuenta, papel) dan menos. Si alguna vez se toca, la respuesta
+# lo dice (`truncado`) en vez de mentir por lo bajo.
 LIMITE_FILAS = 20_000
 
 
@@ -53,66 +43,138 @@ def ultima_fecha() -> date | None:
 
 
 def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
-    """La foto de CVSA de un día, entera, con sus contadores.
+    """La foto de CVSA de un día, cruzada contra la tenencia de Aunesa (T0).
 
-    Sin `fecha` usa la última que haya: la vista tiene que abrir mostrando algo
-    aunque el feed de hoy todavía no haya corrido.
+    EL UNIVERSO LO DEFINE BYMA. Se parte de lo que trae la Caja y se le busca su
+    contraparte en Aunesa, no al revés: en Hygirus hay un montón de cosas que no
+    están en CVSA (FCI, por ejemplo) y arrastrarlas acá sería llenar la pantalla
+    de descalces que no son descalces. La Caja es la fuente de verdad; lo que
+    ella no registra, esta vista no lo discute.
+
+    EL GRANO ES (cuenta, papel). CVSA informa una fila por `sub_balance_type`
+    —el mismo papel puede estar parte AVAILABLE y parte EMBARGO—; Aunesa informa
+    una sola. Se suman los estados de CVSA antes de comparar, porque si no el
+    valor de Aunesa se repetiría en cada fila y la diferencia daría mal en todas.
+
+    ⚠️ **`VN AUNESA` NO ES `cantidad` A SECAS: es `cantidad - gar_cantidad`.**
+    BYMA informa la tenencia sin lo que está afectado en garantía, así que
+    comparar contra el total de Aunesa marcaría en rojo toda cuenta con algo
+    caucionado. Sin `gar_cantidad` (NULL) se usa `cantidad` tal cual.
+
+    Las filas sin `unidad` (el código de la Caja no tiene instrumento en
+    `assets`) no tienen contra qué cruzarse: viajan con `vn_aunesa = None` y la
+    vista las marca como "sin comparar". No son una diferencia — decir que lo
+    son sería inventar un descalce donde lo que falta es una traducción.
+
+    El cruce se calcula en la LECTURA y no se guarda: es un derivado de dos
+    tablas vivas, y persistirlo crearía una tercera copia capaz de quedar vieja
+    mientras las otras dos se mueven.
     """
     f = fecha or ultima_fecha()
     if f is None:
         return {"fecha": None, "filas": [], "total_filas": 0, "cuentas": 0,
-                "sin_asset": 0, "trabado": 0, "truncado": False,
-                "actualizado_at": None, "estados": [],
+                "sin_asset": 0, "trabado": 0, "difieren": 0, "sin_comparar": 0,
+                "truncado": False, "actualizado_at": None, "fecha_aunesa": None,
+                "estados": [],
                 "aviso": "todavía no entró ninguna foto de la Caja de Valores"}
 
+    sql = """
+        WITH byma AS (
+            SELECT id_cuenta, unidad, cvsa_id,
+                   SUM(cantidad)                                   AS vn_byma,
+                   SUM(cantidad) FILTER (WHERE sub_balance_type <> %(disp)s) AS trabado,
+                   string_agg(DISTINCT sub_balance_type, ' · ' ORDER BY sub_balance_type)
+                                                                   AS estados,
+                   max(actualizado_at)                             AS actualizado_at
+              FROM portafolio.custodia_cvsa
+             WHERE fecha = %(f)s
+             GROUP BY id_cuenta, unidad, cvsa_id
+        )
+        SELECT b.id_cuenta, cu.denominacion, b.cvsa_id, b.unidad, a.ticker,
+               b.estados, b.vn_byma, b.trabado, b.actualizado_at,
+               t.cantidad, t.gar_cantidad, t.fecha
+          FROM byma b
+          LEFT JOIN clientes.cuentas   cu ON cu.id_cuenta = b.id_cuenta
+          LEFT JOIN portafolio.assets   a ON a.unidad     = b.unidad
+          -- El join con Aunesa solo puede existir si sabemos cómo se llama el
+          -- papel de este lado: con `unidad` NULL no matchea y queda sin comparar.
+          LEFT JOIN portafolio.tenencia_live t
+                 ON t.id_cuenta = b.id_cuenta
+                AND t.unidad    = b.unidad
+                AND t.horizonte = 't0'
+                AND t.fecha     = (SELECT max(fecha) FROM portafolio.tenencia_live)
+         ORDER BY b.id_cuenta, a.ticker NULLS LAST, b.unidad NULLS LAST, b.cvsa_id
+         LIMIT %(lim)s
+    """
+
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT c.id_cuenta, cu.denominacion, c.cvsa_id, c.unidad, a.ticker, "
-            "       c.sub_balance_type, c.cantidad, c.actualizado_at "
-            "  FROM portafolio.custodia_cvsa c "
-            "  LEFT JOIN clientes.cuentas cu ON cu.id_cuenta = c.id_cuenta "
-            "  LEFT JOIN portafolio.assets  a ON a.unidad    = c.unidad "
-            " WHERE c.fecha = %s "
-            " ORDER BY c.id_cuenta, c.unidad NULLS LAST, c.cvsa_id, c.sub_balance_type "
-            " LIMIT %s", (f, LIMITE_FILAS))
+        cur.execute(sql, {"f": f, "disp": DISPONIBLE, "lim": LIMITE_FILAS})
         crudas = cur.fetchall()
 
-    filas = [
-        {"id_cuenta": r[0], "cuenta": r[1], "cvsa_id": r[2], "unidad": r[3],
-         "ticker": r[4], "estado": r[5],
-         "cantidad": float(r[6]) if r[6] is not None else None}
-        for r in crudas
-    ]
-
-    # Una sola pasada para todo lo que la cabecera muestra.
+    filas = []
     cuentas: set[str] = set()
     por_estado: dict[str, int] = {}
-    sin_asset = trabado = 0
+    sin_asset = difieren = sin_comparar = 0
+    trabado_total = 0.0
     ultimo = None
+    fecha_aunesa = None
+
     for r in crudas:
-        cuentas.add(r[0])
-        por_estado[r[5]] = por_estado.get(r[5], 0) + 1
-        if r[3] is None:
+        (cta, denom, cvsa_id, unidad, ticker, estados,
+         vn_byma, trabado, act, cant, gar, f_aun) = r
+
+        vn_byma = float(vn_byma or 0)
+        trabado = float(trabado or 0)
+
+        # LA REGLA: BYMA informa sin garantías, así que del lado de Aunesa hay
+        # que descontarlas. `gar_cantidad` NULL = no hay nada afectado.
+        vn_aunesa = None if cant is None else float(cant) - float(gar or 0)
+        dif = None if vn_aunesa is None else vn_byma - vn_aunesa
+
+        if unidad is None:
             sin_asset += 1
-        if r[5] != DISPONIBLE:
-            trabado += 1
-        if ultimo is None or (r[7] and r[7] > ultimo):
-            ultimo = r[7]
+        if vn_aunesa is None:
+            sin_comparar += 1
+        elif abs(dif or 0) > TOLERANCIA:
+            difieren += 1
+
+        cuentas.add(cta)
+        for e in (estados or "").split(" · "):
+            if e:
+                por_estado[e] = por_estado.get(e, 0) + 1
+        trabado_total += trabado
+        if ultimo is None or (act and act > ultimo):
+            ultimo = act
+        if f_aun and (fecha_aunesa is None or f_aun > fecha_aunesa):
+            fecha_aunesa = f_aun
+
+        filas.append({
+            "id_cuenta": cta, "cuenta": denom, "cvsa_id": cvsa_id,
+            "unidad": unidad, "ticker": ticker, "estados": estados,
+            "vn_byma": vn_byma,
+            "vn_aunesa": vn_aunesa,
+            "dif": dif,
+            "trabado": trabado,
+            # Se manda el crudo también: cuando una diferencia aparece, lo
+            # primero que se pregunta es si viene de la garantía.
+            "aunesa_cantidad": None if cant is None else float(cant),
+            "aunesa_garantia": None if gar is None else float(gar),
+        })
 
     return {
         "fecha": f.isoformat(),
+        # La fecha de la OTRA foto. Si no coinciden, la comparación mezcla dos
+        # momentos y la pantalla tiene que poder decirlo.
+        "fecha_aunesa": fecha_aunesa.isoformat() if fecha_aunesa else None,
         "filas": filas,
         "total_filas": len(filas),
         "cuentas": len(cuentas),
-        # Filas cuyo código de la Caja no tiene instrumento en `assets`. Es un
-        # hueco CONOCIDO (falta el código de CAJA), no un error: la tenencia
-        # existe igual y por eso se guarda y se muestra.
         "sin_asset": sin_asset,
-        "trabado": trabado,
+        "trabado": round(trabado_total, 2),
+        "difieren": difieren,
+        "sin_comparar": sin_comparar,
         "truncado": len(filas) >= LIMITE_FILAS,
         "actualizado_at": ultimo.isoformat() if ultimo else None,
-        # El universo de estados sale de los DATOS, no de una lista hardcodeada
-        # que se desactualiza sola.
         "estados": sorted(({"estado": k, "n": v} for k, v in por_estado.items()),
                           key=lambda x: -x["n"]),
     }

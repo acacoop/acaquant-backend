@@ -1,11 +1,19 @@
 """api/services/custodia_sql.py — lectura de la tenencia de CVSA. PURO (sin FastAPI).
 
-Sirve la tab CUSTODIA → TENENCIAS de `/back-office`. Doc: `docs/BYMA_CUSTODIA.md`.
-Los datos los escribe `jobs/custodia_cvsa.py` cada hora.
+Sirve la tab CUSTODIA de `/back-office`. Los datos los escribe la PC de oficina
+(`scripts/byma_feed.py` → `POST /api/ingest/custodia/holdings`). Doc:
+`docs/BYMA_CUSTODIA.md`.
 
-Todo lo que la vista muestra sale de ACÁ, contadores incluidos: el front no
-deriva ni suma nada, y un número que no venga en el payload es un faltante del
-contrato, no un cálculo para hacer del otro lado.
+UNA SOLA QUERY, la foto entera del día, y los contadores se cuentan sobre esas
+mismas filas. Antes eran tres queries (lista + totales + estados) y cada cambio
+de filtro en la pantalla disparaba las tres de nuevo: con ~2.800 filas eso es un
+segundo de espera para tildar un chip.
+
+La foto de un día es un CONJUNTO CERRADO y chico. Traerla una vez y filtrarla en
+memoria es más rápido y, sobre todo, **hace imposible que un contador contradiga
+a su lista**: salen del mismo array. Si algún día una foto no entrara en un
+payload razonable, la decisión se revisa — `LIMITE_FILAS` deja el techo a la
+vista en vez de que el día que pase nadie sepa por qué faltan filas.
 """
 from __future__ import annotations
 
@@ -18,104 +26,79 @@ from core.postgres import get_pool
 # Es la información que Aunesa no da, así que la vista la cuenta aparte.
 DISPONIBLE = "AVAILABLE"
 
+# Techo duro del payload. Medido: una foto real son ~2.800 filas. Si alguna vez
+# se toca, la respuesta lo dice (`truncado`) en vez de mentir por lo bajo.
+LIMITE_FILAS = 20_000
+
 
 def ultima_fecha() -> date | None:
-    """La fecha más reciente con datos. None si la tabla está vacía (aún no corrió)."""
+    """La fecha más reciente con datos. None si todavía no entró ninguna foto."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT max(fecha) FROM portafolio.custodia_cvsa")
         return (cur.fetchone() or [None])[0]
 
 
-def tenencias(*, fecha: date | None = None, id_cuenta: str | None = None,
-              estado: str | None = None, solo_trabado: bool = False,
-              limite: int = 5000) -> dict[str, Any]:
-    """La foto de CVSA de un día, con sus contadores.
+def tenencias(*, fecha: date | None = None) -> dict[str, Any]:
+    """La foto de CVSA de un día, entera, con sus contadores.
 
     Sin `fecha` usa la última que haya: la vista tiene que abrir mostrando algo
-    aunque el job de hoy todavía no haya corrido.
+    aunque el feed de hoy todavía no haya corrido.
     """
     f = fecha or ultima_fecha()
     if f is None:
         return {"fecha": None, "filas": [], "total_filas": 0, "cuentas": 0,
-                "sin_asset": 0, "trabado": 0, "actualizado_at": None,
-                "aviso": "todavía no se bajó ninguna foto de CVSA"}
-
-    where = ["c.fecha = %(fecha)s"]
-    params: dict[str, Any] = {"fecha": f, "limite": limite}
-    if id_cuenta:
-        where.append("c.id_cuenta = %(id_cuenta)s")
-        params["id_cuenta"] = id_cuenta.strip()
-    if estado:
-        where.append("c.sub_balance_type = %(estado)s")
-        params["estado"] = estado.strip().upper()
-    if solo_trabado:
-        where.append("c.sub_balance_type <> %(disponible)s")
-        params["disponible"] = DISPONIBLE
-    filtro = " AND ".join(where)
-
-    sql = f"""
-        SELECT c.id_cuenta, cu.denominacion, c.cvsa_id, c.unidad, a.ticker,
-               c.sub_balance_type, c.cantidad, c.account_number, c.actualizado_at
-          FROM portafolio.custodia_cvsa c
-          LEFT JOIN clientes.cuentas cu ON cu.id_cuenta = c.id_cuenta
-          LEFT JOIN portafolio.assets  a ON a.unidad    = c.unidad
-         WHERE {filtro}
-         ORDER BY c.id_cuenta, c.unidad NULLS LAST, c.cvsa_id, c.sub_balance_type
-         LIMIT %(limite)s
-    """
-
-    # Los totales salen de la MISMA query que dibuja la lista (mismo filtro), no
-    # de contar las filas devueltas: con LIMIT, contar lo devuelto daría un
-    # número más chico que el real y nadie lo notaría.
-    sql_tot = f"""
-        SELECT count(*),
-               count(DISTINCT c.id_cuenta),
-               count(*) FILTER (WHERE c.unidad IS NULL),
-               count(*) FILTER (WHERE c.sub_balance_type <> '{DISPONIBLE}'),
-               max(c.actualizado_at)
-          FROM portafolio.custodia_cvsa c
-         WHERE {filtro}
-    """
+                "sin_asset": 0, "trabado": 0, "truncado": False,
+                "actualizado_at": None, "estados": [],
+                "aviso": "todavía no entró ninguna foto de la Caja de Valores"}
 
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        filas = [
-            {"id_cuenta": r[0], "cuenta": r[1], "cvsa_id": r[2], "unidad": r[3],
-             "ticker": r[4], "estado": r[5],
-             "cantidad": float(r[6]) if r[6] is not None else None,
-             "account_number": r[7],
-             "actualizado_at": r[8].isoformat() if r[8] else None}
-            for r in cur.fetchall()
-        ]
-        cur.execute(sql_tot, params)
-        total, cuentas, sin_asset, trabado, actualizado = cur.fetchone()
+        cur.execute(
+            "SELECT c.id_cuenta, cu.denominacion, c.cvsa_id, c.unidad, a.ticker, "
+            "       c.sub_balance_type, c.cantidad, c.actualizado_at "
+            "  FROM portafolio.custodia_cvsa c "
+            "  LEFT JOIN clientes.cuentas cu ON cu.id_cuenta = c.id_cuenta "
+            "  LEFT JOIN portafolio.assets  a ON a.unidad    = c.unidad "
+            " WHERE c.fecha = %s "
+            " ORDER BY c.id_cuenta, c.unidad NULLS LAST, c.cvsa_id, c.sub_balance_type "
+            " LIMIT %s", (f, LIMITE_FILAS))
+        crudas = cur.fetchall()
+
+    filas = [
+        {"id_cuenta": r[0], "cuenta": r[1], "cvsa_id": r[2], "unidad": r[3],
+         "ticker": r[4], "estado": r[5],
+         "cantidad": float(r[6]) if r[6] is not None else None}
+        for r in crudas
+    ]
+
+    # Una sola pasada para todo lo que la cabecera muestra.
+    cuentas: set[str] = set()
+    por_estado: dict[str, int] = {}
+    sin_asset = trabado = 0
+    ultimo = None
+    for r in crudas:
+        cuentas.add(r[0])
+        por_estado[r[5]] = por_estado.get(r[5], 0) + 1
+        if r[3] is None:
+            sin_asset += 1
+        if r[5] != DISPONIBLE:
+            trabado += 1
+        if ultimo is None or (r[7] and r[7] > ultimo):
+            ultimo = r[7]
 
     return {
         "fecha": f.isoformat(),
         "filas": filas,
-        "total_filas": int(total or 0),
-        "cuentas": int(cuentas or 0),
-        # Códigos de la Caja que no tienen instrumento nuestro. Es un hueco
-        # CONOCIDO (falta el código en assets), no un error: la tenencia existe
-        # igual y por eso se guarda y se muestra.
-        "sin_asset": int(sin_asset or 0),
-        "trabado": int(trabado or 0),
-        "truncado": len(filas) >= limite,
-        "actualizado_at": actualizado.isoformat() if actualizado else None,
+        "total_filas": len(filas),
+        "cuentas": len(cuentas),
+        # Filas cuyo código de la Caja no tiene instrumento en `assets`. Es un
+        # hueco CONOCIDO (falta el código de CAJA), no un error: la tenencia
+        # existe igual y por eso se guarda y se muestra.
+        "sin_asset": sin_asset,
+        "trabado": trabado,
+        "truncado": len(filas) >= LIMITE_FILAS,
+        "actualizado_at": ultimo.isoformat() if ultimo else None,
+        # El universo de estados sale de los DATOS, no de una lista hardcodeada
+        # que se desactualiza sola.
+        "estados": sorted(({"estado": k, "n": v} for k, v in por_estado.items()),
+                          key=lambda x: -x["n"]),
     }
-
-
-def estados(fecha: date | None = None) -> list[dict[str, Any]]:
-    """Los `subBalanceType` presentes ese día, con cuántas filas tiene cada uno.
-
-    Alimenta los chips de la vista: el universo de estados sale de los DATOS, no
-    de una lista hardcodeada que se desactualiza sola.
-    """
-    f = fecha or ultima_fecha()
-    if f is None:
-        return []
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT sub_balance_type, count(*) FROM portafolio.custodia_cvsa "
-            "WHERE fecha = %s GROUP BY 1 ORDER BY 2 DESC", (f,))
-        return [{"estado": r[0], "n": int(r[1])} for r in cur.fetchall()]

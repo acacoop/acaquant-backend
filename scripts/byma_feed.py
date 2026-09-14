@@ -16,6 +16,8 @@ INGEST_TOKEN = ""
 CF_ID = ""
 CF_SECRET = ""
 API = "https://api.acaquant.com"
+# Cloudflare corta el UA por defecto de urllib con "error code: 1010".
+UA = "AcaQuant-custodia/1.0"
 
 COLS = ("participantCode", "accountNumber", "cvsaIdentifier", "subBalanceType", "holding")
 HOY = date.today().isoformat()
@@ -41,14 +43,16 @@ try:
         urllib.parse.urlencode({
             "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
             "grant_type": "client_credentials", "scope": "custodysecurities.read"}).encode(),
-        {"Content-Type": "application/x-www-form-urlencoded"}).read())["access_token"]
+        {"Content-Type": "application/x-www-form-urlencoded",
+         "User-Agent": UA}).read())["access_token"]
 except urllib.error.HTTPError as e:
     raise SystemExit(f"Token HTTP {e.code}: {e.read().decode('utf-8', 'replace')}") from e
 
 # 2. Holdings (asincrono: 409 + uuid, despues X-UUID)
 url = ("https://api.byma.com.ar/custody-securities/v1/holdings"
        f"?balanceDate={HOY}&participantCode={PARTICIPANT}")
-h = {"Authorization": f"Bearer {tok}", "Accept": "*/*"}   # application/json da 406
+h = {"Authorization": f"Bearer {tok}", "Accept": "*/*",   # application/json da 406
+     "User-Agent": UA}
 def uuid_de(body):
     """El trabajo asincrono se reconoce por el uuid, NO por el status: BYMA
     contesta 202 y mete un "code": 409 adentro del cuerpo."""
@@ -87,11 +91,16 @@ try:
     r = post(f"{API}/api/ingest/custodia/holdings",
              json.dumps({"fecha": HOY, "docs": filas}).encode(),
              {"Content-Type": "application/json", "X-Ingest-Token": INGEST_TOKEN,
-              "CF-Access-Client-Id": CF_ID, "CF-Access-Client-Secret": CF_SECRET})
+              "CF-Access-Client-Id": CF_ID, "CF-Access-Client-Secret": CF_SECRET,
+              "User-Agent": UA})
     print(r.read().decode())
 except urllib.error.HTTPError as e:
     # El cuerpo dice DE QUIEN es el error, y sin el no se puede distinguir:
     # HTML = lo corto Cloudflare Access (service token). JSON = llego a la API.
     cuerpo = e.read().decode("utf-8", "replace")
-    quien = "CLOUDFLARE ACCESS" if "<html" in cuerpo[:200].lower() else "LA API"
+    try:
+        json.loads(cuerpo)
+        quien = "LA API"
+    except ValueError:
+        quien = "CLOUDFLARE"   # contesta texto plano: "error code: 1010", HTML, etc.
     raise SystemExit(f"{quien} rechazo el POST: HTTP {e.code}\n{cuerpo[:500]}") from e

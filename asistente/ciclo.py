@@ -291,27 +291,20 @@ def preguntar(
         _ver("achicado", chars=ahorro)
     tokens_in = tokens_out = 0
     llamadas: list[int] = []
-    # Lo que devolvió cada herramienta en ESTE turno. De acá salen los campos
-    # que el modelo puede pedir que se muestren — y por eso el `enum` no puede
-    # contener un campo que no exista: se arma de lo que de verdad volvió.
-    resultados: dict[str, object] = {}
 
     for vuelta in range(1, MAX_VUELTAS + 1):
         _ver("vuelta", n=vuelta)
-        # ⚠️ El esquema se arma DE NUEVO en cada vuelta, porque los campos
-        # mostrables crecen a medida que las herramientas van contestando. Y se
-        # manda siempre: el proveedor entiende que un pedido de herramienta no
-        # es «la respuesta final» y no le exige la forma (medido en
-        # `scripts/diag_structured_output.py`). Si el proveedor no soporta
-        # esquema, `ai.conversar` lo descarta y la respuesta llega como prosa.
-        mostrables = ESQ.campos_mostrables(resultados)
+        # ⚠️ El esquema viaja en TODAS las vueltas: el proveedor entiende que un
+        # pedido de herramienta no es «la respuesta final» y no le exige la
+        # forma (medido en `scripts/diag_structured_output.py`). Si no lo
+        # soporta, `ai.conversar` lo descarta y la respuesta llega como prosa.
 
         # ── PASO 1: se manda la conversación entera + las herramientas ──
         # Entera, sí: el modelo no recuerda nada de la vuelta anterior. Cada
         # llamada le reenvía todo desde el principio.
         r, llamada_id = ai.conversar(TAREA, mensajes=mensajes, herramientas=H.FICHAS,
                                    usuario=usuario, detalle=pregunta,
-                                   formato=ESQ.armar(mostrables))
+                                   formato=ESQ.FORMATO)
         if llamada_id:
             llamadas.append(llamada_id)
 
@@ -334,8 +327,8 @@ def preguntar(
             # proveedor espera recibir de vuelta. Lo que se parsea es lo que va
             # a la pantalla, no lo que vuelve a la conversación.
             mensajes.append({"role": "assistant", "content": r.texto or ""})
-            leido = ESQ.leer(r.texto, mostrables)
-            _ver("texto", texto=leido["respuesta"], mostrar=leido["mostrar"])
+            leido = ESQ.leer(r.texto)
+            _ver("texto", texto=leido["respuesta"])
             # ⚠️ `crudo` es lo que se escribió en `mensajes`, que CON ESQUEMA no
             # es lo mismo que la respuesta: es el JSON que la contiene. Ver
             # `_salida`.
@@ -350,7 +343,6 @@ def preguntar(
         for p in r.pedidos:
             _ver("pide", herramienta=p.get("nombre"), argumentos=p.get("argumentos"))
             resultado = _ejecutar(p)
-            resultados[str(p.get("nombre"))] = resultado
             _ver("resultado", herramienta=p.get("nombre"), resultado=resultado)
             mensajes.append({
                 "role": "tool",
@@ -423,11 +415,8 @@ def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=Non
             texto, contexto=_contexto(mensajes, crudo if crudo is not None else texto),
             pregunta=pregunta),
         "mensajes": [m for m in mensajes if m.get("role") != "system"],
-        # Lo que sale del esquema, cuando el proveedor lo soporta. Con prosa
-        # llegan vacíos y la pantalla dibuja el párrafo de siempre.
-        "mostrar": (extra or {}).get("mostrar") or [],
+        # Qué NO pudo contestar, cuando el proveedor soporta esquema. Sin este
+        # renglón, una pregunta de dos partes contestada a medias se lee como
+        # contestada entera.
         "falta": (extra or {}).get("falta"),
-        # El cinturón del enum: un campo que el modelo pidió y no existe. No
-        # rompe la respuesta, y dice QUÉ LE FALTA A LA HERRAMIENTA.
-        "aviso_esquema": (extra or {}).get("aviso"),
     }

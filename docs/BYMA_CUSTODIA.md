@@ -95,11 +95,19 @@ Ninguna está en el OpenAPI. Las seis viven resueltas en `core/byma_custodia.py`
 1. **`Accept: application/json` da HTTP 406.** Cada método elige su formato y el
    gateway no negocia. Se manda `Accept: */*` y se parsea lo que venga.
 
-2. **Los métodos asíncronos contestan 409, no 200.** La primera llamada dispara
-   el trabajo y devuelve `{"code": 409, "uuid": "..."}`; hay que repetirla con la
-   cabecera **`X-UUID`** hasta que conteste 200. El cliente lo hace con backoff,
-   **tope de intentos y timeout**: un poll sin techo no falla nunca, simplemente
-   no termina, y nadie se entera.
+2. **Los métodos asíncronos contestan HTTP `202` con un `"code": 409` ADENTRO
+   del cuerpo.** El 409 es un campo del JSON, no el status — quien mire el status
+   buscando un 409 no matchea nunca y el job muere en el primer paso. Por eso el
+   trabajo pendiente **se reconoce por el `uuid`**, no por el código:
+
+   ```
+   HTTP 202  {"message": "Response is not ready call later with uuid >> ...",
+              "code": 409, "uuid": "1469bb7e-..."}
+   ```
+
+   Hay que repetir la llamada con la cabecera **`X-UUID`** hasta que conteste 200.
+   El cliente lo hace con backoff, **tope de intentos y timeout**: un poll sin
+   techo no falla nunca, simplemente no termina, y nadie se entera.
 
 3. **`meta.count` MIENTE.** Medido: `"count": 3` sobre un `result` de **cuatro**
    filas. No se puede usar para paginar ni para validar. Se cuenta

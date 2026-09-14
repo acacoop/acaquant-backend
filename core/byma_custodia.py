@@ -30,8 +30,10 @@ Endpoints cubiertos (TODOS DE LECTURA):
    gateway no negocia: `/holdings` contesta CSV y `/holdings/accounts` JSON.
    Se manda `Accept: */*` y se parsea lo que venga (`_parsear`).
 
-2. **Los métodos asincrónicos contestan 409, no 200.** La primera llamada
-   dispara el trabajo y devuelve `{"code": 409, "uuid": "..."}`; hay que
+2. **Los métodos asincrónicos contestan HTTP 202 con un `"code": 409` ADENTRO
+   del cuerpo.** El 409 es un campo del JSON, no el status: quien mire el
+   status buscando un 409 no matchea nunca. Por eso el trabajo pendiente se
+   reconoce por el `uuid`. La primera llamada lo devuelve; hay que
    repetirla con la cabecera `X-UUID` hasta que conteste los datos. Acá vive
    adentro de `_get_async`, con tope de intentos y timeout: un poll sin techo
    es un job colgado para siempre esperando un uuid que no resuelve.
@@ -295,6 +297,14 @@ def _get(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
     raise BymaError(f"{path}: 401 incluso con token nuevo")
 
 
+def _uuid_de(r: requests.Response) -> str | None:
+    """El `uuid` del trabajo asíncrono, si la respuesta lo trae."""
+    try:
+        return (r.json() or {}).get("uuid")
+    except ValueError:
+        return None
+
+
 def _get_async(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
                scope: str = SCOPE_SECURITIES,
                base: str = BASE_SECURITIES) -> list[dict[str, str]]:
@@ -316,15 +326,16 @@ def _get_async(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
         r = _pedir(url, p, scope, force_refresh=True)
     if r.status_code == 200:
         return _parsear(r, columnas)          # contestó de una: no hubo trabajo que esperar
-    if r.status_code not in (200, 409):
-        raise BymaError(f"{path} HTTP {r.status_code}: {r.text[:400]}")
 
-    try:
-        uuid = r.json().get("uuid")
-    except ValueError:
-        uuid = None
+    # ⚠️ EL TRABAJO PENDIENTE SE RECONOCE POR EL `uuid`, NO POR EL STATUS.
+    # Medido: BYMA contesta **HTTP 202** y mete `"code": 409` DENTRO del cuerpo.
+    # Mirar el status buscando un 409 no matchea nunca y el job muere en el
+    # primer paso del baile — el cuerpo dice exactamente lo que hay que hacer y
+    # el código lo estaba descartando por el número de afuera.
+    uuid = _uuid_de(r)
     if not uuid:
-        raise BymaError(f"{path}: contestó 409 sin uuid, no hay cómo seguir: {r.text[:300]}")
+        raise BymaError(f"{path} HTTP {r.status_code} y sin uuid, "
+                        f"no hay cómo seguir: {r.text[:300]}")
 
     espera = ASYNC_ESPERA_INICIAL_S
     for intento in range(1, ASYNC_INTENTOS + 1):
@@ -334,7 +345,8 @@ def _get_async(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
         if r.status_code == 200:
             logger.info("BYMA %s: listo en el intento %d (uuid %s)", path, intento, uuid)
             return _parsear(r, columnas)
-        if r.status_code != 409:
+        # Sigue trabajando mientras devuelva el uuid; cualquier otra cosa es error.
+        if not _uuid_de(r):
             raise BymaError(f"{path} HTTP {r.status_code} esperando {uuid}: {r.text[:400]}")
 
     raise BymaCaido(f"{path}: el trabajo {uuid} no terminó tras {ASYNC_INTENTOS} intentos. "

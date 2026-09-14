@@ -49,13 +49,22 @@ except urllib.error.HTTPError as e:
 url = ("https://api.byma.com.ar/custody-securities/v1/holdings"
        f"?balanceDate={HOY}&participantCode={PARTICIPANT}")
 h = {"Authorization": f"Bearer {tok}", "Accept": "*/*"}   # application/json da 406
+def uuid_de(body):
+    """El trabajo asincrono se reconoce por el uuid, NO por el status: BYMA
+    contesta 202 y mete un "code": 409 adentro del cuerpo."""
+    try:
+        return json.loads(body).get("uuid")
+    except Exception:
+        return None
+
+
 status, body, ctype = get(url, h)
-if status == 409:
-    uuid = json.loads(body)["uuid"]
+uuid = uuid_de(body) if status != 200 else None
+if uuid:
     for _ in range(12):
         time.sleep(5)
         status, body, ctype = get(url, {**h, "X-UUID": uuid})
-        if status != 409:
+        if status == 200 or not uuid_de(body):
             break
 if status != 200:
     raise SystemExit(f"holdings HTTP {status}: {body[:300].decode('utf-8', 'replace')}")

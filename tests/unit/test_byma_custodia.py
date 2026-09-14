@@ -120,3 +120,32 @@ def test_cantidad_ilegible_es_none_y_no_cero():
     assert ce._cantidad(None) is None
     assert ce._cantidad("") is None
     assert ce._cantidad("n/d") is None
+
+
+def test_el_trabajo_pendiente_se_reconoce_por_el_uuid_no_por_el_status():
+    """BYMA contesta HTTP 202 con un "code": 409 ADENTRO del cuerpo.
+
+    Mirar el status buscando un 409 no matchea nunca, y el job muere en el primer
+    paso del baile del X-UUID. Pasó en la primera corrida real contra producción.
+    """
+    class R:
+        status_code = 202
+        def json(self):
+            return {"message": "Response is not ready call later with uuid >> abc",
+                    "code": 409, "uuid": "abc"}
+
+    assert bc._uuid_de(R()) == "abc", "un 202 con uuid ES un trabajo pendiente"
+
+    class SinUuid:
+        status_code = 400
+        def json(self):
+            return {"error": "lo que sea"}
+
+    assert bc._uuid_de(SinUuid()) is None
+
+    class NoJson:
+        status_code = 500
+        def json(self):
+            raise ValueError("no es json")
+
+    assert bc._uuid_de(NoJson()) is None

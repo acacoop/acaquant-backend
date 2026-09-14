@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **518 endpoints** montados en `api.main.app`, en **35 routers**.
-- **195 escriben** (POST/PUT/PATCH/DELETE); 323 son de solo lectura.
+- **520 endpoints** montados en `api.main.app`, en **35 routers**.
+- **196 escriben** (POST/PUT/PATCH/DELETE); 324 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -54,7 +54,7 @@
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
 | `/api/back-office` | 67 | 39 | `back-office` · 34 rutas con gate extra | `back-office` |  |
-| `/api/back-office/custodia` | 1 | 0 | `back-office` | `back-office` |  |
+| `/api/back-office/custodia` | 2 | 0 | `back-office` | `back-office` |  |
 | `/api/back-office/interbanking` | 27 | 18 | `back-office` · 23 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
@@ -62,7 +62,7 @@
 | `/api/derivados` | 18 | 6 | — · 5 rutas con gate extra | — | ⚠️ |
 | `/api/fci` | 2 | 0 | `fci` | `fci` |  |
 | `/api/ia` | 1 | 0 | `ia` | `ia` |  |
-| `/api/ingest` | 14 | 10 | —`verify_ingest_token` | — |  |
+| `/api/ingest` | 15 | 11 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 120 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
 | `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |

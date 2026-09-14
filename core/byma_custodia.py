@@ -11,20 +11,24 @@ consulta que tiene el gateway. Mismo patrón que `core/interbanking.py` y
 `config`.
 
 Endpoints cubiertos (TODOS DE LECTURA):
-    GET /holdings            tenencia de todo el agente a una fecha   ASÍNCRONO
-    GET /holdings/accounts   tenencia de UNA cuenta                   inmediato
-    GET /transactions        liquidaciones de una fecha               ASÍNCRONO
-    GET /transactions/today  las de hoy                               inmediato
+    GET  /holdings                  tenencia del agente a una fecha  ASÍNCRONO
+    GET  /holdings/accounts         tenencia de UNA cuenta           inmediato
+    GET  /transactions              liquidaciones de una fecha       ASÍNCRONO
+    GET  /transactions/today.csv/   las de hoy                       ASÍNCRONO
+    POST /transactionsbyreference.csv  detalle de N referencias      ASÍNCRONO
 
-⛔ `POST /transactionsbyreference` NO ESTÁ ACÁ, A PROPÓSITO. El OpenAPI lo
-   presenta como una consulta más; la ficha del portal dice: *"Este método
-   ejecuta una tarea de ESCRITURA... El origen expuesto por medio del método se
-   verá afectado con cada solicitud realizada"*. Un cliente de lectura no expone
-   un método que escribe. Si algún día hace falta, va aparte y con la doble
-   llave que lleva todo lo que opera (patrón `POSTRADE_ESCRITURA`).
+⚠️ El POST **LEE**, no escribe. La ficha del portal dice "ejecuta una tarea de
+   ESCRITURA... el origen expuesto se verá afectado": ese texto es el
+   boilerplate que el gateway le pone a TODO POST, no lo que hace el método. La
+   documentación real de BYMA lo define como *"consultar los movimientos
+   asociados a las instrucciones de custodia gestionadas por un agente,
+   filtrando las transacciones en función de su instructionReference"*. Es un
+   GET con el filtro en el cuerpo porque la lista de referencias no entra en una
+   query string. Este módulo sigue siendo 100% de lectura.
 
-⚠️ CINCO TRAMPAS, ninguna inferible del OpenAPI. Las cinco medidas contra
-   producción el 2026-09-11; el spec publicado no menciona NINGUNA:
+⚠️ OCHO TRAMPAS, ninguna inferible del OpenAPI. Las cinco primeras medidas
+   contra producción; las dos últimas salen de la documentación de BYMA y
+   CONTRADICEN al spec publicado:
 
 1. **`Accept: application/json` da 406.** Cada método elige su formato y el
    gateway no negocia: `/holdings` contesta CSV y `/holdings/accounts` JSON.
@@ -48,6 +52,27 @@ Endpoints cubiertos (TODOS DE LECTURA):
 
 5. **El CSV se separa con `;`**, no con coma, y trae un campo que no está
    documentado en ningún lado (`identAccountComposite`).
+
+6. **La cabecera del CSV cambia de capitalización según el método**:
+   `participantCode` en `/holdings`, `PARTICIPANTCODE` en `today`. Se detecta en
+   minúscula — ver `_parsear`.
+
+7. **`/transactions/today` TAMBIÉN es asíncrono.** El portal dice "la respuesta
+   será inmediata". Es falso: hace el mismo baile del uuid. Y su URL lleva el
+   `.csv` ADENTRO del path (`/transactions/today.csv/`), con la barra final.
+
+8. **`currency` es un CÓDIGO, no un nombre.** El diccionario del portal dice
+   "nombre completo de la moneda"; lo que viene es `0`, `1` o `2`
+   (ver `MONEDAS`). Guardar el crudo en una columna llamada "moneda" es cómo se
+   rompe una valuación sin que falle nada: se guardan las DOS, el código tal
+   cual vino y el decodificado.
+
+Partida doble (lo que manda el modelo de datos de los movimientos):
+  cada `instructionReference` aparece **dos veces**, con `volume` de signo
+  opuesto, en las dos cuentas que participan. Medido:
+      `6/3` → -280958.5138   y   `6/600613` → +280958.5138, misma referencia.
+  No son dos movimientos: es UNO con dos patas. La tabla guarda patas; la
+  pantalla muestra movimientos (el plegado lo hace `api/services/custodia_sql`).
 
 Identidad (REGLA #9 — la identidad no es el nombre):
   · `accountNumber` viene `"74/805"` = `participantCode/id_cuenta`. El `805` es
@@ -102,9 +127,37 @@ ASYNC_ESPERA_MAX_S = 15.0
 # portal; `identAccountComposite` se descubrió mirando la respuesta real.
 COLUMNAS_HOLDINGS = ("participantCode", "accountNumber", "cvsaIdentifier",
                      "subBalanceType", "holding")
+# Las tres variantes de movimientos comparten las 9 primeras columnas EN ESTE
+# ORDEN y se diferencian por lo que agregan al final. Por eso el parseo es por
+# NOMBRE y nunca posicional: `today` trae 11, el POST trae 13, y una fila de un
+# método no puede pisar con NULL lo que el otro ya escribió.
 COLUMNAS_TRANSACTIONS = ("participantCode", "settlementDate", "accountNumber",
                          "cvsaIdentifier", "securitiesSubBalanceType", "volume",
                          "amount", "currency", "instructionReference")
+
+# +2 no documentadas en el OpenAPI: la otra punta del movimiento.
+COLUMNAS_TRANSACTIONS_TODAY = COLUMNAS_TRANSACTIONS + (
+    "counterparty", "counterpartySecuritiesAcc")
+
+# +2 más: el estado de liquidación, que NINGÚN método masivo devuelve. Es la
+# única razón por la que existe el POST.
+COLUMNAS_TRANSACTIONS_REF = COLUMNAS_TRANSACTIONS_TODAY + (
+    "settlementStatus", "settlementStatusReason")
+
+# Trampa 7. El crudo se guarda igual: si mañana aparece un `3`, queremos tener
+# el dato, no un NULL sin rastro.
+MONEDAS = {"0": "ARS", "1": "USD", "2": "USD-Trf"}
+
+
+def moneda(codigo: str | None) -> str | None:
+    """`0` → `ARS`. Devuelve None (y avisa) ante un código que no conocemos."""
+    if codigo is None or str(codigo).strip() == "":
+        return None
+    c = str(codigo).strip()
+    m = MONEDAS.get(c)
+    if m is None:
+        logger.warning("BYMA: código de moneda desconocido %r (se guarda el crudo)", c)
+    return m
 
 _lock = threading.Lock()
 _tokens: dict[str, tuple[str, float]] = {}      # scope → (token, vence_en)
@@ -240,10 +293,16 @@ def _parsear(resp: requests.Response, columnas: tuple[str, ...]) -> list[dict[st
 
     # CSV. Separador `;` (medido). La cabecera no está garantizada, así que se
     # detecta: si la primera celda es un nombre de columna conocido, se descarta.
+    # ⚠️ La comparación va en MINÚSCULA: `/holdings` manda la cabecera en camel
+    # (`participantCode`) y `/transactions/today` en mayúscula sostenida
+    # (`PARTICIPANTCODE`). Comparando tal cual, la cabecera de `today` entra como
+    # una FILA DE DATOS — y no falla nada: aparece un movimiento fantasma con
+    # volumen ilegible (None) en vez de un error.
     texto = resp.text
     filas_csv = list(csv.reader(io.StringIO(texto), delimiter=";"))
     filas_csv = [f for f in filas_csv if f and any(c.strip() for c in f)]
-    if filas_csv and filas_csv[0][0].strip() in columnas:
+    nombres = {c.lower() for c in columnas}
+    if filas_csv and filas_csv[0][0].strip().lower() in nombres:
         filas_csv = filas_csv[1:]
     return [dict(zip(columnas, f, strict=False)) for f in filas_csv]
 
@@ -266,11 +325,22 @@ def _avisar_count_mentiroso(j: Any, reales: int) -> None:
 # GET — los dos modos
 # --------------------------------------------------------------------------- #
 def _pedir(url: str, params: dict[str, Any], scope: str,
-           *, uuid: str | None = None, force_refresh: bool = False) -> requests.Response:
+           *, uuid: str | None = None, force_refresh: bool = False,
+           cuerpo: dict[str, Any] | None = None) -> requests.Response:
+    """Un request a BYMA. Con `cuerpo` va POST; sin él, GET.
+
+    El POST de `transactionsbyreference` es una LECTURA: manda el filtro en el
+    cuerpo porque una lista de N referencias no entra en una query string. Va
+    por la misma función a propósito — mismo manejo de token, de 5xx y de red.
+    """
+    h = _headers(scope, force_refresh=force_refresh, uuid=uuid)
     try:
-        r = requests.get(url, params=params,
-                         headers=_headers(scope, force_refresh=force_refresh, uuid=uuid),
-                         timeout=TIMEOUT_S)
+        if cuerpo is None:
+            r = requests.get(url, params=params, headers=h, timeout=TIMEOUT_S)
+        else:
+            r = requests.post(url, params=params, json=cuerpo,
+                              headers={**h, "Content-Type": "application/json"},
+                              timeout=TIMEOUT_S)
     except requests.RequestException as e:
         raise BymaCaido(f"red hablando con BYMA ({url}): {e}") from e
     if r.status_code >= 500:
@@ -306,9 +376,11 @@ def _uuid_de(r: requests.Response) -> str | None:
 
 
 def _get_async(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
-               scope: str = SCOPE_SECURITIES,
-               base: str = BASE_SECURITIES) -> list[dict[str, str]]:
-    """GET de los métodos ASÍNCRONOS: dispara, y repregunta con `X-UUID`.
+               scope: str = SCOPE_SECURITIES, base: str = BASE_SECURITIES,
+               cuerpo: dict[str, Any] | None = None) -> list[dict[str, str]]:
+    """Método ASÍNCRONO: dispara, y repregunta con `X-UUID` hasta que conteste.
+
+    Con `cuerpo` sale por POST (ver `_pedir`); el baile del uuid es idéntico.
 
     La primera llamada devuelve `409` con un `uuid`; la misma llamada repetida
     con la cabecera `X-UUID` devuelve `409` de nuevo mientras el trabajo corre, y
@@ -321,9 +393,9 @@ def _get_async(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
     url = f"{base}/{path.lstrip('/')}"
     p = {k: v for k, v in params.items() if v is not None and v != ""}
 
-    r = _pedir(url, p, scope)
+    r = _pedir(url, p, scope, cuerpo=cuerpo)
     if r.status_code == 401:
-        r = _pedir(url, p, scope, force_refresh=True)
+        r = _pedir(url, p, scope, force_refresh=True, cuerpo=cuerpo)
     if r.status_code == 200:
         return _parsear(r, columnas)          # contestó de una: no hubo trabajo que esperar
 
@@ -341,7 +413,7 @@ def _get_async(path: str, params: dict[str, Any], *, columnas: tuple[str, ...],
     for intento in range(1, ASYNC_INTENTOS + 1):
         time.sleep(espera)
         espera = min(espera * 1.5, ASYNC_ESPERA_MAX_S)
-        r = _pedir(url, p, scope, uuid=uuid)
+        r = _pedir(url, p, scope, uuid=uuid, cuerpo=cuerpo)
         if r.status_code == 200:
             logger.info("BYMA %s: listo en el intento %d (uuid %s)", path, intento, uuid)
             return _parsear(r, columnas)
@@ -403,15 +475,52 @@ def transactions(settlement_date: str, *,
 
 
 def transactions_today(*, participant_code: str | None = None) -> list[dict[str, str]]:
-    """Liquidaciones de hoy. Inmediato.
+    """Liquidaciones de hoy. **ASÍNCRONO** (trampa 6), y trae 11 columnas.
+
+    ⚠️ Dos cosas que el portal dice mal y acá están como son:
+      · "la respuesta será inmediata" → NO: hace el baile del uuid.
+      · el `.csv` va ADENTRO del path, con barra final.
 
     ⚠️ El techo más bajo de toda la API: **2 requests por minuto y 100 por día**
-    (lo declara el portal). No sirve para una pantalla live; como mucho un job
-    cada varios minutos. Quien lo llame tiene que saberlo.
+    (lo declara el portal). No sirve para una pantalla live: el cron está
+    dimensionado para no comérselo (ver `deploy/crontab.txt`).
+
+    ⚠️ NO es re-ejecutable: solo devuelve HOY. Un día que no corra es un día
+    perdido — para recuperarlo está `transactions(settlement_date)`.
     """
-    return _get("transactions/today",
-                {"participantCode": _participante(participant_code)},
-                columnas=COLUMNAS_TRANSACTIONS)
+    return _get_async("transactions/today.csv/",
+                      {"participantCode": _participante(participant_code)},
+                      columnas=COLUMNAS_TRANSACTIONS_TODAY)
+
+
+def transactions_by_reference(referencias: list[str], *,
+                              settlement_date: str | None = None,
+                              participant_code: str | None = None,
+                              ) -> list[dict[str, str]]:
+    """Detalle de N instrucciones por su `instructionReference`. **LEE.**
+
+    Es el único método que devuelve `settlementStatus` / `settlementStatusReason`
+    — el estado de liquidación. Por eso existe: el detalle de una fila, no un
+    feed masivo.
+
+    ⚠️ Techo **100 por minuto y 1000 por día**. Prohibido llamarlo en bucle por
+    fila de una tabla: es un click, una llamada.
+
+    ⚠️ Hipótesis (sin medir): el cuerpo va como JSON con `instructionReferences`.
+    Es lo que declara el OpenAPI; nadie lo corrió todavía contra producción
+    porque el Droplet no llega a BYMA. Si contesta 400, el candidato siguiente
+    es form-urlencoded con el mismo nombre de campo.
+    """
+    refs = [str(r).strip() for r in referencias if str(r).strip()]
+    if not refs:
+        return []
+    cuerpo: dict[str, Any] = {"instructionReferences": refs,
+                              "participantCode": _participante(participant_code)}
+    if settlement_date:
+        cuerpo["settlementDate"] = settlement_date
+    return _get_async("transactionsbyreference.csv", {},
+                      columnas=COLUMNAS_TRANSACTIONS_REF,
+                      cuerpo=cuerpo)
 
 
 # --------------------------------------------------------------------------- #

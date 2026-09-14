@@ -64,14 +64,87 @@ homologación. Los GET van directo a producción.
 |---|---|---|---|---|
 | `GET /holdings` | `balanceDate`, `participantCode` | **asíncrono** | CSV | 100/s · 10.000/día |
 | `GET /holdings/accounts` | `accountNumber`, `participantCode`, `subBalanceType?` | inmediato | JSON | ídem |
-| `GET /transactions` | `settlementDate`, `participantCode` | **asíncrono** | CSV | ídem |
-| `GET /transactions/today` | `participantCode` | inmediato | CSV | ⚠️ **2/min · 100/día** |
-| `POST /transactionsbyreference` | `instructionReferences`, `participantCode`, `settlementDate` | inmediato | CSV | ⛔ **ESCRIBE** |
+| `GET /transactions` | `settlementDate`, `participantCode` | **asíncrono** | CSV (9 col) | ídem |
+| `GET /transactions/today.csv/` | `participantCode` | **asíncrono** | CSV (11 col) | ⚠️ **2/min · 100/día** |
+| `POST /transactionsbyreference.csv` | `instructionReferences`, `participantCode`, `settlementDate?` | **asíncrono** | CSV (13 col) | ⚠️ **100/min · 1000/día** |
 
-⛔ **`transactionsbyreference` NO está en `core/byma_custodia.py`, a propósito.**
-El OpenAPI lo presenta como una consulta; la ficha del portal dice *"ejecuta una
-tarea de **escritura**… el origen expuesto se verá afectado con cada solicitud"*.
-Un cliente de lectura no expone un método que escribe. Congelado por test.
+⚠️ **Tres cosas que el PORTAL dice mal** y la documentación de BYMA corrige. Las
+tres están en el código como son, no como el portal las declara:
+
+1. **`/transactions/today` NO es inmediato**: hace el mismo baile del uuid, y el
+   `.csv` va ADENTRO del path, con barra final. La primera versión de este
+   módulo lo implementó como sincrónico y habría muerto en el primer 202.
+2. **`POST /transactionsbyreference` LEE, no escribe.** La ficha dice *"ejecuta
+   una tarea de escritura… el origen expuesto se verá afectado"*: es el
+   boilerplate que el gateway le pone a TODO POST. BYMA lo define como
+   *"consultar los movimientos asociados a las instrucciones de custodia…
+   filtrando en función de su `instructionReference`"*. Es un GET con el filtro
+   en el cuerpo, porque una lista de N referencias no entra en una query string.
+3. **`currency` es un CÓDIGO**, no el "nombre completo de la moneda" que dice el
+   diccionario: `0` = ARS, `1` = USD, `2` = USD-Trf (`byma_custodia.MONEDAS`).
+
+**Los tres métodos comparten las 9 primeras columnas** y se diferencian por lo
+que agregan: `today` suma `COUNTERPARTY` y `COUNTERPARTYSECURITIESACC`; el POST
+suma además `SETTLEMENTSTATUS` y `SETTLEMENTSTATUSREASON` — el estado de
+liquidación, que **ningún método masivo devuelve**, y es la única razón por la
+que el POST existe en el sistema. Por eso el parseo es por NOMBRE y la escritura
+usa `COALESCE`: lo que un método no trae no puede pisar lo que otro ya escribió.
+
+⚠️ **La cabecera del CSV cambia de capitalización según el método**:
+`/holdings` la manda en camel (`participantCode`) y `today` en mayúscula
+sostenida (`PARTICIPANTCODE`). La detección compara en minúscula — si no, la
+cabecera de `today` entra como una fila de datos y aparece un movimiento
+fantasma con volumen `None`. No falla nada: solo queda mal. Congelado por test.
+
+### ⚠️ PARTIDA DOBLE — lo que define el modelo de movimientos
+
+Cada `instructionReference` viene **dos veces**, con `volume` de signo opuesto,
+una por cada cuenta que participa. Medido contra producción:
+
+```
+6/3        →  -280958.5138   SUSC20260410272
+6/600613   →  +280958.5138   SUSC20260410272
+```
+
+No son dos movimientos: es **uno con dos patas**. De ahí salen dos decisiones:
+
+- **`instructionReference` NO puede ser la PK.** Con esa clave se pierde una de
+  las dos patas en silencio — el peor error posible: no falla nada y el número
+  queda mal. La PK vive hoy en las cinco columnas candidatas y el ingest **mide**
+  en cada lote cuántas combinaciones distintas hay para cada candidata
+  (`custodia_escritura.contar_claves`, campo `claves` de la respuesta). Se
+  angosta con el número real, no antes (REGLA #2).
+- **La tabla guarda patas; la pantalla muestra movimientos.** El plegado (dos
+  patas → una fila `entrega → recibe`) lo hace `custodia_sql._plegar`, en el
+  backend: el front de esta app no deriva ni suma nada. Un movimiento contra un
+  agente distinto tiene UNA sola pata nuestra y eso **no es un descalce** — se
+  cuenta aparte (`sin_par`) para que la pantalla lo diga tal cual.
+
+### El pipeline de movimientos: quién alimenta y quién repara
+
+| Método | Rol | Por qué |
+|---|---|---|
+| `/transactions/today` | el **feed** | es el que eligió la mesa; corre desde la PC |
+| `/transactions` | el **reparador** | `today` NO es re-ejecutable: un día que no corra es un día perdido. Con `settlementDate` se vuelve a bajar |
+| `POST …byreference` | el **detalle** | único con `settlementStatus`. Un click, una llamada — **nunca** en bucle por fila |
+
+Los tres escriben por la MISMA función (`custodia_escritura.guardar_movimientos`).
+
+⚠️ **UPSERT, no DELETE+INSERT** — al revés que `custodia_cvsa`. Las tenencias son
+una FOTO (lo que ya no está tiene que desaparecer); los movimientos son HECHOS
+(no dejan de haber pasado). Borrar por ausencia perdería historia que CVSA purga
+a los 7 días y no se puede reconstruir.
+
+⚠️ **El detalle por referencia está BLOQUEADO hasta el whitelist de IP.** Es el
+único de los tres que no se puede alimentar por el script de la PC: un feed
+empuja datos, pero un click necesita que el backend salga a BYMA en ese momento
+—y el Droplet no llega—. Las columnas `estado`/`estado_motivo` ya están en la
+tabla para que el día que se prenda no haya migración.
+
+⚠️ **Hipótesis (sin medir)**: el cuerpo del POST va como JSON con
+`instructionReferences`. Es lo que declara el OpenAPI; nadie lo corrió contra
+producción todavía. Si contesta 400, el candidato siguiente es form-urlencoded
+con el mismo nombre de campo.
 
 ⚠️ **`balanceDate` solo acepta los últimos 7 días** — más atrás CVSA lo purgó.
 Por eso el histórico **no se puede reconstruir a pedido**: o se guarda día a día,
@@ -88,9 +161,9 @@ en la misma fila, o sea la tabla de traducción, además del costo de custodia
 
 ---
 
-## 3. ⚠️ Las seis trampas del gateway
+## 3. ⚠️ Las ocho trampas del gateway
 
-Ninguna está en el OpenAPI. Las seis viven resueltas en `core/byma_custodia.py`.
+Ninguna está en el OpenAPI. Las ocho viven resueltas en `core/byma_custodia.py`.
 
 1. **`Accept: application/json` da HTTP 406.** Cada método elige su formato y el
    gateway no negocia. Se manda `Accept: */*` y se parsea lo que venga.
@@ -123,7 +196,20 @@ Ninguna está en el OpenAPI. Las seis viven resueltas en `core/byma_custodia.py`
 
 6. **Hay sufijos de formato en el path** (`.json`, `.csv`, `.dict`, `.swagger`)
    que el OpenAPI no menciona. `.swagger` devuelve la spec real del método —
-   aunque en Custody Fees contesta 500.
+   aunque en Custody Fees contesta 500. **`/transactions/today.csv/` lo lleva
+   obligatorio**, con barra final.
+
+7. **`/transactions/today` es ASÍNCRONO**, aunque el portal diga que "la
+   respuesta será inmediata". Hace el mismo baile del `uuid` que `/holdings`.
+   Implementarlo como sincrónico —que es lo que decía el spec— lo mata en el
+   primer 202.
+
+8. **La cabecera del CSV cambia de capitalización según el método**:
+   `participantCode` en `/holdings`, `PARTICIPANTCODE` en `today`. La detección
+   compara en minúscula; comparando tal cual, la cabecera entra como fila de
+   datos y aparece un movimiento fantasma con volumen `None` — sin que falle
+   nada. Y **`currency` es un CÓDIGO** (`0`/`1`/`2`), no el "nombre completo de
+   la moneda" del diccionario.
 
 ---
 
@@ -325,3 +411,13 @@ descalce: la vista lo canta con un cartel en vez de dejar que se lea como real.
   cargado en `assets.codigo_cnv` (154 completados + 254 que ya coincidían), tabla
   `portafolio.custodia_cvsa`, job diario y vista CUSTODIA en `/back-office`.
   Custody Fees queda sin integrar a la espera de `accountgroupcode`.
+
+- **v2 — MOVIMIENTOS (MVP).** `/transactions/today` como feed, `/transactions`
+  como reparador y `POST /transactionsbyreference` como detalle, los tres en
+  `core/byma_custodia.py`. Tabla `portafolio.custodia_movimientos` (UPSERT: son
+  hechos, no una foto), ingest `POST /api/ingest/custodia/movimientos`, lectura
+  `GET /api/back-office/custodia/movimientos` con el plegado de partida doble, y
+  tab MOVIMIENTOS en la vista Custodia. Correcciones al portal: `today` es
+  asíncrono, el POST **lee**, `currency` es un código. PK provisoria a la espera
+  de la medición del primer lote real; el detalle por referencia queda apagado
+  hasta el whitelist de IP del Droplet.

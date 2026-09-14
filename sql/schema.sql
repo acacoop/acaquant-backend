@@ -1647,6 +1647,63 @@ CREATE INDEX IF NOT EXISTS ix_custodia_trabado
     ON portafolio.custodia_cvsa(fecha, sub_balance_type)
     WHERE sub_balance_type <> 'AVAILABLE';
 
+-- ── custodia_movimientos — LAS LIQUIDACIONES SEGÚN LA CAJA ───────────────────
+-- Fuente: BYMA `/transactions/today` (feed), `/transactions` (reparación) y
+-- `POST /transactionsbyreference` (detalle). Doc: `docs/BYMA_CUSTODIA.md`.
+-- Writer ÚNICO: core/custodia_escritura.py::guardar_movimientos().
+--
+-- ⚠️ ESTO SON HECHOS, NO UNA FOTO — al revés que `custodia_cvsa`. Un movimiento
+-- liquidado ayer no deja de haber pasado, así que la escritura es UPSERT y
+-- **nunca borra nada**. `custodia_cvsa` es DELETE+INSERT porque una tenencia que
+-- desapareció tiene que desaparecer; acá borrar sería perder historia.
+--
+-- ⚠️ PARTIDA DOBLE. Cada `instructionReference` viene DOS VECES, con `volumen`
+-- de signo opuesto, una por cada cuenta que participa. Medido:
+--     `6/3` → -280958.5138  y  `6/600613` → +280958.5138, misma referencia.
+-- No son dos movimientos: es UNO con dos patas. Por eso `instruction_reference`
+-- NO puede ser la PK — con esa clave se pierde una de las dos patas en silencio,
+-- que es el peor error posible: no falla nada y el número queda mal.
+--
+-- ⚠️ LA PK ES PROVISORIA (REGLA #2). Sabemos que `(fecha, referencia)` no
+-- alcanza; NO sabemos si una misma referencia puede tocar la misma cuenta dos
+-- veces con distinto `sub_balance_type`. Por eso la clave incluye hoy las cinco
+-- columnas candidatas y el ingest MIDE en cada lote cuántas combinaciones
+-- distintas hay para cada candidata (`custodia_escritura.contar_claves`). Con el
+-- número real en la mano se angosta. Angostarla antes es adivinar.
+--
+-- Las tres fuentes traen DISTINTA cantidad de columnas (9 / 11 / 13). Las que un
+-- método no trae quedan NULL y el UPSERT **no las pisa** (`COALESCE`): el POST
+-- agrega el estado sin borrar la contraparte que trajo `today`.
+CREATE TABLE IF NOT EXISTS portafolio.custodia_movimientos (
+    fecha_liq        date NOT NULL,          -- settlementDate
+    id_cuenta        text NOT NULL,          -- '805' (lado derecho de '74/805')
+    cvsa_id          text NOT NULL,
+    sub_balance_type text NOT NULL DEFAULT '',
+    referencia       text NOT NULL,          -- instructionReference
+    volumen          numeric,                -- CON SIGNO: - sale, + entra
+    monto            numeric,                -- CON SIGNO, en `moneda`
+    moneda           text,                   -- ARS | USD | USD-Trf (decodificado)
+    moneda_codigo    text,                   -- '0' | '1' | '2' — el crudo
+    unidad           text,                   -- assets.unidad, o NULL si no mapea
+    account_number   text,                   -- '74/805' crudo, para auditar
+    contraparte      text,                   -- solo lo trae /today
+    contraparte_cta  text,                   -- solo lo trae /today
+    estado           text,                   -- solo lo trae el POST ('Settled'…)
+    estado_motivo    text,                   -- solo lo trae el POST
+    fuente           text NOT NULL,          -- today | transactions | byreference
+    actualizado_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (fecha_liq, referencia, id_cuenta, cvsa_id, sub_balance_type)
+);
+-- La pantalla arranca por FECHA y pliega por referencia.
+CREATE INDEX IF NOT EXISTS ix_custmov_fecha_ref
+    ON portafolio.custodia_movimientos(fecha_liq, referencia);
+-- «¿Qué movió esta cuenta?»
+CREATE INDEX IF NOT EXISTS ix_custmov_cuenta
+    ON portafolio.custodia_movimientos(id_cuenta, fecha_liq DESC);
+-- El drawer de detalle busca por referencia sola, sin saber la fecha.
+CREATE INDEX IF NOT EXISTS ix_custmov_referencia
+    ON portafolio.custodia_movimientos(referencia);
+
 -- Log self-healing del writer diario (qué cuenta/fecha quedó OK o con timeout).
 CREATE TABLE IF NOT EXISTS portafolio.backfill_log (
     fecha       date NOT NULL,

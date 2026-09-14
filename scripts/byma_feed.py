@@ -1,5 +1,8 @@
-"""Tenencia de CVSA -> AcaQuant. Corre en la PC con Okta (BYMA esta detras de
-AppGate y el Droplet no llega). Detalle en docs/BYMA_CUSTODIA.md."""
+"""Custodia CVSA -> AcaQuant: tenencias + movimientos del dia.
+
+Corre en la PC con Okta (BYMA esta detras de AppGate y el Droplet no llega).
+Detalle en docs/BYMA_CUSTODIA.md. Los dos metodos son ASINCRONOS (uuid).
+El script NO interpreta nada: baja y reenvia; la logica vive en el backend."""
 import csv
 import io
 import json
@@ -19,7 +22,12 @@ API = "https://api.acaquant.com"
 # Cloudflare corta el UA por defecto de urllib con "error code: 1010".
 UA = "AcaQuant-custodia/1.0"
 
+BYMA = "https://api.byma.com.ar/custody-securities/v1"
 COLS = ("participantCode", "accountNumber", "cvsaIdentifier", "subBalanceType", "holding")
+# /transactions/today trae 11 columnas: las 9 de /transactions + la contraparte.
+COLS_MOV = ("participantCode", "settlementDate", "accountNumber", "cvsaIdentifier",
+            "securitiesSubBalanceType", "volume", "amount", "currency",
+            "instructionReference", "counterparty", "counterpartySecuritiesAcc")
 HOY = date.today().isoformat()
 
 
@@ -48,9 +56,7 @@ try:
 except urllib.error.HTTPError as e:
     raise SystemExit(f"Token HTTP {e.code}: {e.read().decode('utf-8', 'replace')}") from e
 
-# 2. Holdings (asincrono: 409 + uuid, despues X-UUID)
-url = ("https://api.byma.com.ar/custody-securities/v1/holdings"
-       f"?balanceDate={HOY}&participantCode={PARTICIPANT}")
+# 2. Las dos bajadas (asincronas: 202 + uuid en el cuerpo, despues X-UUID)
 h = {"Authorization": f"Bearer {tok}", "Accept": "*/*",   # application/json da 406
      "User-Agent": UA}
 def uuid_de(body):
@@ -62,45 +68,66 @@ def uuid_de(body):
         return None
 
 
-status, body, ctype = get(url, h)
-uuid = uuid_de(body) if status != 200 else None
-if uuid:
-    for _ in range(12):
-        time.sleep(5)
-        status, body, ctype = get(url, {**h, "X-UUID": uuid})
-        if status == 200 or not uuid_de(body):
-            break
-if status != 200:
-    raise SystemExit(f"holdings HTTP {status}: {body[:300].decode('utf-8', 'replace')}")
-
-# 3. Parseo: JSON envuelto en "result", o CSV con ';'
-if "json" in ctype:
-    j = json.loads(body)
-    filas = j.get("result", j) if isinstance(j, dict) else j
-else:
+def bajar(url, cols, que):
+    """El baile del uuid + parseo. Lo hacen IGUAL holdings y transactions/today."""
+    status, body, ctype = get(url, h)
+    uuid = uuid_de(body) if status != 200 else None
+    if uuid:
+        for _ in range(12):
+            time.sleep(5)
+            status, body, ctype = get(url, {**h, "X-UUID": uuid})
+            if status == 200 or not uuid_de(body):
+                break
+    if status != 200:
+        raise SystemExit(f"{que} HTTP {status}: {body[:300].decode('utf-8', 'replace')}")
+    # JSON envuelto en "result", o CSV con ';'
+    if "json" in ctype:
+        j = json.loads(body)
+        return j.get("result", j) if isinstance(j, dict) else j
     rows = [r for r in csv.reader(io.StringIO(body.decode("utf-8", "replace")), delimiter=";") if r]
-    if rows and rows[0][0].strip() in COLS:
-        rows = rows[1:]
-    filas = [dict(zip(COLS, r, strict=False)) for r in rows]
-print(f"{len(filas)} filas de BYMA")
-if not filas:
-    raise SystemExit("0 filas: CVSA todavia no armo el dia. No se manda nada.")
+    if rows and rows[0][0].strip().lower() in [c.lower() for c in cols]:
+        rows = rows[1:]   # la cabecera del CSV viene en MAYUSCULAS
+    return [dict(zip(cols, r, strict=False)) for r in rows]
 
-# 4. A la app
-try:
-    r = post(f"{API}/api/ingest/custodia/holdings",
-             json.dumps({"fecha": HOY, "docs": filas}).encode(),
-             {"Content-Type": "application/json", "X-Ingest-Token": INGEST_TOKEN,
-              "CF-Access-Client-Id": CF_ID, "CF-Access-Client-Secret": CF_SECRET,
-              "User-Agent": UA})
-    print(r.read().decode())
-except urllib.error.HTTPError as e:
-    # El cuerpo dice DE QUIEN es el error, y sin el no se puede distinguir:
-    # HTML = lo corto Cloudflare Access (service token). JSON = llego a la API.
-    cuerpo = e.read().decode("utf-8", "replace")
+
+def mandar(ruta, cuerpo, que):
     try:
-        json.loads(cuerpo)
-        quien = "LA API"
-    except ValueError:
-        quien = "CLOUDFLARE"   # contesta texto plano: "error code: 1010", HTML, etc.
-    raise SystemExit(f"{quien} rechazo el POST: HTTP {e.code}\n{cuerpo[:500]}") from e
+        r = post(f"{API}{ruta}", json.dumps(cuerpo).encode(),
+                 {"Content-Type": "application/json", "X-Ingest-Token": INGEST_TOKEN,
+                  "CF-Access-Client-Id": CF_ID, "CF-Access-Client-Secret": CF_SECRET,
+                  "User-Agent": UA})
+        print(f"{que}: {r.read().decode()}")
+    except urllib.error.HTTPError as e:
+        # El cuerpo dice DE QUIEN es el error, y sin el no se puede distinguir:
+        # JSON = llego a la API. Texto plano = lo corto Cloudflare Access.
+        cuerpo_err = e.read().decode("utf-8", "replace")
+        try:
+            json.loads(cuerpo_err)
+            quien = "LA API"
+        except ValueError:
+            quien = "CLOUDFLARE"   # "error code: 1010", HTML, etc.
+        raise SystemExit(f"{quien} rechazo {que}: HTTP {e.code}\n{cuerpo_err[:500]}") from e
+
+
+filas = bajar(f"{BYMA}/holdings?balanceDate={HOY}&participantCode={PARTICIPANT}",
+              COLS, "holdings")
+print(f"{len(filas)} tenencias de BYMA")
+if filas:
+    mandar("/api/ingest/custodia/holdings", {"fecha": HOY, "docs": filas}, "tenencias")
+else:
+    # 0 filas NO se manda: una foto vacia no puede borrar la del dia anterior.
+    print("0 tenencias: CVSA todavia no armo el dia. No se manda nada.")
+
+# 3. Movimientos del dia. Es ASINCRONO igual que holdings (el portal dice que no,
+#    pero hace el mismo baile) y el .csv va ADENTRO del path, con barra final.
+#    Techo del metodo: 2/min y 100/dia. No correr este script en loop.
+movs = bajar(f"{BYMA}/transactions/today.csv/?participantCode={PARTICIPANT}",
+             COLS_MOV, "transactions/today")
+print(f"{len(movs)} movimientos de BYMA")
+if movs:
+    # Aca SI se manda aunque el dia este a medias: son hechos, se acumulan por
+    # UPSERT y no borran nada. Al reves que las tenencias.
+    mandar("/api/ingest/custodia/movimientos", {"fuente": "today", "docs": movs},
+           "movimientos")
+else:
+    print("0 movimientos: todavia no liquido nada hoy.")

@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from config import DOLAR_INGEST_TOKEN
 from core.custodia_escritura import guardar as guardar_custodia
+from core.custodia_escritura import guardar_movimientos
 from core.dolar_oficial import upsert_oficial
 from core.eikon_bonos import universo_bonos_off, upsert_bonos_off, upsert_cierres_off
 from core.eikon_chicago import universo_chicago, upsert_chicago
@@ -277,3 +278,40 @@ def ingest_custodia_holdings(
     # silencioso de la foto del día. La guarda de "vacío no borra" igual vive en
     # `guardar`, para el otro llamador.
     return {"ok": True, **guardar_custodia(fecha, payload.docs)}
+
+
+FUENTES_MOVIMIENTOS = ("today", "transactions", "byreference")
+
+
+class CustodiaMovimientosPayload(BaseModel):
+    """Las filas CRUDAS de los métodos de movimientos de BYMA.
+
+    `fuente` importa: los tres métodos traen DISTINTA cantidad de columnas
+    (9 / 11 / 13) y lo que uno no trae no puede pisar lo que otro ya escribió.
+    Se valida contra una lista cerrada — un `fuente` libre terminaría siendo
+    basura en una columna que después nadie sabe leer.
+
+    El tope de 50.000 filas es holgado: un día de liquidaciones son cientos.
+    """
+
+    fuente: str = Field(..., description="today | transactions | byreference")
+    docs: list[dict] = Field(..., min_length=1, max_length=50_000)
+
+
+@router.post("/custodia/movimientos")
+def ingest_custodia_movimientos(
+    payload: CustodiaMovimientosPayload,
+    _: None = Depends(verify_ingest_token),
+) -> dict:
+    """UPSERT de movimientos de custodia. **Nunca borra nada** (son hechos).
+
+    Idempotente: mandar dos veces el mismo lote deja el mismo estado.
+
+    Devuelve `claves`: cuántas combinaciones distintas hay para cada PK
+    candidata sobre ESTE lote. Es la medición que define la clave definitiva
+    (REGLA #2) — hoy la tabla usa la más ancha a propósito.
+    """
+    if payload.fuente not in FUENTES_MOVIMIENTOS:
+        raise HTTPException(status_code=422,
+                            detail=f"fuente inválida: {payload.fuente}")
+    return {"ok": True, **guardar_movimientos(payload.docs, fuente=payload.fuente)}

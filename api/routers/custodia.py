@@ -38,3 +38,22 @@ def tenencias(
     conciliada, comparable con BYMA durante el día, que actualiza tras las 21).
     """
     return custodia_sql.tenencias(fecha=fecha, fuente=fuente)
+
+
+@router.get("/movimientos")
+def movimientos(
+    fecha: date | None = Query(None, description="YYYY-MM-DD. Default: la última con datos."),
+    dias: int = Query(1, ge=1, le=30, description="Ventana hacia atrás desde `fecha`."),
+) -> dict:
+    """Las liquidaciones de custodia, **plegadas**: una fila por movimiento.
+
+    La tabla guarda PATAS (partida doble: cada instrucción viene dos veces, con
+    volumen de signo opuesto, una por cada cuenta). Acá salen ya plegadas en un
+    movimiento con `entrega` / `recibe`: devolver las patas crudas sería
+    devolver cada movimiento duplicado, y el front de esta app no deriva nada.
+
+    `dias` existe porque el feed corre varias veces al día y una liquidación
+    puede aparecer tarde: pedir solo hoy a las 9 devuelve vacío y eso no
+    significa que no haya habido movimientos.
+    """
+    return custodia_sql.movimientos(fecha=fecha, dias=dias)

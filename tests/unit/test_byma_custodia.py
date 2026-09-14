@@ -6,6 +6,9 @@ se rompe y por qué estaba así.
 """
 from __future__ import annotations
 
+import pytest
+
+from api.services import custodia_sql as cs
 from core import byma_custodia as bc
 
 COLS = bc.COLUMNAS_HOLDINGS
@@ -71,14 +74,18 @@ def test_id_cuenta_parte_por_la_barra():
     assert bc.id_cuenta("") is None
 
 
-def test_no_expone_el_metodo_que_escribe():
-    """`transactionsbyreference` ejecuta una tarea de ESCRITURA (ficha del portal).
+def test_el_post_por_referencia_es_una_LECTURA():
+    """La ficha del portal dice "ejecuta una tarea de ESCRITURA". Es boilerplate.
 
-    Un cliente de lectura no lo ofrece. Si alguien lo agrega, que sea a mano y
-    leyendo por qué no estaba.
+    La documentación real de BYMA lo define como consultar movimientos filtrando
+    por `instructionReference`. Manda el filtro en el cuerpo porque una lista de
+    N referencias no entra en una query string, nada más. Este módulo sigue
+    siendo 100% de lectura y el método es parte de él.
     """
-    assert not hasattr(bc, "transactions_by_reference")
-    assert "transactionsbyreference" not in dir(bc)
+    assert hasattr(bc, "transactions_by_reference")
+    # Sin referencias no sale ni un request: una lista vacía no es "traeme todo".
+    assert bc.transactions_by_reference([]) == []
+    assert bc.transactions_by_reference(["", "  "]) == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -149,3 +156,126 @@ def test_el_trabajo_pendiente_se_reconoce_por_el_uuid_no_por_el_status():
             raise ValueError("no es json")
 
     assert bc._uuid_de(NoJson()) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trampas 6 y 7 — lo que la documentación de BYMA corrige del portal
+# ─────────────────────────────────────────────────────────────────────────────
+def test_today_es_asincrono_y_lleva_el_csv_en_el_path(monkeypatch):
+    """El portal dice "la respuesta será inmediata". Es falso: hace el baile.
+
+    La primera versión de este módulo la implementó con `_get` (inmediato) y
+    habría muerto en el primer 202 — el mismo modo de falla que ya nos comió
+    medio día con `/holdings`.
+    """
+    llamadas: list = []
+
+    def fake(path, params, *, columnas, **kw):
+        llamadas.append((path, columnas))
+        return []
+
+    monkeypatch.setattr(bc, "_get_async", fake)
+    monkeypatch.setattr(bc, "_get", lambda *a, **k: pytest.fail("today NO es inmediato"))
+    bc.transactions_today(participant_code="74")
+
+    path, columnas = llamadas[0]
+    assert path == "transactions/today.csv/", "el .csv va adentro del path, con barra final"
+    assert columnas is bc.COLUMNAS_TRANSACTIONS_TODAY
+    assert len(columnas) == 11, "today trae 2 columnas de contraparte que el OpenAPI no declara"
+
+
+def test_currency_es_un_codigo_y_no_un_nombre(caplog):
+    """El diccionario del portal dice "nombre completo de la moneda". Viene 0/1/2."""
+    assert bc.moneda("0") == "ARS"
+    assert bc.moneda("1") == "USD"
+    assert bc.moneda("2") == "USD-Trf"
+    assert bc.moneda(None) is None
+    assert bc.moneda("") is None
+    # Un código nuevo NO se inventa: None y aviso. El crudo lo guarda el writer.
+    with caplog.at_level("WARNING"):
+        assert bc.moneda("9") is None
+    assert "desconocido" in caplog.text
+
+
+def test_la_cabecera_en_MAYUSCULA_no_entra_como_dato():
+    """`/holdings` manda la cabecera en camel y `today` en mayúscula sostenida.
+
+    Comparando tal cual, la de `today` entra como fila y aparece un movimiento
+    fantasma con volumen None. No falla nada: solo queda mal.
+    """
+    csv_today = ("PARTICIPANTCODE;SETTLEMENTDATE;ACCOUNTNUMBER;CVSAIDENTIFIER;"
+                 "SECURITIESSUBBALANCETYPE;VOLUME;AMOUNT;CURRENCY;"
+                 "INSTRUCTIONREFERENCE;COUNTERPARTY;COUNTERPARTYSECURITIESACC\n"
+                 "6;2026-04-10;6/3;5921;AVAILABLE;-280958.5138;0;1;SUSC20260410272;;\n")
+    filas = bc._parsear(_Resp("text/csv", csv_today), bc.COLUMNAS_TRANSACTIONS_TODAY)
+    assert len(filas) == 1, "la cabecera se descarta aunque venga en MAYÚSCULA"
+    assert filas[0]["instructionReference"] == "SUSC20260410272"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PARTIDA DOBLE — el hallazgo que define el modelo de datos
+# ─────────────────────────────────────────────────────────────────────────────
+def test_el_signo_del_volumen_es_el_dato_y_no_se_pierde():
+    """Cada referencia viene DOS veces con signo opuesto: una pata por cuenta.
+
+    Medido contra producción: `6/3` → -280958.5138 y `6/600613` → +280958.5138,
+    misma `SUSC20260410272`. Si la PK fuera la referencia sola, una de las dos
+    patas se pierde EN SILENCIO — y el número queda mal sin que falle nada.
+    """
+    filas = [
+        {"accountNumber": "6/3", "settlementDate": "2026-04-10", "cvsaIdentifier": "5921",
+         "securitiesSubBalanceType": "AVAILABLE", "volume": "-280958.5138",
+         "amount": "0", "currency": "1", "instructionReference": "SUSC20260410272"},
+        {"accountNumber": "6/600613", "settlementDate": "2026-04-10", "cvsaIdentifier": "5921",
+         "securitiesSubBalanceType": "AVAILABLE", "volume": "280958.5138",
+         "amount": "0", "currency": "1", "instructionReference": "SUSC20260410272"},
+    ]
+    claves = ce.contar_claves([
+        {"referencia": f["instructionReference"], "id_cuenta": bc.id_cuenta(f["accountNumber"]),
+         "cvsa_id": f["cvsaIdentifier"], "sub_balance_type": f["securitiesSubBalanceType"]}
+        for f in filas])
+    assert claves["filas"] == 2
+    assert claves["referencia"] == 1, "la referencia SOLA colapsa las dos patas: no sirve de PK"
+    assert claves["referencia+id_cuenta"] == 2, "con la cuenta, las dos patas sobreviven"
+
+
+def test_las_patas_se_pliegan_en_un_movimiento_con_entrega_y_recibe():
+    """La tabla guarda patas; la pantalla muestra movimientos. El plegado es del
+    backend — el front de esta app no deriva ni suma nada."""
+    from datetime import date as _d
+
+    f = _d(2026, 4, 10)
+    patas = [
+        # (fecha, ref, cuenta, cvsa, unidad, sub, volumen, monto, moneda, cod,
+        #  contraparte, contraparte_cta, estado, motivo, fuente, actualizado)
+        (f, "SUSC20260410272", "3", "5921", "AL30", "AVAILABLE", -280958.5138, 0,
+         "USD", "1", None, None, None, None, "today", None),
+        (f, "SUSC20260410272", "600613", "5921", "AL30", "AVAILABLE", 280958.5138, 0,
+         "USD", "1", "BANCO X", "6/600613", "Settled", None, "byreference", None),
+    ]
+    out = cs._plegar(patas, fecha=f, dias=1)
+    assert out["total"] == 1, "dos patas son UN movimiento"
+    assert out["patas"] == 2
+    m = out["movimientos"][0]
+    assert m["entrega"] == "3" and m["recibe"] == "600613"
+    assert m["volumen"] == 280958.5138, "el volumen del movimiento va en positivo"
+    assert m["descalce"] is False, "las dos patas netean a cero"
+    # Lo que trae un solo método completa el movimiento sin importar el orden.
+    assert m["estado"] == "Settled" and m["contraparte"] == "BANCO X"
+    assert out["sin_par"] == 0
+
+
+def test_una_pata_sola_no_es_un_descalce():
+    """Un movimiento contra una cuenta de otro agente solo tiene UNA pata nuestra.
+
+    Marcarlo como partida rota sería inventar un error donde no lo hay.
+    """
+    from datetime import date as _d
+
+    f = _d(2026, 4, 10)
+    out = cs._plegar([(f, "REF1", "3", "5921", "AL30", "AVAILABLE", -100.0, 0,
+                       "ARS", "0", None, None, None, None, "today", None)],
+                     fecha=f, dias=1)
+    m = out["movimientos"][0]
+    assert m["patas"] == 1 and m["descalce"] is False
+    assert out["sin_par"] == 1, "se cuenta aparte para que la pantalla lo pueda decir"

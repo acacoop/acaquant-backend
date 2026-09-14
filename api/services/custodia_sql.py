@@ -222,3 +222,147 @@ def tenencias(*, fecha: date | None = None, fuente: str = "t0") -> dict[str, Any
         "estados": sorted(({"estado": k, "n": v} for k, v in por_estado.items()),
                           key=lambda x: -x["n"]),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MOVIMIENTOS — la tabla guarda PATAS, la pantalla muestra MOVIMIENTOS
+# ─────────────────────────────────────────────────────────────────────────────
+# Cada `instructionReference` viene dos veces con `volumen` de signo opuesto: una
+# por la cuenta que entrega y otra por la que recibe. Mostrar las filas crudas es
+# mostrar cada movimiento duplicado con signos distintos — el usuario deja de
+# confiar en la tabla en diez segundos, y con razón.
+#
+# El plegado se hace ACÁ y no en el front: el front de esta app no deriva ni suma
+# nada (su CLAUDE.md es explícito). Además así el contador y la lista salen del
+# mismo lugar y no pueden contradecirse.
+LIMITE_MOVIMIENTOS = 5_000
+
+
+def movimientos(*, fecha: str | date | None = None, dias: int = 1) -> dict:
+    """Movimientos de custodia de una fecha (o de los últimos `dias`), plegados.
+
+    `dias=1` es el día solo. Se ofrece una ventana porque `/transactions/today`
+    corre varias veces al día y una liquidación puede aparecer tarde: mirar solo
+    hoy a las 9 de la mañana muestra una tabla vacía que no significa nada.
+    """
+    dias = max(1, min(int(dias or 1), 30))
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        f = _fecha_movimientos(cur, fecha)
+        if f is None:
+            return {"fecha": None, "dias": dias, "movimientos": [], "total": 0,
+                    "patas": 0, "sin_par": 0, "sin_asset": 0, "estados": [],
+                    "truncado": False, "actualizado_at": None}
+
+        cur.execute(
+            "SELECT fecha_liq, referencia, id_cuenta, cvsa_id, unidad, "
+            "       sub_balance_type, volumen, monto, moneda, moneda_codigo, "
+            "       contraparte, contraparte_cta, estado, estado_motivo, "
+            "       fuente, actualizado_at "
+            "  FROM portafolio.custodia_movimientos "
+            " WHERE fecha_liq <= %s AND fecha_liq > %s - %s::int "
+            " ORDER BY fecha_liq DESC, referencia, volumen DESC "
+            " LIMIT %s",
+            (f, f, dias, LIMITE_MOVIMIENTOS))
+        patas = cur.fetchall()
+
+    return _plegar(patas, fecha=f, dias=dias)
+
+
+def _fecha_movimientos(cur, fecha: str | date | None) -> date | None:
+    """La fecha pedida, o la última con movimientos. None si la tabla está vacía."""
+    if fecha:
+        return date.fromisoformat(fecha) if isinstance(fecha, str) else fecha
+    cur.execute("SELECT max(fecha_liq) FROM portafolio.custodia_movimientos")
+    fila = cur.fetchone()
+    return fila[0] if fila else None
+
+
+def _plegar(patas: list, *, fecha: date, dias: int) -> dict:
+    """Agrupa las patas por `(fecha, referencia)` en un movimiento cada una.
+
+    ⚠️ El signo ES el dato: la pata negativa es la que ENTREGA, la positiva la
+    que RECIBE. No se usa `abs()` en ningún lado — perder el signo es perder de
+    qué lado está cada cuenta.
+
+    ⚠️ `sin_par` NO es un error: un movimiento contra una cuenta de otro agente
+    solo tiene UNA pata nuestra. Se cuenta para que la pantalla lo pueda mostrar
+    tal cual, en vez de aparentar una partida rota.
+    """
+    grupos: dict[tuple, dict] = {}
+    sin_asset = 0
+    por_estado: dict[str, int] = {}
+    ultimo = None
+
+    for (fliq, ref, cta, cvsa, unidad, sub, vol, monto, mon, mon_cod,
+         cparte, cparte_cta, estado, motivo, fuente, act) in patas:
+        if ultimo is None or (act and act > ultimo):
+            ultimo = act
+        if not unidad:
+            sin_asset += 1
+
+        clave = (fliq, ref)
+        g = grupos.get(clave)
+        if g is None:
+            g = grupos[clave] = {
+                "fecha_liq": fliq.isoformat(),
+                "referencia": ref,
+                "unidad": unidad,
+                "cvsa_id": cvsa,
+                "moneda": mon,
+                "moneda_codigo": mon_cod,
+                "estado": estado,
+                "estado_motivo": motivo,
+                "fuente": fuente,
+                "entrega": None,       # la cuenta que sale (volumen < 0)
+                "recibe": None,        # la cuenta que entra (volumen > 0)
+                "volumen": None,       # nominales del movimiento, en positivo
+                "monto": None,
+                "contraparte": cparte,
+                "contraparte_cta": cparte_cta,
+                "patas": 0,
+                "neto": 0.0,           # tiene que dar 0 si las dos patas están
+            }
+        # Lo que solo trae un método no puede quedar afuera por el orden de las
+        # patas: se completa con lo primero que no sea None.
+        for campo, valor in (("unidad", unidad), ("moneda", mon), ("estado", estado),
+                             ("estado_motivo", motivo), ("contraparte", cparte),
+                             ("contraparte_cta", cparte_cta)):
+            if g[campo] is None and valor is not None:
+                g[campo] = valor
+
+        g["patas"] += 1
+        v = None if vol is None else float(vol)
+        if v is not None:
+            g["neto"] += v
+            if g["volumen"] is None:
+                g["volumen"] = abs(v)
+            if v < 0:
+                g["entrega"] = cta
+            elif v > 0:
+                g["recibe"] = cta
+        if monto is not None and g["monto"] is None:
+            g["monto"] = abs(float(monto))
+        if sub:
+            por_estado[sub] = por_estado.get(sub, 0) + 1
+
+    movs = list(grupos.values())
+    for m in movs:
+        # Redondeo: los volúmenes traen 4 decimales y la resta de dos floats
+        # deja residuos de 1e-9 que no son un descalce.
+        m["neto"] = round(m["neto"], 6)
+        m["descalce"] = m["patas"] > 1 and abs(m["neto"]) > 1e-6
+
+    return {
+        "fecha": fecha.isoformat(),
+        "dias": dias,
+        "movimientos": movs,
+        "total": len(movs),
+        "patas": len(patas),
+        "sin_par": sum(1 for m in movs if m["patas"] == 1),
+        "descalces": sum(1 for m in movs if m["descalce"]),
+        "sin_asset": sin_asset,
+        "truncado": len(patas) >= LIMITE_MOVIMIENTOS,
+        "actualizado_at": ultimo.isoformat() if ultimo else None,
+        "estados": sorted(({"estado": k, "n": v} for k, v in por_estado.items()),
+                          key=lambda x: -x["n"]),
+    }

@@ -18,10 +18,10 @@ Doc: `docs/BYMA_CUSTODIA.md`. Regla de capas: `core/` solo usa `core/` y `config
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
-from core.byma_custodia import id_cuenta
+from core.byma_custodia import id_cuenta, moneda
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -130,4 +130,152 @@ def guardar(fecha: date, filas: list[dict]) -> dict:
     stats["escrito"] = len(registros)
     logger.info("custodia_cvsa %s: %d filas, %d cuentas, %d códigos sin asset",
                 fecha, len(registros), stats["cuentas"], len(sin_unidad))
+    return stats
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MOVIMIENTOS — hechos, no foto. Mismo patrón de un solo writer, otra semántica.
+# ─────────────────────────────────────────────────────────────────────────────
+# Candidatas a PK, de la más angosta a la más ancha. El ingest las mide sobre
+# cada lote real para que la clave definitiva salga de un número y no de una
+# suposición (REGLA #2). Se angosta cuando una candidata iguale a las filas.
+CLAVES_CANDIDATAS: tuple[tuple[str, ...], ...] = (
+    ("referencia",),
+    ("referencia", "id_cuenta"),
+    ("referencia", "id_cuenta", "cvsa_id"),
+    ("referencia", "id_cuenta", "cvsa_id", "sub_balance_type"),
+)
+
+
+def contar_claves(registros: list[dict]) -> dict[str, int]:
+    """Cuántas combinaciones distintas hay para cada PK candidata.
+
+    La primera que iguale a `filas` es la clave real. Hoy la PK de la tabla es la
+    más ancha a propósito: de más a menos se puede angostar mirando este número;
+    al revés ya perdiste filas y no te enteraste.
+    """
+    out = {"filas": len(registros)}
+    for campos in CLAVES_CANDIDATAS:
+        out["+".join(campos)] = len({tuple(r.get(c) for c in campos) for r in registros})
+    return out
+
+
+def _normalizar_movimientos(filas: list[dict], *, fuente: str) -> tuple[list[dict], dict]:
+    """Filas crudas de BYMA → registros listos para escribir. Por NOMBRE, nunca
+    posicional: `/transactions` trae 9 columnas, `today` 11 y el POST 13.
+    """
+
+    mapa = mapa_codigo_a_unidad()
+    stats: dict = {"filas_origen": len(filas), "fuente": fuente,
+                   "sin_cuenta_reconocible": 0, "sin_fecha": 0}
+    sin_unidad: set[str] = set()
+    registros: list[dict] = []
+
+    for f in filas:
+        cta = id_cuenta(f.get("accountNumber", ""))
+        if not cta:
+            stats["sin_cuenta_reconocible"] += 1
+            continue
+        fecha_liq = _fecha_liq(f.get("settlementDate"))
+        if fecha_liq is None:
+            # Sin fecha de liquidación no hay dónde guardarlo: es parte de la PK.
+            stats["sin_fecha"] += 1
+            continue
+        cvsa_id = (f.get("cvsaIdentifier") or "").strip()
+        unidad = mapa.get(cvsa_id)
+        if not unidad:
+            sin_unidad.add(cvsa_id)
+        codigo_moneda = (f.get("currency") or "").strip() or None
+        registros.append({
+            "fecha_liq": fecha_liq,
+            "id_cuenta": cta,
+            "cvsa_id": cvsa_id,
+            "sub_balance_type": (f.get("securitiesSubBalanceType") or "").strip(),
+            "referencia": (f.get("instructionReference") or "").strip(),
+            # CON SIGNO: el signo ES el dato (de qué lado de la partida está).
+            "volumen": _cantidad(f.get("volume")),
+            "monto": _cantidad(f.get("amount")),
+            "moneda": moneda(codigo_moneda),
+            "moneda_codigo": codigo_moneda,
+            "unidad": unidad,
+            "account_number": f.get("accountNumber"),
+            "contraparte": (f.get("counterparty") or "").strip() or None,
+            "contraparte_cta": (f.get("counterpartySecuritiesAcc") or "").strip() or None,
+            "estado": (f.get("settlementStatus") or "").strip() or None,
+            "estado_motivo": (f.get("settlementStatusReason") or "").strip() or None,
+            "fuente": fuente,
+        })
+
+    stats["codigos_sin_asset"] = len(sin_unidad)
+    stats["sin_referencia"] = sum(1 for r in registros if not r["referencia"])
+    return registros, stats
+
+
+def _fecha_liq(valor: Any) -> date | None:
+    """`settlementDate` viene como string y no siempre en el mismo formato.
+
+    Se aceptan los dos que BYMA usó (`YYYY-MM-DD` e `YYYYMMDD`) y nada más: una
+    fecha mal interpretada escribe el movimiento en el día equivocado, y eso no
+    falla — solo queda mal.
+    """
+    if isinstance(valor, date):
+        return valor
+    s = str(valor or "").strip()
+    for fmt in ("%Y-%m-%d", "%Y%m%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def guardar_movimientos(filas: list[dict], *, fuente: str) -> dict:
+    """UPSERT de movimientos. **Nunca borra nada.**
+
+    Al revés que `guardar()`: acá no hay foto que reemplazar. Un movimiento que
+    no vino en esta corrida no dejó de existir — `today` solo trae hoy, y
+    `byreference` trae una referencia. Borrar por ausencia perdería historia que
+    CVSA purga a los 7 días y no se puede reconstruir.
+
+    Lo que un método no trae NO PISA lo que otro ya escribió (`COALESCE`): el
+    POST agrega `estado` sin borrar la `contraparte` que trajo `today`.
+    """
+    registros, stats = _normalizar_movimientos(filas, fuente=fuente)
+    stats["claves"] = contar_claves(registros)
+
+    if not registros:
+        stats["escrito"] = 0
+        stats["motivo"] = (f"{len(filas)} filas y ninguna interpretable"
+                           if filas else "vinieron 0 filas")
+        logger.warning("custodia_movimientos (%s): %s", fuente, stats["motivo"])
+        return stats
+
+    campos = ("fecha_liq", "id_cuenta", "cvsa_id", "sub_balance_type", "referencia",
+              "volumen", "monto", "moneda", "moneda_codigo", "unidad",
+              "account_number", "contraparte", "contraparte_cta",
+              "estado", "estado_motivo", "fuente")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            f"INSERT INTO portafolio.custodia_movimientos ({', '.join(campos)}) "
+            f"VALUES ({', '.join(['%s'] * len(campos))}) "
+            "ON CONFLICT (fecha_liq, referencia, id_cuenta, cvsa_id, sub_balance_type) "
+            "DO UPDATE SET "
+            "  volumen        = EXCLUDED.volumen, "
+            "  monto          = EXCLUDED.monto, "
+            "  moneda         = COALESCE(EXCLUDED.moneda, custodia_movimientos.moneda), "
+            "  moneda_codigo  = COALESCE(EXCLUDED.moneda_codigo, custodia_movimientos.moneda_codigo), "
+            "  unidad         = COALESCE(EXCLUDED.unidad, custodia_movimientos.unidad), "
+            "  contraparte    = COALESCE(EXCLUDED.contraparte, custodia_movimientos.contraparte), "
+            "  contraparte_cta= COALESCE(EXCLUDED.contraparte_cta, custodia_movimientos.contraparte_cta), "
+            "  estado         = COALESCE(EXCLUDED.estado, custodia_movimientos.estado), "
+            "  estado_motivo  = COALESCE(EXCLUDED.estado_motivo, custodia_movimientos.estado_motivo), "
+            "  fuente         = EXCLUDED.fuente, "
+            "  actualizado_at = now()",
+            [tuple(r[c] for c in campos) for r in registros])
+        conn.commit()
+
+    stats["escrito"] = len(registros)
+    stats["referencias"] = len({r["referencia"] for r in registros})
+    logger.info("custodia_movimientos (%s): %d filas, %d referencias, %d sin asset",
+                fuente, len(registros), stats["referencias"], stats["codigos_sin_asset"])
     return stats

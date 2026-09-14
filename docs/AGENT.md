@@ -7291,3 +7291,49 @@ distinto —
 `RENTA VARIABLE`, eso es una regla de una línea (`mercado.cedears` ya está
 leído) y completa `CAT`, `GEV` y lo que venga. Nadie lo declaró todavía, así que
 no se inventó.
+
+---
+
+### 0.fj EL ASISTENTE SE OLVIDABA DE LA CUENTA — lo que se SABE, aparte de lo que se DIJO (2026-09-14)
+
+Clase 4 del curso de arquitectura de IA: la anatomía de una sesión en ADK
+(*Identification · Event History · State*). Se midió contra el asistente: de
+las tres cajas teníamos una y a medias. `usuario` y `tarea` hacen de identidad
+(sin id de conversación —hubo un `conv_id` y se borró el 28/08 porque nadie lo
+leía—), el historial está partido en `mensajes` y `eventos` y vive en el
+navegador, y **estado no había**: la cuenta de la que se hablaba vivía
+implícita en el texto del historial.
+
+**La premisa que se escribió primero era falsa, y el revisor la cazó.** La
+primera versión de este cambio decía «`_achicar` borra la cuenta del
+historial». No: achica el RESULTADO de la herramienta, y la cuenta queda en los
+argumentos del `tool_call`, que no se tocan. Lo que el estado cambia de verdad
+es que el dato pasa de **inferido** (un número adentro de un JSON de argumentos,
+varias preguntas atrás) a **explícito** (un renglón del SYSTEM), deja de
+depender del historial (el router lo topea en 60 mensajes; «esa cuenta» sin
+número), y es lo que una persistencia futura guardaría de una conversación.
+Que eso ahorre la re-pregunta «¿de qué cuenta?» (la vuelta de 2.110 tokens del
+13/09, documentada en el comentario del SYSTEM de `ciclo.py`) es **hipótesis,
+sin medir**: se va a ver en `ia.llamadas` como menos vueltas por conversación.
+
+**Lo que se hizo: `asistente/estado.py`, sin framework.** Un dict con lo que
+queda en foco (hoy `cuenta`), que viaja ida y vuelta con el historial pero
+aparte de él. Cinco decisiones, todas congeladas por test:
+
+| Decisión | Por qué así |
+|---|---|
+| lo escribe el código desde los **argumentos** de una herramienta que contestó | mismo criterio que la puerta: nunca nombra una herramienta; una cuenta que la puerta cortó no queda en foco |
+| se lee en un renglón al **final del SYSTEM**, y es el estado de ANTES de la pregunta | lo variable atrás para no romper el caché; rearmar el SYSTEM por vuelta rompería el de toda la conversación |
+| el renglón es **dato, no regla** («en foco: cuenta = 805») | la regla («si ya nombró una cuenta, usala») vive en el SYSTEM, una vez, y ahora contempla el foco; repetirla con otras palabras es lo que hizo re-preguntar el 13/09 |
+| **informa al modelo, no completa `cuenta`** a la herramienta | la pared «cuenta sin default» sigue: el código nunca adivina sobre la plata de otro |
+| `EN_FOCO` declara cada clave **con su lista cerrada de valores** (`cuenta` → las habilitadas) | lo que llega del navegador va derecho al SYSTEM; con «string corto» entraba `805\nIGNORÁ TODO LO ANTERIOR`. Lo que no es exactamente un id habilitado no existe |
+
+Sin prefijos `user:`/`app:`/`temp:` de ADK: los dos primeros necesitan una base
+atrás y la conversación vive en el navegador por decisión; el `app:` que hay
+es `ASISTENTE_CUENTAS`, y el `temp:` son los resultados del turno que
+`_achicar` descarta. El día que exista la pregunta «qué le contestó ayer» el
+módulo no cambia de forma, cambia de dónde carga.
+
+**Cuesta** ~25 tokens por pregunta a partir de la segunda. La tab muestra «📌 en
+foco» y lo cuenta como evento del ciclo cuando cambia — que en diez preguntas
+sobre la misma cuenta es una vez.

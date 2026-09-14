@@ -33,6 +33,7 @@ import logging
 
 from asistente import control as CTL
 from asistente import esquema as ESQ
+from asistente import estado as EST
 from asistente import herramientas as H
 from asistente import puerta
 from core import ai
@@ -98,8 +99,9 @@ PLANTILLA_ACHICADO = (
 )
 
 
-def _instruccion() -> str:
-    """El SYSTEM completo: el bloque fijo de arriba MÁS las cuentas habilitadas.
+def _instruccion(estado: dict[str, str] | None = None) -> str:
+    """El SYSTEM completo: el bloque fijo de arriba MÁS las cuentas habilitadas
+    MÁS lo que quedó en foco de las preguntas anteriores (`asistente/estado.py`).
 
     ── SU ROL EN EL CICLO: le evita al modelo una vuelta entera ──
 
@@ -123,12 +125,15 @@ def _instruccion() -> str:
     except Exception as e:
         logger.warning("asistente: no pude listar las cuentas para el system (%s)", e)
         filas = []
+    # ⚠️ El foco va ÚLTIMO, después de las cuentas: cambia más seguido que
+    # ellas (en cada conversación) y lo que cambia va lo más atrás posible.
+    foco = EST.como_texto(estado or {})
     if not filas:
-        return SYSTEM
+        return f"{SYSTEM}\n{foco}" if foco else SYSTEM
     lista = "\n".join(f"  {c['id_cuenta']} — {c['nombre']}" for c in filas)
     return (f"{SYSTEM}\n"
             f"Cuentas habilitadas (son las ÚNICAS que podés consultar; el número "
-            f"es el `cuenta` que llevan las herramientas):\n{lista}\n")
+            f"es el `cuenta` que llevan las herramientas):\n{lista}\n{foco}")
 
 
 def _achicar(historial: list[dict]) -> tuple[list[dict], int]:
@@ -211,8 +216,9 @@ Si un resultado trae la fecha de los datos, decila: los números son de esa
 foto, no de este momento. Si algo quedó afuera, nombralo — lo que no se pudo
 mirar no se omite; si no quedó nada afuera, no lo menciones.
 
-Si el usuario ya nombró una cuenta, usala. Si no nombró ninguna y hay más de
-una habilitada, preguntale cuál quiere: no elijas vos.
+Si el usuario ya nombró una cuenta —en esta pregunta o antes: la que está en
+foco—, usala. Si no hay ninguna nombrada ni en foco y hay más de una
+habilitada, preguntale cuál quiere: no elijas vos.
 
 No conviertas, redondees ni sumes números por tu cuenta. Reportá los que
 devolvió la herramienta, con su moneda. Si todo el resultado está en UNA sola
@@ -289,6 +295,7 @@ def preguntar(
     *,
     usuario: str,
     historial: list[dict] | None = None,
+    estado: dict | None = None,
     ver=None,
 ) -> dict:
     """Una pregunta, de punta a punta. Devuelve la respuesta y qué pasó.
@@ -298,6 +305,10 @@ def preguntar(
     `historial` son los mensajes de las preguntas anteriores, para que se pueda
     seguir una conversación. En la respuesta viene `mensajes`, que es lo que hay
     que volver a pasar como `historial` la próxima vez.
+
+    `estado` es lo que quedó en foco de esas preguntas (`asistente/estado.py`):
+    viaja ida y vuelta igual que el historial, pero aparte de él — por eso
+    sobrevive al achicado. En la respuesta viene `estado`, ya actualizado.
 
     `ver` es una función que se llama en cada paso, con un diccionario que dice
     qué pasó. Es lo que los frameworks llaman «eventos». Acá no es una feature
@@ -316,8 +327,12 @@ def preguntar(
     # ⚠️ Acá, y en ningún otro lado: lo viejo se achica ANTES de empezar. De acá
     # para abajo el bucle trabaja con la conversación completa de ESTA pregunta.
     historial, ahorro = _achicar(historial)
+    # Lo que llega de afuera se reduce a lo declarado ANTES de tocar el SYSTEM.
+    # Y es el estado de ANTES de esta pregunta el que lee el modelo: lo que se
+    # aprenda adentro va al que se devuelve (ver `asistente/estado.py`).
+    estado = EST.sanear(estado)
 
-    mensajes = [{"role": "system", "content": _instruccion()}]
+    mensajes = [{"role": "system", "content": _instruccion(estado)}]
     mensajes += list(historial)
     mensajes.append({"role": "user", "content": pregunta})
 
@@ -347,14 +362,16 @@ def preguntar(
             # El gateway se negó: sin clave del proveedor, o ruteo inseguro.
             _ver("corte", motivo="el gateway no dejó salir la llamada")
             return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           pregunta=pregunta, error="No se pudo llamar al modelo: falta la clave del "
+                           pregunta=pregunta, estado=estado,
+                           error="No se pudo llamar al modelo: falta la clave del "
                                  "proveedor, o el ruteo no es seguro para datos del negocio.")
         tokens_in += r.tokens_in or 0
         tokens_out += r.tokens_out or 0
         if not r.ok:
             _ver("corte", motivo=f"el proveedor falló: {r.error}")
             return _salida(None, mensajes, vuelta, tokens_in, tokens_out, llamadas,
-                           pregunta=pregunta, error=f"El proveedor no contestó: {r.error}")
+                           pregunta=pregunta, estado=estado,
+                           error=f"El proveedor no contestó: {r.error}")
 
         # ── PASO 2: ¿terminó, o quiere una herramienta? ──
         if not r.pedidos:
@@ -368,8 +385,8 @@ def preguntar(
             # es lo mismo que la respuesta: es el JSON que la contiene. Ver
             # `_salida`.
             return _salida(leido["respuesta"], mensajes, vuelta, tokens_in,
-                           tokens_out, llamadas, pregunta=pregunta, extra=leido,
-                           crudo=r.texto or "")
+                           tokens_out, llamadas, pregunta=pregunta, estado=estado,
+                           extra=leido, crudo=r.texto or "")
 
         # ── PASO 3: pidió. Se le devuelve su propio mensaje TAL CUAL y, abajo,
         # un resultado por cada herramienta que pidió. El crudo va sin tocar:
@@ -379,6 +396,13 @@ def preguntar(
             _ver("pide", herramienta=p.get("nombre"), argumentos=p.get("argumentos"))
             resultado = _ejecutar(p)
             _ver("resultado", herramienta=p.get("nombre"), resultado=resultado)
+            # ── EL ESTADO APRENDE de los argumentos de una herramienta que
+            # contestó (`asistente/estado.py`). Se cuenta sólo si cambió: en
+            # diez preguntas sobre la misma cuenta, este evento sale una vez.
+            nuevo = EST.aprender(estado, p.get("argumentos"), resultado)
+            if nuevo != estado:
+                _ver("estado", estado=nuevo, antes=estado)
+                estado = nuevo
             mensajes.append({
                 "role": "tool",
                 "tool_call_id": p.get("id"),
@@ -389,7 +413,8 @@ def preguntar(
 
     _ver("corte", motivo=f"llegué a {MAX_VUELTAS} vueltas sin una respuesta")
     return _salida(None, mensajes, MAX_VUELTAS, tokens_in, tokens_out, llamadas,
-                   pregunta=pregunta, error=f"Di {MAX_VUELTAS} vueltas pidiendo herramientas y no llegué "
+                   pregunta=pregunta, estado=estado,
+                   error=f"Di {MAX_VUELTAS} vueltas pidiendo herramientas y no llegué "
                          "a una respuesta. Probá con una pregunta más acotada.")
 
 
@@ -420,8 +445,8 @@ def _contexto(mensajes: list[dict], excluir: str | None) -> str:
 
 
 def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=None,
-            pregunta: str = "", extra: dict | None = None,
-            crudo: str | None = None) -> dict:
+            pregunta: str = "", estado: dict[str, str] | None = None,
+            extra: dict | None = None, crudo: str | None = None) -> dict:
     """Lo que devuelve una pregunta. `mensajes` (sin el system, que se agrega
     solo) es lo que hay que pasar como `historial` en la pregunta siguiente.
 
@@ -450,6 +475,9 @@ def _salida(texto, mensajes, vueltas, tokens_in, tokens_out, llamadas, error=Non
             texto, contexto=_contexto(mensajes, crudo if crudo is not None else texto),
             pregunta=pregunta),
         "mensajes": [m for m in mensajes if m.get("role") != "system"],
+        # Lo que quedó en foco. Va APARTE de `mensajes` a propósito: es lo
+        # único de la conversación que el achicado no toca.
+        "estado": dict(estado or {}),
         # Qué NO pudo contestar, cuando el proveedor soporta esquema. Sin este
         # renglón, una pregunta de dos partes contestada a medias se lee como
         # contestada entera.

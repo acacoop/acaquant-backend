@@ -267,6 +267,11 @@ class Preguntar(BaseModel):
     # respuesta anterior. El modelo no recuerda nada: la conversación la
     # sostiene la pantalla mandando esto de vuelta.
     historial: list[dict] = Field(default_factory=list, max_length=60)
+    # Lo que quedó en foco (la cuenta de la que se viene hablando), tal cual lo
+    # devolvió la respuesta anterior. Viaja APARTE del historial porque el
+    # achicado del historial no lo toca. El backend lo reduce a lo declarado
+    # en `asistente/estado.py` antes de usarlo: acá sólo se recibe.
+    estado: dict = Field(default_factory=dict)
 
 
 @router.post("/lab/preguntar")
@@ -280,8 +285,8 @@ def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
     from asistente import ciclo
 
     eventos: list[dict] = []
-    r = ciclo.preguntar(body.pregunta, usuario=email,
-                        historial=body.historial, ver=eventos.append)
+    r = ciclo.preguntar(body.pregunta, usuario=email, historial=body.historial,
+                        estado=body.estado, ver=eventos.append)
     return {**r, "eventos": eventos}
 
 

@@ -2339,10 +2339,33 @@ nadie lo miraba.
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
+> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Recibe `historial` y `estado` tal cual los devolvió la anterior. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió, qué quedó en foco). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
 > | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas` (con el costo calculado por pedazo: lo cacheado a precio de caché), el **hit rate**, las tarifas cargadas, y con qué proveedor/modelo corre cada TAREA |
 > | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo: **TRES precios** (entrada · entrada cacheada · salida) en USD por millón, y van en un solo valor. El del caché es el que más cambia el total — esa entrada cuesta una fracción (en `gpt-5.6-luna`, 10× menos), así que cobrar todo a precio de entrada infla la factura justo en la parte que el diseño viene optimizando |
+>
+> **EL ESTADO** (`asistente/estado.py`, §0.fj): lo que el asistente SABE de la
+> conversación, aparte de lo que se DIJO. Hoy una clave: la `cuenta` de la que
+> se viene hablando. Viaja ida y vuelta con el historial pero **aparte de él**:
+> el dato pasa de inferido (un número en los argumentos de un `tool_call` viejo)
+> a explícito (un renglón del SYSTEM), y deja de depender del historial. Que
+> eso ahorre la re-pregunta «¿de qué cuenta?» es hipótesis, sin medir.
+>
+> Lo escribe el **código, desde los argumentos** de una herramienta que
+> contestó sin `error` (mismo criterio que la puerta: se mira el argumento,
+> nunca la herramienta, así que la #8 que reciba `cuenta` queda cubierta sola;
+> y una cuenta que la puerta cortó no queda en foco). Lo lee el modelo en un
+> renglón al **final del SYSTEM**, después de las cuentas (lo variable atrás, el
+> caché del bloque fijo intacto), y es el estado de ANTES de la pregunta: lo que
+> se aprende adentro va al que se devuelve. El renglón es **dato, no regla**:
+> qué hacer con el foco lo dice el SYSTEM, una sola vez. **No le completa
+> `cuenta` a ninguna herramienta**: la pared «cuenta sin default» sigue. Lo que
+> llega del navegador pasa por `EN_FOCO`, que declara cada clave **con su lista
+> cerrada de valores** (`cuenta` → las habilitadas): va derecho al SYSTEM, así
+> que un string libre sería un canal de inyección. La tab lo muestra («📌 en
+> foco») y lo cuenta como evento del ciclo cuando cambia. En ADK es
+> `session.state`; los prefijos `user:`/`app:` no existen porque no hay
+> persistencia por decisión.
 >
 > **LA PUERTA** (`asistente/puerta.py`): entre que el modelo PIDE una herramienta
 > y que la herramienta CORRE, hay un lugar donde el código mira los argumentos que

@@ -2344,6 +2344,27 @@ nadie lo miraba.
 > | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo: **TRES precios** (entrada · entrada cacheada · salida) en USD por millón, y van en un solo valor. El del caché es el que más cambia el total — esa entrada cuesta una fracción (en `gpt-5.6-luna`, 10× menos), así que cobrar todo a precio de entrada infla la factura justo en la parte que el diseño viene optimizando |
 >
+> **LA PUERTA** (`asistente/puerta.py`): entre que el modelo PIDE una herramienta
+> y que la herramienta CORRE, hay un lugar donde el código mira los argumentos que
+> eligió y puede cortar. Hoy tiene un control: **ninguna herramienta corre sobre
+> una cuenta que no esté habilitada**. Un corte no es una excepción — es el
+> resultado que lee el modelo, así que puede corregir o decir que no pudo.
+>
+> ⚠️ **Los controles se disparan por el ARGUMENTO, nunca por la herramienta.**
+> `cuenta_habilitada` se activa con cualquier herramienta que reciba un argumento
+> `cuenta`, sin saber cuál es: por eso la herramienta #8 queda cubierta sin tocar
+> el archivo. Un `if nombre == "…"` ahí adentro es la señal de que ese control va
+> adentro de la herramienta. Dos tests lo congelan: que `puerta.py` no nombre
+> ninguna herramienta, y que **ninguna herramienta le ponga otro nombre a la
+> cuenta** (`id_cuenta`, `comitente`…) — un alias pasaría de largo en silencio,
+> que es el peor modo de falla.
+>
+> NO reemplaza la validación de cada herramienta, y no son dos copias sin árbitro
+> (REGLA #9): las dos leen la MISMA fuente, `permitido.cuentas()`. Hacen falta las
+> dos porque **no toda llamada pasa por el ciclo** — `scripts/diag_herramienta.py`
+> corre la función directo. En Google ADK este gancho se llama
+> `before_tool_callback`.
+>
 > **El control determinístico** (`asistente/control.py`): antes de devolver la
 > respuesta, el código saca sus números y los busca en todo lo que se le dio al
 > modelo más la pregunta. Lo que no sale de ninguna fuente, lo puso él — y acá

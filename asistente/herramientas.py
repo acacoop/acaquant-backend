@@ -37,6 +37,15 @@ MAX_DIAS = 730
 # y si no era esa, repreguntás.
 
 
+# Tope de filas de la tenencia. Una cuenta chica tiene 10 títulos; el tope está
+# para que una cartera institucional no meta 2.000 renglones en la conversación.
+MAX_POSICIONES = 200
+
+# Los dos horizontes de la posición del día: la misma perilla T0/T1 que tiene la
+# pantalla NEGOCIO → CARTERAS. No es un invento del asistente.
+HORIZONTES = ("t1", "t0")
+
+
 # ── CUÁNTA PLATA ENTRA, Y CUÁNDO ────────────────────────────────────────────
 #
 # ⚠️ **ESTA HERRAMIENTA NO CALCULA NADA, Y ESO ES LO QUE LA HACE CONFIABLE.**
@@ -108,12 +117,15 @@ def _por_mes(filas, mon) -> list[dict]:
 def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
     """Cuánta PLATA va a cobrar una cuenta en los próximos N días, y en qué fechas.
 
-    Es la única herramienta de plata que hay, y contesta las dos preguntas que
-    parecen distintas y no lo son:
+    Contesta las dos preguntas que parecen distintas y no lo son:
 
       · «¿cuánto cobro?» / «¿qué me pagan este mes?» / «¿cuánta plata entra?»
       · «¿qué bono me vence?» — un vencimiento es el ÚLTIMO cobro de un bono.
         Cada título trae su fecha de vencimiento en `vence`.
+
+    ⚠️ **NO es lo que tiene la cuenta.** Para «cuánto tengo», «qué títulos
+    tengo» o «cuánto vale mi cartera» está `tenencia_actual`. Acá no hay
+    nominales ni valuación: hay plata que entra.
 
     ⚠️ `cuenta` es OBLIGATORIA: el `id_cuenta` sale de la lista que tenés en las
     instrucciones.
@@ -313,6 +325,113 @@ def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
 _TIPOS = {int: "integer", float: "number", str: "string", bool: "boolean"}
 
 
+
+def tenencia_actual(cuenta: str, horizonte: str = "t1") -> dict:
+    """Qué TIENE hoy una cuenta: los títulos, cuántos nominales y cuánto valen.
+
+    Es la posición, la cartera, el patrimonio: lo que está en la cuenta AHORA.
+
+    ⚠️ **NO es lo que va a cobrar.** Para «cuánta plata entra», «qué me pagan»,
+    «qué cupón viene» o «qué bono me vence» está `cobros_futuros`. Acá no hay
+    fechas de pago ni cupones: hay tenencia.
+
+    Devuelve exactamente lo mismo que la pantalla NEGOCIO → CARTERAS de la
+    plataforma, porque corre el mismo código que esa pantalla.
+
+    QUÉ DEVUELVE:
+      · `total` — la valuación de toda la cuenta, en la moneda de `moneda_valuacion`.
+      · `posiciones` — una fila por título: ticker, emisor, clase de activo,
+        cartera, nominales (`cantidad`), precio, valuación y `share` (qué % de la
+        cuenta es ese título, YA CALCULADO — no lo dividas vos).
+      · `fecha` — de cuándo es la posición. **Decila siempre**: si no es de hoy,
+        es la última foto conciliada y no incluye lo de después.
+      · Si `truncado` es true, hay más títulos de los que entraron en la lista;
+        `total` y `cuantas` siguen siendo de la cuenta COMPLETA.
+
+    Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.
+
+    Args:
+        cuenta: el `id_cuenta` a mirar.
+        horizonte: `t1` (default) es la posición liquidada a MAÑANA, con lo
+            concertado hoy adentro — es «cuánto vale el cliente», la que mira el
+            negocio. `t0` es lo liquidado a HOY: lo que está en custodia y se
+            puede entregar, garantizar o caucionar — la que mira el back office.
+            Si el usuario no dijo nada, `t1` y no hace falta preguntárselo.
+    """
+    h = str(horizonte or "t1").strip().lower()
+    if h not in HORIZONTES:
+        return {"error": f"`horizonte` tiene que ser {' o '.join(HORIZONTES)}, llegó {horizonte!r}"}
+
+    # Mismo orden que en `cobros_futuros`: el permiso corta ANTES que nada.
+    try:
+        permitido.parametros()
+    except permitido.SinPermiso:
+        return permitido.como_error()
+
+    pedida = str(cuenta or "").strip()
+    # ⚠️⚠️ **ESTA VALIDACIÓN ES EL PERMISO, NO UN CHEQUEO DE PROLIJIDAD.**
+    # `posiciones_actuales` NO conoce la lista de cuentas habilitadas: recibe un
+    # `id_cuenta` y confía, porque su control de acceso vive en el router de
+    # `/api/valuaciones`. O sea que acá NO hay un `FILTRO_SQL` que ponga la
+    # pared — la pone este `if`. Un test lo congela.
+    if pedida not in permitido.cuentas():
+        return {"error": f"la cuenta {pedida!r} no está habilitada para el asistente",
+                "cuentas_habilitadas": permitido.cuentas(),
+                "que_hacer": ("Preguntale al usuario cuál de las cuentas habilitadas "
+                              "quiere. NO contestes con otra cuenta.")}
+
+    # ⚠️⚠️ **SE LLAMA AL MISMO CÓDIGO QUE LA PANTALLA, NO A UN SELECT PARECIDO.**
+    #
+    # `posiciones_actuales` no es una consulta: adentro tiene seis reglas que no
+    # se ven y que hacen que el número sea el bueno — filtra `aum = 'si'`, cae
+    # sola a la foto conciliada si el daemon no corrió (finde, caído), junta las
+    # filas repetidas por `unidad`, PISA el precio de Aunesa con el nuestro (el
+    # de Aunesa es el cierre de ayer mientras el mercado se mueve), joinea el
+    # maestro de títulos y toma el MEP del día del snapshot.
+    #
+    # Un SELECT nuevo sobre `tenencia_live` le daría al asistente un número
+    # DISTINTO al de la pantalla, y no fallaría nada: las dos mitades coherentes
+    # consigo mismas, las dos contestando seguras (REGLA #9). Mismo criterio que
+    # `cobros_futuros`, que lee las acreencias en vez de rehacer la
+    # multiplicación tenencia × cronograma.
+    #
+    # `con_pnl` queda APAGADO: cuesta una corrida del motor de PnL y «qué tengo»
+    # no necesita saber cuánto ganaste. Eso es otra pregunta.
+    from api.services import valuaciones_sql
+
+    r = valuaciones_sql.posiciones_actuales(id_cuenta=pedida, asof=True,
+                                            con_pnl=False, horizonte=h)
+    filas = r.get("posiciones") or []
+    nombres = {c["id_cuenta"]: c["nombre"] for c in cuentas_disponibles()["cuentas"]}
+
+    return {
+        "cuenta": {"id_cuenta": pedida, "nombre": nombres.get(pedida, "")},
+        "fecha": r.get("fecha"),
+        "horizonte": h,
+        # Se dice la moneda en vez de darla por sabida: el modelo tiene prohibido
+        # convertir, y para eso necesita saber en qué está lo que le llegó.
+        "moneda_valuacion": "ARS",
+        "total": r.get("total"),
+        # ⚠️ `vencimiento` NO viaja aunque el service lo traiga: acá sale de
+        # `portafolio.assets`, que es texto libre, y la fecha de vencimiento DE
+        # VERDAD vive en `mercado.curvas` — que es la que ya devuelve
+        # `cobros_futuros` en `vence`. Mandar la peor de las dos copias es
+        # garantizar que un día contesten distinto (REGLA #9).
+        "posiciones": [{
+            "ticker": p.get("ticker"),
+            "emisor": p.get("emisor"),
+            "clase": p.get("clase_activo"),
+            "cartera": p.get("cartera") or None,
+            "cantidad": p.get("cantidad"),
+            "precio": p.get("precio"),
+            "valuacion": p.get("valuacion"),
+            "share": p.get("share"),
+        } for p in filas[:MAX_POSICIONES]],
+        "cuantas": len(filas),
+        "truncado": len(filas) > MAX_POSICIONES,
+    }
+
+
 def ficha(fn) -> dict:
     """Convierte una función de Python en la ficha que se le manda al modelo.
 
@@ -350,7 +469,7 @@ def ficha(fn) -> dict:
 # ⚠️ `cuentas_disponibles` NO está: su lista va en el SYSTEM
 # (`ciclo._instruccion()`). Ofrecérsela además sería pagar su ficha en cada
 # llamada y darle una opción más para elegir mal, por un dato que ya tiene.
-DISPONIBLES = (cobros_futuros,)
+DISPONIBLES = (cobros_futuros, tenencia_actual)
 
 # nombre → función, para que el ciclo pueda ejecutar lo que el modelo pidió.
 POR_NOMBRE = {f.__name__: f for f in DISPONIBLES}

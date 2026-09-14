@@ -1142,3 +1142,80 @@ def test_a_un_proveedor_SIN_esquema_se_le_manda_SIN_esquema():
             assert visto.get("formato") is None, (
                 "el esquema viajó a un proveedor que lo rechaza: la pregunta "
                 "vuelve como error de formato en vez de como respuesta")
+
+
+# ── TENENCIA ACTUAL — qué tiene la cuenta ───────────────────────────────────
+
+
+def test_toda_herramienta_con_cuenta_valida_contra_el_permiso():
+    """⚠️⚠️ **EL AGUJERO QUE ABRE LLAMAR A UN SERVICE EN VEZ DE ESCRIBIR SQL.**
+
+    La garantía del asistente era estructural: todo SELECT lleva `FILTRO_SQL`, y
+    un test lee el SQL del archivo para probarlo. Pero `tenencia_actual` no
+    escribe SQL —llama a `posiciones_actuales`, que NO conoce la lista de
+    cuentas habilitadas y confía en quien la llama—, así que ese test pasa sin
+    mirar nada: no hay consulta que revisar.
+
+    Sin esto, en tres herramientas más alguien se olvida de validar y el
+    asistente contesta sobre una cuenta que nadie habilitó, sin fallar.
+    """
+    import inspect
+
+    from asistente import herramientas as H
+
+    for fn in H.DISPONIBLES:
+        if "cuenta" not in inspect.signature(fn).parameters:
+            continue
+        cuerpo = _codigo(fn.__name__)
+        assert "permitido.cuentas()" in cuerpo, (
+            f"`{fn.__name__}` recibe una cuenta del MODELO y no la valida contra "
+            "las habilitadas")
+
+
+def test_la_tenencia_sale_del_MISMO_codigo_que_la_pantalla():
+    """⚠️ **REGLA #9.** Un SELECT propio sobre `tenencia_live` le daría al
+    asistente un número distinto al de NEGOCIO → CARTERAS, y no fallaría nada:
+    las dos mitades coherentes consigo mismas, las dos contestando seguras.
+
+    `posiciones_actuales` no es una consulta — filtra `aum='si'`, cae sola a la
+    foto si el daemon no corrió, junta filas por `unidad` y pisa el precio de
+    Aunesa con el nuestro. Reimplementar eso es reimplementar los seis bugs que
+    ya se arreglaron ahí.
+    """
+    cuerpo = _codigo("tenencia_actual")
+    assert "posiciones_actuales" in cuerpo
+    # Se busca `get_pool()` —la puerta por la que pasa TODA consulta de este
+    # archivo— y no la palabra «SELECT»: el comentario que explica por qué no
+    # hay un SELECT contiene la palabra SELECT, y el test se disparaba con su
+    # propia explicación.
+    assert "get_pool()" not in cuerpo, (
+        "la tenencia volvió a consultarse a mano: es una segunda versión del "
+        "mismo número, sin árbitro")
+
+
+def test_la_tenencia_no_paga_el_motor_de_PnL():
+    """«¿Qué tengo?» no necesita saber cuánto ganaste, y `con_pnl` cuesta una
+    corrida entera del motor. Si algún día hace falta, es otra pregunta y se
+    decide ahí — con el tiempo medido, que hoy no lo está."""
+    assert "con_pnl=False" in _codigo("tenencia_actual")
+
+
+def test_el_vencimiento_NO_viaja_por_dos_caminos():
+    """El service trae `vencimiento` de `portafolio.assets`, que es texto libre.
+    La fecha DE VERDAD vive en `mercado.curvas` y ya la devuelve `cobros_futuros`
+    en `vence`. Mandar las dos copias es garantizar que un día contesten
+    distinto (REGLA #9)."""
+    cuerpo = _codigo("tenencia_actual")
+    assert '"vencimiento"' not in cuerpo
+
+
+def test_CADA_herramienta_dice_lo_que_NO_ES():
+    """⚠️⚠️ **YA PASÓ EN ESTE PROYECTO.** Existía `bonos_que_vencen` y el modelo
+    la eligió por el NOMBRE aunque el docstring decía lo contrario. Con dos
+    herramientas parecidas —«cuánto tengo» vs «cuánto cobro»— el nombre solo no
+    alcanza: cada ficha tiene que decir explícitamente cuál es la otra.
+    """
+    from asistente import herramientas as H
+
+    assert "tenencia_actual" in (H.cobros_futuros.__doc__ or "")
+    assert "cobros_futuros" in (H.tenencia_actual.__doc__ or "")

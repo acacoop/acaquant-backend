@@ -36,9 +36,13 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    tiene señales (lo compartido va en `agente.py`, no en un helper ahí). Puede
    no tener herramientas todavía: entonces contesta que no puede consultarlo,
    sin modelo. Sumar un agente NO toca `grafo.py`.
-2. **Todo dato sale de una herramienta.** Docstring = descripción, firma =
-   esquema. Errores como dato (`{"error": ...}`), nunca excepción. Claves con
-   `_` no viajan al modelo. Toda consulta de cuentas lleva `permitido.FILTRO_SQL`.
+2. **Todo dato sale de una herramienta.** El docstring ES el prompt de la
+   herramienta (viaja como `description`), la firma es el esquema. La ficha
+   dice QUÉ hay; el CÓMO va en `COMUN` una sola vez (test). Todo agregado
+   («el promedio», «el que más») va CALCULADO sobre todas las filas, no sobre
+   las que entraron en el tope. Errores como dato (`{"error": ...}`), nunca
+   excepción. Claves con `_` no viajan. Las consultas de cuentas llevan
+   `permitido.FILTRO_SQL`.
 3. **Un agente ve solo lo suyo.** La memoria lleva marcas `agente`/`agentes`;
    lo que trajo cartera nunca llega al proveedor de renta fija. Las marcas no
    viajan. Los agentes se relacionan por el foco (`cuenta`, `ticker`): cada

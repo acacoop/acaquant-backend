@@ -253,12 +253,24 @@ Cada paso tiene un test que falla si se olvida. Si un cambio necesita tocar
 Test: `test_todo_agente_esta_registrado_y_declarado`.
 
 **Una herramienta**: una función en el archivo de su agente, agregada a la tupla
-`herramientas` de su `AGENTE`.
+`herramientas` de su `AGENTE`. El docstring **no es documentación: es el prompt
+de esa herramienta** — viaja al modelo como `description` en cada llamada
+(`herramientas.ficha`), y la firma viaja como esquema (`Literal` → `enum`, que
+es la única garantía dura de que no se invente un valor).
 - docstring: qué hace, qué **no** es (cuál es la otra parecida), qué devuelve.
+- **la ficha dice QUÉ hay; el system dice CÓMO comportarse.** Nombrá los campos
+  con trampa, no el catálogo entero (el resto lo ve en el resultado), y no
+  repitas una orden que `agente.COMUN` ya da: tenerla en dos lugares es que un
+  día digan cosas distintas y no falle nada. Hay un test.
 - firma: la llave del sujeto sin default (`cuenta`, `ticker`); listas cerradas
   con `Literal`; el tiempo según §9.
 - devuelve un dict; errores como `{"error": ...}`, nunca excepción.
 - topes declarados y `truncado` cuando recorta; totales calculados en SQL.
+- **todo agregado va calculado**: si la pregunta puede ser «el promedio», «el
+  que más», «el que vence último», eso es un campo de la respuesta (`curva`
+  tiene `resumen`), calculado sobre TODAS las filas antes del tope. El modelo
+  no calcula, y lo que ve es una muestra: sin el campo, contesta a ojo sobre
+  una parte y el número parece bien.
 - claves con `_` (`_tabla`) son para la pantalla y no viajan al modelo.
 - toda consulta de cuentas lleva `{permitido.FILTRO_SQL}`.
 Tests: techo de ficha, docstring, permiso, `_` no viaja.

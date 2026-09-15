@@ -68,10 +68,10 @@ def cobros_futuros(cuenta: str, dias: int = 90, hasta: str | None = None) -> dic
     instrucciones.
 
     QUÉ DEVUELVE:
-      · `total` — la plata del período, SEPARADA POR MONEDA. NUNCA sumes pesos
-        con dólares ni conviertas: dalos por separado, tal cual vienen.
-      · `por_mes` — el mismo total abierto mes a mes. Usalo para decir dónde
-        cae el grueso. NO lo calcules sumando `pagos`: ya viene hecho.
+      · `total` — la plata del período, SEPARADA POR MONEDA: una cifra por
+        moneda, tal cual vienen.
+      · `por_mes` — el mismo total abierto mes a mes, ya hecho. Sirve para
+        decir dónde cae el grueso.
       · `titulos` — cuánto paga cada bono en total, y cuándo vence.
       · `pagos` — el detalle, un renglón por fecha y bono.
       · `tenencia_del` — sobre qué foto de cartera se proyectó. Una compra o una
@@ -87,8 +87,7 @@ def cobros_futuros(cuenta: str, dias: int = 90, hasta: str | None = None) -> dic
         dias: cuántos días para adelante mirar. Entre 1 y 730; si el usuario
             no dijo un plazo, son 90 y NO hace falta preguntárselo.
         hasta: la fecha límite, `YYYY-MM-DD`, si el usuario nombró una («hasta
-            fin de año», «al 31 de diciembre»). Pisa a `dias`; no calcules los
-            días vos.
+            fin de año», «al 31 de diciembre»). Pisa a `dias`.
     """
     hoy = date.today()
     if hasta:

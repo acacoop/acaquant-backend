@@ -62,6 +62,43 @@ def _instrumento(b: dict, hoy: date) -> dict:
     }
 
 
+def _agg(valores: list[float]) -> dict | None:
+    """min · max · promedio · mediana de una lista, o None si está vacía. El
+    promedio es SIMPLE (no ponderado por volumen): es lo que se puede decir sin
+    inventar un criterio."""
+    v = sorted(x for x in valores if x is not None)
+    if not v:
+        return None
+    n = len(v)
+    mediana = v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
+    return {"min": round(v[0], 2), "max": round(v[-1], 2),
+            "promedio": round(sum(v) / n, 2), "mediana": round(mediana, 2)}
+
+
+def _resumen(filas: list[dict]) -> dict:
+    """Los agregados de TODAS las filas, calculados ACÁ. Existen porque el
+    modelo tiene prohibido calcular: sin esto, «la duration promedio» se
+    contesta a ojo sobre las que entraron en `limit`, que además son una parte.
+    Se calculan antes de recortar, así que el límite no los puede falsear.
+
+    Las tasas con `tasa_ruido` quedan afuera de lo que habla de TASAS: son
+    bonos que vencen en días y su TEA anualizada es un número enorme que no
+    compara con nada. Adentro del promedio se llevarían puesta la curva."""
+    con_tasa = [f for f in filas if not f["tasa_ruido"] and f["tea_pct"] is not None]
+    por_vto = sorted((f for f in filas if f["vencimiento"]), key=lambda f: f["vencimiento"])
+    mejor = max(con_tasa, key=lambda f: f["tea_pct"], default=None)
+    corto = lambda f: {"ticker": f["ticker"], "vencimiento": f["vencimiento"]}  # noqa: E731
+    return {
+        "cuantos": len(filas),
+        "con_tasa_comparable": len(con_tasa),
+        "tea_pct": _agg([f["tea_pct"] for f in con_tasa]),
+        "duration": _agg([f["duration"] for f in con_tasa]),
+        "rinde_mas": {"ticker": mejor["ticker"], "tea_pct": mejor["tea_pct"]} if mejor else None,
+        "vence_primero": corto(por_vto[0]) if por_vto else None,
+        "vence_ultimo": corto(por_vto[-1]) if por_vto else None,
+    }
+
+
 def _emisores_de(filas: list[dict]) -> list[dict]:
     """Qué emisores hay en estas filas y cuántos bonos tiene cada uno, en orden
     de cantidad. Va SIEMPRE en la respuesta: sin esto el modelo tiene que
@@ -101,33 +138,33 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
     Es el MERCADO, no una cuenta: acá no hay nominales de nadie. Para «qué
     tengo» está `tenencia_actual`; para «qué cobro», `cobros_futuros`.
 
-    Curvas: `cer` (ajustan por inflación), `tasa_fija` (LECAP/BONCAP),
-    `hard_dolar` (en dólares: AL, GD, ONs), `dolar_linked`, `tamar`. «Bonos
-    CER» es `cer`; «en dólares», «soberanos» o «hard dollar» es `hard_dolar`;
-    «letras» o «tasa fija» es `tasa_fija`.
+    Curvas: `cer` (ajustan por inflación), `tasa_fija` (LECAP/BONCAP, y es lo
+    que pidan como «letras»), `hard_dolar` (en dólares: AL, GD, ONs; también
+    «soberanos» y «hard dollar»), `dolar_linked`, `tamar`.
 
     QUÉ DEVUELVE:
-      · `instrumentos` — por título: `ticker`, `emisor` (el NOMBRE: «YPF S.A.»),
-        `emisor_tipo` (soberano · provincial · corporativo · bcra),
-        `vencimiento`, `meses_al_vencimiento`, `precio`, `tea_pct`, `tem_pct`,
-        `tna_pct`, `paridad_pct`, `duration` (años), `volumen_dia`,
-        `tasa_ruido`. Los `_pct` YA están en porcentaje.
-      · `tasa_ruido` true = la tasa NO es comparable (vence en días).
-      · `tna_pct` viene SOLO en `tasa_fija`; en el resto es null y la tasa
-        comparable es `tea_pct`. No conviertas tasas.
-      · `emisores` — los que hay y cuántos bonos tiene cada uno. Mirá acá cómo
-        se escribe un emisor antes de filtrar por él.
+      · `instrumentos` — una fila por título, con ticker, emisor, vencimiento,
+        precio, tasas, paridad, duration y volumen. Tres campos con trampa:
+        `tasa_ruido` true = la tasa NO compara (el bono vence en días);
+        `tna_pct` solo existe en `tasa_fija` (en el resto es null y la tasa
+        comparable es `tea_pct`); `emisor` es el NOMBRE («YPF S.A.») y
+        `emisor_tipo` la categoría (soberano · corporativo · …).
+      · `resumen` — los agregados de TODA la curva, no de lo que entró acá:
+        `tea_pct` y `duration` con min/max/promedio/mediana, `rinde_mas`,
+        `vence_primero`, `vence_ultimo`. «El promedio», «el que más rinde» y
+        «el que vence más lejos» salen de acá, ya resueltos.
+      · `emisores` — los que hay y con cuántos bonos. Mirá cómo se escribe uno
+        antes de filtrar.
       · `cuantos` y `truncado`; si truncó, `aviso` dice qué quedó afuera.
 
     Args:
         curva: cuál mirar.
-        ordenar_por: con `tea` los que más rinden van primero; si no lo dijo, es
-            `tea`. Si preguntan por un EXTREMO (el que más rinde, el que vence
-            más lejos), ordená por ESE campo: el extremo queda primero y el
-            límite no te lo esconde.
-        limit: cuántos traer, 1 a 50. Si no dijo, 15.
+        ordenar_por: con `tea` los que más rinden van primero; si no lo dijo,
+            es `tea`.
+        limit: cuántos traer, 1 a 50. Si no dijo, 15. Para un extremo o un
+            promedio no lo subas: está en `resumen`.
         emisor: filtra por nombre, por pedazo («YPF» encuentra «YPF S.A.»). Si
-            no existe, la respuesta trae los que sí: no inventes un nombre.
+            no existe, la respuesta trae la lista de los que sí.
     """
     from api.services import curvas_vista as CV
     from core import curvas_ejes as ce
@@ -166,6 +203,7 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         "emisor": emisor,
         "ordenado_por": ordenar_por,
         "instrumentos": filas[:n],
+        "resumen": _resumen(filas),
         "emisores": emisores,
         "cuantos": len(filas),
         "truncado": len(filas) > n,
@@ -180,8 +218,8 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         # número 15 — plausible, en el lugar correcto, y mal.
         salida["aviso"] = (f"hay {len(filas)} y estás viendo los primeros {n} ordenados por "
                            f"{ordenar_por}: el último de esta lista NO es el último de la "
-                           f"curva. Si la pregunta es por un extremo, volvé a pedir ordenando "
-                           f"por ese campo o subí `limit`.")
+                           f"curva. Para un extremo o un promedio, mirá `resumen`, que es de "
+                           f"las {len(filas)}.")
     return salida
 
 

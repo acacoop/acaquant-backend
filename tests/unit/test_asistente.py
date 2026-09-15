@@ -110,6 +110,32 @@ def test_el_esquema_sale_de_la_firma_con_enum_y_tipos_reales():
     assert set(MM.Curva.__args__) == set(ce.PILLS)
 
 
+# Las órdenes que `agente.COMUN` ya le da a TODO agente, en el system. Repetirlas
+# adentro de una ficha es tener la misma instrucción en dos lugares: el día que
+# cambie el criterio en COMUN, la ficha sigue diciendo lo viejo y no falla nada
+# (REGLA #9, ahora sobre instrucciones en vez de datos).
+ORDENES_DE_COMUN = r"\b(no|nunca) (conviertas|inventes|uses|sumes|calcules|redondees)\b|no l[oa]s? vuelvas a calcular|no l[oa] calcules"
+
+
+def test_una_ficha_no_repite_una_orden_que_el_system_ya_da():
+    """La ficha dice QUÉ hay y qué devuelve; el system dice CÓMO comportarse.
+    Una orden específica de la herramienta («si preguntan por un extremo,
+    ordená por ese campo») SÍ va en la ficha: lo que no va es repetir COMUN."""
+    import re
+
+    from asistente.agentes import AGENTES
+
+    repetidas = [(f.__name__, l.strip())
+                 for a in AGENTES.values() for f in a.herramientas
+                 for l in (inspect.getdoc(f) or "").splitlines()
+                 if re.search(ORDENES_DE_COMUN, l, re.I)]
+    assert not repetidas, (
+        "estas fichas repiten una orden que `agente.COMUN` ya da en el system:\n  "
+        + "\n  ".join(f"{n}: {l}" for n, l in repetidas)
+        + "\n\nDecí QUÉ trae el campo («ya viene calculado», «separado por moneda») "
+          "y dejá la orden en COMUN, una sola vez.")
+
+
 def test_cada_ficha_entra_en_su_techo():
     from asistente import herramientas as H
 
@@ -253,6 +279,49 @@ def test_la_tna_de_la_curva_es_la_que_calculo_el_backend_y_solo_donde_esta_medid
         letra = RF.curva("tasa_fija")["instrumentos"][0]
         assert letra["tna_pct"] == 34.12 and letra["tea_pct"] == 40.0
         assert all(i["tna_pct"] is None for i in RF.curva("hard_dolar")["instrumentos"])
+
+
+def test_el_resumen_de_la_curva_es_de_todas_las_filas_y_no_de_las_que_entraron():
+    """El único camino que tiene el modelo para «el promedio» o «el que vence
+    más lejos»: calcular le está prohibido, y lo que ve es una muestra. El
+    resumen se arma sobre TODAS las filas, antes del `limit`."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
+        r = RF.curva("hard_dolar", limit=1)
+        res = r["resumen"]
+        assert len(r["instrumentos"]) == 1 and res["cuantos"] == 4, "1 visible, 4 resumidas"
+        # TEAs 9, 8, 7 y 12 → el promedio y la mediana son de las cuatro
+        assert res["tea_pct"] == {"min": 7.0, "max": 12.0, "promedio": 9.0, "mediana": 8.5}
+        assert res["duration"]["promedio"] == 3.0
+        assert res["rinde_mas"] == {"ticker": "GD30", "tea_pct": 12.0}
+        assert res["vence_primero"] == {"ticker": "GD30", "vencimiento": "2030-01-01"}
+        assert res["vence_ultimo"] == {"ticker": "YMCXO", "vencimiento": "2033-01-01"}
+        # el resumen es de lo que estás mirando: filtrado por emisor, es de ese emisor
+        assert RF.curva("hard_dolar", emisor="YPF")["resumen"]["cuantos"] == 2
+
+
+def test_el_resumen_deja_afuera_las_tasas_que_no_comparan():
+    """Un bono que vence en días tiene una TEA anualizada enorme. Adentro del
+    promedio se lleva puesta la curva, y como «el que más rinde» es una
+    respuesta falsa que parece buenísima."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    vista = _vista_emisores()
+    vista["bonos"].append({
+        "ticker_corto": "RUIDO", "pill": "hard_dolar", "emisor": "X", "emisor_tipo": "corporativo",
+        "vencimiento": "2026-09-20", "tasa_ruido": True,
+        "metrics": {"last_price": 100.0, "TEA": 9.99, "TEM": 0.2, "paridad": 99.0,
+                    "duration": 0.01, "total_nominals": 1}})
+    with patch.object(CV, "get_curvas_vista", return_value=vista):
+        res = RF.curva("hard_dolar")["resumen"]
+    assert res["cuantos"] == 5 and res["con_tasa_comparable"] == 4
+    assert res["tea_pct"]["max"] == 12.0 and res["rinde_mas"]["ticker"] == "GD30"
+    assert res["duration"]["min"] == 3.0, "la duration del ruidoso tampoco entra"
+    # pero para el calendario sí cuenta: vence de verdad
+    assert res["vence_primero"]["ticker"] == "RUIDO"
 
 
 def test_si_el_limite_corta_la_curva_la_respuesta_lo_dice():

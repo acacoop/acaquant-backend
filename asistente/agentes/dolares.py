@@ -43,10 +43,10 @@ def tipos_de_cambio() -> dict:
         `variacion_dia_pct` (% del día, puede ser null si todavía no hay
         referencia de ayer), `desde` (de cuándo es el dato) y `fuente`.
       · `canje_pct` — el canje CCL/MEP en %, como lo publica la pantalla.
-      · `brecha_mep_oficial_pct` y `brecha_ccl_oficial_pct` — YA calculadas.
-        No las vuelvas a calcular ni saques otras cuentas entre los valores.
-      · `faltan` — los que la fuente no trajo en este momento. Si un dólar está
-        acá, decí que no lo tenés: no lo estimes con los otros.
+      · `brecha_mep_oficial_pct` y `brecha_ccl_oficial_pct` — contra el
+        oficial, en %, YA calculadas.
+      · `faltan` — los que la fuente no trajo en este momento: de ésos no hay
+        valor, ni exacto ni aproximado.
     """
     try:
         from api.services.argy import get_argy_with_returns

@@ -25,13 +25,15 @@ pregunta ─► preparar ─► despacho ─► [cuenta] ─┐
 |---|---|---|---|
 | `preparar` | `memoria.py` | poda y achica el historial, sanea el foco | ninguno |
 | `despacho` | `despacho.py` | reglas primero; si ninguna decide, el modelo elige mundos | `asistente_despacho` solo si las reglas no deciden |
-| `cuenta` | `mundos/cuenta.py` | agente con `cobros_futuros`, `tenencia_actual` | `asistente_cuenta` (OpenAI pro, datos de negocio) |
+| `cuenta` | `mundos/cuenta.py` | agente con `cobros_futuros` (hasta una fecha), `tenencia_actual` (con lo que el mercado dice de cada título) | `asistente_cuenta` (OpenAI pro, datos de negocio) |
 | `mercado` | `mundos/mercado.py` | agente con `curva`, `ficha_bono` | `asistente_mercado` (DeepSeek flash) |
 | `junta` | `junta.py` | con un mundo, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cuenta` |
 | `finalizar` | `grafo.py` + `control.py` | arma el historial de salida y corre el control de números | ninguno |
 
 Los mundos corren en paralelo. Cada uno es un subgrafo `modelo ↔ herramientas`
-con tope de 6 vueltas. **Un nodo del grafo = un módulo del paquete.**
+con tope de 6 vueltas. **Un nodo del grafo = un módulo del paquete.** El SYSTEM
+de cada agente termina con la fecha de hoy (`agente.sistema`): sin eso «hasta
+fin de año» se calcula desde una fecha inventada.
 
 ## 3. El paquete
 
@@ -167,13 +169,20 @@ propio `Agente` y corre `grafo.subgrafo(agente).invoke(...)`. El mundo lo pide
 por nombre como a cualquier herramienta y recibe su respuesta como dato. No
 hay que tocar el grafo principal.
 
+**Un cruce entre mundos** («cuánto rinden los bonos que tengo»): lo hace el
+CÓDIGO, no un modelo. Un mundo expone un helper de datos (no una herramienta:
+`mercado.metricas_por_ticker`) y la herramienta del otro mundo lo usa
+(`tenencia_actual` trae TEA, paridad, duration y vencimiento por título). Así
+ningún proveedor ve datos del otro mundo y el modelo no cruza nada a mano.
+
 ## 8. Memoria, estado y conversaciones
 
 - Una conversación es una fila de `ia.conversaciones` (`sesiones.py`) con dueño
   (el email), título (la primera pregunta), `memoria` (lo que ve el modelo:
   dicts del proveedor, podados a 8 turnos y 300 mensajes, resultados viejos
   achicados), `foco` y `turnos` (lo que ve la persona: pregunta, respuesta,
-  falta, error, mundos; nunca se poda). El navegador manda solo la pregunta y
+  falta, error, mundos y las tablas que declararon las herramientas; nunca se
+  poda). El ciclo (eventos) no se guarda. El navegador manda solo la pregunta y
   el id; sin id empieza una nueva. Retención 90 días sin retomar
   (`jobs/cleanup_retencion`).
 - No se usa el checkpointer de LangGraph: guarda el estado interno de una

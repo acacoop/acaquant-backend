@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import Send
 
+from asistente import agente as AGT
 from asistente import control as CTL
 from asistente import despacho as DESP
 from asistente import esquema as ESQ
@@ -90,7 +91,7 @@ def subgrafo(agente: Agente):
     def modelo(s: EstadoAgente) -> dict:
         vuelta = s.get("vueltas", 0) + 1
         eventos = [_evento(agente, "vuelta", n=vuelta)]
-        entrada = [SystemMessage(content=agente.instruccion(s.get("foco") or {}))] + list(s["mensajes"])
+        entrada = [SystemMessage(content=AGT.sistema(agente, s.get("foco") or {}))] + list(s["mensajes"])
         try:
             tr = _traza(agente, s)
             msg = _modelo_de(agente, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
@@ -320,7 +321,7 @@ def junta(s: Estado) -> dict:
         dijo = u.get("respuesta") or (f"no contestó ({u['error']})" if u.get("error") else "(sin respuesta)")
         partes.append(f"## {m}\nrespuesta: {dijo}\n"
                       f"datos: {json.dumps(u.get('datos') or [], ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]}")
-    entrada = [SystemMessage(content=JU.JUNTA.instruccion(s.get("foco") or {})),
+    entrada = [SystemMessage(content=AGT.sistema(JU.JUNTA, s.get("foco") or {})),
                HumanMessage(content=f"Pregunta: {s['pregunta']}\n\n" + "\n\n".join(partes))]
     try:
         tr = _traza(JU.JUNTA, s)

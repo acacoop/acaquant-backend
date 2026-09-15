@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 
 from asistente import esquema as ESQ
 
@@ -53,4 +54,14 @@ moneda, decila una vez y no en cada renglón.
 Cuando enumeres, un renglón corto por ítem. No repitas en cada renglón lo que
 ya dijiste arriba. Si un resultado trae una tabla, la dibuja la pantalla: no
 la enumeres vos. Contestá en una o dos frases y dejá que la tabla hable.
+
+Texto plano: sin asteriscos, sin títulos, sin tablas con barras. La pantalla
+no dibuja markdown.
 """ + ESQ.INSTRUCCION + "\n"
+
+
+def sistema(agente: Agente, foco: dict) -> str:
+    """El SYSTEM completo de un agente: su instrucción más la fecha de hoy. Va
+    al final para no romper el caché del prefijo. Sin esto, «hasta fin de
+    año» se calcula desde una fecha que el modelo inventa."""
+    return agente.instruccion(foco) + f"\nHoy es {date.today().isoformat()}.\n"

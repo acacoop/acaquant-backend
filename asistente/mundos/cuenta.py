@@ -8,6 +8,7 @@ from typing import Literal
 from asistente import estado as EST
 from asistente import permitido
 from asistente.agente import COMUN, Agente
+from asistente.mundos.mercado import metricas_por_ticker
 from core.postgres import get_pool
 
 MAX_DIAS = 730
@@ -49,8 +50,8 @@ def _cuenta_habilitada(cuenta) -> tuple[str | None, dict | None]:
     return pedida, None
 
 
-def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
-    """Cuánta PLATA va a cobrar una cuenta en los próximos N días, y en qué fechas.
+def cobros_futuros(cuenta: str, dias: int = 90, hasta: str | None = None) -> dict:
+    """Cuánta PLATA va a cobrar una cuenta de acá a una fecha, y en qué fechas.
 
     Contesta las dos preguntas que parecen distintas y no lo son:
 
@@ -74,25 +75,38 @@ def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
       · `pagos` — el detalle, un renglón por fecha y bono.
       · `tenencia_del` — sobre qué foto de cartera se proyectó. Una compra o una
         venta posterior a esa fecha no está adentro.
-      · `truncado` — true si hubo más pagos de los que entraron en `pagos`.
-        `total` y `titulos` siguen siendo del período COMPLETO.
-      · Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.
+      · `truncado` — true si hubo más pagos de los que entraron en `pagos`;
+        `total` y `titulos` siguen siendo del período COMPLETO. Todo lo que hay
+        que sumar YA VIENE SUMADO.
 
-    Los montos son el bruto contractual en la moneda del bono; los CER ya vienen
-    ajustados por el último CER publicado. NO devuelve nominales ni valuación.
+    Montos brutos contractuales en la moneda del bono; los CER ya ajustados.
 
     Args:
         cuenta: el `id_cuenta` a mirar.
         dias: cuántos días para adelante mirar. Entre 1 y 730; si el usuario
             no dijo un plazo, son 90 y NO hace falta preguntárselo.
+        hasta: la fecha límite, `YYYY-MM-DD`, si el usuario nombró una («hasta
+            fin de año», «al 31 de diciembre»). Pisa a `dias`; no calcules los
+            días vos.
     """
-    try:
-        n = int(dias)
-    except (TypeError, ValueError):
-        return {"error": f"`dias` tiene que ser un número entero, llegó {dias!r}"}
-    if n < 1 or n > MAX_DIAS:
-        return {"error": f"`dias` tiene que estar entre 1 y {MAX_DIAS}, llegó {n}",
-                "que_hacer": "Volvé a llamar con un número dentro de ese rango."}
+    hoy = date.today()
+    if hasta:
+        try:
+            limite = date.fromisoformat(str(hasta).strip()[:10])
+        except ValueError:
+            return {"error": f"`hasta` tiene que ser una fecha YYYY-MM-DD, llegó {hasta!r}"}
+        n = (limite - hoy).days
+        if n < 1 or n > MAX_DIAS:
+            return {"error": f"`hasta` tiene que caer entre mañana y {MAX_DIAS} días "
+                             f"(hoy es {hoy.isoformat()}), llegó {hasta!r}"}
+    else:
+        try:
+            n = int(dias)
+        except (TypeError, ValueError):
+            return {"error": f"`dias` tiene que ser un número entero, llegó {dias!r}"}
+        if n < 1 or n > MAX_DIAS:
+            return {"error": f"`dias` tiene que estar entre 1 y {MAX_DIAS}, llegó {n}",
+                    "que_hacer": "Volvé a llamar con un número dentro de ese rango."}
     try:
         params = permitido.parametros()
     except permitido.SinPermiso:
@@ -101,7 +115,6 @@ def cobros_futuros(cuenta: str, dias: int = 90) -> dict:
     if err:
         return err
     params["cuentas_permitidas"] = [pedida]
-    hoy = date.today()
     params["desde"] = hoy.isoformat()
     params["hasta"] = (hoy + timedelta(days=n)).isoformat()
 
@@ -207,22 +220,27 @@ def _por_mes(filas, mon) -> list[dict]:
 
 
 def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
-    """Qué TIENE hoy una cuenta: los títulos, cuántos nominales y cuánto valen.
+    """Qué TIENE hoy una cuenta: los títulos, cuántos nominales, cuánto valen y
+    cuánto RINDEN hoy a precios de mercado (TEA, paridad, duration, vencimiento).
 
     Es la posición, la cartera, el patrimonio: lo que está en la cuenta AHORA.
+    También contesta «¿cuánto rinden los bonos que tengo?»: cada título trae lo
+    que el mercado dice hoy de él, cuando está en el master de curvas.
 
     NO es lo que va a cobrar. Para «cuánta plata entra», «qué me pagan», «qué
     cupón viene» o «qué bono me vence» está `cobros_futuros`. Acá no hay fechas
     de pago ni cupones: hay tenencia.
 
-    Devuelve exactamente lo mismo que la pantalla NEGOCIO → CARTERAS de la
-    plataforma, porque corre el mismo código que esa pantalla.
+    Es lo mismo que la pantalla NEGOCIO → CARTERAS: corre el mismo código.
 
     QUÉ DEVUELVE:
       · `total` — la valuación de toda la cuenta, en la moneda de `moneda_valuacion`.
       · `posiciones` — una fila por título: ticker, emisor, clase de activo,
         cartera, nominales (`cantidad`), precio, valuación y `share` (qué % de la
-        cuenta es ese título, YA CALCULADO — no lo dividas vos).
+        cuenta es ese título, YA CALCULADO — no lo dividas vos). Y del mercado
+        de hoy: `tea_pct`, `paridad_pct`, `duration`, `vencimiento`,
+        `precio_mercado` (null si el título no está en el master de curvas).
+      · `sin_mercado` — los tickers sin datos de mercado hoy. No les inventes TEA.
       · `fecha` — de cuándo es la posición. Si no es de hoy, es la última foto
         conciliada y no incluye lo de después.
       · `truncado` — true si hay más títulos de los que entraron en la lista;
@@ -256,15 +274,21 @@ def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
                                             con_pnl=False, horizonte=h)
     filas = r.get("posiciones") or []
     nombres = {c["id_cuenta"]: c["nombre"] for c in cuentas_disponibles().get("cuentas") or []}
-    return {
-        "cuenta": {"id_cuenta": pedida, "nombre": nombres.get(pedida, "")},
-        "fecha": r.get("fecha"),
-        "horizonte": h,
-        "moneda_valuacion": "ARS",
-        "total": r.get("total"),
-        # `vencimiento` no viaja: la fecha de verdad está en `mercado.curvas`,
-        # que ya la da `cobros_futuros.vence`.
-        "posiciones": [{
+    # Lo que el mercado dice hoy de cada título, por código y no por modelo: es
+    # el cruce cuenta × mercado que ningún proveedor tiene que hacer. Se cruza
+    # por el MISMO ticker; una posición en la pata D no encuentra la pata en
+    # pesos (queda en `sin_mercado`, no se adivina).
+    try:
+        mercado = metricas_por_ticker()
+        mercado_error = None
+    except Exception as e:
+        mercado, mercado_error = {}, f"sin datos de mercado: {type(e).__name__}: {e}"
+    posiciones, sin_mercado = [], []
+    for p in filas[:MAX_POSICIONES]:
+        m = mercado.get(p.get("ticker")) or {}
+        if not m:
+            sin_mercado.append(p.get("ticker"))
+        posiciones.append({
             "ticker": p.get("ticker"),
             "emisor": p.get("emisor"),
             "clase": p.get("clase_activo"),
@@ -273,12 +297,28 @@ def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
             "precio": p.get("precio"),
             "valuacion": p.get("valuacion"),
             "share": p.get("share"),
-        } for p in filas[:MAX_POSICIONES]],
+            "tea_pct": m.get("tea_pct"),
+            "paridad_pct": m.get("paridad_pct"),
+            "duration": m.get("duration"),
+            "vencimiento": m.get("vencimiento"),
+            "precio_mercado": m.get("precio"),
+            "tasa_ruido": m.get("tasa_ruido", False),
+        })
+    return {
+        "cuenta": {"id_cuenta": pedida, "nombre": nombres.get(pedida, "")},
+        "fecha": r.get("fecha"),
+        "horizonte": h,
+        "moneda_valuacion": "ARS",
+        "total": r.get("total"),
+        "posiciones": posiciones,
         "cuantas": len(filas),
         "truncado": len(filas) > MAX_POSICIONES,
+        "sin_mercado": sin_mercado,
+        "mercado_error": mercado_error,
         "_tabla": {
             "campo": "posiciones",
-            "columnas": ["ticker", "emisor", "cantidad", "valuacion", "share"],
+            "columnas": ["ticker", "emisor", "cantidad", "valuacion", "share", "tea_pct",
+                         "vencimiento"],
             "total": "total",
             "moneda": "ARS",
         },

@@ -1002,3 +1002,70 @@ def test_una_pregunta_sin_senales_va_al_modelo_de_despacho(permiso):
     r = _correr("hola, ¿cómo va?", despacho="mercado")
     ev = next(e for e in r["eventos"] if e["tipo"] == "despacho")
     assert ev["motivo"] == "eligió el modelo" and r["mundos"] == ["mercado"]
+
+
+# ── lo que salió de la primera conversación real ────────────────────────────
+
+
+def test_cobros_acepta_una_fecha_limite_y_la_pisa_sobre_dias(permiso):
+    from datetime import date
+
+    from asistente.mundos import cuenta as MC
+
+    cur = MagicMock()
+    cur.fetchall.side_effect = [[], [], [], []]
+    cur.fetchone.return_value = (None, None)
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
+    limite = (date.today().replace(day=1) + __import__("datetime").timedelta(days=200)).isoformat()
+    with patch.object(MC, "get_pool", return_value=pool):
+        r = MC.cobros_futuros("805", dias=5, hasta=limite)
+        assert "error" not in r and r["ventana"]["hasta"] == limite, r
+        assert "error" in MC.cobros_futuros("805", hasta="ayer")
+        assert "error" in MC.cobros_futuros("805", hasta="2020-01-01")
+
+
+def test_la_tenencia_trae_lo_que_el_mercado_dice_de_cada_titulo(permiso):
+    """«¿Cuánto rinden los bonos que tengo?» lo contesta cuenta sola: el cruce
+    con el mercado lo hace el código, por ticker, y lo que no está se dice."""
+    from api.services import curvas_vista as CV
+    from api.services import valuaciones_sql as VS
+    from asistente.mundos import cuenta as MC
+
+    vista = {"bonos": [{"ticker_corto": "AO28", "pill": "hard_dolar", "emisor": "Argentina",
+                        "vencimiento": "2028-10-31", "tasa_ruido": False,
+                        "metrics": {"last_price": 71.5, "TEA": 0.112, "TEM": None,
+                                    "paridad": 0.8, "duration": 1.9, "total_nominals": 10}}]}
+    pos = {"fecha": "2026-09-14", "total": 100.0, "posiciones": [
+        {"ticker": "AO28", "emisor": "Argentina", "cantidad": 10, "precio": 70, "valuacion": 50, "share": 0.5},
+        {"ticker": "YFCOO", "emisor": "YPF Luz", "cantidad": 10, "precio": 5, "valuacion": 50, "share": 0.5}]}
+    with patch.object(CV, "get_curvas_vista", return_value=vista), \
+         patch.object(VS, "posiciones_actuales", return_value=pos):
+        r = MC.tenencia_actual("805")
+    assert r["posiciones"][0]["tea_pct"] == 11.2 and r["posiciones"][0]["vencimiento"] == "2028-10-31"
+    assert r["posiciones"][1]["tea_pct"] is None and r["sin_mercado"] == ["YFCOO"]
+    assert "tea_pct" in r["_tabla"]["columnas"] and r["mercado_error"] is None
+    with patch.object(CV, "get_curvas_vista", side_effect=RuntimeError("caída")), \
+         patch.object(VS, "posiciones_actuales", return_value=pos):
+        r = MC.tenencia_actual("805")
+    assert r["total"] == 100.0 and "caída" in r["mercado_error"], "sin mercado, la tenencia igual sale"
+
+
+def test_el_system_lleva_la_fecha_de_hoy_al_final_y_pide_texto_plano(permiso):
+    from datetime import date
+
+    from asistente import agente as AGT
+    from asistente.mundos import MUNDOS
+
+    s = AGT.sistema(MUNDOS["mercado"], {})
+    assert s.rstrip().endswith(f"Hoy es {date.today().isoformat()}.") and "sin asteriscos" in s
+
+
+def test_un_turno_guardado_lleva_las_tablas_que_declararon_las_herramientas():
+    from asistente import sesiones
+
+    eventos = [{"tipo": "pide"}, {"tipo": "resultado", "resultado": {
+        "total": 9, "posiciones": [{"a": 1}] * 3, "_tabla": {"campo": "posiciones", "columnas": ["a"], "total": "total", "moneda": "ARS"}}},
+        {"tipo": "resultado", "resultado": {"error": "x"}}, {"tipo": "resultado", "resultado": "texto"}]
+    assert sesiones.tablas_de(eventos) == [{"columnas": ["a"], "filas": [{"a": 1}] * 3, "cuantas": 3,
+                                            "total": 9, "moneda": "ARS"}]

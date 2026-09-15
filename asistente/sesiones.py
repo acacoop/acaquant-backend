@@ -34,7 +34,7 @@ def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None) -> dict
                         estado=previa["foco"] if previa else {},
                         sesion=previa["sesion"] if previa else None)
     turno = {"pregunta": pregunta, "respuesta": r["respuesta"], "falta": r["falta"],
-             "error": r["error"], "mundos": r["mundos"],
+             "error": r["error"], "mundos": r["mundos"], "tablas": tablas_de(r["eventos"]),
              "at": datetime.now(UTC).isoformat(timespec="seconds")}
     turnos = (previa["turnos"] if previa else []) + [turno]
     titulo = previa["titulo"] if previa else _titulo(pregunta)
@@ -42,6 +42,29 @@ def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None) -> dict
                        foco=r["estado"], turnos=turnos)
     return {**r, "titulo": titulo, "guardada": guardada, "aviso": aviso,
             "sesion": panel.conversacion(r["sesion"])}
+
+
+TABLA_MAX_FILAS = 200
+
+
+def tablas_de(eventos: list[dict]) -> list[dict]:
+    """Las tablas que declararon las herramientas de un turno (`_tabla`), para
+    que una conversación reabierta las muestre igual. El mismo criterio que la
+    pantalla: columnas, filas y total salen del resultado, no se calculan."""
+    out = []
+    for e in eventos or []:
+        res = e.get("resultado") if e.get("tipo") == "resultado" else None
+        decl = (res or {}).get("_tabla") if isinstance(res, dict) else None
+        if not isinstance(decl, dict) or not decl.get("campo"):
+            continue
+        filas = res.get(decl["campo"])
+        if not isinstance(filas, list) or not filas:
+            continue
+        out.append({"columnas": list(decl.get("columnas") or []),
+                    "filas": filas[:TABLA_MAX_FILAS], "cuantas": len(filas),
+                    "total": res.get(decl["total"]) if decl.get("total") else None,
+                    "moneda": decl.get("moneda")})
+    return out
 
 
 def _titulo(pregunta: str) -> str:

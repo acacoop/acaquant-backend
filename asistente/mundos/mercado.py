@@ -53,6 +53,18 @@ def _instrumento(b: dict, hoy: date) -> dict:
     }
 
 
+def metricas_por_ticker() -> dict[str, dict]:
+    """Lo que el mercado dice hoy de cada bono del master de curvas, por ticker
+    corto: la misma foto que `curva`. Es un helper de DATOS, no una herramienta:
+    lo usa el mundo cuenta para decir cuánto rinde lo que una cuenta tiene, sin
+    que ningún modelo cruce nada. Levanta si la vista no contesta."""
+    from api.services import curvas_vista as CV
+
+    hoy = date.today()
+    return {b["ticker_corto"]: _instrumento(b, hoy)
+            for b in CV.get_curvas_vista().get("bonos") or [] if b.get("ticker_corto")}
+
+
 def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 

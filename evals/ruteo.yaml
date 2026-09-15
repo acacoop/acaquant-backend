@@ -59,6 +59,16 @@
 - q: "Cual es el vencimiento mas lejano de la curva de HD excluyendo bonos de YPF?"
   agentes: [renta_fija]
 
+- q: "necesito rotar mis bonos de YPF a bonos de Vista"
+  agentes: [cartera]
+  nota: "cartera lo resuelve entero con opciones_para_rotar; renta_fija sobra."
+
+- q: "que opciones tengo para rotar el bono HD que menos me rinde"
+  agentes: [cartera]
+  nota: "«opciones» en castellano ≠ opciones financieras: hoy suma derivados de
+    más. Es el error barato y quitar la señal rompería «qué opciones hay de
+    GGAL», que es legítima. Queda anotado hasta tener uso real que lo decida."
+
 - q: "Cuanto subio el CCL hoy?"
   agentes: [dolares]
 

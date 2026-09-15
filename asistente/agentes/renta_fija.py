@@ -41,6 +41,9 @@ def _instrumento(b: dict, hoy: date) -> dict:
         meses = None
     return {
         "ticker": b.get("ticker_corto"),
+        # Sin la curva no se sabe contra QUÉ compara una TEA: la de un CER y la
+        # de un hard dollar no son el mismo número aunque se llamen igual.
+        "curva": b.get("pill"),
         # `emisor` es el NOMBRE (YPF S.A.); `emisor_tipo`, la categoría
         # (soberano · provincial · corporativo · bcra). Son dos datos distintos.
         "emisor": b.get("emisor"),
@@ -115,12 +118,19 @@ def _emisores_de(filas: list[dict]) -> list[dict]:
             for n, c in sorted(cuenta.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
-def _es_del_emisor(fila: dict, buscado: str) -> bool:
-    """¿Esta fila es de ese emisor? Se compara por NOMBRE normalizado y por
-    pedazo: el usuario escribe «YPF» y en la base dice «YPF S.A.». Al revés no
-    vale (un nombre entero no matchea una sigla suelta), así que el que se
-    contiene es siempre el buscado."""
-    return buscado in " ".join((fila.get("emisor") or "").split()).upper()
+def clave_emisor(nombre: str | None) -> str:
+    """El nombre de un emisor, normalizado para comparar: sin espacios de más,
+    en mayúsculas. Lo usan renta fija y cartera: un solo criterio o el mismo
+    emisor se parea distinto según quién pregunte (REGLA #9)."""
+    return " ".join(str(nombre or "").split()).upper()
+
+
+def es_del_emisor(fila: dict, buscado: str) -> bool:
+    """¿Esta fila es de ese emisor? Por NOMBRE normalizado y por PEDAZO: el
+    usuario escribe «YPF» y en la base dice «YPF S.A.». Al revés no vale (un
+    nombre entero no matchea una sigla suelta), así que el que se contiene es
+    siempre el buscado."""
+    return buscado in clave_emisor(fila.get("emisor"))
 
 
 def metricas_por_ticker() -> dict[str, dict]:
@@ -192,10 +202,10 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
     filas = _ordenar([_instrumento(b, hoy) for b in bonos], ordenar_por)
     emisores = _emisores_de(filas)
     if emisor is not None:
-        buscado = " ".join(str(emisor).split()).upper()
+        buscado = clave_emisor(emisor)
         if not buscado:
             return {"error": "`emisor` llegó vacío: o mandás un nombre o no mandás el campo"}
-        filas = [f for f in filas if _es_del_emisor(f, buscado)]
+        filas = [f for f in filas if es_del_emisor(f, buscado)]
         if not filas:
             return {"error": f"en la curva {curva} no hay ningún bono de un emisor que "
                              f"contenga {emisor!r}",

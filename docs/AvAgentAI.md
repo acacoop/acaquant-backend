@@ -47,7 +47,7 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 
 | Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |
 |---|---|---|---|---|---|
-| `cartera` | una cuenta | | qué TIENE: títulos, nominales, valuación, rendimiento, cobros | `tenencia_actual`, `cobros_futuros` | cuenta |
+| `cartera` | una cuenta | | qué TIENE: títulos, nominales, valuación, rendimiento, cobros, y qué opciones hay para rotar de un emisor a otro | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
 | `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
 | `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor), qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
@@ -308,11 +308,21 @@ argumento, sumada a `CONTROLES`.
 propio `Agente` y corre `grafo.subgrafo(agente).invoke(...)`. No hay que tocar
 el grafo principal.
 
-**Un cruce entre agentes** («cuánto rinden los bonos que tengo»): lo hace el
-CÓDIGO, no un modelo. Un agente expone un helper de datos (no una herramienta:
-`renta_fija.metricas_por_ticker`) y la herramienta del otro lo usa
-(`tenencia_actual` trae TEA, paridad, duration y vencimiento por título). Así
-ningún proveedor ve datos del otro agente.
+**Un cruce entre agentes** («cuánto rinden los bonos que tengo», «qué opciones
+tengo para rotar de YPF a Vista»): lo hace el CÓDIGO, no un modelo. Un agente
+expone un helper de datos (no una herramienta: `renta_fija.metricas_por_ticker`,
+`renta_fija.es_del_emisor`) y la herramienta del otro lo usa. Un cruce entre
+dominios es un `import`, no una conversación entre modelos: ningún proveedor ve
+datos del otro agente y no hay una segunda llamada.
+
+La herramienta de cruce vive en el agente del dato **más sensible** (por eso
+`opciones_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
+cuenta, y solo los agentes con sujeto cuenta pasan por `permitido.FILTRO_SQL`).
+
+**Todo lo que haya que restar, promediar u ordenar lo hace la herramienta**, y
+viaja ya resuelto (`delta_tea_pp`, `resumen`): el modelo no calcula, así que un
+cruce sin los deltas hechos termina en dos párrafos pegados en vez de una
+comparación.
 
 ## 11. Seguridad
 

@@ -9,12 +9,13 @@ from typing import Literal
 from asistente import estado as EST
 from asistente import permitido
 from asistente.agente import COMUN, Agente
-from asistente.agentes.renta_fija import metricas_por_ticker
+from asistente.agentes.renta_fija import clave_emisor, es_del_emisor, metricas_por_ticker
 from core.postgres import get_pool
 
 MAX_DIAS = 730
 MAX_PAGOS = 300
 MAX_POSICIONES = 200
+MAX_ALTERNATIVAS = 20
 HORIZONTES = ("t1", "t0")
 
 
@@ -325,12 +326,137 @@ def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
     }
 
 
+def _mirable(f: dict) -> bool:
+    """¿Este título sirve para comparar rendimientos? Necesita TEA y que no sea
+    ruido (un bono que vence en días tiene una TEA anualizada que no compara
+    con nada)."""
+    return f.get("tea_pct") is not None and not f.get("tasa_ruido")
+
+
+def _delta(a, b, dec: int = 2):
+    return None if a is None or b is None else round(a - b, dec)
+
+
+def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> dict:
+    """Qué opciones hay para cambiar los títulos de un emisor por los de otro.
+
+    Compara RENDIMIENTOS, no plata: acá no hay nominales, ni valuación, ni
+    cuántos entran. Contesta «qué alternativas tengo para rotar de YPF a
+    Vista», «qué hay de Vista mejor que lo que tengo de YPF».
+
+    Las alternativas se buscan en la MISMA CURVA que el título de referencia:
+    la TEA de un CER y la de un hard dollar no son el mismo número.
+
+    QUÉ DEVUELVE:
+      · `tenes` — tus títulos de `desde_emisor`: ticker, curva, `tea_pct`,
+        `duration`, `paridad_pct`, `vencimiento`.
+      · `referencia` — contra qué título tuyo se calcularon los deltas: el que
+        MENOS rinde, que es el candidato natural a salir. Decí cuál es.
+      · `alternativas` — los de `hacia_emisor` en esa curva, de mejor a peor
+        por `delta_tea_pp` (cuánto MÁS rinde que la referencia, en puntos) y
+        con `delta_duration` (positivo = estirás el plazo). Ya restados.
+      · `sin_tasa` — tuyos de ese emisor que no se pudieron comparar.
+      · Un delta positivo NO es una recomendación: mirá también la duration.
+
+    Args:
+        cuenta: el `id_cuenta` a mirar.
+        desde_emisor: de qué emisor son los títulos que se querrían dejar.
+        hacia_emisor: de qué emisor se buscan alternativas. Va por pedazo del
+            nombre («YPF» encuentra «YPF S.A.»).
+    """
+    try:
+        permitido.parametros()
+    except permitido.SinPermiso:
+        return permitido.como_error()
+    pedida, err = _cuenta_habilitada(cuenta)
+    if err:
+        return err
+    desde, hacia = clave_emisor(desde_emisor), clave_emisor(hacia_emisor)
+    if not desde or not hacia:
+        return {"error": "hacen falta los dos emisores: de cuál salir y hacia cuál mirar"}
+
+    tenencia = tenencia_actual(pedida)
+    if "error" in tenencia:
+        return tenencia
+    try:
+        mercado = metricas_por_ticker()
+    except Exception as e:
+        return {"error": f"sin datos de mercado, no puedo comparar: {type(e).__name__}: {e}"}
+
+    # Del lado de la cuenta el emisor puede venir escrito distinto que en el
+    # master de curvas. Se acepta cualquiera de los dos: perder un título por
+    # una diferencia de string sería contestar que no tenés algo que tenés.
+    mios = [p for p in tenencia.get("posiciones") or []
+            if es_del_emisor(p, desde) or es_del_emisor(mercado.get(p["ticker"]) or {}, desde)]
+    if not mios:
+        hay = sorted({e for p in tenencia.get("posiciones") or []
+                      if (e := clave_emisor(p.get("emisor")))})
+        return {"error": f"la cuenta {pedida} no tiene títulos de un emisor que contenga "
+                         f"{desde_emisor!r}",
+                "emisores_en_la_cuenta": hay}
+
+    tenes = [{"ticker": p["ticker"], "curva": (mercado.get(p["ticker"]) or {}).get("curva"),
+              "tea_pct": p.get("tea_pct"), "duration": p.get("duration"),
+              "paridad_pct": p.get("paridad_pct"), "vencimiento": p.get("vencimiento"),
+              "tasa_ruido": p.get("tasa_ruido", False)} for p in mios]
+    comparables = [f for f in tenes if _mirable(f) and f["curva"]]
+    if not comparables:
+        return {"error": f"tenés títulos de {desde_emisor} pero ninguno con tasa comparable hoy",
+                "tenes": tenes,
+                "que_hacer": "Decilo así: no es que no haya alternativas, es que no hay con "
+                             "qué compararlas."}
+
+    # El que menos rinde es el candidato natural a salir, y es contra ése que
+    # los deltas significan algo. Se nombra: el modelo no lo tiene que deducir.
+    ref = min(comparables, key=lambda f: f["tea_pct"])
+    otros = [m for m in mercado.values()
+             if es_del_emisor(m, hacia) and m.get("curva") == ref["curva"] and _mirable(m)]
+    if not otros:
+        en_curva = sorted({e for m in mercado.values()
+                           if m.get("curva") == ref["curva"] and (e := clave_emisor(m.get("emisor")))})
+        return {"error": f"no hay títulos de {hacia_emisor!r} con tasa en la curva "
+                         f"{ref['curva']}, que es donde está {ref['ticker']}",
+                "tenes": tenes, "referencia": ref["ticker"], "emisores_en_esa_curva": en_curva}
+
+    alternativas = sorted(
+        ({"ticker": m["ticker"], "emisor": m.get("emisor"), "curva": m.get("curva"),
+          "tea_pct": m.get("tea_pct"), "duration": m.get("duration"),
+          "paridad_pct": m.get("paridad_pct"), "vencimiento": m.get("vencimiento"),
+          "delta_tea_pp": _delta(m.get("tea_pct"), ref["tea_pct"]),
+          "delta_duration": _delta(m.get("duration"), ref["duration"])} for m in otros),
+        key=lambda f: -(f["delta_tea_pp"] or 0))
+    return {
+        "cuenta": pedida,
+        "desde_emisor": desde_emisor,
+        "hacia_emisor": hacia_emisor,
+        "curva": ref["curva"],
+        "tenes": tenes,
+        "referencia": {"ticker": ref["ticker"], "tea_pct": ref["tea_pct"],
+                       "duration": ref["duration"],
+                       "por_que": "es el que menos rinde de los tuyos de ese emisor"},
+        "alternativas": alternativas[:MAX_ALTERNATIVAS],
+        "cuantas": len(alternativas),
+        "truncado": len(alternativas) > MAX_ALTERNATIVAS,
+        "sin_tasa": [f["ticker"] for f in tenes if not _mirable(f)],
+        "_tabla": {
+            "campo": "alternativas",
+            "columnas": ["ticker", "vencimiento", "tea_pct", "delta_tea_pp", "duration",
+                         "delta_duration"],
+        },
+    }
+
+
 # ── el agente ───────────────────────────────────────────────────────────────
 
 _INSTRUCCION = """
 Si el usuario ya nombró una cuenta —en esta pregunta o antes: la que está en
 foco—, usala. Si no hay ninguna nombrada ni en foco y hay más de una
 habilitada, preguntale cuál quiere: no elijas vos.
+
+Cuando muestres opciones para rotar, PRESENTÁS lo que sale de los números, no
+aconsejás: quién decide es el operador. Decí siempre el trade-off completo —
+más tasa con más duration es más plazo, no una ganancia gratis— y nombrá
+contra qué título tuyo se está comparando.
 """
 
 
@@ -352,9 +478,10 @@ AGENTE = Agente(
              "valen, cuánto rinden, qué cobra y cuándo. Todo lo que se mide en plata y "
              "nominales. No sabe quién es el titular ni qué operó.",
     instruccion=_instruccion,
-    herramientas=(tenencia_actual, cobros_futuros),
+    herramientas=(tenencia_actual, cobros_futuros, opciones_para_rotar),
     senales=("tengo", "tenemos", "tenencia", "tenencias", "cartera", "carteras",
              "portafolio", "portafolios", "portfolio", "posicion", "posiciones",
+             "rotar", "rotarlo", "rotarlos", "rotacion", "rotaciones",
              "nominal", "nominales", "cobro", "cobros", "cobra", "cobrar", "cupon", "cupones",
              "valuacion", "patrimonio", "mio", "mia", "mis"),
     foco=("cuenta",),

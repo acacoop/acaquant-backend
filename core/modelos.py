@@ -201,10 +201,15 @@ def resolver(tarea: str) -> Tarea:
 
 
 def ficha_de(tarea: str) -> dict:
+    """La tarea como la muestra el panel del LAB. `declarado` es lo que dice el
+    código (a lo que vuelve «default»), aparte de lo que corre hoy."""
     t = resolver(tarea)
+    cfg = TAREAS[tarea]
     return {"tarea": t.nombre, "para_que": t.para_que, "proveedor": t.proveedor,
             "modelo": t.modelo, "elegido": t.elegido, "datos_negocio": t.datos_negocio,
-            "usa_herramientas": t.usa_herramientas}
+            "usa_herramientas": t.usa_herramientas,
+            "declarado": {"proveedor": cfg.get("proveedor") or PROVEEDOR_DEFAULT,
+                          "tier": cfg.get("tier", "flash")}}
 
 
 def permitido_salir(tarea: Tarea) -> None:

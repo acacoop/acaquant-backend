@@ -60,9 +60,9 @@ con tope de 6 vueltas.
 5. `finalizar`: historial = anterior + pregunta + lo nuevo de cada mundo + la junta.
    El control busca cada número de la respuesta en los datos.
 
-Respuesta al front: `respuesta`, `falta`, `error`, `mensajes`, `estado`, `sesion`
-(con su costo), `mundos`, `eventos` (cada paso, con el agente que lo hizo),
-`control`, tokens y vueltas.
+Respuesta al front: `respuesta`, `falta`, `error`, `estado`, `sesion` (con su
+costo), `titulo`, `guardada`, `mundos`, `eventos` (cada paso, con el agente que
+lo hizo), `control`, tokens y vueltas.
 
 ## 5. Ruteo de modelos
 
@@ -73,8 +73,15 @@ Una tarea desconocida no corre.
 | Tarea | Default | Datos | Por qué |
 |---|---|---|---|
 | `asistente_despacho` | DeepSeek flash | ninguno | clasifica, no contesta |
-| `asistente_cuenta` | OpenAI pro | negocio | herramientas + esquema + no entrena |
-| `asistente_mercado` | DeepSeek flash | público | herramientas; sin esquema, contesta prosa |
+| `asistente_cuenta` | OpenAI pro | negocio | herramientas + no entrena |
+| `asistente_mercado` | DeepSeek flash | público | herramientas |
+
+La junta (sin herramientas) recibe el esquema `{respuesta, falta}` si el
+proveedor lo soporta. Un agente con herramientas no: OpenAI, con
+`response_format` en Chat Completions, exige que toda herramienta sea `strict`
+(medido en el LAB: «Only `strict` function tools can be auto-parsed»), y
+DeepSeek no acepta esquema. Esos contestan en prosa y marcan lo que no pudieron
+con un último renglón `Falta: …` que `esquema.leer` entiende.
 
 `datos: negocio` exige un proveedor que no entrena (`permitido_salir`), hoy
 aflojado por `IA_PERMITE_PROVEEDOR_QUE_ENTRENA` (ver `docs/SECURITY.md`). Sin la
@@ -97,28 +104,39 @@ Un mundo es un `Agente` en `agentes.py` con su tarea en `core/modelos.TAREAS`, s
 instrucción, sus herramientas y su `describe` (lo que lee el despacho). Se suma
 al registro `MUNDOS`. Nada más cambia: el grafo lo enchufa solo.
 
-## 8. Memoria y estado
+## 8. Memoria, estado y conversaciones
 
-- El historial vive en el navegador y va y vuelve en cada pregunta como dicts del
-  proveedor. `preparar` lo poda (8 turnos, 300 mensajes) y achica los resultados
-  viejos. La respuesta devuelve el historial ya podado.
-- Cada mensaje del historial lleva la marca `mundo` (cuenta, mercado; la junta
-  queda como cuenta). Un mundo recibe solo las preguntas y lo marcado con su
-  nombre: lo que trajo cuenta nunca llega al proveedor de mercado. La marca no
-  viaja al proveedor.
+- Una conversación es una fila de `ia.conversaciones` (`sesiones.py`) con dueño
+  (el email), título (la primera pregunta), `memoria` (lo que ve el modelo:
+  dicts del proveedor, podados a 8 turnos y 300 mensajes, resultados viejos
+  achicados), `foco` y `turnos` (lo que ve la persona: pregunta, respuesta,
+  falta, error, mundos; nunca se poda). El navegador manda solo la pregunta y
+  el id; sin id empieza una nueva. Retención 90 días sin retomar
+  (`jobs/cleanup_retencion`).
+- No se usa el checkpointer de LangGraph: guarda el estado interno de una
+  corrida del grafo, y una corrida es una pregunta. La conversación es un dato
+  del negocio, con dueño, lista y borrado: una tabla nuestra.
+- Cada mensaje de la memoria lleva la marca `mundo` (cuenta, mercado; la junta
+  queda como cuenta) y cada pregunta la marca `mundos` (quiénes la atendieron).
+  Un mundo recibe solo lo marcado con su nombre y las preguntas que atendió:
+  lo que trajo cuenta nunca llega al proveedor de mercado, y una pregunta que
+  fue solo a cuenta no la ve mercado después (la tomaba como pendiente). Un
+  mundo que no pudo contestar deja igual su turno cerrado. Las marcas no viajan
+  al proveedor.
 - El foco (`estado`) es un dict aparte: hoy `cuenta`. Lo escribe el mundo cuenta,
   lo lee su instrucción. Valores fuera de la lista cerrada no entran.
-- La sesión es un uuid que nace en el backend y vuelve con el historial; cada
-  llamada al modelo lo escribe en `ia.llamadas.sesion`.
+- La sesión es el uuid de la conversación; cada llamada al modelo lo escribe en
+  `ia.llamadas.sesion`, y de ahí sale el costo por conversación.
 
 ## 9. Seguridad
 
-- Endpoint admin-only (`/api/agente/lab/preguntar`).
+- Endpoints admin-only (`/api/agente/lab/*`). Una conversación solo la lee,
+  retoma y borra su dueño.
 - Cuentas: solo `ASISTENTE_CUENTAS`. Toda consulta lleva `FILTRO_SQL`; la puerta
   corta cualquier `cuenta` no habilitada antes de ejecutar; una herramienta de
   mercado no puede recibir `cuenta` (test).
 - Datos de negocio solo salen por la tarea `asistente_cuenta`.
-- Lo que llega del navegador (historial, foco, sesión) se valida por forma.
+- Lo que llega del navegador (pregunta, sesión) se valida por forma.
 
 ## 10. Observabilidad
 
@@ -140,7 +158,6 @@ falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
 ## 12. Lo que falta para el MVP
 
 - Probar en el LAB con los proveedores reales: DeepSeek en mercado y despacho.
-- Despacho por reglas para el caso común (foco con cuenta y sin palabras de mercado) antes de llamar al modelo.
+- Despacho por reglas para el caso común, antes de llamar al modelo (diseño en discusión).
 - Eval por tarea: 15 preguntas con la herramienta y los argumentos esperados.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).
-- Persistir conversaciones (checkpointer en Postgres) cuando haga falta reabrirlas.

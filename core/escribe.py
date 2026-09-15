@@ -113,6 +113,9 @@ POR_OCASION: dict[str, str] = {
     "agente.silenciados":
         "escribe cuando una persona aprieta «no me interesa». Que nadie "
         "silencie nada en una semana es lo esperable",
+    "ia.conversaciones":
+        "una conversación del asistente existe cuando alguien le pregunta algo "
+        "en el LAB; una semana sin preguntas es una semana sin preguntas",
     "mercado.adhoc_subscriptions":
         "los símbolos que alguien pidió a mano desde OPERAR (o desde el botón "
         "«pedir pata» del agente): si nadie pide ninguno, no hay nada que "

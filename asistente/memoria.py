@@ -114,20 +114,30 @@ def a_dicts(mensajes: list[BaseMessage]) -> list[dict]:
     return out
 
 
+MARCAS = ("mundo", "mundos")
+
+
 def de_mundo(historial: list[dict], mundo: str) -> list[dict]:
-    """Lo que un mundo puede ver del historial: las preguntas y lo marcado con
-    su nombre. Lo que escribió otro mundo no le llega."""
-    return [d for d in historial or []
-            if d.get("role") == "user" or d.get("mundo") == mundo]
+    """Lo que un mundo puede ver del historial: las preguntas que atendió (o
+    las que no dicen quién las atendió) y lo marcado con su nombre. Lo que
+    escribió otro mundo, y lo que se le preguntó solo a otro, no le llega."""
+    out = []
+    for d in historial or []:
+        if d.get("role") == "user":
+            if mundo in (d.get("mundos") or [mundo]):
+                out.append(d)
+        elif d.get("mundo") == mundo:
+            out.append(d)
+    return out
 
 
 def desde_dicts(historial: list[dict]) -> list[BaseMessage]:
     """Dicts del proveedor (el historial que manda el navegador) → mensajes de
-    LangChain. Los `system` no viajan en el historial: se ignoran. La marca
-    `mundo` es del historial, no del proveedor: se saca."""
+    LangChain. Los `system` no viajan en el historial: se ignoran. Las marcas
+    (`MARCAS`) son del historial, no del proveedor: se sacan."""
     out: list[BaseMessage] = []
     for d in historial or []:
-        d = {k: v for k, v in d.items() if k != "mundo"}
+        d = {k: v for k, v in d.items() if k not in MARCAS}
         rol = d.get("role")
         if rol == "user":
             out.append(HumanMessage(content=str(d.get("content") or "")))

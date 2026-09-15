@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **519 endpoints** montados en `api.main.app`, en **35 routers**.
-- **195 escriben** (POST/PUT/PATCH/DELETE); 324 son de solo lectura.
+- **522 endpoints** montados en `api.main.app`, en **35 routers**.
+- **196 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 19 | 11 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 22 | 12 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
@@ -2242,7 +2242,8 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 | `core/modelos.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
 | `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 4 tareas (`agente_emisor`, `asistente_despacho`, `asistente_cuenta`, `asistente_mercado`) |
 | `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta, y `sesion` (a qué conversación del asistente pertenece; NULL en las demás tareas). Se llamaba `ia.trazas` | la lee la tab LAB |
-| `ia.config` | ajustes editables sin deploy. Hoy guarda UNA cosa: qué modelo cumple cada rol (`modelo_flash`, `modelo_pro`) | la escribe la tab LAB |
+| `ia.config` | ajustes editables sin deploy: qué proveedor/modelo corre cada tarea (`tarea:<nombre>`) y la tarifa de cada modelo (`precio:<modelo>`) | la escribe la tab LAB |
+| `ia.conversaciones` | las conversaciones del asistente: dueño, título, la memoria que ve el modelo (podada), el foco y los turnos que ve la persona (enteros). 90 días sin retomar y se borra | la escribe y la lee la tab LAB |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
 
 **Por qué se conservó** (decisión del user, 2026-08-28, al ver que el borrado se
@@ -2313,7 +2314,10 @@ nadie lo miraba.
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Recibe `historial`, `estado` y `sesion` tal cual los devolvió la anterior. Devuelve la respuesta, `eventos` (cada paso del grafo, con el agente), `mundos`, y `sesion` con el costo de la charla |
+> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona, dentro de una conversación (`sesion`; vacía = nueva). La memoria vive en `ia.conversaciones`. Devuelve la respuesta, `eventos` (cada paso del grafo, con el agente), `mundos`, `titulo` y `sesion` con el costo de la charla |
+> | `GET /api/agente/lab/sesiones` | las conversaciones del usuario, la más reciente primero, con preguntas y tokens |
+> | `GET /api/agente/lab/sesiones/{sesion}` | una conversación entera para reabrirla: turnos, foco y costo. 404 si no es del usuario |
+> | `POST /api/agente/lab/sesiones/{sesion}/borrar` | la borra (solo el dueño) |
 > | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas` (lo cacheado a precio de caché), el hit rate, las tarifas, y con qué proveedor/modelo corre cada tarea |
 > | `POST /api/agente/lab/modelo` | fija proveedor y modelo de UNA tarea; prueba antes de guardar (si la tarea usa herramientas, el modelo tiene que pedir una). Sin `modelo`, vuelve al default |
 > | `POST /api/agente/lab/precio` | la tarifa de un modelo: entrada · entrada cacheada · salida, USD por millón |

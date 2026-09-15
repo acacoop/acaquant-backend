@@ -15,7 +15,7 @@ partir de dos de ellos con frescuras distintas.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email, require_admin
@@ -243,24 +243,47 @@ def correr(body: Correr):
 
 class Preguntar(BaseModel):
     pregunta: str = Field(..., min_length=1, max_length=2000)
-    # Historial, foco y sesión: tal cual los devolvió la respuesta anterior. La
-    # conversación la sostiene el navegador. El tope del historial es de sanidad:
-    # el asistente lo poda antes de usarlo y devuelve el podado.
-    historial: list[dict] = Field(default_factory=list, max_length=600)
-    estado: dict = Field(default_factory=dict)
+    # La conversación a la que pertenece. Vacía = empieza una nueva. La memoria
+    # y el foco viven en `ia.conversaciones`, no en el navegador.
     sesion: str = Field("", max_length=64)
 
 
 @router.post("/lab/preguntar")
 def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
-    """Una pregunta al asistente. Devuelve la respuesta, el historial y el foco
-    para la siguiente, los eventos del grafo paso a paso y el costo de la
-    conversación."""
-    from asistente import grafo, panel
+    """Una pregunta dentro de una conversación del usuario. Devuelve la
+    respuesta, los eventos del grafo paso a paso, el foco y el costo de la
+    conversación; la conversación queda guardada."""
+    from asistente import sesiones
 
-    r = grafo.preguntar(body.pregunta, usuario=email, historial=body.historial,
-                        estado=body.estado, sesion=body.sesion)
-    return {**r, "sesion": panel.conversacion(r["sesion"])}
+    return sesiones.preguntar(body.pregunta, usuario=email, sesion=body.sesion or None)
+
+
+@router.get("/lab/sesiones")
+def lab_sesiones(email: str = Depends(get_user_email)):
+    """Las conversaciones del usuario, la más reciente primero."""
+    from asistente import sesiones
+
+    return sesiones.listar(email)
+
+
+@router.get("/lab/sesiones/{sesion}")
+def lab_sesion(sesion: str, email: str = Depends(get_user_email)):
+    """Una conversación entera para reabrirla: turnos, foco y costo."""
+    from asistente import sesiones
+
+    c = sesiones.abrir(sesion, email)
+    if c is None:
+        raise HTTPException(404, "esa conversación no existe o no es tuya")
+    return c
+
+
+@router.post("/lab/sesiones/{sesion}/borrar")
+def lab_sesion_borrar(sesion: str, email: str = Depends(get_user_email)):
+    """Borra una conversación del usuario. POST y no DELETE: el proxy del
+    front habla GET y POST, nada más."""
+    from asistente import sesiones
+
+    return sesiones.borrar(sesion, email)
 
 
 # ── EL PANEL DEL LAB — qué gastamos y con qué modelo corremos ───────────────

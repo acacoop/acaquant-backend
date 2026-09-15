@@ -3569,6 +3569,25 @@ ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS sesion text;
 -- falta: cuesta lo mismo sobre una tabla chica y no muerde sobre una grande.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ia_llamadas_sesion_ts ON ia.llamadas (sesion, ts) WHERE sesion IS NOT NULL;
 
+-- LAS CONVERSACIONES DEL ASISTENTE (asistente/sesiones.py). Una fila por
+-- conversación, con dueño. `memoria` es lo que ve el modelo (podado a 8
+-- turnos, con los resultados viejos achicados); `turnos` es lo que ve la
+-- persona (pregunta, respuesta, falta, error, mundos), entero. Dos columnas
+-- porque son dos lectores con dos necesidades: reabrir una charla de veinte
+-- preguntas tiene que mostrar las veinte. Retención: jobs/cleanup_retencion.
+CREATE TABLE IF NOT EXISTS ia.conversaciones (
+    sesion         text PRIMARY KEY,
+    usuario        text NOT NULL,
+    titulo         text NOT NULL,
+    memoria        jsonb NOT NULL DEFAULT '[]'::jsonb,
+    foco           jsonb NOT NULL DEFAULT '{}'::jsonb,
+    turnos         jsonb NOT NULL DEFAULT '[]'::jsonb,
+    preguntas      integer NOT NULL DEFAULT 0,
+    creada_at      timestamptz NOT NULL DEFAULT now(),
+    actualizada_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_ia_conversaciones_usuario ON ia.conversaciones (usuario, actualizada_at DESC);
+
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_ts         ON ia.llamadas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_tarea_ts   ON ia.llamadas (tarea, ts);
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_usuario_ts ON ia.llamadas (usuario, ts);

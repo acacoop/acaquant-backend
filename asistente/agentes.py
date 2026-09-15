@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from asistente import esquema as ESQ
 from asistente import herramientas as H
 
 
@@ -48,7 +49,7 @@ moneda, decila una vez y no en cada renglón.
 Cuando enumeres, un renglón corto por ítem. No repitas en cada renglón lo que
 ya dijiste arriba. Si un resultado trae una tabla, la dibuja la pantalla: no
 la enumeres vos. Contestá en una o dos frases y dejá que la tabla hable.
-"""
+""" + ESQ.INSTRUCCION + "\n"
 
 _CUENTA = """
 Si el usuario ya nombró una cuenta —en esta pregunta o antes: la que está en

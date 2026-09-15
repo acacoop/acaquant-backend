@@ -67,7 +67,7 @@ def main() -> int:
     ap.add_argument("--callado", action="store_true", help="sólo la respuesta")
     a = ap.parse_args()
 
-    from asistente import grafo, permitido
+    from asistente import permitido, sesiones
 
     # ⚠️ EL ALCANCE, ANTES DE PREGUNTAR NADA. Saber qué cuentas ve el asistente
     # no puede depender de acordarse de mirar el `.env`: si no se dice acá, una
@@ -90,7 +90,7 @@ def main() -> int:
 
     # ── Una sola pregunta ──
     if a.pregunta:
-        r = grafo.preguntar(" ".join(a.pregunta), usuario=a.usuario)
+        r = sesiones.preguntar(" ".join(a.pregunta), usuario=a.usuario)
         mostrar(r)
         if a.callado:
             print(r["respuesta"] or r["error"])
@@ -100,11 +100,9 @@ def main() -> int:
             _pie(r)
         return 0 if r["respuesta"] else 1
 
-    # ── Conversación. `historial` es lo que hace que la segunda pregunta
-    # pueda decir «y de ese, ¿cuánto tengo?» sin repetir de qué habla. ──
+    # ── Conversación. La sesión guardada es lo que hace que la segunda
+    # pregunta pueda decir «y de ese, ¿cuánto tengo?» sin repetir de qué habla. ──
     print(f"{NEGRITA}Asistente de la mesa{FIN} {GRIS}— Ctrl-C o 'chau' para salir.{FIN}")
-    historial: list[dict] = []
-    foco: dict = {}
     sesion: str | None = None
     while True:
         try:
@@ -116,17 +114,15 @@ def main() -> int:
             continue
         if pregunta.lower() in ("chau", "salir", "exit", "quit"):
             return 0
-        r = grafo.preguntar(pregunta, usuario=a.usuario, historial=historial,
-                            estado=foco, sesion=sesion)
+        r = sesiones.preguntar(pregunta, usuario=a.usuario, sesion=sesion)
         mostrar(r)
-        foco, sesion = r["estado"], r["sesion"]
+        sesion = r["sesion"]["id"]
         if r["error"]:
             print(f"\n{ROJO}{r['error']}{FIN}")
         if a.callado and r["respuesta"]:
             print(r["respuesta"])
         if not a.callado:
             _pie(r)
-        historial = r["mensajes"]
 
 
 if __name__ == "__main__":

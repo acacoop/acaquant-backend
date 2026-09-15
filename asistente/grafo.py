@@ -65,11 +65,14 @@ def _evento(agente: Agente, tipo: str, **datos) -> dict:
 NO_SALE = (KeyError, modelos.SinClave, modelos.RuteoInseguro)
 
 
-def _modelo_de(agente: Agente, s: dict, traza: Traza, *, esquema: dict | None = ESQ.FORMATO):
-    """El modelo de un agente, con su traza. Levanta `NO_SALE` si no puede salir."""
+def _modelo_de(agente: Agente, s: dict, traza: Traza, *, esquema: dict | None = None):
+    """El modelo de un agente, con su traza. Levanta `NO_SALE` si no puede salir.
+    El esquema y las herramientas se excluyen (ver `esquema.py`): con
+    herramientas, el esquema que pida el que llama se ignora."""
+    con_tools = bool(agente.herramientas)
     m = modelos.modelo(agente.tarea, usuario=s.get("usuario"), sesion=s.get("sesion"),
-                       esquema=esquema, traza=traza)
-    if agente.herramientas:
+                       esquema=None if con_tools else esquema, traza=traza)
+    if con_tools:
         m = m.bind_tools([H.como_tool(f) for f in agente.herramientas])
     return m
 
@@ -88,7 +91,7 @@ def subgrafo(agente: Agente):
         entrada = [SystemMessage(content=agente.instruccion(s.get("foco") or {}))] + list(s["mensajes"])
         try:
             tr = _traza(agente, s)
-            msg = _modelo_de(agente, s, tr).invoke(entrada)
+            msg = _modelo_de(agente, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
         except NO_SALE as e:
             eventos.append(_evento(agente, "corte", motivo=f"la llamada no salió: {e}"))
             return {"vueltas": 1, "eventos": eventos, "error": f"No se pudo llamar al modelo: {e}"}
@@ -270,6 +273,11 @@ def nodo_mundo(nombre: str):
         })
         # Lo nuevo de este mundo, sin la pregunta (la agrega `finalizar`, una vez).
         nuevos = memoria.a_dicts(list(r["mensajes"])[len(propio) + 1:])
+        # Un mundo que no llegó a contestar deja igual su turno cerrado: si la
+        # pregunta quedara sin respuesta en su historial, la próxima vez la
+        # tomaría como pendiente y la contestaría de nuevo.
+        if r.get("error") and not any(d.get("role") == "assistant" for d in nuevos):
+            nuevos.append({"role": "assistant", "content": f"No pude contestar: {r['error']}"})
         return {
             "salidas": {nombre: {
                 "respuesta": r.get("respuesta"), "falta": r.get("falta"),
@@ -300,7 +308,8 @@ def junta(s: Estado) -> dict:
     partes = []
     for m in orden:
         u = salidas[m]
-        partes.append(f"## {m}\nrespuesta: {u.get('respuesta') or u.get('error') or '(sin respuesta)'}\n"
+        dijo = u.get("respuesta") or (f"no contestó ({u['error']})" if u.get("error") else "(sin respuesta)")
+        partes.append(f"## {m}\nrespuesta: {dijo}\n"
                       f"datos: {json.dumps(u.get('datos') or [], ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]}")
     entrada = [SystemMessage(content=AG.JUNTA.instruccion(s.get("foco") or {})),
                HumanMessage(content=f"Pregunta: {s['pregunta']}\n\n" + "\n\n".join(partes))]
@@ -325,7 +334,10 @@ def junta(s: Estado) -> dict:
 
 def finalizar(s: Estado) -> dict:
     salidas = s.get("salidas") or {}
-    mensajes = list(s["historial"]) + [{"role": "user", "content": s["pregunta"]}]
+    # La pregunta queda marcada con los mundos que la atendieron: un mundo que
+    # no la vio no tiene por qué recibirla después (y contestarla tarde).
+    mensajes = list(s["historial"]) + [{"role": "user", "content": s["pregunta"],
+                                        "mundos": list(s["mundos"])}]
     for m in [*s["mundos"], "junta"]:
         # Cada mensaje queda marcado con su mundo; la junta corre como el mundo
         # de su tarea. La marca no viaja al proveedor (`memoria.desde_dicts`).

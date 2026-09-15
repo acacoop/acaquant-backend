@@ -707,15 +707,165 @@ def test_la_sesion_se_valida_por_forma():
         assert grafo.sesion_valida(raro) != raro
 
 
-def test_el_router_devuelve_el_costo_de_la_conversacion():
+def test_el_router_solo_recibe_pregunta_y_sesion_y_delega_en_sesiones():
     from api.routers import agente as R
-    from asistente import grafo, panel
+    from asistente import sesiones
 
-    with patch.object(grafo, "preguntar", return_value={"sesion": "s1", "respuesta": "ok"}), \
-         patch.object(panel, "conversacion", return_value={"id": "s1", "llamadas": 3}):
-        r = R.lab_preguntar(R.Preguntar(pregunta="x"), email="e")
-    assert r["sesion"] == {"id": "s1", "llamadas": 3} and r["respuesta"] == "ok"
-    R.Preguntar(pregunta="x", historial=[{"role": "user", "content": "a"}] * 500)
+    with patch.object(sesiones, "preguntar", return_value={"respuesta": "ok"}) as p:
+        r = R.lab_preguntar(R.Preguntar(pregunta="x", sesion=""), email="e")
+    assert r == {"respuesta": "ok"} and p.call_args.kwargs == {"usuario": "e", "sesion": None}
+    assert set(R.Preguntar.model_fields) == {"pregunta", "sesion"}, "la memoria vive en la base"
+
+
+# ── sesiones ────────────────────────────────────────────────────────────────
+
+
+class _Base:
+    """`ia.conversaciones` en memoria: lo que `sesiones` lee y escribe."""
+
+    def __init__(self):
+        self.filas: dict[str, dict] = {}
+
+    def cargar(self, sesion, usuario):
+        f = self.filas.get(sesion)
+        return (dict(f) if f and f["usuario"] == usuario else None), None
+
+    def guardar(self, sesion, usuario, *, titulo, memoria, foco, turnos):
+        self.filas[sesion] = {"sesion": sesion, "usuario": usuario, "titulo": titulo,
+                              "memoria": memoria, "foco": foco, "turnos": turnos}
+        return True
+
+
+def _conversar(base, pregunta, sesion=None, despacho="cuenta", usuario="t"):
+    from asistente import grafo, panel, sesiones
+    from core import modelos
+
+    with patch.object(sesiones, "cargar", base.cargar), patch.object(sesiones, "guardar", base.guardar), \
+         patch.object(panel, "conversacion", lambda s: {"id": s, "llamadas": 2}), \
+         patch.object(modelos, "modelo", _proveedor(despacho)), \
+         patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):
+        return sesiones.preguntar(pregunta, usuario=usuario, sesion=sesion)
+
+
+def test_una_conversacion_se_guarda_con_su_dueno_y_se_retoma_por_sesion(permiso):
+    """La memoria vive en la base: la segunda pregunta ve la primera sin que el
+    navegador mande nada más que el id. Los turnos quedan enteros y el título
+    es la primera pregunta."""
+    base = _Base()
+    r1 = _conversar(base, "¿qué tengo en la 805?")
+    sid = r1["sesion"]["id"]
+    assert r1["guardada"] and r1["titulo"] == "¿qué tengo en la 805?"
+    fila = base.filas[sid]
+    assert fila["usuario"] == "t" and fila["foco"] == {"cuenta": "805"}
+    assert [x["pregunta"] for x in fila["turnos"]] == ["¿qué tengo en la 805?"]
+    assert fila["turnos"][0]["mundos"] == ["cuenta"] and fila["turnos"][0]["respuesta"]
+
+    r2 = _conversar(base, "¿y en dólares?", sesion=sid)
+    assert r2["sesion"]["id"] == sid and r2["titulo"] == r1["titulo"]
+    assert len(base.filas[sid]["turnos"]) == 2
+    assert base.filas[sid]["memoria"][0]["content"] == "¿qué tengo en la 805?", "la memoria acumula"
+
+    # Otro usuario con el mismo id no la ve: arranca una conversación nueva.
+    r3 = _conversar(base, "hola", sesion=sid, usuario="otro")
+    assert r3["sesion"]["id"] != sid and base.filas[sid]["usuario"] == "t"
+
+
+def test_si_la_base_no_contesta_la_pregunta_igual_sale_y_lo_dice(permiso):
+    from asistente import grafo, panel, sesiones
+    from core import modelos
+
+    def roto(*a, **k):
+        return None, "no pude leer la conversación guardada"
+
+    with patch.object(sesiones, "cargar", roto), patch.object(sesiones, "guardar", lambda *a, **k: False), \
+         patch.object(panel, "conversacion", lambda s: {"id": s}), \
+         patch.object(modelos, "modelo", _proveedor("cuenta")), \
+         patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):
+        r = sesiones.preguntar("¿qué tengo?", usuario="t", sesion="a" * 32)
+    assert r["respuesta"] and r["guardada"] is False and "no pude leer" in r["aviso"]
+
+
+def test_abrir_listar_y_borrar_validan_la_sesion_por_forma():
+    from asistente import sesiones
+
+    assert sesiones.es_valida("a" * 32) and not sesiones.es_valida("a; DROP TABLE")
+    assert sesiones.cargar("raro", "t") == (None, None)
+    assert sesiones.borrar("raro", "t")["ok"] is False
+    assert sesiones._titulo("  x  " * 60).endswith("…") and len(sesiones._titulo("hola")) == 4
+
+
+# ── historial por mundo, esquema y herramientas ─────────────────────────────
+
+
+def test_una_pregunta_de_un_solo_mundo_no_le_llega_al_otro_despues(permiso):
+    """«¿la tenencia de la 805?» fue solo a cuenta. En la pregunta siguiente,
+    mercado no la recibe: sin este filtro la tomaba como pendiente y salía a
+    buscar la ficha del bono «805»."""
+    from asistente import memoria
+
+    r = _correr("¿la tenencia de la 805?", despacho="cuenta")
+    pregunta = r["mensajes"][0]
+    assert pregunta["role"] == "user" and pregunta["mundos"] == ["cuenta"]
+    assert memoria.de_mundo(r["mensajes"], "mercado") == []
+    assert [m["role"] for m in memoria.de_mundo(r["mensajes"], "cuenta")][:2] == ["user", "assistant"]
+    # Una pregunta sin marca (historial viejo) la ven todos.
+    assert memoria.de_mundo([{"role": "user", "content": "x"}], "mercado") == [{"role": "user", "content": "x"}]
+    assert all(k not in memoria.a_dicts(memoria.desde_dicts(r["mensajes"]))[0] for k in memoria.MARCAS)
+
+
+def test_un_mundo_que_no_pudo_contestar_cierra_su_turno(permiso):
+    from asistente import grafo
+    from core import modelos
+
+    with patch.object(modelos, "modelo", side_effect=modelos.SinClave("falta OPENAI_API_KEY")):
+        r = grafo.preguntar("¿qué tengo?", usuario="t")
+    cierres = [m for m in r["mensajes"] if m["role"] == "assistant"]
+    assert cierres and all(m["content"].startswith("No pude contestar") for m in cierres)
+
+
+def test_leer_entiende_el_renglon_falta_y_la_instruccion_lo_pide():
+    from asistente import agentes as AG
+    from asistente import esquema as ESQ
+
+    assert ESQ.leer("Tenés 2 bonos.\nFalta: los cupones, la herramienta falló") == \
+        {"respuesta": "Tenés 2 bonos.", "falta": "los cupones, la herramienta falló"}
+    assert ESQ.leer("Falta: todo") == {"respuesta": None, "falta": "todo"}
+    assert ESQ.leer("no falta nada") == {"respuesta": "no falta nada", "falta": None}
+    # Solo el último renglón: un «Falta:» en el medio es texto y no se come lo de abajo.
+    medio = "Tenés AL30.\nFalta: el precio.\nY te falta abonar el cupón de mayo."
+    assert ESQ.leer(medio) == {"respuesta": medio, "falta": None}
+    assert ESQ.leer("Hola.\n\nFalta: x\n\n") == {"respuesta": "Hola.", "falta": "x"}
+    assert ESQ.FALTA_MARCA in AG.CUENTA.instruccion({}) and ESQ.FALTA_MARCA in AG.MERCADO.instruccion({})
+
+
+def test_con_herramientas_nunca_viaja_el_esquema_y_sin_ellas_si():
+    """OpenAI con `response_format` exige herramientas `strict` y las nuestras
+    no lo son (medido: «Only `strict` function tools can be auto-parsed»)."""
+    from asistente import agentes as AG
+    from asistente import esquema as ESQ
+    from asistente import grafo
+    from core import modelos
+
+    pedidos = []
+
+    def fake(tarea, *, usuario=None, sesion=None, esquema=None, traza=None):
+        pedidos.append((tarea, esquema))
+        return _Falso("cuenta", tarea, esquema)
+
+    with patch.object(modelos, "modelo", fake):
+        grafo._modelo_de(AG.CUENTA, {}, None, esquema=ESQ.FORMATO)
+        grafo._modelo_de(AG.JUNTA, {}, None, esquema=ESQ.FORMATO)
+        grafo._modelo_de(AG.DESPACHO, {}, None)
+    assert pedidos == [("asistente_cuenta", None), ("asistente_cuenta", ESQ.FORMATO),
+                       ("asistente_despacho", None)]
+
+
+def test_la_ficha_de_una_tarea_dice_lo_declarado_para_el_panel():
+    from core import modelos
+
+    with patch.object(modelos, "ajustes", return_value={}):
+        f = modelos.ficha_de("asistente_cuenta")
+    assert f["declarado"] == {"proveedor": "openai", "tier": "pro"} and f["elegido"] is False
 
 
 # ── panel ───────────────────────────────────────────────────────────────────

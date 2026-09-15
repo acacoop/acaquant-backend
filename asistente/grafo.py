@@ -81,8 +81,10 @@ def _modelo_de(agente: Agente, s: dict, traza: Traza, *, esquema: dict | None = 
 
 
 def _traza(agente: Agente, s: dict) -> Traza:
+    """La traza de una llamada de este agente. Dato personal: sin extracto de texto."""
     t = modelos.resolver(agente.tarea)
-    return Traza(t.nombre, t.modelo, usuario=s.get("usuario"), sesion=s.get("sesion"))
+    return Traza(t.nombre, t.modelo, usuario=s.get("usuario"), sesion=s.get("sesion"),
+                 guardar_texto=not t.datos_personales)
 
 
 def subgrafo(agente: Agente):
@@ -124,8 +126,8 @@ def subgrafo(agente: Agente):
             eventos.append(_evento(agente, "pide", herramienta=nombre, argumentos=args))
             resultado = _ejecutar(agente, nombre, args)
             eventos.append(_evento(agente, "resultado", herramienta=nombre, resultado=resultado))
-            if agente.aprende_foco:
-                nuevo = EST.aprender(foco, args, resultado)
+            if agente.foco:
+                nuevo = EST.aprender(foco, args, resultado, claves=agente.foco)
                 if nuevo != foco:
                     eventos.append(_evento(agente, "estado", estado=nuevo, antes=foco))
                     foco = nuevo
@@ -271,6 +273,15 @@ def nodo_mundo(nombre: str):
     agente = MUNDOS[nombre]
 
     def correr(s: Estado) -> dict:
+        if not agente.herramientas:
+            # Modelado pero sin herramientas: sin datos no hay respuesta. Se
+            # dice con la misma forma que un mundo que erró, sin llamar a nadie.
+            texto = f"Todavía no puedo consultar {agente.nombre} ({agente.describe})"
+            return {"salidas": {nombre: {"respuesta": None, "falta": texto, "error": texto,
+                                         "crudo": None, "datos": [], "mensajes": [
+                                             {"role": "assistant", "content": f"No pude contestar: {texto}"}]}},
+                    "foco": {}, "eventos": [_evento(agente, "corte", motivo="mundo sin herramientas")],
+                    "vueltas": 0, "tokens_in": 0, "tokens_out": 0, "llamadas": []}
         # Cada mundo ve del historial solo lo suyo y las preguntas: lo que
         # contestó otro mundo (o la junta) puede traer datos que este proveedor
         # no tiene que recibir.
@@ -294,7 +305,7 @@ def nodo_mundo(nombre: str):
                 "error": r.get("error"), "crudo": r.get("crudo"),
                 "datos": r.get("datos") or [], "mensajes": nuevos,
             }},
-            "foco": r.get("foco") or {} if agente.aprende_foco else {},
+            "foco": (r.get("foco") or {}) if agente.foco else {},
             "eventos": r.get("eventos") or [],
             "vueltas": r.get("vueltas", 0),
             "tokens_in": r.get("tokens_in", 0), "tokens_out": r.get("tokens_out", 0),

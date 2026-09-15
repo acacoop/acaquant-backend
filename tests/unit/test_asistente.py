@@ -16,7 +16,7 @@ CUENTAS = ["805", "1346"]
 @pytest.fixture
 def permiso():
     from asistente import permitido
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
 
     fake = {"cuentas": [{"id_cuenta": c, "nombre": f"NOMBRE {c}"} for c in CUENTAS],
             "cuantas": len(CUENTAS)}
@@ -37,8 +37,8 @@ def test_cada_agente_es_un_objeto_con_su_tarea_declarada_en_el_ruteo():
     for a in (DESP.DESPACHO, JU.JUNTA, *MUNDOS.values()):
         assert a.tarea in modelos.tareas(), f"`{a.nombre}` rutea por una tarea que no existe"
         assert a.instruccion({}).strip()
-    assert MUNDOS["cuenta"].tarea != MUNDOS["mercado"].tarea, "cada mundo tiene su propio ruteo"
-    assert JU.JUNTA.tarea == MUNDOS["cuenta"].tarea, "la junta ve datos del negocio"
+    assert MUNDOS["cartera"].tarea != MUNDOS["mercado"].tarea, "cada mundo tiene su propio ruteo"
+    assert JU.JUNTA.tarea == MUNDOS["cartera"].tarea, "la junta ve datos del negocio"
     assert not DESP.DESPACHO.herramientas and not JU.JUNTA.herramientas
 
 
@@ -47,20 +47,20 @@ def test_solo_el_mundo_cuenta_ve_datos_del_negocio_y_aprende_el_foco():
     from asistente.mundos import MUNDOS
     from core import modelos
 
-    assert modelos.resolver(MUNDOS["cuenta"].tarea).datos_negocio
+    assert modelos.resolver(MUNDOS["cartera"].tarea).datos_negocio
     assert not modelos.resolver(MUNDOS["mercado"].tarea).datos_negocio
     assert not modelos.resolver(DESP.DESPACHO.tarea).datos_negocio
-    assert MUNDOS["cuenta"].aprende_foco and not MUNDOS["mercado"].aprende_foco
+    assert MUNDOS["cartera"].foco == ("cuenta",) and not MUNDOS["mercado"].foco
 
 
 def test_el_mundo_de_cada_herramienta_se_declara_y_los_dos_se_excluyen():
     from asistente import herramientas as H
     from asistente.mundos import MUNDOS
 
-    assert set(H.TODAS) == set(MUNDOS["cuenta"].herramientas) | set(MUNDOS["mercado"].herramientas)
-    assert not set(MUNDOS["cuenta"].herramientas) & set(MUNDOS["mercado"].herramientas)
+    assert set(H.TODAS) == {f for a in MUNDOS.values() for f in a.herramientas}
+    assert not set(MUNDOS["cartera"].herramientas) & set(MUNDOS["mercado"].herramientas)
     assert len(H.POR_NOMBRE) == len(H.TODAS), "dos herramientas con el mismo nombre"
-    for fn in MUNDOS["cuenta"].herramientas:
+    for fn in MUNDOS["cartera"].herramientas:
         p = inspect.signature(fn).parameters.get("cuenta")
         assert p is not None and p.default is inspect._empty, f"`{fn.__name__}`: cuenta obligatoria"
     for fn in MUNDOS["mercado"].herramientas:
@@ -71,8 +71,8 @@ def test_el_mundo_de_cada_herramienta_se_declara_y_los_dos_se_excluyen():
 def test_la_instruccion_de_cuenta_lleva_las_cuentas_y_el_foco_al_final(permiso):
     from asistente.mundos import MUNDOS
 
-    sin = MUNDOS["cuenta"].instruccion({})
-    con = MUNDOS["cuenta"].instruccion({"cuenta": "805"})
+    sin = MUNDOS["cartera"].instruccion({})
+    con = MUNDOS["cartera"].instruccion({"cuenta": "805"})
     assert "805" in sin and "NOMBRE 805" in sin
     assert con.startswith(sin) and con.rstrip().endswith("cuenta = 805.")
     assert "preguntale cuál quiere" in sin
@@ -93,7 +93,7 @@ def test_el_despacho_describe_cada_mundo_por_su_nombre():
 
 def test_el_esquema_sale_de_la_firma_con_enum_y_tipos_reales():
     from asistente import herramientas as H
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
     from asistente.mundos import mercado as MM
     from core import curvas_ejes as ce
 
@@ -135,7 +135,7 @@ def test_lo_que_empieza_con_guion_bajo_no_viaja_al_modelo():
 def test_toda_consulta_a_datos_de_cuentas_lleva_el_permiso():
     from asistente import permitido
 
-    fuente = (RAIZ / "asistente" / "mundos" / "cuenta.py").read_text(encoding="utf-8")
+    fuente = (RAIZ / "asistente" / "mundos" / "cartera.py").read_text(encoding="utf-8")
     consultas = re.findall(r'sql_\w+ = f"""(.*?)"""', fuente, re.S)
     assert consultas
     for sql in consultas:
@@ -145,7 +145,7 @@ def test_toda_consulta_a_datos_de_cuentas_lleva_el_permiso():
 
 def test_sin_cuentas_habilitadas_no_se_muestra_nada():
     from asistente import permitido
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
 
     with patch.object(permitido, "cuentas", return_value=[]):
         for fn, args in ((MC.cobros_futuros, {"cuenta": "805"}),
@@ -157,13 +157,13 @@ def test_sin_cuentas_habilitadas_no_se_muestra_nada():
 def test_una_cuenta_no_habilitada_vuelve_como_error(permiso):
     from asistente.mundos import MUNDOS
 
-    for fn in MUNDOS["cuenta"].herramientas:
+    for fn in MUNDOS["cartera"].herramientas:
         r = fn(cuenta="999")
         assert "error" in r and "preguntale" in r["que_hacer"].lower()
 
 
 def test_el_total_de_cobros_no_sale_de_la_lista_recortada(permiso):
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
 
     filas = [(f"2026-10-{d:02d}", "AL30", "USD", 10.0, "Tesoro") for d in range(1, 29)] * 20
     cur = MagicMock()
@@ -181,7 +181,7 @@ def test_el_total_de_cobros_no_sale_de_la_lista_recortada(permiso):
 
 def test_la_tenencia_sale_del_mismo_codigo_que_la_pantalla(permiso):
     from api.services import valuaciones_sql
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
 
     fake = {"fecha": "2026-09-12", "total": 100.0,
             "posiciones": [{"ticker": "TX26", "cantidad": 1, "valuacion": 100.0, "share": 1.0}]}
@@ -432,7 +432,7 @@ def test_el_ruteo_resuelve_por_tarea_y_una_desconocida_no_corre():
     from core import modelos
 
     with patch.object(modelos, "ajustes", return_value={}):
-        t = modelos.resolver("asistente_cuenta")
+        t = modelos.resolver("asistente_cartera")
         assert (t.proveedor, t.datos_negocio, t.usa_herramientas) == ("openai", True, True)
         m = modelos.resolver("asistente_mercado")
         assert (m.proveedor, m.datos_negocio) == (modelos.PROVEEDOR_DEFAULT, False)
@@ -449,7 +449,7 @@ def test_el_ruteo_resuelve_por_tarea_y_una_desconocida_no_corre():
 def test_sin_clave_o_con_ruteo_inseguro_la_llamada_no_sale():
     from core import modelos
 
-    t = modelos.resolver("asistente_cuenta")
+    t = modelos.resolver("asistente_cartera")
     with patch.object(modelos, "configurado", return_value=False), pytest.raises(modelos.SinClave):
         modelos.permitido_salir(t)
     inseguro = modelos.Tarea(**{**t.__dict__, "proveedor": "deepseek"})
@@ -488,7 +488,7 @@ def test_la_traza_escribe_una_fila_por_llamada_con_sesion_y_cache():
     cur.fetchone.return_value = (42,)
     pool = MagicMock()
     pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
-    tr = TR.Traza("asistente_cuenta", "gpt-x", usuario="u", sesion="s1")
+    tr = TR.Traza("asistente_cartera", "gpt-x", usuario="u", sesion="s1")
     assert TR.Traza("t", "m", detalle="emisor · 3").detalle == "emisor · 3", "el que llama manda"
     rid = uuid4()
     msg = AIMessage(content="hola", usage_metadata={"input_tokens": 100, "output_tokens": 5,
@@ -500,7 +500,7 @@ def test_la_traza_escribe_una_fila_por_llamada_con_sesion_y_cache():
         tr.on_llm_error(RuntimeError("500"), run_id=uuid4())
     assert tr.ids == [42, 42]
     fila = cur.execute.call_args_list[0].args[1]
-    assert fila[0:3] == ("asistente_cuenta", "gpt-x", "u") and fila[-1] == "s1"
+    assert fila[0:3] == ("asistente_cartera", "gpt-x", "u") and fila[-1] == "s1"
     assert (fila[3], fila[4], fila[6]) == (100, 5, True) and fila[8] == "qué hay"
     assert (fila[10], fila[11]) == (80, 20), "caché: leído y no leído"
     error = cur.execute.call_args_list[1].args[1]
@@ -555,6 +555,7 @@ _TOOLS = {
     "tenencia_actual": lambda **a: {"total": 3926.8, "posiciones": [], "_tabla": {"campo": "posiciones"}},
     "curva": lambda **a: {"instrumentos": [{"ticker": "TX28", "tea_pct": 11.0}], "cuantos": 1},
     "ficha_bono": lambda **a: {"ticker": "AL30"},
+    "ficha_cliente": lambda **a: {"cuenta": a["cuenta"], "titular": {"denominacion": "NOMBRE 805"}},
 }
 
 
@@ -583,11 +584,11 @@ def test_una_pregunta_de_un_mundo_corre_solo_ese_mundo(permiso):
 
 
 def test_el_mundo_cuenta_aprende_el_foco_y_la_sesion_se_conserva(permiso):
-    r = _correr("¿cuánto cobro de la 805?", despacho="cuenta", sesion="a" * 32)
-    assert r["mundos"] == ["cuenta"] and r["estado"] == {"cuenta": "805"} and r["sesion"] == "a" * 32
+    r = _correr("¿cuánto cobro de la 805?", despacho="cartera", sesion="a" * 32)
+    assert r["mundos"] == ["cartera"] and r["estado"] == {"cuenta": "805"} and r["sesion"] == "a" * 32
     assert any(e["tipo"] == "estado" and e["estado"] == {"cuenta": "805"} for e in r["eventos"])
     assert r["control"]["ok"], "el total está en los datos"
-    r2 = _correr("¿y en dólares?", despacho="cuenta", historial=r["mensajes"],
+    r2 = _correr("¿y en dólares?", despacho="cartera", historial=r["mensajes"],
                  estado=r["estado"], sesion=r["sesion"])
     assert r2["sesion"] == r["sesion"] and r2["estado"] == {"cuenta": "805"}
     assert [m["role"] for m in r2["mensajes"]][:4] == ["user", "assistant", "tool", "assistant"]
@@ -595,11 +596,11 @@ def test_el_mundo_cuenta_aprende_el_foco_y_la_sesion_se_conserva(permiso):
 
 
 def test_una_pregunta_cruzada_corre_los_dos_mundos_y_la_junta_redacta(permiso):
-    r = _correr("¿qué bono CER rinde más que los que tengo?", despacho="cuenta, mercado")
-    assert r["mundos"] == ["cuenta", "mercado"] and r["error"] is None
-    assert r["respuesta"].startswith("[asistente_cuenta]"), "la junta corre con la tarea de cuenta"
+    r = _correr("¿qué bono CER rinde más que los que tengo?", despacho="cartera, mercado")
+    assert r["mundos"] == ["cartera", "mercado"] and r["error"] is None
+    assert r["respuesta"].startswith("[asistente_cartera]"), "la junta corre con la tarea de cartera"
     agentes = [e.get("agente") for e in r["eventos"] if e["tipo"] != "estado"]
-    assert "junta" in agentes and agentes.count("cuenta") == agentes.count("mercado")
+    assert "junta" in agentes and agentes.count("cartera") == agentes.count("mercado")
     roles = [m["role"] for m in r["mensajes"]]
     assert roles == ["user", "assistant", "tool", "assistant", "assistant", "tool", "assistant", "assistant"]
     assert roles.count("user") == 1, "la entrada de la junta no va al historial"
@@ -609,15 +610,15 @@ def test_una_pregunta_cruzada_corre_los_dos_mundos_y_la_junta_redacta(permiso):
 
 
 def test_cada_mundo_ve_del_historial_solo_lo_suyo(permiso):
-    """Lo que trajo el mundo cuenta (tenencias, plata) no puede llegar al
+    """Lo que trajo el mundo cartera (tenencias, plata) no puede llegar al
     proveedor del mundo mercado en la pregunta siguiente."""
     from asistente import grafo, memoria
     from core import modelos
 
-    r = _correr("¿qué bono CER rinde más que los que tengo?", despacho="cuenta, mercado")
-    assert {m.get("mundo") for m in r["mensajes"]} == {None, "cuenta", "mercado"}
-    assert [m["mundo"] for m in r["mensajes"] if m["role"] == "tool"] == ["cuenta", "mercado"]
-    assert r["mensajes"][-1]["mundo"] == "cuenta", "la junta queda como cuenta"
+    r = _correr("¿qué bono CER rinde más que los que tengo?", despacho="cartera, mercado")
+    assert {m.get("mundo") for m in r["mensajes"]} == {None, "cartera", "mercado"}
+    assert [m["mundo"] for m in r["mensajes"] if m["role"] == "tool"] == ["cartera", "mercado"]
+    assert r["mensajes"][-1]["mundo"] == "cartera", "la junta queda como cuenta"
 
     visto: dict[str, list] = {}
     fake = _proveedor("cuenta, mercado")
@@ -641,17 +642,19 @@ def test_cada_mundo_ve_del_historial_solo_lo_suyo(permiso):
     assert all("mundo" not in m for m in primera_mercado), "la marca no viaja al proveedor"
     assert [m["role"] for m in primera_mercado] == ["system", "user", "assistant", "tool",
                                                     "assistant", "user"]
-    primera_cuenta = visto["asistente_cuenta"][0]
+    primera_cuenta = visto["asistente_cartera"][0]
     assert "3926.8" in json.dumps(primera_cuenta) and "TX28" not in json.dumps(primera_cuenta)
 
 
 def test_si_el_despacho_no_se_entiende_van_todos_los_mundos(permiso):
+    from asistente.mundos import MUNDOS
+
     for raro in ("no sé", "no hace falta la cuenta, alcanza con mercado", ""):
         r = _correr("hola", despacho=raro)
-        assert r["mundos"] == ["cuenta", "mercado"], raro
+        assert r["mundos"] == list(MUNDOS), raro
         assert "van todos" in next(e for e in r["eventos"] if e["tipo"] == "despacho")["motivo"]
     assert _correr("hola", despacho="Mercado.")["mundos"] == ["mercado"]
-    assert _correr("hola", despacho="cuenta y mercado")["mundos"] == ["cuenta", "mercado"]
+    assert _correr("hola", despacho="cartera y mercado")["mundos"] == ["cartera", "mercado"]
 
 
 def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
@@ -686,8 +689,8 @@ def test_una_herramienta_desconocida_o_un_error_vuelven_como_dato(permiso):
     from asistente.mundos import MUNDOS
 
     assert "error" in grafo._ejecutar(MUNDOS["mercado"], "cobros_futuros", {"cuenta": "805"})
-    assert "error" in grafo._ejecutar(MUNDOS["cuenta"], "cobros_futuros", None)
-    assert "999" in grafo._ejecutar(MUNDOS["cuenta"], "cobros_futuros", {"cuenta": "999"})["error"]
+    assert "error" in grafo._ejecutar(MUNDOS["cartera"], "cobros_futuros", None)
+    assert "999" in grafo._ejecutar(MUNDOS["cartera"], "cobros_futuros", {"cuenta": "999"})["error"]
     def rota(curva: str) -> dict:
         """Revienta."""
         return 1 / 0
@@ -699,12 +702,13 @@ def test_una_herramienta_desconocida_o_un_error_vuelven_como_dato(permiso):
 
 def test_sin_clave_no_rompe_y_deja_la_sesion(permiso):
     from asistente import grafo
+    from asistente.mundos import MUNDOS
     from core import modelos
 
     with patch.object(modelos, "configurado", return_value=False):
         r = grafo.preguntar("hola", usuario="t", sesion="b" * 32)
     assert r["error"] and r["respuesta"] is None and r["sesion"] == "b" * 32
-    assert r["mundos"] == ["cuenta", "mercado"], "sin despacho, van todos"
+    assert r["mundos"] == list(MUNDOS), "sin despacho, van todos"
 
 
 def test_la_sesion_se_valida_por_forma():
@@ -745,7 +749,7 @@ class _Base:
         return True
 
 
-def _conversar(base, pregunta, sesion=None, despacho="cuenta", usuario="t"):
+def _conversar(base, pregunta, sesion=None, despacho="cartera", usuario="t"):
     from asistente import grafo, panel, sesiones
     from core import modelos
 
@@ -767,7 +771,7 @@ def test_una_conversacion_se_guarda_con_su_dueno_y_se_retoma_por_sesion(permiso)
     fila = base.filas[sid]
     assert fila["usuario"] == "t" and fila["foco"] == {"cuenta": "805"}
     assert [x["pregunta"] for x in fila["turnos"]] == ["¿qué tengo en la 805?"]
-    assert fila["turnos"][0]["mundos"] == ["cuenta"] and fila["turnos"][0]["respuesta"]
+    assert fila["turnos"][0]["mundos"] == ["cartera"] and fila["turnos"][0]["respuesta"]
 
     r2 = _conversar(base, "¿y en dólares?", sesion=sid)
     assert r2["sesion"]["id"] == sid and r2["titulo"] == r1["titulo"]
@@ -812,11 +816,11 @@ def test_una_pregunta_de_un_solo_mundo_no_le_llega_al_otro_despues(permiso):
     buscar la ficha del bono «805»."""
     from asistente import memoria
 
-    r = _correr("¿la tenencia de la 805?", despacho="cuenta")
+    r = _correr("¿la tenencia de la 805?", despacho="cartera")
     pregunta = r["mensajes"][0]
-    assert pregunta["role"] == "user" and pregunta["mundos"] == ["cuenta"]
+    assert pregunta["role"] == "user" and pregunta["mundos"] == ["cartera"]
     assert memoria.de_mundo(r["mensajes"], "mercado") == []
-    assert [m["role"] for m in memoria.de_mundo(r["mensajes"], "cuenta")][:2] == ["user", "assistant"]
+    assert [m["role"] for m in memoria.de_mundo(r["mensajes"], "cartera")][:2] == ["user", "assistant"]
     # Una pregunta sin marca (historial viejo) la ven todos.
     assert memoria.de_mundo([{"role": "user", "content": "x"}], "mercado") == [{"role": "user", "content": "x"}]
     assert all(k not in memoria.a_dicts(memoria.desde_dicts(r["mensajes"]))[0] for k in memoria.MARCAS)
@@ -844,7 +848,7 @@ def test_leer_entiende_el_renglon_falta_y_la_instruccion_lo_pide():
     medio = "Tenés AL30.\nFalta: el precio.\nY te falta abonar el cupón de mayo."
     assert ESQ.leer(medio) == {"respuesta": medio, "falta": None}
     assert ESQ.leer("Hola.\n\nFalta: x\n\n") == {"respuesta": "Hola.", "falta": "x"}
-    assert ESQ.FALTA_MARCA in MUNDOS["cuenta"].instruccion({}) and ESQ.FALTA_MARCA in MUNDOS["mercado"].instruccion({})
+    assert ESQ.FALTA_MARCA in MUNDOS["cartera"].instruccion({}) and ESQ.FALTA_MARCA in MUNDOS["mercado"].instruccion({})
 
 
 def test_con_herramientas_nunca_viaja_el_esquema_y_sin_ellas_si():
@@ -864,10 +868,10 @@ def test_con_herramientas_nunca_viaja_el_esquema_y_sin_ellas_si():
         return _Falso("cuenta", tarea, esquema)
 
     with patch.object(modelos, "modelo", fake):
-        grafo._modelo_de(MUNDOS["cuenta"], {}, None, esquema=ESQ.FORMATO)
+        grafo._modelo_de(MUNDOS["cartera"], {}, None, esquema=ESQ.FORMATO)
         grafo._modelo_de(JU.JUNTA, {}, None, esquema=ESQ.FORMATO)
         grafo._modelo_de(DESP.DESPACHO, {}, None)
-    assert pedidos == [("asistente_cuenta", None), ("asistente_cuenta", ESQ.FORMATO),
+    assert pedidos == [("asistente_cartera", None), ("asistente_cartera", ESQ.FORMATO),
                        ("asistente_despacho", None)]
 
 
@@ -875,7 +879,7 @@ def test_la_ficha_de_una_tarea_dice_lo_declarado_para_el_panel():
     from core import modelos
 
     with patch.object(modelos, "ajustes", return_value={}):
-        f = modelos.ficha_de("asistente_cuenta")
+        f = modelos.ficha_de("asistente_cartera")
     assert f["declarado"] == {"proveedor": "openai", "tier": "pro"} and f["elegido"] is False
 
 
@@ -919,7 +923,7 @@ def test_elegir_un_modelo_prueba_antes_de_guardar_y_solo_exige_tools_a_quien_las
     cuerpo = inspect.getsource(panel.elegir_modelo)
     assert cuerpo.index("probar(") < cuerpo.index("INSERT INTO"), "la prueba vive antes del INSERT"
     with patch.object(modelos, "ajustes", return_value={}):
-        assert modelos.ficha_de("asistente_cuenta")["usa_herramientas"] is True
+        assert modelos.ficha_de("asistente_cartera")["usa_herramientas"] is True
         assert modelos.ficha_de("asistente_despacho")["usa_herramientas"] is False
 
 
@@ -949,7 +953,7 @@ def test_todo_mundo_esta_registrado_y_declarado():
         assert hasattr(mod, "AGENTE"), f"asistente/mundos/{nombre}.py no declara AGENTE"
         assert MUNDOS.get(mod.AGENTE.nombre) is mod.AGENTE, f"{nombre} no está en MUNDOS"
         assert mod.AGENTE.tarea in modelos.TAREAS, f"{nombre}: tarea sin declarar"
-        assert mod.AGENTE.senales and mod.AGENTE.herramientas, f"{nombre}: sin señales o sin herramientas"
+        assert mod.AGENTE.senales, f"{nombre}: sin señales, el despacho no lo encontraría"
     assert set(MUNDOS) == set(archivos)
 
 
@@ -959,25 +963,27 @@ def test_las_reglas_del_despacho_deciden_lo_obvio_y_dejan_el_resto_al_modelo(per
     assert D.por_reglas("hola, ¿cómo va?", {}) is None
     meta = D.por_reglas("¿Qué sabés hacer?", {})
     assert meta.mundos == () and "cobros_futuros" in meta.respuesta and "curva" in meta.respuesta
-    assert D.por_reglas("cuál es la tenencia de la 805", {}).mundos == ("cuenta",)
-    assert D.por_reglas("¿y en dólares?", {"cuenta": "805"}).mundos == ("cuenta",)
-    assert D.por_reglas("dame la 805", {}).mundos == ("cuenta",), "la cuenta nombrada alcanza"
+    assert D.por_reglas("cuál es la tenencia de la 805", {}).mundos == ("cartera",)
+    assert D.por_reglas("quién es el titular de la 805", {}).mundos == ("cliente",)
+    assert D.por_reglas("qué se operó hoy en AL30", {}).mundos == ("operaciones",)
+    # Con cuenta en foco o nombrada pero sin señales, tres mundos la atienden: decide el modelo.
+    assert D.por_reglas("¿y en dólares?", {"cuenta": "805"}) is None
+    assert D.por_reglas("dame la 805", {}) is None
+    assert "cuenta = 805" in D.DESPACHO.instruccion({"cuenta": "805"})
     assert D.por_reglas("qué bonos CER conocés", {}).mundos == ("mercado",)
     cruzada = D.por_reglas("qué bono CER rinde más que los que tengo en la 805", {})
-    assert cruzada.mundos == ("cuenta", "mercado") and cruzada.motivo.startswith("regla: señales")
-    assert D.por_reglas("cuánto rinde el TX28", {"cuenta": "805"}).mundos == ("mercado",), \
-        "con foco pero con señal de otro mundo, no va cuenta"
-    assert D.por_reglas("compará la 805 con la curva CER", {}).mundos == ("cuenta", "mercado"), \
-        "la cuenta nombrada suma su mundo"
+    assert cruzada.mundos == ("cartera", "mercado") and cruzada.motivo.startswith("regla: señales")
+    assert D.por_reglas("cuánto rinde el TX28", {"cuenta": "805"}).mundos == ("mercado",)
+    assert D.por_reglas("quién atiende la 805 y qué tenencia tiene", {}).mundos == ("cartera", "cliente")
     # Palabra entera, no raíz: «cerca» y «cerrá» no son CER; «tealdi» no es TEA.
-    assert D.por_reglas("cerrá la posición", {}).mundos == ("cuenta",)
+    assert D.por_reglas("cerrá la posición", {}).mundos == ("cartera",)
     assert D.por_reglas("qué hay cerca del vencimiento", {}) is None
     assert D.por_reglas("qué tasa tiene la ON de tealdi", {}).motivo == "regla: señales (mercado: on)"
     assert D.por_reglas("tenés alguna ON?", {}).mundos == ("mercado",)
     # Meta es la pregunta entera, no una palabra adentro.
     assert D.por_reglas("hola, ¿qué sabés hacer vos?", {}).mundos == ()
-    assert D.por_reglas("necesito ayuda con la 805", {}).mundos == ("cuenta",)
-    assert D.leer_eleccion("cuenta, mercado") == ["cuenta", "mercado"]
+    assert D.por_reglas("necesito ayuda con la 805", {}) is None
+    assert D.leer_eleccion("cartera, mercado") == ["cartera", "mercado"]
     assert D.leer_eleccion("no hace falta la cuenta") == []
 
 
@@ -993,9 +999,9 @@ def test_una_regla_que_contesta_no_llama_a_ningun_modelo(permiso):
     assert r["mensajes"][0]["mundos"] == []
     # En el turno siguiente, ningún mundo recibe esa pregunta: la contestó una regla.
     from asistente import memoria
-    assert memoria.de_mundo(r["mensajes"], "cuenta") == [] and memoria.de_mundo(r["mensajes"], "mercado") == []
-    r2 = _correr("cuánto tengo en la 805", despacho="cuenta", historial=r["mensajes"], sesion=r["sesion"])
-    assert [m["role"] for m in memoria.de_mundo(r2["mensajes"], "cuenta")][:2] == ["user", "assistant"]
+    assert memoria.de_mundo(r["mensajes"], "cartera") == [] and memoria.de_mundo(r["mensajes"], "mercado") == []
+    r2 = _correr("cuánto tengo en la 805", despacho="cartera", historial=r["mensajes"], sesion=r["sesion"])
+    assert [m["role"] for m in memoria.de_mundo(r2["mensajes"], "cartera")][:2] == ["user", "assistant"]
 
 
 def test_una_pregunta_sin_senales_va_al_modelo_de_despacho(permiso):
@@ -1010,7 +1016,7 @@ def test_una_pregunta_sin_senales_va_al_modelo_de_despacho(permiso):
 def test_cobros_acepta_una_fecha_limite_y_la_pisa_sobre_dias(permiso):
     from datetime import date
 
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
 
     cur = MagicMock()
     cur.fetchall.side_effect = [[], [], [], []]
@@ -1030,7 +1036,7 @@ def test_la_tenencia_trae_lo_que_el_mercado_dice_de_cada_titulo(permiso):
     con el mercado lo hace el código, por ticker, y lo que no está se dice."""
     from api.services import curvas_vista as CV
     from api.services import valuaciones_sql as VS
-    from asistente.mundos import cuenta as MC
+    from asistente.mundos import cartera as MC
 
     vista = {"bonos": [{"ticker_corto": "AO28", "pill": "hard_dolar", "emisor": "Argentina",
                         "vencimiento": "2028-10-31", "tasa_ruido": False,
@@ -1069,3 +1075,69 @@ def test_un_turno_guardado_lleva_las_tablas_que_declararon_las_herramientas():
         {"tipo": "resultado", "resultado": {"error": "x"}}, {"tipo": "resultado", "resultado": "texto"}]
     assert sesiones.tablas_de(eventos) == [{"columnas": ["a"], "filas": [{"a": 1}] * 3, "cuantas": 3,
                                             "total": 9, "moneda": "ARS"}]
+
+
+# ── cliente, operaciones y el dato personal ─────────────────────────────────
+
+
+def test_la_ficha_del_cliente_recorta_el_documento_y_lleva_el_permiso(permiso):
+    from datetime import date
+
+    from asistente.mundos import cliente as MCL
+
+    fila = ("[805] NOMBRE", "Persona Física", "MINORISTA", "DNI", "30123456", "x@y.com", "11-5555",
+            "Santa Fe", "Rosario", "Juan Operador", "juan@aca.com", "PRODUCTORES", "AGRO", None,
+            "ALTO", "Activa", "ACTIVA", date(2020, 1, 2), "MODERADO", "BAJO", None, None)
+    cur = MagicMock()
+    cur.fetchone.return_value = fila
+    cur.fetchall.return_value = [("Mesa Rosario",)]
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
+    with patch.object(MCL, "get_pool", return_value=pool):
+        r = MCL.ficha_cliente("805")
+    assert r["titular"]["documento"] == "DNI …456" and r["titular"]["email"] == "x@y.com"
+    assert r["comercial"]["operador"] == "Juan Operador" and r["comercial"]["segmento"] == ["PRODUCTORES", "AGRO"]
+    assert r["grupos"] == ["Mesa Rosario"] and r["sin_legajo"] is False
+    assert "error" in MCL.ficha_cliente("999")
+    fuente = (RAIZ / "asistente" / "mundos" / "cliente.py").read_text(encoding="utf-8")
+    assert "{permitido.FILTRO_SQL}" in fuente
+
+
+def test_el_dato_personal_nunca_sale_a_quien_entrena_y_no_deja_texto_en_la_traza():
+    from core import modelos
+    from core import traza as TR
+
+    t = modelos.resolver("asistente_cliente")
+    assert t.datos == "personal" and t.datos_negocio and t.datos_personales
+    with patch.object(modelos, "clave", return_value="k"), \
+         patch("config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA", True):
+        modelos.permitido_salir(t)                      # openai: sale
+        inseguro = modelos.Tarea(**{**t.__dict__, "proveedor": "deepseek"})
+        with pytest.raises(modelos.RuteoInseguro):
+            modelos.permitido_salir(inseguro)           # el flag no alcanza
+    # Por el camino real: la traza que arma el grafo para el mundo cliente.
+    from asistente import grafo
+    from asistente.mundos import MUNDOS
+    tr = grafo._traza(MUNDOS["cliente"], {"usuario": "u", "sesion": "s"})
+    assert isinstance(tr, TR.Traza) and tr.guardar_texto is False
+    assert grafo._traza(MUNDOS["cartera"], {}).guardar_texto is True
+    cur = MagicMock()
+    cur.fetchone.return_value = (7,)
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
+    with patch("core.postgres.get_pool", return_value=pool):
+        tr._escribir(ok=True, error=None, tokens_in=1, tokens_out=1, cache_hit=None, cache_miss=None,
+                     latencia_ms=1, detalle="quién es la 805", respuesta="Es Fulano", modelo="gpt-x")
+    escrito = cur.execute.call_args.args[1]
+    assert escrito[8] is None and escrito[9] is None, "ni pedido ni respuesta en el libro"
+
+
+def test_un_mundo_sin_herramientas_no_llama_al_modelo_y_lo_dice(permiso):
+    from asistente import grafo
+    from core import modelos
+
+    with patch.object(modelos, "modelo", side_effect=AssertionError("no tenía que llamar")):
+        r = grafo.preguntar("qué se operó hoy", usuario="t")
+    assert r["mundos"] == ["operaciones"] and r["respuesta"] is None
+    assert "Todavía no puedo consultar operaciones" in r["error"]
+    assert r["mensajes"][-1]["mundo"] == "operaciones" and r["tokens_in"] == 0

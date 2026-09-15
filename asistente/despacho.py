@@ -8,7 +8,6 @@ import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from asistente import permitido
 from asistente.agente import Agente
 from asistente.mundos import MUNDOS
 
@@ -51,14 +50,6 @@ def senales_en(pregunta: str) -> dict[str, list[str]]:
     return out
 
 
-def cuenta_nombrada(pregunta: str) -> str | None:
-    """Una cuenta habilitada nombrada en la pregunta, como palabra entera."""
-    for c in permitido.cuentas():
-        if re.search(rf"\b{re.escape(str(c).lower())}\b", pregunta):
-            return str(c)
-    return None
-
-
 def regla_meta(pregunta: str, _foco: dict) -> Decision | None:
     """«¿Qué sabés hacer?» se contesta desde los objetos, sin modelo ni mundos."""
     limpia = re.sub(r"[^\w\s]", " ", pregunta).strip()
@@ -67,29 +58,11 @@ def regla_meta(pregunta: str, _foco: dict) -> Decision | None:
     return None
 
 
-def regla_foco(pregunta: str, foco: dict) -> Decision | None:
-    """Hay cuenta (nombrada o en foco) y ninguna señal de otro mundo: va el
-    mundo que aprende foco, solo."""
-    de_foco = [n for n, a in MUNDOS.items() if a.aprende_foco]
-    if not de_foco:
-        return None
-    if not (foco or cuenta_nombrada(pregunta)):
-        return None
-    otros = set(senales_en(pregunta)) - set(de_foco)
-    if otros:
-        return None
-    return Decision(tuple(de_foco), "regla: cuenta en foco")
-
-
 def regla_senales(pregunta: str, _foco: dict) -> Decision | None:
     """Las señales nombran a uno o más mundos: van esos, en el orden del
-    registro. Una cuenta nombrada suma al mundo que la atiende aunque no haya
-    otra palabra suya («compará la 805 con la curva CER» va a los dos)."""
+    registro. Una cuenta nombrada o en foco sin ninguna señal no decide nada:
+    tres mundos la atienden y elegir es del modelo."""
     vistas = senales_en(pregunta)
-    if (c := cuenta_nombrada(pregunta)) is not None:
-        for n, a in MUNDOS.items():
-            if a.aprende_foco:
-                vistas.setdefault(n, []).append(f"cuenta {c}")
     if not vistas:
         return None
     mundos = tuple(n for n in MUNDOS if n in vistas)
@@ -97,9 +70,7 @@ def regla_senales(pregunta: str, _foco: dict) -> Decision | None:
     return Decision(mundos, f"regla: señales ({detalle})")
 
 
-REGLAS: tuple[Callable[[str, dict], Decision | None], ...] = (
-    regla_meta, regla_foco, regla_senales,
-)
+REGLAS: tuple[Callable[[str, dict], Decision | None], ...] = (regla_meta, regla_senales)
 
 
 def por_reglas(pregunta: str, foco: dict | None) -> Decision | None:
@@ -114,7 +85,7 @@ def presentacion() -> str:
     """Qué sabe hacer el asistente, escrito desde los objetos: nunca queda viejo."""
     lineas = ["Puedo mirar estas cosas, siempre con datos de la plataforma:"]
     for a in MUNDOS.values():
-        herramientas = ", ".join(f.__name__ for f in a.herramientas)
+        herramientas = ", ".join(f.__name__ for f in a.herramientas) or "todavía ninguna"
         lineas.append(f"- {a.nombre}: {a.describe} Herramientas: {herramientas}.")
     lineas.append("No escribo nada ni invento datos: si una herramienta no lo trae, no lo digo.")
     return "\n".join(lineas)
@@ -123,15 +94,19 @@ def presentacion() -> str:
 # ── el agente que decide cuando las reglas no ───────────────────────────────
 
 
-def _instruccion(_foco: dict) -> str:
+def _instruccion(foco: dict) -> str:
     lineas = "\n".join(f"  {n}: {a.describe}" for n, a in MUNDOS.items())
     nombres = ", ".join(MUNDOS)
+    en_foco = ""
+    if foco:
+        pares = ", ".join(f"{k} = {v}" for k, v in foco.items())
+        en_foco = (f"La conversación viene hablando de: {pares}. Una pregunta corta "
+                   f"(«¿y en dólares?») sigue sobre eso.\n")
     return (
         "Decidís qué mundos hacen falta para contestar una pregunta. No la contestás.\n"
-        f"Mundos:\n{lineas}\n"
+        f"Mundos:\n{lineas}\n{en_foco}"
         f"Contestá SOLO los nombres de los mundos que hacen falta, separados por coma, "
-        f"de esta lista: {nombres}. Si la pregunta compara lo de una cuenta con el "
-        f"mercado, van los dos.\n"
+        f"de esta lista: {nombres}. Si la pregunta cruza dos mundos, van los dos.\n"
     )
 
 

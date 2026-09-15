@@ -23,11 +23,14 @@ class Traza(BaseCallbackHandler):
     los ids de las filas que escribió en `ids`."""
 
     def __init__(self, tarea: str, modelo: str, *, usuario: str | None = None,
-                 sesion: str | None = None, detalle: str | None = None) -> None:
+                 sesion: str | None = None, detalle: str | None = None,
+                 guardar_texto: bool = True) -> None:
         self.tarea, self.modelo, self.usuario, self.sesion = tarea, modelo, usuario, sesion
         # Extracto del pedido para el libro. Si el que llama no lo da, se toma
-        # el último mensaje del usuario.
+        # el último mensaje del usuario. Con `guardar_texto=False` (dato
+        # personal) no se guarda ni el pedido ni la respuesta: solo números.
         self.detalle = detalle
+        self.guardar_texto = guardar_texto
         self.ids: list[int] = []
         self._inicio: dict[UUID, tuple[float, str | None]] = {}
 
@@ -79,8 +82,8 @@ class Traza(BaseCallbackHandler):
                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                     (self.tarea, modelo, self.usuario, tokens_in, tokens_out, latencia_ms, ok,
                      error[:MAX_ERROR_CHARS] if error else None,
-                     detalle[:MAX_DETALLE_CHARS] if detalle else None,
-                     respuesta[:MAX_RESPUESTA_CHARS] if respuesta else None,
+                     detalle[:MAX_DETALLE_CHARS] if detalle and self.guardar_texto else None,
+                     respuesta[:MAX_RESPUESTA_CHARS] if respuesta and self.guardar_texto else None,
                      cache_hit, cache_miss, self.sesion))
                 self.ids.append(cur.fetchone()[0])
         except Exception as e:

@@ -24,8 +24,9 @@ class Agente:
     # delatan que la pregunta es de este mundo. Las lee `despacho.por_reglas`:
     # si alcanzan, no se llama al modelo.
     senales: tuple[str, ...] = ()
-    # Solo el mundo que ve cuentas aprende y lee la cuenta en foco.
-    aprende_foco: bool = False
+    # Claves del foco que este mundo lee y aprende (`estado.EN_FOCO`). Varios
+    # mundos pueden compartir una: es lo que los relaciona entre preguntas.
+    foco: tuple[str, ...] = ()
 
     @property
     def por_nombre(self) -> dict[str, Callable]:

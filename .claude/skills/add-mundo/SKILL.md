@@ -40,10 +40,15 @@ AGENTE = Agente(
     tarea="asistente_<nombre>",
     describe="una línea que el despacho lee para saber cuándo mandarle la pregunta",
     instruccion=_instruccion,
-    herramientas=(mi_herramienta,),
-    senales=("raiz1", "raiz2"),      # minúsculas, sin acentos; raíces de palabra
+    herramientas=(mi_herramienta,),  # puede nacer vacío: el mundo existe y dice que no puede consultar
+    senales=("palabra1", "palabra2"), # palabras enteras, minúsculas, sin acentos; las variantes se declaran
+    foco=("cuenta",),                 # claves del foco que lee y aprende; () si no tiene sujeto con llave
 )
 ```
+
+¿Cuál es el SUJETO del mundo? Cartera y cliente hablan de UNA cuenta (la llave
+es obligatoria en sus herramientas). Operaciones habla de la mesa (la cuenta es
+un filtro opcional). Mercado, de un instrumento. Eso decide la firma.
 
 Reglas de una herramienta: dict siempre; errores como `{"error": ..., "que_hacer": ...}`;
 topes declarados como constantes y `truncado` cuando recorta; totales en SQL;
@@ -58,7 +63,9 @@ claves con `_` son para la pantalla. La ficha (docstring + firma) entra en
                        "para_que": "el asistente, mundo <NOMBRE>: …"},
 ```
 
-`"proveedor": "openai", "datos": "negocio"` si ve cuentas.
+`"proveedor": "openai", "datos": "negocio"` si ve cuentas; `"datos": "personal"`
+si ve contacto, documento o cualquier dato de una persona (nunca sale a un
+proveedor que entrena, y la traza no guarda texto).
 
 ## 3. El registro: `asistente/mundos/__init__.py`
 

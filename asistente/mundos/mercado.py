@@ -56,7 +56,7 @@ def _instrumento(b: dict, hoy: date) -> dict:
 def metricas_por_ticker() -> dict[str, dict]:
     """Lo que el mercado dice hoy de cada bono del master de curvas, por ticker
     corto: la misma foto que `curva`. Es un helper de DATOS, no una herramienta:
-    lo usa el mundo cuenta para decir cuánto rinde lo que una cuenta tiene, sin
+    lo usa el mundo cartera para decir cuánto rinde lo que una cuenta tiene, sin
     que ningún modelo cruce nada. Levanta si la vista no contesta."""
     from api.services import curvas_vista as CV
 

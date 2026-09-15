@@ -300,7 +300,7 @@ def lab_panel(dias: int = 30):
 
 
 class ElegirModelo(BaseModel):
-    # La TAREA, no un rol: `asistente_cuenta`, `agente_emisor`, … Una fila de la
+    # La TAREA, no un rol: `asistente_cartera`, `agente_emisor`, … Una fila de la
     # pantalla es una cosa que corre.
     tarea: str = Field(..., min_length=1, max_length=48)
     proveedor: str = Field("", max_length=32)

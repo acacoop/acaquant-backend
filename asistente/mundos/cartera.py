@@ -1,5 +1,6 @@
-"""Mundo CUENTA: la plata y las tenencias de UNA cuenta de cliente. Sus
-herramientas y su agente, en un solo archivo. Doc: docs/AvAgentAI.md."""
+"""Mundo CARTERA: el PATRIMONIO de una cuenta, lo que se mide en plata y
+nominales: qué tiene, cuánto vale, cuánto rinde, qué cobra. Sus herramientas
+y su agente, en un solo archivo. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -19,7 +20,7 @@ HORIZONTES = ("t1", "t0")
 
 def cuentas_disponibles() -> dict:
     """Las cuentas habilitadas con su nombre. No se le ofrece al modelo: va en
-    la instrucción del mundo cuenta."""
+    la instrucción del mundo cartera."""
     try:
         params = permitido.parametros()
     except permitido.SinPermiso:
@@ -346,15 +347,15 @@ def _instruccion(foco: dict) -> str:
 
 
 AGENTE = Agente(
-    nombre="cuenta",
-    tarea="asistente_cuenta",
-    describe="la plata y las tenencias de UNA cuenta de cliente: qué tiene, cuánto cobra, "
-             "qué le vence. Cualquier pregunta que hable de una cuenta, de «lo mío» o de "
-             "«lo que tengo».",
+    nombre="cartera",
+    tarea="asistente_cartera",
+    describe="el PATRIMONIO de una cuenta: qué títulos tiene, cuántos nominales, cuánto "
+             "valen, cuánto rinden, qué cobra y cuándo. Todo lo que se mide en plata y "
+             "nominales. No sabe quién es el titular ni qué operó.",
     instruccion=_instruccion,
-    herramientas=(cobros_futuros, tenencia_actual),
-    senales=("cuenta", "cuentas", "tengo", "tenemos", "tenencia", "tenencias", "cobro",
-             "cobros", "cobra", "cobrar", "cartera", "posicion", "posiciones", "nominal",
-             "nominales", "mio", "mia", "mis", "cliente"),
-    aprende_foco=True,
+    herramientas=(tenencia_actual, cobros_futuros),
+    senales=("tengo", "tenemos", "tenencia", "tenencias", "cartera", "posicion", "posiciones",
+             "nominal", "nominales", "cobro", "cobros", "cobra", "cobrar", "cupon", "cupones",
+             "valuacion", "patrimonio", "vale", "mio", "mia", "mis"),
+    foco=("cuenta",),
 )

@@ -48,16 +48,24 @@ PROVEEDORES: dict[str, dict] = {
 }
 
 # tier: flash (barato) | pro (capaz). datos: "negocio" exige un proveedor que
-# no entrena. usa_herramientas: al elegir modelo desde el panel se exige que
-# sepa pedir una.
+# no entrena (salvo el flag); "personal" lo exige SIEMPRE y además no deja
+# extracto de texto en la traza. usa_herramientas: al elegir modelo desde el
+# panel se exige que sepa pedir una.
+DATOS = ("", "negocio", "personal")
 TAREAS: dict[str, dict] = {
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
                       "para_que": "las propuestas de emisor en «completar ficha» (ENCONTRÓ)"},
     "asistente_despacho": {"tier": "flash", "max_tokens": 200, "timeout_s": 30,
                            "para_que": "el asistente: decidir qué mundos atienden la pregunta"},
-    "asistente_cuenta": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
-                         "proveedor": "openai", "datos": "negocio", "usa_herramientas": True,
-                         "para_que": "el asistente, mundo CUENTA: plata y tenencias de un cliente"},
+    "asistente_cartera": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
+                          "proveedor": "openai", "datos": "negocio", "usa_herramientas": True,
+                          "para_que": "el asistente, mundo CARTERA: el patrimonio de una cuenta"},
+    "asistente_cliente": {"tier": "pro", "max_tokens": 2000, "timeout_s": 120,
+                          "proveedor": "openai", "datos": "personal", "usa_herramientas": True,
+                          "para_que": "el asistente, mundo CLIENTE: quién es el titular y cómo está"},
+    "asistente_operaciones": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
+                              "proveedor": "openai", "datos": "negocio", "usa_herramientas": True,
+                              "para_que": "el asistente, mundo OPERACIONES: qué operó la mesa"},
     "asistente_mercado": {"tier": "flash", "max_tokens": 3000, "timeout_s": 120,
                           "usa_herramientas": True,
                           "para_que": "el asistente, mundo MERCADO: qué hay y cuánto rinde"},
@@ -166,11 +174,20 @@ class Tarea:
     modelo: str
     max_tokens: int
     timeout_s: int
-    datos_negocio: bool
+    # "", "negocio" o "personal" (`DATOS`).
+    datos: str
     usa_herramientas: bool
     para_que: str
     # True si el modelo salió de una elección guardada en `ia.config`.
     elegido: bool
+
+    @property
+    def datos_negocio(self) -> bool:
+        return self.datos in ("negocio", "personal")
+
+    @property
+    def datos_personales(self) -> bool:
+        return self.datos == "personal"
 
 
 def tareas() -> list[str]:
@@ -183,6 +200,8 @@ def resolver(tarea: str) -> Tarea:
     if tarea not in TAREAS:
         raise KeyError(f"tarea desconocida: {tarea!r} (hay: {tareas()})")
     cfg = TAREAS[tarea]
+    if cfg.get("datos", "") not in DATOS:
+        raise ValueError(f"{tarea}: datos={cfg.get('datos')!r} no es uno de {DATOS}")
     proveedor = cfg.get("proveedor") or PROVEEDOR_DEFAULT
     modelo = modelo_del_tier(proveedor, cfg.get("tier", "flash"))
     elegido = False
@@ -195,7 +214,7 @@ def resolver(tarea: str) -> Tarea:
             logger.warning("modelos: elección guardada inválida para %r: %r", tarea, crudo)
     return Tarea(nombre=tarea, proveedor=proveedor, modelo=modelo,
                  max_tokens=cfg["max_tokens"], timeout_s=cfg["timeout_s"],
-                 datos_negocio=cfg.get("datos") == "negocio",
+                 datos=cfg.get("datos", ""),
                  usa_herramientas=bool(cfg.get("usa_herramientas")),
                  para_que=cfg.get("para_que", ""), elegido=elegido)
 
@@ -206,8 +225,8 @@ def ficha_de(tarea: str) -> dict:
     t = resolver(tarea)
     cfg = TAREAS[tarea]
     return {"tarea": t.nombre, "para_que": t.para_que, "proveedor": t.proveedor,
-            "modelo": t.modelo, "elegido": t.elegido, "datos_negocio": t.datos_negocio,
-            "usa_herramientas": t.usa_herramientas,
+            "modelo": t.modelo, "elegido": t.elegido, "datos": t.datos,
+            "datos_negocio": t.datos_negocio, "usa_herramientas": t.usa_herramientas,
             "declarado": {"proveedor": cfg.get("proveedor") or PROVEEDOR_DEFAULT,
                           "tier": cfg.get("tier", "flash")}}
 
@@ -220,7 +239,8 @@ def permitido_salir(tarea: Tarea) -> None:
     if tarea.datos_negocio and not no_entrena(tarea.proveedor):
         from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
 
-        if not IA_PERMITE_PROVEEDOR_QUE_ENTRENA:
+        # Dato personal: el flag no alcanza. Nunca sale a quien entrena.
+        if tarea.datos_personales or not IA_PERMITE_PROVEEDOR_QUE_ENTRENA:
             logger.error("modelos: RUTEO INSEGURO — %s hacia %r (entrena). Se niega.",
                          tarea.nombre, tarea.proveedor)
             raise RuteoInseguro(f"{tarea.nombre} no puede salir a {tarea.proveedor}")
@@ -261,7 +281,8 @@ def modelo(tarea: str, *, usuario: str | None = None, sesion: str | None = None,
     Levanta `KeyError`, `SinClave` o `RuteoInseguro` antes de salir."""
     t = resolver(tarea)
     permitido_salir(t)
-    tr = traza or Traza(t.nombre, t.modelo, usuario=usuario, sesion=sesion)
+    tr = traza or Traza(t.nombre, t.modelo, usuario=usuario, sesion=sesion,
+                        guardar_texto=not t.datos_personales)
     return armar(t.proveedor, t.modelo, max_tokens=t.max_tokens, timeout_s=t.timeout_s,
                  esquema=esquema, callbacks=[tr])
 

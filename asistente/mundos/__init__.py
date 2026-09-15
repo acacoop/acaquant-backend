@@ -5,6 +5,8 @@ está registrado. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 from asistente.agente import Agente
-from asistente.mundos import cuenta, mercado
+from asistente.mundos import cartera, cliente, mercado, operaciones
 
-MUNDOS: dict[str, Agente] = {a.nombre: a for a in (cuenta.AGENTE, mercado.AGENTE)}
+MUNDOS: dict[str, Agente] = {
+    a.nombre: a for a in (cartera.AGENTE, cliente.AGENTE, operaciones.AGENTE, mercado.AGENTE)
+}

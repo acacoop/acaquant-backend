@@ -1,7 +1,8 @@
 """El foco de la conversación: lo que se SABE, aparte de lo que se DIJO. Un
 dict chico que viaja con el historial pero aparte de él. Lo escribe el código
 desde los argumentos de una herramienta que contestó; lo lee la instrucción
-del mundo cuenta. Cada clave declara su lista cerrada de valores válidos."""
+de los mundos que la declaran en `Agente.foco`. Cada clave tiene su lista
+cerrada de valores válidos."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -29,14 +30,17 @@ def sanear(estado: dict | None) -> dict[str, str]:
     return out
 
 
-def aprender(estado: dict[str, str], args: dict | None, resultado) -> dict[str, str]:
+def aprender(estado: dict[str, str], args: dict | None, resultado,
+             claves: tuple[str, ...] | None = None) -> dict[str, str]:
     """El foco después de que una herramienta corrió con `args`. Un resultado
-    con `error` no enseña nada. Devuelve un dict nuevo."""
+    con `error` no enseña nada. `claves` acota a las que el mundo declara.
+    Devuelve un dict nuevo."""
     if not isinstance(args, dict):
         return dict(estado)
     if isinstance(resultado, dict) and resultado.get("error"):
         return dict(estado)
-    delta = sanear({k: args[k] for k in EN_FOCO if k in args})
+    mirar = [k for k in EN_FOCO if k in args and (claves is None or k in claves)]
+    delta = sanear({k: args[k] for k in mirar})
     return {**estado, **delta}
 
 

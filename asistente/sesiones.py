@@ -34,7 +34,7 @@ def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None) -> dict
                         estado=previa["foco"] if previa else {},
                         sesion=previa["sesion"] if previa else None)
     turno = {"pregunta": pregunta, "respuesta": r["respuesta"], "falta": r["falta"],
-             "error": r["error"], "mundos": r["mundos"], "tablas": tablas_de(r["eventos"]),
+             "error": r["error"], "agentes": r["agentes"], "tablas": tablas_de(r["eventos"]),
              "at": datetime.now(UTC).isoformat(timespec="seconds")}
     turnos = (previa["turnos"] if previa else []) + [turno]
     titulo = previa["titulo"] if previa else _titulo(pregunta)

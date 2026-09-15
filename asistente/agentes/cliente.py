@@ -1,4 +1,4 @@
-"""Mundo CLIENTE: QUIÉN es el titular de una cuenta y cómo está comercialmente.
+"""Agente CLIENTE: QUIÉN es el titular de una cuenta y cómo está comercialmente.
 Contacto, documento, operador, segmento, estado, grupo. Nada de plata ni de
 tenencias. Sus herramientas y su agente, en un solo archivo. Doc: docs/AvAgentAI.md.
 

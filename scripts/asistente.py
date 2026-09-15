@@ -45,9 +45,9 @@ def _dibujar(e: dict) -> None:
     elif t == "corte":
         print(f"\n{ROJO}⛔ {e['motivo']}{FIN}")
     elif t == "despacho":
-        print(f"\n{AZUL}🧭 DESPACHO{FIN} → {', '.join(e['mundos'])} {GRIS}({e['motivo']}){FIN}")
+        print(f"\n{AZUL}🧭 DESPACHO{FIN} → {', '.join(e['agentes'])} {GRIS}({e['motivo']}){FIN}")
     elif t == "junta":
-        print(f"\n{AZUL}🔗 JUNTA{FIN} de {', '.join(e['mundos'])}")
+        print(f"\n{AZUL}🔗 JUNTA{FIN} de {', '.join(e['agentes'])}")
 
 
 def _pie(r: dict) -> None:

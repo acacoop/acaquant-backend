@@ -27,7 +27,7 @@ más.** Doc madre: `docs/ARQUITECTURA.md`.
 | Al tocar… | Se carga |
 |---|---|
 | `api/`, `engines/`, `jobs/`, `scripts/` | el `CLAUDE.md` de esa carpeta (REGLA #1 vive en `api/CLAUDE.md`) |
-| `agente/` · `asistente/`, `core/modelos.py` | `rules/agente.md` — el AV AGENT · `rules/asistente.md` — EL ASISTENTE (un mundo = un archivo) |
+| `agente/` · `asistente/`, `core/modelos.py` | `rules/agente.md` — el AV AGENT · `rules/asistente.md` — EL ASISTENTE (un agente = un archivo) |
 | `api/**`, `gen_mapa_app` | `rules/api-superficie.md` — `MAPA_APP.md` y la trampa de `app.routes` |
 | `deploy/**` | `rules/sistema-deploy.md` — `SISTEMA.md`, el deploy NO reinicia motores |
 | operaciones / comercial | `rules/operaciones.md` — HOT/COLD, arancel vs bruto, tablero |
@@ -195,6 +195,6 @@ suite de integración**: `pytest -m integration` no selecciona nada y sale en ve
 - **Deploy backend**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → schema → restart
   de `api.service` **y nada más** → smoke). Motores: los maneja cron; reiniciarlos en rueda es decisión
   de la mesa. Push a `main` deploya el front en Vercel solo.
-- **EL ASISTENTE** (`asistente/`): grafo LangGraph de agentes por mundo, tab LAB del AV AGENT. Doc única:
+- **EL ASISTENTE** (`asistente/`): grafo LangGraph de agentes por tema, tab LAB del AV AGENT. Doc única:
   `docs/AvAgentAI.md`. Alcance por `ASISTENTE_CUENTAS` (`.env`, fail-closed).
 - **Frontend**: repo hermano `../acaquant-web/` (checkout paralelo). Proxies de data live: `force-dynamic` + `revalidate = 0`.

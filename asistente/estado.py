@@ -1,18 +1,23 @@
 """El foco de la conversación: lo que se SABE, aparte de lo que se DIJO. Un
 dict chico que viaja con el historial pero aparte de él. Lo escribe el código
 desde los argumentos de una herramienta que contestó; lo lee la instrucción
-de los mundos que la declaran en `Agente.foco`. Cada clave tiene su lista
+de los agentes que la declaran en `Agente.foco`. Cada clave tiene su lista
 cerrada de valores válidos."""
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from asistente import permitido
 
-# clave → función que devuelve los valores válidos. Lo que llega del navegador
-# y no está acá, no existe.
-EN_FOCO: dict[str, Callable[[], list[str]]] = {
-    "cuenta": lambda: permitido.cuentas(),
+# Un ticker corto del master: mayúsculas y dígitos, de 2 a 10 (AL30, S31O5,
+# YPFD). Es forma, no existencia: la existencia la dice la herramienta.
+_TICKER_RE = re.compile(r"[A-Z0-9]{2,10}")
+
+# clave → (normalizar, es válido). Lo que llega de afuera y no pasa, no existe.
+EN_FOCO: dict[str, tuple[Callable[[str], str], Callable[[str], bool]]] = {
+    "cuenta": (str.strip, lambda v: v in permitido.cuentas()),
+    "ticker": (lambda v: v.strip().upper(), lambda v: bool(_TICKER_RE.fullmatch(v))),
 }
 
 
@@ -21,11 +26,11 @@ def sanear(estado: dict | None) -> dict[str, str]:
     if not isinstance(estado, dict):
         return {}
     out: dict[str, str] = {}
-    for k, validos in EN_FOCO.items():
+    for k, (normalizar, valido) in EN_FOCO.items():
         v = estado.get(k)
         if isinstance(v, (str, int)) and not isinstance(v, bool):
-            s = str(v).strip()
-            if s and s in validos():
+            s = normalizar(str(v))
+            if s and valido(s):
                 out[k] = s
     return out
 
@@ -33,7 +38,7 @@ def sanear(estado: dict | None) -> dict[str, str]:
 def aprender(estado: dict[str, str], args: dict | None, resultado,
              claves: tuple[str, ...] | None = None) -> dict[str, str]:
     """El foco después de que una herramienta corrió con `args`. Un resultado
-    con `error` no enseña nada. `claves` acota a las que el mundo declara.
+    con `error` no enseña nada. `claves` acota a las que el agente declara.
     Devuelve un dict nuevo."""
     if not isinstance(args, dict):
         return dict(estado)

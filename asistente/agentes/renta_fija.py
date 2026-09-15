@@ -1,5 +1,6 @@
-"""Mundo MERCADO: qué hay y cuánto rinde, sin importar quién lo tenga. Sus
-herramientas y su agente, en un solo archivo. Doc: docs/AvAgentAI.md."""
+"""Agente RENTA FIJA (familia mercado): un bono o una curva. Cuánto rinde, qué
+hay en una curva, qué es, cuándo paga. Sus herramientas y su agente, en un solo
+archivo. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 from datetime import date
@@ -56,7 +57,7 @@ def _instrumento(b: dict, hoy: date) -> dict:
 def metricas_por_ticker() -> dict[str, dict]:
     """Lo que el mercado dice hoy de cada bono del master de curvas, por ticker
     corto: la misma foto que `curva`. Es un helper de DATOS, no una herramienta:
-    lo usa el mundo cartera para decir cuánto rinde lo que una cuenta tiene, sin
+    lo usa el agente cartera para decir cuánto rinde lo que una cuenta tiene, sin
     que ningún modelo cruce nada. Levanta si la vista no contesta."""
     from api.services import curvas_vista as CV
 
@@ -206,9 +207,10 @@ def ficha_bono(ticker: str) -> dict:
 # ── el agente ───────────────────────────────────────────────────────────────
 
 _INSTRUCCION = """
-Hablás del MERCADO: lo que hay y cuánto rinde, sin importar quién lo tenga.
-Una tasa marcada `tasa_ruido` no es comparable: no la uses para decir cuál
-rinde más. Un ticker que no existe se dice, no se reemplaza por uno parecido.
+Hablás de RENTA FIJA: bonos, letras y ONs, lo que hay y cuánto rinde, sin
+importar quién lo tenga. Una tasa marcada `tasa_ruido` no es comparable: no la
+uses para decir cuál rinde más. Un ticker que no existe se dice, no se
+reemplaza por uno parecido.
 """
 
 
@@ -217,14 +219,15 @@ def _instruccion(_foco: dict) -> str:
 
 
 AGENTE = Agente(
-    nombre="mercado",
-    tarea="asistente_mercado",
-    describe="el mercado, sin importar quién lo tenga: qué bonos hay en una curva, cuánto "
-             "rinden, qué es un bono, cuándo vence, cómo cotiza.",
+    nombre="renta_fija",
+    tarea="asistente_renta_fija",
+    describe="bonos, letras y ONs: qué hay en una curva, cuánto rinde, qué es un bono, cuándo "
+             "vence y qué paga, cómo cotiza hoy.",
     instruccion=_instruccion,
     herramientas=(curva, ficha_bono),
-    senales=("curva", "curvas", "rinde", "rinden", "rendimiento", "rendimientos", "tea",
-             "tir", "bono", "bonos", "cotiza", "cotizacion", "paridad", "duration", "ficha",
-             "ticker", "cer", "tasa fija", "hard dolar", "dolar linked", "tamar", "letra",
-             "letras", "on", "ons", "soberano", "soberanos"),
+    familia="mercado",
+    foco=("ticker",),
+    senales=("curva", "curvas", "tea", "tir", "bono", "bonos", "paridad", "duration", "ficha",
+             "cer", "tasa fija", "hard dolar", "dolar linked", "letra", "letras", "lecap",
+             "boncap", "on", "ons", "soberano", "soberanos", "renta fija"),
 )

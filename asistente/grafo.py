@@ -1,5 +1,5 @@
-"""El grafo del asistente (LangGraph): despacho → mundos en paralelo → junta.
-Cada mundo es un agente (`mundos/<nombre>.py`) que corre su propio bucle
+"""El grafo del asistente (LangGraph): despacho → agentes en paralelo → junta.
+Cada agente es un agente (`agentes/<nombre>.py`) que corre su propio bucle
 modelo ↔ herramientas como subgrafo. Arquitectura: docs/AvAgentAI.md."""
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from asistente import herramientas as H
 from asistente import junta as JU
 from asistente import memoria, puerta
 from asistente.agente import Agente
-from asistente.mundos import MUNDOS
+from asistente.agentes import AGENTES
 from core import modelos
 from core.traza import Traza
 
@@ -193,7 +193,7 @@ def _ejecutar(agente: Agente, nombre: str, args: dict | None) -> dict:
         return {"error": f"la herramienta falló: {type(e).__name__}: {e}"}
 
 
-# ── el grafo principal: despacho → mundos → junta ────────────────────────────
+# ── el grafo principal: despacho → agentes → junta ────────────────────────────
 
 
 class Estado(TypedDict, total=False):
@@ -202,7 +202,7 @@ class Estado(TypedDict, total=False):
     sesion: str
     historial: list[dict]
     foco: Annotated[dict[str, str], _unir]
-    mundos: list[str]
+    agentes: list[str]
     salidas: Annotated[dict[str, dict], _unir]
     eventos: Annotated[list[dict], operator.add]
     vueltas: Annotated[int, operator.add]
@@ -216,7 +216,7 @@ class Estado(TypedDict, total=False):
     control: dict
 
 
-_SUBGRAFOS = {n: subgrafo(a) for n, a in MUNDOS.items()}
+_SUBGRAFOS = {n: subgrafo(a) for n, a in AGENTES.items()}
 
 
 def preparar(s: Estado) -> dict:
@@ -232,69 +232,74 @@ def preparar(s: Estado) -> dict:
 
 
 def despacho(s: Estado) -> dict:
-    """Qué mundos atienden la pregunta: las reglas primero; si ninguna decide,
+    """Qué agentes atienden la pregunta: las reglas primero; si ninguna decide,
     el modelo; si el modelo no contesta algo legible, van todos (más caro, no
     más peligroso)."""
-    todos = list(MUNDOS)
+    todos = list(AGENTES)
+    entre: tuple[str, ...] = ()
+    regla = ""
     if (d := DESP.por_reglas(s["pregunta"], s.get("foco"))) is not None:
-        salida: dict = {"mundos": list(d.mundos),
-                        "eventos": [{"tipo": "despacho", "agente": "despacho",
-                                     "mundos": list(d.mundos), "motivo": d.motivo}]}
-        if not d.mundos:
-            salida.update({"respuesta": d.respuesta, "falta": None, "error": None,
-                           "eventos": salida["eventos"] + [{"tipo": "texto", "agente": "despacho",
-                                                           "texto": d.respuesta}]})
-        return salida
-    entrada = [SystemMessage(content=DESP.DESPACHO.instruccion(s.get("foco") or {})),
+        if d.agentes or d.respuesta:
+            salida: dict = {"agentes": list(d.agentes),
+                            "eventos": [{"tipo": "despacho", "agente": "despacho",
+                                         "agentes": list(d.agentes), "motivo": d.motivo}]}
+            if not d.agentes:
+                salida.update({"respuesta": d.respuesta, "falta": None, "error": None,
+                               "eventos": salida["eventos"] + [{"tipo": "texto", "agente": "despacho",
+                                                               "texto": d.respuesta}]})
+            return salida
+        # La regla acotó los candidatos a una familia; el modelo elige entre ellos.
+        entre, regla, todos = d.entre, d.motivo + " · ", list(d.entre)
+    entrada = [SystemMessage(content=DESP.instruccion(s.get("foco") or {}, entre)),
                HumanMessage(content=s["pregunta"])]
     try:
         tr = _traza(DESP.DESPACHO, s)
         msg = _modelo_de(DESP.DESPACHO, s, tr).invoke(entrada)
-        elegidos = DESP.leer_eleccion(memoria.texto(msg.content))
+        elegidos = DESP.leer_eleccion(memoria.texto(msg.content), entre)
         uso = msg.usage_metadata or {}
         extra = {"tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
                  "llamadas": list(tr.ids)}
-        motivo = "eligió el modelo" if elegidos else "no se entendió la elección: van todos"
+        motivo = regla + ("eligió el modelo" if elegidos else "no se entendió la elección: van todos")
     except Exception as e:
-        elegidos, extra, motivo = [], {}, f"el despacho falló ({e}): van todos"
-    mundos = elegidos or todos
-    return {"mundos": mundos, "vueltas": 1,
-            "eventos": [{"tipo": "despacho", "agente": "despacho", "mundos": mundos, "motivo": motivo}],
+        elegidos, extra, motivo = [], {}, f"{regla}el despacho falló ({e}): van todos"
+    agentes = elegidos or todos
+    return {"agentes": agentes, "vueltas": 1,
+            "eventos": [{"tipo": "despacho", "agente": "despacho", "agentes": agentes, "motivo": motivo}],
             **extra}
 
 
-def a_mundos(s: Estado) -> list[Send] | str:
-    """A cada mundo elegido, en paralelo. Sin mundos (una regla ya contestó),
+def a_agentes(s: Estado) -> list[Send] | str:
+    """A cada agente elegido, en paralelo. Sin agentes (una regla ya contestó),
     directo a cerrar."""
-    return [Send(m, s) for m in s["mundos"]] or "finalizar"
+    return [Send(m, s) for m in s["agentes"]] or "finalizar"
 
 
-def nodo_mundo(nombre: str):
-    agente = MUNDOS[nombre]
+def nodo_agente(nombre: str):
+    agente = AGENTES[nombre]
 
     def correr(s: Estado) -> dict:
         if not agente.herramientas:
             # Modelado pero sin herramientas: sin datos no hay respuesta. Se
-            # dice con la misma forma que un mundo que erró, sin llamar a nadie.
+            # dice con la misma forma que un agente que erró, sin llamar a nadie.
             texto = f"Todavía no puedo consultar {agente.nombre} ({agente.describe})"
             return {"salidas": {nombre: {"respuesta": None, "falta": texto, "error": texto,
                                          "crudo": None, "datos": [], "mensajes": [
                                              {"role": "assistant", "content": f"No pude contestar: {texto}"}]}},
-                    "foco": {}, "eventos": [_evento(agente, "corte", motivo="mundo sin herramientas")],
+                    "foco": {}, "eventos": [_evento(agente, "corte", motivo="agente sin herramientas")],
                     "vueltas": 0, "tokens_in": 0, "tokens_out": 0, "llamadas": []}
-        # Cada mundo ve del historial solo lo suyo y las preguntas: lo que
-        # contestó otro mundo (o la junta) puede traer datos que este proveedor
+        # Cada agente ve del historial solo lo suyo y las preguntas: lo que
+        # contestó otro agente (o la junta) puede traer datos que este proveedor
         # no tiene que recibir.
-        propio = memoria.de_mundo(s["historial"], nombre)
+        propio = memoria.de_agente(s["historial"], nombre)
         r = _SUBGRAFOS[nombre].invoke({
             "mensajes": memoria.desde_dicts(propio) + [HumanMessage(content=s["pregunta"])],
             "foco": dict(s.get("foco") or {}),
             "pregunta": s["pregunta"], "usuario": s["usuario"], "sesion": s["sesion"],
             "vueltas": 0, "tokens_in": 0, "tokens_out": 0, "llamadas": [], "eventos": [], "datos": [],
         })
-        # Lo nuevo de este mundo, sin la pregunta (la agrega `finalizar`, una vez).
+        # Lo nuevo de este agente, sin la pregunta (la agrega `finalizar`, una vez).
         nuevos = memoria.a_dicts(list(r["mensajes"])[len(propio) + 1:])
-        # Un mundo que no llegó a contestar deja igual su turno cerrado: si la
+        # Un agente que no llegó a contestar deja igual su turno cerrado: si la
         # pregunta quedara sin respuesta en su historial, la próxima vez la
         # tomaría como pendiente y la contestaría de nuevo.
         if r.get("error") and not any(d.get("role") == "assistant" for d in nuevos):
@@ -316,10 +321,10 @@ def nodo_mundo(nombre: str):
 
 
 def junta(s: Estado) -> dict:
-    """Con un mundo, su respuesta es la respuesta. Con varios, una llamada más
+    """Con un agente, su respuesta es la respuesta. Con varios, una llamada más
     redacta con los datos de todos delante."""
     salidas = s.get("salidas") or {}
-    orden = [m for m in s["mundos"] if m in salidas]
+    orden = [m for m in s["agentes"] if m in salidas]
     errores = [salidas[m]["error"] for m in orden if salidas[m].get("error")]
     if len(orden) == 1:
         u = salidas[orden[0]]
@@ -345,31 +350,31 @@ def junta(s: Estado) -> dict:
     return {"respuesta": leido["respuesta"], "falta": leido["falta"], "error": None,
             "vueltas": 1, "tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
             "llamadas": list(tr.ids),
-            "eventos": [{"tipo": "junta", "agente": "junta", "mundos": orden},
+            "eventos": [{"tipo": "junta", "agente": "junta", "agentes": orden},
                         {"tipo": "texto", "agente": "junta", "texto": leido["respuesta"]}],
             # Al historial va solo la respuesta de la junta: su entrada (los
-            # datos de todos los mundos) no es un turno de la conversación.
+            # datos de todos los agentes) no es un turno de la conversación.
             "salidas": {"junta": {"mensajes": memoria.a_dicts([msg]),
                                   "crudo": memoria.texto(msg.content)}}}
 
 
 def finalizar(s: Estado) -> dict:
     salidas = s.get("salidas") or {}
-    # La pregunta queda marcada con los mundos que la atendieron: un mundo que
+    # La pregunta queda marcada con los agentes que la atendieron: un agente que
     # no la vio no tiene por qué recibirla después (y contestarla tarde).
     mensajes = list(s["historial"]) + [{"role": "user", "content": s["pregunta"],
-                                        "mundos": list(s["mundos"])}]
-    for m in [*s["mundos"], "junta"]:
-        # Cada mensaje queda marcado con su mundo; la junta corre como el mundo
+                                        "agentes": list(s["agentes"])}]
+    for m in [*s["agentes"], "junta"]:
+        # Cada mensaje queda marcado con su agente; la junta corre como el agente
         # de su tarea. La marca no viaja al proveedor (`memoria.desde_dicts`).
-        mundo = JU.JUNTA_COMO if m == "junta" else m
-        mensajes += [{**d, "mundo": mundo} for d in (salidas.get(m) or {}).get("mensajes") or []]
-    if not s["mundos"] and s.get("respuesta"):
+        agente = JU.JUNTA_COMO if m == "junta" else m
+        mensajes += [{**d, "agente": agente} for d in (salidas.get(m) or {}).get("mensajes") or []]
+    if not s["agentes"] and s.get("respuesta"):
         # Contestó una regla del despacho: queda en el historial de la persona
-        # y de ningún mundo (la marca no es de nadie).
-        mensajes.append({"role": "assistant", "content": s["respuesta"], "mundo": "despacho"})
+        # y de ningún agente (la marca no es de nadie).
+        mensajes.append({"role": "assistant", "content": s["respuesta"], "agente": "despacho"})
     # El texto que se revisa se excluye del contexto; el resto (todo lo que el
-    # modelo vio, de todos los mundos) es la fuente.
+    # modelo vio, de todos los agentes) es la fuente.
     crudos = [u.get("crudo") for u in salidas.values() if u.get("crudo")]
     contexto = memoria.contexto(mensajes)
     for c in crudos:
@@ -382,14 +387,14 @@ def _armar():
     g = StateGraph(Estado)
     g.add_node("preparar", preparar)
     g.add_node("despacho", despacho)
-    for nombre in MUNDOS:
-        g.add_node(nombre, nodo_mundo(nombre))
+    for nombre in AGENTES:
+        g.add_node(nombre, nodo_agente(nombre))
     g.add_node("junta", junta)
     g.add_node("finalizar", finalizar)
     g.add_edge(START, "preparar")
     g.add_edge("preparar", "despacho")
-    g.add_conditional_edges("despacho", a_mundos, [*MUNDOS, "finalizar"])
-    for nombre in MUNDOS:
+    g.add_conditional_edges("despacho", a_agentes, [*AGENTES, "finalizar"])
+    for nombre in AGENTES:
         g.add_edge(nombre, "junta")
     g.add_edge("junta", "finalizar")
     g.add_edge("finalizar", END)
@@ -410,7 +415,7 @@ def preguntar(pregunta: str, *, usuario: str, historial: list[dict] | None = Non
     entrada: Estado = {
         "pregunta": pregunta, "usuario": usuario, "sesion": sesion_valida(sesion),
         "historial": list(historial or []), "foco": EST.sanear(estado),
-        "mundos": [], "salidas": {}, "eventos": [], "vueltas": 0,
+        "agentes": [], "salidas": {}, "eventos": [], "vueltas": 0,
         "tokens_in": 0, "tokens_out": 0, "llamadas": [],
     }
     try:
@@ -435,6 +440,6 @@ def _salida(r: dict) -> dict:
         "mensajes": [m for m in (r.get("mensajes") or []) if m.get("role") != "system"],
         "estado": dict(r.get("foco") or {}),
         "sesion": r.get("sesion"),
-        "mundos": list(r.get("mundos") or []),
+        "agentes": list(r.get("agentes") or []),
         "eventos": list(r.get("eventos") or []),
     }

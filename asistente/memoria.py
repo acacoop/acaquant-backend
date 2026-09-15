@@ -114,22 +114,22 @@ def a_dicts(mensajes: list[BaseMessage]) -> list[dict]:
     return out
 
 
-MARCAS = ("mundo", "mundos")
+MARCAS = ("agente", "agentes")
 
 
-def de_mundo(historial: list[dict], mundo: str) -> list[dict]:
-    """Lo que un mundo puede ver del historial: las preguntas que atendió (o
+def de_agente(historial: list[dict], agente: str) -> list[dict]:
+    """Lo que un agente puede ver del historial: las preguntas que atendió (o
     las que no dicen quién las atendió) y lo marcado con su nombre. Lo que
-    escribió otro mundo, y lo que se le preguntó solo a otro, no le llega."""
+    escribió otro agente, y lo que se le preguntó solo a otro, no le llega."""
     out = []
     for d in historial or []:
         if d.get("role") == "user":
             # Sin marca (historial viejo) la ven todos; `[]` es «la contestó una
             # regla»: no la ve nadie.
-            atendida_por = d.get("mundos")
-            if atendida_por is None or mundo in atendida_por:
+            atendida_por = d.get("agentes")
+            if atendida_por is None or agente in atendida_por:
                 out.append(d)
-        elif d.get("mundo") == mundo:
+        elif d.get("agente") == agente:
             out.append(d)
     return out
 

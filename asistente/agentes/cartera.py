@@ -1,4 +1,4 @@
-"""Mundo CARTERA: el PATRIMONIO de una cuenta, lo que se mide en plata y
+"""Agente CARTERA: el PATRIMONIO de una cuenta, lo que se mide en plata y
 nominales: qué tiene, cuánto vale, cuánto rinde, qué cobra. Sus herramientas
 y su agente, en un solo archivo. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
@@ -9,7 +9,7 @@ from typing import Literal
 from asistente import estado as EST
 from asistente import permitido
 from asistente.agente import COMUN, Agente
-from asistente.mundos.mercado import metricas_por_ticker
+from asistente.agentes.renta_fija import metricas_por_ticker
 from core.postgres import get_pool
 
 MAX_DIAS = 730
@@ -20,7 +20,7 @@ HORIZONTES = ("t1", "t0")
 
 def cuentas_disponibles() -> dict:
     """Las cuentas habilitadas con su nombre. No se le ofrece al modelo: va en
-    la instrucción del mundo cartera."""
+    la instrucción del agente cartera."""
     try:
         params = permitido.parametros()
     except permitido.SinPermiso:
@@ -356,6 +356,6 @@ AGENTE = Agente(
     herramientas=(tenencia_actual, cobros_futuros),
     senales=("tengo", "tenemos", "tenencia", "tenencias", "cartera", "posicion", "posiciones",
              "nominal", "nominales", "cobro", "cobros", "cobra", "cobrar", "cupon", "cupones",
-             "valuacion", "patrimonio", "vale", "mio", "mia", "mis"),
+             "valuacion", "patrimonio", "mio", "mia", "mis"),
     foco=("cuenta",),
 )

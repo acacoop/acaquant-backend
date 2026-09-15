@@ -1,6 +1,6 @@
 """Cómo una función de Python se vuelve herramienta del modelo: docstring =
 descripción, firma = esquema (`Literal` → enum). Las herramientas mismas
-viven en `mundos/<mundo>.py`, al lado de su agente. Doc: docs/AvAgentAI.md."""
+viven en `agentes/<agente>.py`, al lado de su agente. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 import json
@@ -8,12 +8,12 @@ import json
 from langchain_core.tools import StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-from asistente.mundos import MUNDOS
+from asistente.agentes import AGENTES
 
 # Techo del esquema que viaja al modelo por herramienta (chars de JSON).
 MAX_FICHA_CHARS = 2_300
 
-TODAS = tuple(f for a in MUNDOS.values() for f in a.herramientas)
+TODAS = tuple(f for a in AGENTES.values() for f in a.herramientas)
 POR_NOMBRE = {f.__name__: f for f in TODAS}
 
 

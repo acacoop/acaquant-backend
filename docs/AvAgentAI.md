@@ -3,68 +3,85 @@
 Documento oficial de la IA conversacional. Todo lo que hace el asistente está
 acá; el código está en `asistente/`. Doc [VIVO]: se actualiza en el mismo commit
 que el código. Regla que se carga sola al tocar el paquete:
-`.claude/rules/asistente.md`. Para sumar un mundo: skill `add-mundo`.
+`.claude/rules/asistente.md`. Para sumar un agente: skill `add-agente`.
 
 ## 1. Qué es
 
 Un asistente que contesta preguntas de la mesa sobre carteras, clientes,
 operaciones y mercado, en la tab LAB del AV AGENT (`trading.acaquant.com`,
-admin-only). No escribe nada: solo lee.
-Está hecho con LangGraph (el grafo) y LangChain (proveedores, herramientas,
-mensajes). La puerta a los proveedores es `core/modelos.py`; la traza de cada
-llamada, `core/traza.py`.
+admin-only). No escribe nada: solo lee. Está hecho con LangGraph (el grafo) y
+LangChain (proveedores, herramientas, mensajes). La puerta a los proveedores es
+`core/modelos.py`; la traza de cada llamada, `core/traza.py`.
+
+**Las palabras.** Un **agente** es un modelo que llama herramientas en un bucle
+hasta contestar (cartera, cliente, operaciones, renta fija…). Cada agente tiene
+un **sujeto** (una cuenta, la mesa, un bono). Una **familia** es un grupo de
+agentes con un tema en común (mercado); no corre, agrupa. El **despacho** y la
+**junta** son los dos pasos fijos del workflow que envuelve a los agentes.
 
 ## 2. Arquitectura
 
 ```
-pregunta ─► preparar ─► despacho ─► [cartera]     ─┐
-                          │        [cliente]     ─┤
-                          │        [operaciones] ─┼─► junta ─► finalizar ─► respuesta
-                          │        [mercado]     ─┘
-                          └─(una regla contestó)──────────────────┘
+pregunta ─► preparar ─► despacho ─► [cartera · cliente · operaciones]     ─┐
+                          │        [mercado: renta_fija · renta_variable ─┼─► junta ─► finalizar ─► respuesta
+                          │         fondos · derivados · financiamiento   │
+                          │         dolares]                              ─┘
+                          └─(una regla contestó)──────────────────────────┘
 ```
 
 | Nodo | Módulo | Qué hace | Modelo |
 |---|---|---|---|
 | `preparar` | `memoria.py` | poda y achica el historial, sanea el foco | ninguno |
-| `despacho` | `despacho.py` | reglas primero; si ninguna decide, el modelo elige mundos | `asistente_despacho` solo si las reglas no deciden |
-| `cartera` | `mundos/cartera.py` | qué TIENE una cuenta: `tenencia_actual` (con lo que el mercado dice de cada título), `cobros_futuros` (hasta una fecha) | `asistente_cartera` (OpenAI pro, negocio) |
-| `cliente` | `mundos/cliente.py` | quién ES el titular: `ficha_cliente` (contacto, operador, segmento, estado, grupos) | `asistente_cliente` (OpenAI pro, personal) |
-| `operaciones` | `mundos/operaciones.py` | qué HIZO la mesa. Modelado, todavía sin herramientas: contesta que no puede consultarlo, sin llamar a nadie | `asistente_operaciones` (OpenAI pro, negocio) |
-| `mercado` | `mundos/mercado.py` | qué HAY: `curva`, `ficha_bono` | `asistente_mercado` (DeepSeek flash) |
-| `junta` | `junta.py` | con un mundo, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cartera` |
+| `despacho` | `despacho.py` | reglas primero; si ninguna decide, el modelo elige agentes | `asistente_despacho` solo si las reglas no deciden |
+| cada agente | `agentes/<nombre>.py` | su bucle modelo ↔ herramientas, tope de 6 vueltas | su tarea (§6) |
+| `junta` | `junta.py` | con un agente, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cartera` |
 | `finalizar` | `grafo.py` + `control.py` | arma el historial de salida y corre el control de números | ninguno |
 
-**Cada mundo tiene su sujeto.** Cartera y cliente hablan de UNA cuenta (la
+Los agentes corren en paralelo. **Un nodo del grafo = un módulo del paquete.**
+El SYSTEM de cada agente termina con la fecha de hoy (`agente.sistema`): sin
+eso «hasta fin de año» se calcula desde una fecha inventada.
+
+## 3. Los agentes
+
+| Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |
+|---|---|---|---|---|---|
+| `cartera` | una cuenta | | qué TIENE: títulos, nominales, valuación, rendimiento, cobros | `tenencia_actual`, `cobros_futuros` | cuenta |
+| `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
+| `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
+| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva, qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
+| `renta_variable` | una acción o un CEDEAR | mercado | cómo cotiza, cuánto varió, qué panel | ninguna todavía | ticker |
+| `fondos` | un FCI | mercado | qué es, cuánto rinde, qué tiene, cuánto tarda el rescate | ninguna todavía | ticker |
+| `derivados` | un futuro o una opción | mercado | dónde cotiza, tasa implícita, cadena de opciones | ninguna todavía | ticker |
+| `financiamiento` | la tasa | mercado | caución por plazo, tasas de referencia | ninguna todavía | |
+| `dolares` | el tipo de cambio | mercado | MEP, CCL, oficial, brechas | ninguna todavía | |
+
+Un agente **sin herramientas** existe igual: el despacho lo conoce, la
+presentación lo lista, y si le toca una pregunta contesta «todavía no puedo
+consultar esto» sin llamar a ningún modelo. Cada archivo anota las primeras
+herramientas que van a entrar y sobre qué servicio existente se apoyan.
+
+**Cada agente tiene su sujeto.** Cartera y cliente hablan de UNA cuenta (la
 llave `cuenta` es obligatoria en sus herramientas). Operaciones habla de la
-mesa: la cuenta es un filtro opcional, como el título o la fecha. Mercado
-habla de un instrumento o una curva: no tiene cuenta. Los mundos se
-relacionan por el foco (§8): la cuenta que quedó en la mano sirve para los
-tres que la leen, sin repetirla.
+mesa: la cuenta es un filtro opcional, como el título o la fecha. Los de mercado
+hablan de un instrumento: no tienen cuenta. Los agentes se relacionan por el
+foco (§8): la llave que quedó en la mano sirve para todos los que la leen.
 
-Los mundos corren en paralelo. Cada uno es un subgrafo `modelo ↔ herramientas`
-con tope de 6 vueltas. **Un nodo del grafo = un módulo del paquete.** El SYSTEM
-de cada agente termina con la fecha de hoy (`agente.sistema`): sin eso «hasta
-fin de año» se calcula desde una fecha inventada.
-
-## 3. El paquete
+## 4. El paquete
 
 ```
 asistente/
   agente.py        qué es un Agente (nombre, tarea, describe, instrucción, herramientas,
-                   señales, claves de foco) y COMUN, la instrucción que todos comparten
-  mundos/
-    __init__.py    MUNDOS: el registro, explícito
-    cartera.py     qué TIENE una cuenta: herramientas + AGENTE
-    cliente.py     quién ES el titular: herramientas + AGENTE (dato personal)
-    operaciones.py qué HIZO la mesa: AGENTE, todavía sin herramientas
-    mercado.py     qué HAY: herramientas + AGENTE
+                   señales, familia, claves de foco), qué es una Familia, y COMUN
+  agentes/
+    __init__.py    AGENTES y FAMILIAS: los registros, explícitos
+    cartera.py     cliente.py     operaciones.py
+    renta_fija.py  renta_variable.py  fondos.py  derivados.py  financiamiento.py  dolares.py
   despacho.py      reglas (Decision), el agente DESPACHO y cómo se lee su elección
   junta.py         el agente JUNTA
   grafo.py         el StateGraph, el subgrafo de cada agente, preguntar()
   herramientas.py  función → tool (docstring = descripción, firma = esquema); TODAS, POR_NOMBRE
-  memoria.py       poda, achicado, marcas por mundo, dicts ⇄ mensajes de LangChain
-  estado.py        el foco: claves con lista cerrada de valores
+  memoria.py       poda, achicado, marcas por agente, dicts ⇄ mensajes de LangChain
+  estado.py        el foco: claves con normalizador y validador
   puerta.py        controles antes de ejecutar una herramienta, por argumento
   control.py       control de números sobre la respuesta final
   esquema.py       {respuesta, falta}: esquema del proveedor o renglón «Falta:»
@@ -77,47 +94,53 @@ Fuera del paquete: `core/modelos.py` (proveedores, `TAREAS`, `modelo(tarea)`),
 `core/traza.py` (una fila en `ia.llamadas` por llamada), `api/routers/agente.py`
 (`/api/agente/lab/*`), `scripts/asistente.py` (la terminal), `scripts/diag_herramienta.py`.
 
-## 4. Cómo corre una pregunta
+## 5. Cómo corre una pregunta
 
 «¿Qué bono CER rinde más que los que tengo en la 805?»
 
 1. `preparar`: memoria podada a 8 turnos, resultados viejos achicados, foco saneado.
-2. `despacho`: la regla de señales ve «tengo» (cartera) y «bono», «cer», «rinde»
-   (mercado): van los dos, sin llamar a ningún modelo. Evento
+2. `despacho`: la regla de señales ve «tengo» (cartera) y «bono», «cer»
+   (renta_fija): van los dos, sin llamar a ningún modelo. Evento
    `despacho · regla: señales (…)`.
-3. En paralelo: `cartera` pide `tenencia_actual(805)` y redacta; `mercado` pide
-   `curva("cer")` y redacta. Cada uno con sus fichas, no las de todos.
+3. En paralelo: `cartera` pide `tenencia_actual(805)` y redacta; `renta_fija`
+   pide `curva("cer")` y redacta. Cada uno con sus fichas, no las de todos.
 4. `junta` recibe las dos respuestas con sus datos y escribe una sola.
-5. `finalizar`: historial = anterior + pregunta (marcada con sus mundos) + lo
-   nuevo de cada mundo + la junta. El control busca cada número de la respuesta
-   en los datos.
+5. `finalizar`: historial = anterior + pregunta (marcada con sus agentes) + lo
+   nuevo de cada agente + la junta. El control busca cada número de la
+   respuesta en los datos. Cartera dejó `cuenta = 805` en foco; renta fija no
+   dejó ticker porque pidió una curva, no un bono.
 
 Respuesta al front: `respuesta`, `falta`, `error`, `estado`, `sesion` (con su
-costo), `titulo`, `guardada`, `mundos`, `eventos` (cada paso, con el agente que
-lo hizo), `control`, tokens y vueltas.
+costo), `titulo`, `guardada`, `agentes`, `eventos` (cada paso, con el agente
+que lo hizo), `control`, tokens y vueltas.
 
-## 5. El despacho
+## 6. El despacho
 
-Tres capas, de la más barata a la más cara:
+De la capa más barata a la más cara:
 
 1. **Reglas** (`despacho.REGLAS`, en orden; la primera que decide, decide):
    - `meta`: «¿qué sabés hacer?» se contesta desde los objetos `Agente`, sin
-     modelo ni mundos.
-   - `señales`: las señales de uno o más mundos aparecen en la pregunta → esos.
-2. **El modelo** `asistente_despacho`, solo si ninguna regla decidió. Recibe el
-   foco («la conversación viene hablando de cuenta = 805») porque una pregunta
-   corta sobre una cuenta puede ser de cartera, de cliente o de operaciones, y
-   elegir entre esos tres es suyo. Se acepta una lista de nombres y nada más.
-3. **Todos**, si el modelo no se entendió o falló. Más caro, no más peligroso.
+     modelo ni agentes.
+   - `señales`: las señales de uno o más agentes aparecen en la pregunta →
+     esos. Si solo aparecen señales **de una familia** («cuánto rinde», «cómo
+     cotiza», «a cuánto vence»), la regla acota los candidatos a esa familia y
+     el modelo elige entre ellos.
+2. **El modelo** `asistente_despacho`, solo si ninguna regla decidió del todo.
+   Recibe el foco («la conversación viene hablando de cuenta = 805»), porque una
+   pregunta corta sobre una cuenta puede ser de cartera, de cliente o de
+   operaciones, y elegir entre esos es suyo. Se acepta una lista de nombres y
+   nada más.
+3. **Todos los candidatos**, si el modelo no se entendió o falló. Más caro, no
+   más peligroso.
 
 Una señal es una palabra entera, en minúsculas y sin acentos, declarada en el
-`Agente` (`senales`; las variantes se declaran: «cer» no es «cerca»). Una
-pregunta meta es una de las frases de `META` entera, no una frase que las
-contenga. El evento `despacho` dice siempre quién decidió: `regla: …`,
-`eligió el modelo` o `van todos`. Con eso se mide, en `eventos` e `ia.llamadas`,
-qué parte de las preguntas no paga la llamada.
+`Agente` (`senales`; las variantes se declaran: «cer» no es «cerca»). Las
+genéricas de un tema («rinde», «cotiza», «precio», «tasa», «vence») viven en la
+`Familia`, no en un agente, y un test falla si un agente las repite. Una
+pregunta meta es una de las frases de `META` entera. El evento `despacho` dice
+siempre quién decidió: `regla: …`, `eligió el modelo` o `van todos`.
 
-## 6. Ruteo de modelos
+## 7. Ruteo de modelos
 
 Una tarea = un agente = un modelo. Las tareas viven en `core/modelos.TAREAS`; se
 cambian desde el panel del LAB sin deploy (se prueba el modelo antes de guardar).
@@ -129,7 +152,7 @@ Una tarea desconocida no corre.
 | `asistente_cartera` | OpenAI pro | negocio | herramientas + no entrena |
 | `asistente_cliente` | OpenAI pro | personal | contacto y documento: nunca a quien entrena, sin texto en la traza |
 | `asistente_operaciones` | OpenAI pro | negocio | el libro de la mesa |
-| `asistente_mercado` | DeepSeek flash | público | herramientas |
+| `asistente_renta_fija` … `asistente_dolares` | DeepSeek flash | público | toda la familia mercado |
 
 Tres clases de dato (`core/modelos.DATOS`): vacío (nada sensible), `negocio`
 (sale solo a un proveedor que no entrena, salvo el flag) y `personal` (lo
@@ -147,33 +170,88 @@ con un último renglón `Falta: …` que `esquema.leer` entiende.
 `docs/SECURITY.md`). Sin la clave del proveedor, la llamada no sale y el error
 vuelve como dato.
 
-## 7. Cómo agregar
+## 8. Memoria, foco y conversaciones
+
+- Una conversación es una fila de `ia.conversaciones` (`sesiones.py`) con dueño
+  (el email), título (la primera pregunta), `memoria` (lo que ve el modelo:
+  dicts del proveedor, podados a 8 turnos y 300 mensajes, resultados viejos
+  achicados), `foco` y `turnos` (lo que ve la persona: pregunta, respuesta,
+  falta, error, agentes y las tablas que declararon las herramientas; nunca se
+  poda). El ciclo (eventos) no se guarda. El navegador manda solo la pregunta
+  y el id; sin id empieza una nueva. Retención 90 días sin retomar
+  (`jobs/cleanup_retencion`).
+- No se usa el checkpointer de LangGraph: guarda el estado interno de una
+  corrida del grafo, y una corrida es una pregunta. La conversación es un dato
+  del negocio, con dueño, lista y borrado: una tabla nuestra.
+- Cada mensaje de la memoria lleva la marca `agente` (la junta queda como
+  cartera; una regla que contestó, `despacho`) y cada pregunta la marca
+  `agentes` (quiénes la atendieron). Un agente recibe solo lo marcado con su
+  nombre y las preguntas que atendió: lo que trajo cartera nunca llega al
+  proveedor de renta fija, y una pregunta que fue solo a cartera no la ve
+  después. Un agente que no pudo contestar deja igual su turno cerrado. Las
+  marcas no viajan al proveedor.
+- **El foco** (`estado`) es lo que la conversación tiene en la mano, aparte de
+  lo que se dijo. Dos claves hoy, `cuenta` y `ticker`, cada una con su
+  normalizador y su validador (`estado.EN_FOCO`). Cada agente declara qué
+  claves lee y aprende (`Agente.foco`); el código las aprende desde los
+  argumentos de una herramienta que contestó. Así se relacionan los agentes:
+  «¿qué tiene la 805?» y después «¿quién la atiende?» no repite la cuenta;
+  «¿qué es el AL30?» y después «¿cuánto se operó hoy?» no repite el título.
+  Si dos agentes en paralelo aprenden valores distintos de la misma clave,
+  queda el del último en terminar: el foco es una ayuda, no una verdad.
+- La sesión es el uuid de la conversación; cada llamada al modelo lo escribe en
+  `ia.llamadas.sesion`, y de ahí sale el costo por conversación.
+
+## 9. El tiempo (convención)
+
+El modelo sabe qué día es porque el SYSTEM se lo dice; no calcula días. Toda
+herramienta sigue la misma convención, y es lo que hay que respetar al escribir
+una nueva:
+
+- Lo que contesta **a una fecha** (una foto) toma `fecha: YYYY-MM-DD`, default hoy.
+- Lo que contesta **en un período** toma `periodo` de lista cerrada (`hoy`,
+  `semana`, `mes`, `anio`) más `desde` y `hasta` explícitos si el usuario dio
+  fechas; el código resuelve el período contra hoy. `cobros_futuros` ya lo
+  hace con `dias` y `hasta`.
+- Toda respuesta dice de cuándo son sus datos (`fecha`, `tenencia_del`,
+  `ventana`), y la instrucción común obliga a decirlo.
+
+Lo que no se promete todavía: series históricas por instrumento («cuánto subió
+esta semana»). Hay que medir qué se guarda y con qué profundidad antes.
+
+## 10. Cómo agregar
 
 Cada paso tiene un test que falla si se olvida. Si un cambio necesita tocar
 `grafo.py`, algo está mal diseñado: preguntar antes.
 
-**Un mundo** (skill `add-mundo`):
-1. `asistente/mundos/<nombre>.py` con sus herramientas y un `AGENTE = Agente(...)`
+**Un agente** (skill `add-agente`):
+1. `asistente/agentes/<nombre>.py` con sus herramientas y un `AGENTE = Agente(...)`
    con `nombre`, `tarea`, `describe` (lo lee el despacho), `instruccion`
-   (`COMUN` + lo suyo), `herramientas`, `senales`, `foco` (las claves que lee
-   y aprende). Puede nacer sin herramientas: existe, el despacho lo elige, y
-   contesta «todavía no puedo consultar esto» sin llamar a ningún modelo.
+   (`COMUN` + lo suyo), `herramientas` (puede nacer vacío), `senales`
+   (específicas: las genéricas van en la familia), `familia`, `foco`.
 2. La tarea en `core/modelos.TAREAS` (tier, `datos: "negocio"` o `"personal"`,
    `usa_herramientas: True`).
-3. Una línea en `mundos/__init__.py::MUNDOS`.
+3. Una línea en `agentes/__init__.py::AGENTES`.
 4. Tests en `tests/unit/test_asistente.py` con el proveedor falso, y este doc
-   (§2, §3, §6).
-Test: `test_todo_mundo_esta_registrado_y_declarado`.
+   (§3, §7).
+Test: `test_todo_agente_esta_registrado_y_declarado`.
 
-**Una herramienta**: una función en el archivo de su mundo, agregada a la tupla
+**Una herramienta**: una función en el archivo de su agente, agregada a la tupla
 `herramientas` de su `AGENTE`.
 - docstring: qué hace, qué **no** es (cuál es la otra parecida), qué devuelve.
-- firma: `cuenta` sin default si es de la cuenta; listas cerradas con `Literal`.
+- firma: la llave del sujeto sin default (`cuenta`, `ticker`); listas cerradas
+  con `Literal`; el tiempo según §9.
 - devuelve un dict; errores como `{"error": ...}`, nunca excepción.
 - topes declarados y `truncado` cuando recorta; totales calculados en SQL.
 - claves con `_` (`_tabla`) son para la pantalla y no viajan al modelo.
 - toda consulta de cuentas lleva `{permitido.FILTRO_SQL}`.
 Tests: techo de ficha, docstring, permiso, `_` no viaja.
+
+**Una familia**: una entrada en `agentes/__init__.py::FAMILIAS` con sus señales
+genéricas, y `familia="..."` en cada agente que la integra.
+
+**Una clave de foco**: una entrada en `estado.EN_FOCO` (normalizador y
+validador), y `foco=(...)` en los agentes que la leen.
 
 **Una regla de despacho**: una función `(pregunta_normalizada, foco) -> Decision | None`
 en `despacho.py`, sumada a `REGLAS` en el orden que corresponda. Se lee en una
@@ -182,88 +260,53 @@ línea o no es una regla.
 **Un control antes de una herramienta**: una función en `puerta.py`, por
 argumento, sumada a `CONTROLES`.
 
-**Una clave de foco**: una entrada en `estado.EN_FOCO` con su lista cerrada.
-
 **Un proveedor**: una fila en `core/modelos.PROVEEDORES` y su rama en `armar()`.
 
-**Un sub-agente**: es una herramienta más de un mundo, una función que arma su
-propio `Agente` y corre `grafo.subgrafo(agente).invoke(...)`. El mundo lo pide
-por nombre como a cualquier herramienta y recibe su respuesta como dato. No
-hay que tocar el grafo principal.
+**Un sub-agente**: es una herramienta más de un agente, una función que arma su
+propio `Agente` y corre `grafo.subgrafo(agente).invoke(...)`. No hay que tocar
+el grafo principal.
 
-**Un cruce entre mundos** («cuánto rinden los bonos que tengo»): lo hace el
-CÓDIGO, no un modelo. Un mundo expone un helper de datos (no una herramienta:
-`mercado.metricas_por_ticker`) y la herramienta del otro mundo lo usa
+**Un cruce entre agentes** («cuánto rinden los bonos que tengo»): lo hace el
+CÓDIGO, no un modelo. Un agente expone un helper de datos (no una herramienta:
+`renta_fija.metricas_por_ticker`) y la herramienta del otro lo usa
 (`tenencia_actual` trae TEA, paridad, duration y vencimiento por título). Así
-ningún proveedor ve datos del otro mundo y el modelo no cruza nada a mano.
+ningún proveedor ve datos del otro agente.
 
-## 8. Memoria, estado y conversaciones
-
-- Una conversación es una fila de `ia.conversaciones` (`sesiones.py`) con dueño
-  (el email), título (la primera pregunta), `memoria` (lo que ve el modelo:
-  dicts del proveedor, podados a 8 turnos y 300 mensajes, resultados viejos
-  achicados), `foco` y `turnos` (lo que ve la persona: pregunta, respuesta,
-  falta, error, mundos y las tablas que declararon las herramientas; nunca se
-  poda). El ciclo (eventos) no se guarda. El navegador manda solo la pregunta y
-  el id; sin id empieza una nueva. Retención 90 días sin retomar
-  (`jobs/cleanup_retencion`).
-- No se usa el checkpointer de LangGraph: guarda el estado interno de una
-  corrida del grafo, y una corrida es una pregunta. La conversación es un dato
-  del negocio, con dueño, lista y borrado: una tabla nuestra.
-- Cada mensaje de la memoria lleva la marca `mundo` (cartera, mercado…; la junta
-  queda como cartera; una regla que contestó, `despacho`) y cada pregunta la marca
-  `mundos` (quiénes la atendieron). Un mundo recibe solo lo marcado con su
-  nombre y las preguntas que atendió: lo que trajo cartera nunca llega al
-  proveedor de mercado, y una pregunta que fue solo a cartera no la ve mercado
-  después. Un mundo que no pudo contestar deja igual su turno cerrado. Las
-  marcas no viajan al proveedor.
-- El foco (`estado`) es lo que la conversación tiene en la mano, aparte de lo
-  que se dijo: hoy la clave `cuenta`. Cada mundo declara qué claves lee y
-  aprende (`Agente.foco`); cartera, cliente y operaciones comparten `cuenta`,
-  y por eso «¿quién la atiende?» después de «¿qué tiene la 805?» no repite la
-  cuenta. Lo aprende el código desde los argumentos de una herramienta que
-  contestó; valores fuera de la lista cerrada (`estado.EN_FOCO`) no entran. Si
-  dos mundos en paralelo aprenden valores distintos de la misma clave (una
-  pregunta que nombra dos cuentas), queda el del último en terminar: el foco
-  es una ayuda para la pregunta corta siguiente, no una verdad.
-- Las conversaciones guardadas antes del rename de `cuenta` a `cartera` llevan
-  marcas con el nombre viejo: esos turnos ya no le llegan al modelo de cartera
-  (se ven, pero no se recuerdan). No se migran.
-- La sesión es el uuid de la conversación; cada llamada al modelo lo escribe en
-  `ia.llamadas.sesion`, y de ahí sale el costo por conversación.
-
-## 9. Seguridad
+## 11. Seguridad
 
 - Endpoints admin-only (`/api/agente/lab/*`). Una conversación solo la lee,
   retoma y borra su dueño.
-- Cuentas: solo `ASISTENTE_CUENTAS`. Toda consulta lleva `FILTRO_SQL`; la puerta
-  corta cualquier `cuenta` no habilitada antes de ejecutar; una herramienta de
-  mercado no puede recibir `cuenta` (test).
+- Cuentas: solo `ASISTENTE_CUENTAS`, para todo agente que toque una cuenta
+  (cartera, cliente, y operaciones cuando tenga herramientas). Toda consulta
+  lleva `FILTRO_SQL`; la puerta corta cualquier `cuenta` no habilitada antes
+  de ejecutar; una herramienta de mercado no puede recibir `cuenta` (test).
 - Datos de negocio solo salen por tareas `negocio`; los personales, por `personal`.
   El documento del cliente se muestra recortado a sus últimos dígitos.
 - Lo que llega del navegador (pregunta, sesión) se valida por forma.
 
-## 10. Observabilidad
+## 12. Observabilidad
 
 - `eventos` en cada respuesta: `pregunta`, `podado`, `achicado`, `despacho`,
   `vuelta`, `pide`, `resultado`, `estado`, `texto`, `corte`, `junta`, con `agente`.
 - `ia.llamadas`: una fila por llamada con tarea, modelo, tokens, caché, latencia,
-  sesión, un extracto del pedido y de la respuesta. El panel del LAB agrega por
-  tarea y por conversación. El razonamiento del modelo no se guarda.
+  sesión, un extracto del pedido y de la respuesta (salvo dato personal). El
+  panel del LAB agrega por tarea y por conversación. El razonamiento del modelo
+  no se guarda.
 - OpenAI se llama con `store=false`: no guarda la conversación de su lado.
 - `scripts/diag_herramienta.py` corre una herramienta sin modelo.
 - `scripts/asistente.py` conversa desde la terminal del Droplet.
 
-## 11. Tests
+## 13. Tests
 
-`tests/unit/test_asistente.py`. Cubren agentes, el registro de mundos, las
-reglas del despacho, esquemas, permisos, puerta, control, foco, memoria, el
+`tests/unit/test_asistente.py`. Cubren agentes y familias, el registro, las
+reglas del despacho, el foco, esquemas, permisos, puerta, control, memoria, el
 ruteo de modelos, la traza, las sesiones y el grafo de punta a punta con un
 proveedor falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
 
-## 12. Lo que falta para el MVP
+## 14. Lo que falta para el MVP
 
-- Probar en el LAB con los proveedores reales: DeepSeek en mercado y despacho.
-- Eval por tarea: 15 preguntas con la herramienta y los argumentos esperados,
-  y con la decisión del despacho esperada.
+- Probar en el LAB con los proveedores reales.
+- Las herramientas de los agentes modelados sin ellas, en el orden que pida la mesa.
+- Eval por tarea: 15 preguntas con la herramienta, los argumentos y la decisión
+  del despacho esperados.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).

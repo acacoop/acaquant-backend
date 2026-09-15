@@ -1,4 +1,4 @@
-"""Mundo OPERACIONES: qué HACE la mesa. El libro de operaciones de la empresa:
+"""Agente OPERACIONES: qué HACE la mesa. El libro de operaciones de la empresa:
 qué se compró y vendió, en qué títulos, por cuánto, con qué arancel. La cuenta
 es un filtro, no el sujeto: el sujeto es la mesa. Doc: docs/AvAgentAI.md.
 
@@ -36,5 +36,5 @@ AGENTE = Agente(
     senales=("compro", "compraron", "vendio", "vendieron", "opero", "operaron", "operacion",
              "operaciones", "boleto", "boletos", "arancel", "aranceles", "volumen", "concerto",
              "cierre", "cierres"),
-    foco=("cuenta",),
+    foco=("cuenta", "ticker"),
 )

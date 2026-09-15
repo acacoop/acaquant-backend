@@ -1,5 +1,5 @@
 """Qué es un agente del asistente. Un objeto: tarea de ruteo, instrucción,
-herramientas, señales para el despacho. Los declarados viven en `mundos/`
+herramientas, señales para el despacho. Los declarados viven en `agentes/`
 (uno por archivo), `despacho.py` y `junta.py`. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
@@ -15,17 +15,20 @@ class Agente:
     nombre: str
     # Clave en `core/modelos.TAREAS`: decide proveedor, modelo y si ve datos del negocio.
     tarea: str
-    # Una línea que el despacho lee para decidir si este mundo atiende la pregunta.
+    # Una línea que el despacho lee para decidir si este agente atiende la pregunta.
     describe: str
     # Devuelve el SYSTEM a partir del foco de la conversación.
     instruccion: Callable[[dict], str]
     herramientas: tuple[Callable, ...] = ()
     # Palabras enteras (sin acentos, minúsculas; las variantes se declaran) que
-    # delatan que la pregunta es de este mundo. Las lee `despacho.por_reglas`:
+    # delatan que la pregunta es de este agente. Las lee `despacho.por_reglas`:
     # si alcanzan, no se llama al modelo.
     senales: tuple[str, ...] = ()
-    # Claves del foco que este mundo lee y aprende (`estado.EN_FOCO`). Varios
-    # mundos pueden compartir una: es lo que los relaciona entre preguntas.
+    # Agentes con un tema en común (hoy: "mercado"). No corre: agrupa en la
+    # presentación y en la instrucción del despacho.
+    familia: str = ""
+    # Claves del foco que este agente lee y aprende (`estado.EN_FOCO`). Varios
+    # agentes pueden compartir una: es lo que los relaciona entre preguntas.
     foco: tuple[str, ...] = ()
 
     @property
@@ -33,7 +36,18 @@ class Agente:
         return {f.__name__: f for f in self.herramientas}
 
 
-# Lo que todo agente que redacta tiene delante. Cada mundo agrega lo suyo.
+@dataclass(frozen=True)
+class Familia:
+    """Agentes con un tema en común. No corre: agrupa la presentación, y sus
+    señales son las genéricas del tema («rinde», «cotiza»): cuando solo
+    matchea una de estas, el modelo elige entre los agentes de la familia."""
+
+    nombre: str
+    describe: str
+    senales: tuple[str, ...] = ()
+
+
+# Lo que todo agente que redacta tiene delante. Cada agente agrega lo suyo.
 COMUN = """\
 Sos el asistente de una mesa de renta fija argentina. Te habla el admin de la
 plataforma. Contestás en castellano, corto y concreto.

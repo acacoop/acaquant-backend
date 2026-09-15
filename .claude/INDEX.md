@@ -17,7 +17,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 |---|---|
 | `fable-orquesta` | Cuando el principal es Fable/Opus: **diseña y revisa**; la ejecución mecánica va a sub-agentes baratos (`explorador` · `implementador` · `revisor` · `pre-deploy-check`). Qué se delega, qué no, y el contrato del informe que devuelve un sub-agente. |
 | `agente` | EL AV AGENT: las 4 tablas del modelo + 5 de infra, los 12 invariantes, las 3 pantallas, REGLA #10 completa. Carga al tocar `agente/`, `jobs/agente.py`, `docs/AGENT.md`. |
-| `asistente` | EL ASISTENTE (LangGraph): el mapa del paquete (un nodo = un módulo, un mundo = un archivo) y las 7 invariantes con test. Carga al tocar `asistente/`, `core/modelos.py`, `docs/AvAgentAI.md`. |
+| `asistente` | EL ASISTENTE (LangGraph): las palabras (agente, sujeto, familia), el mapa (un nodo = un módulo, un agente = un archivo) y las 8 invariantes con test. Carga al tocar `asistente/`, `core/modelos.py`, `docs/AvAgentAI.md`. |
 | `api-superficie` | `MAPA_APP.md` (§0 autogenerado) y la trampa de `app.routes` / `api/superficie.py`. Carga al tocar `api/**`. |
 | `sistema-deploy` | `deploy/SISTEMA.md` (`gen_sistema`) y el deploy que NO reinicia motores. Carga al tocar `deploy/**`. |
 | `operaciones` | Tablero comercial + `operaciones.operaciones`: HOT/COLD, arancel vs bruto, `es_cierre`. Carga al tocar los services/jobs de operaciones. |
@@ -52,7 +52,7 @@ regla figura en esta tabla. Los techos solo bajan.
 | `safe-backfill` | Backfill/migración/`--full` que NO tira el CPU: medir → scopear → batchear+throttle → run_job → fuera de rueda (REGLA #4, post-incidente 2026-06-04). |
 | `seguridad-acaquant` (era `security-review`: chocaba con la skill built-in de Claude Code y quedaba tapada) | Checklist de seguridad antes de exponer endpoint/auth: RBAC, secretos, CF Access. |
 | `add-habilidad` | Agregar una habilidad al AV AGENT: las siete piezas (catálogo, detector, fuente, test, diario, cita, conteo) y aviso vs. trabajo (REGLA #10). |
-| `add-mundo` | Sumar un mundo (o una herramienta) al ASISTENTE: archivo del mundo, tarea, registro, tests; sin tocar el grafo. |
+| `add-agente` | Sumar un agente (o una herramienta) al ASISTENTE: archivo del agente, tarea, registro, familia, foco, tests; sin tocar el grafo. |
 
 ## Agents (subagentes — corren en contexto limpio)
 

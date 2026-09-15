@@ -50,10 +50,14 @@ def _instrumento(b: dict, hoy: date) -> dict:
         "precio": _num(m.get("last_price"), 4),
         "tea_pct": _pct(m.get("TEA")),
         "tem_pct": _pct(m.get("TEM")),
-        # La TNA la calcula el backend (`curvas_vista._tna_de`) y SOLO para tasa
-        # fija: es la convención de 1816, medida contra su API. En las demás
-        # curvas viene None a propósito — nadie midió qué convención usan, y un
-        # número plausible con la fórmula equivocada es peor que no tenerlo.
+        # La TNA que publicó el backend, por sus DOS vías (`curvas_vista`):
+        # `_tna_de` la calcula para `tasa_fija` (convención 1816 plazo-rem,
+        # medida), y la rama `manda_1816` la copia de 1816 para CUALQUIER
+        # curva cuando el proveedor manda. Donde ninguna aplica queda None, y
+        # se queda así A PROPÓSITO: la pantalla ahí deriva TEM×12
+        # (`bonos-table.tsx`) y ESA CONVENCIÓN NO ESTÁ MEDIDA para bonos que
+        # amortizan. ⚠️ PENDIENTE: medirla contra 1816 antes de copiarla —
+        # un número plausible con la fórmula ajena es el peor de los errores.
         "tna_pct": _pct(m.get("TNA")),
         "paridad_pct": _num(m.get("paridad")),
         "duration": _num(m.get("duration")),
@@ -146,9 +150,9 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
       · `instrumentos` — una fila por título, con ticker, emisor, vencimiento,
         precio, tasas, paridad, duration y volumen. Tres campos con trampa:
         `tasa_ruido` true = la tasa NO compara (el bono vence en días);
-        `tna_pct` solo existe en `tasa_fija` (en el resto es null y la tasa
-        comparable es `tea_pct`); `emisor` es el NOMBRE («YPF S.A.») y
-        `emisor_tipo` la categoría (soberano · corporativo · …).
+        `tna_pct` puede venir null aunque la pantalla muestre una TNA: no la
+        rellenes ni la derives, usá `tea_pct`, que está en todos; `emisor` es
+        el NOMBRE («YPF S.A.») y `emisor_tipo` la categoría (soberano · …).
       · `resumen` — los agregados de TODA la curva, no de lo que entró acá:
         `tea_pct` y `duration` con min/max/promedio/mediana, `rinde_mas`,
         `vence_primero`, `vence_ultimo`. «El promedio», «el que más rinde» y

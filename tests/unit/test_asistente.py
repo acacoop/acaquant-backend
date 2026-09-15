@@ -268,60 +268,29 @@ def test_la_curva_filtra_por_emisor_por_pedazo_y_nunca_devuelve_vacio_en_silenci
         assert "error" in RF.curva("hard_dolar", emisor="   ")
 
 
-def test_la_tna_de_la_curva_es_la_que_calculo_el_backend_y_solo_donde_esta_medida():
-    """`tna_pct` sale de `metrics.TNA` (`curvas_vista._tna_de`, convención 1816
-    medida) y SOLO existe en tasa fija. Derivarla acá para las otras curvas daría
-    un número plausible con la fórmula equivocada."""
-    from api.services import curvas_vista as CV
-    from asistente.agentes import renta_fija as RF
+def test_la_tna_es_la_que_publico_el_backend_y_nunca_se_deriva_acá():
+    """La TNA llega por DOS vías de `curvas_vista`: `_tna_de` la calcula para
+    `tasa_fija` (convención 1816 plazo-rem, medida contra su API), y la rama
+    `manda_1816` la copia del proveedor para CUALQUIER curva cuando 1816 manda.
 
-    with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
-        letra = RF.curva("tasa_fija")["instrumentos"][0]
-        assert letra["tna_pct"] == 34.12 and letra["tea_pct"] == 40.0
-        assert all(i["tna_pct"] is None for i in RF.curva("hard_dolar")["instrumentos"])
-
-
-def test_el_resumen_de_la_curva_es_de_todas_las_filas_y_no_de_las_que_entraron():
-    """El único camino que tiene el modelo para «el promedio» o «el que vence
-    más lejos»: calcular le está prohibido, y lo que ve es una muestra. El
-    resumen se arma sobre TODAS las filas, antes del `limit`."""
-    from api.services import curvas_vista as CV
-    from asistente.agentes import renta_fija as RF
-
-    with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
-        r = RF.curva("hard_dolar", limit=1)
-        res = r["resumen"]
-        assert len(r["instrumentos"]) == 1 and res["cuantos"] == 4, "1 visible, 4 resumidas"
-        # TEAs 9, 8, 7 y 12 → el promedio y la mediana son de las cuatro
-        assert res["tea_pct"] == {"min": 7.0, "max": 12.0, "promedio": 9.0, "mediana": 8.5}
-        assert res["duration"]["promedio"] == 3.0
-        assert res["rinde_mas"] == {"ticker": "GD30", "tea_pct": 12.0}
-        assert res["vence_primero"] == {"ticker": "GD30", "vencimiento": "2030-01-01"}
-        assert res["vence_ultimo"] == {"ticker": "YMCXO", "vencimiento": "2033-01-01"}
-        # el resumen es de lo que estás mirando: filtrado por emisor, es de ese emisor
-        assert RF.curva("hard_dolar", emisor="YPF")["resumen"]["cuantos"] == 2
-
-
-def test_el_resumen_deja_afuera_las_tasas_que_no_comparan():
-    """Un bono que vence en días tiene una TEA anualizada enorme. Adentro del
-    promedio se lleva puesta la curva, y como «el que más rinde» es una
-    respuesta falsa que parece buenísima."""
+    Donde ninguna aplica, `tna_pct` queda None y la herramienta NO la deriva,
+    aunque la pantalla ahí muestre un TEM×12 (`bonos-table.tsx`): esa
+    convención no está medida para bonos que amortizan. Un número plausible
+    calculado con la fórmula de otro instrumento es el error que no falla.
+    """
     from api.services import curvas_vista as CV
     from asistente.agentes import renta_fija as RF
 
     vista = _vista_emisores()
-    vista["bonos"].append({
-        "ticker_corto": "RUIDO", "pill": "hard_dolar", "emisor": "X", "emisor_tipo": "corporativo",
-        "vencimiento": "2026-09-20", "tasa_ruido": True,
-        "metrics": {"last_price": 100.0, "TEA": 9.99, "TEM": 0.2, "paridad": 99.0,
-                    "duration": 0.01, "total_nominals": 1}})
+    # un hard dollar al que 1816 SÍ le publica TNA: viaja tal cual, sin tocarla
+    vista["bonos"][0]["metrics"]["TNA"] = 0.0812
     with patch.object(CV, "get_curvas_vista", return_value=vista):
-        res = RF.curva("hard_dolar")["resumen"]
-    assert res["cuantos"] == 5 and res["con_tasa_comparable"] == 4
-    assert res["tea_pct"]["max"] == 12.0 and res["rinde_mas"]["ticker"] == "GD30"
-    assert res["duration"]["min"] == 3.0, "la duration del ruidoso tampoco entra"
-    # pero para el calendario sí cuenta: vence de verdad
-    assert res["vence_primero"]["ticker"] == "RUIDO"
+        letra = RF.curva("tasa_fija")["instrumentos"][0]
+        assert letra["tna_pct"] == 34.12 and letra["tea_pct"] == 40.0
+        hd = {i["ticker"]: i for i in RF.curva("hard_dolar")["instrumentos"]}
+    assert hd["YMCXO"]["tna_pct"] == 8.12, "hard dollar CON TNA de 1816: se respeta"
+    assert hd["GD30"]["tna_pct"] is None, "sin TNA publicada NO se inventa una"
+    assert hd["GD30"]["tea_pct"] == 12.0, "la TEA está siempre: es la comparable"
 
 
 def test_si_el_limite_corta_la_curva_la_respuesta_lo_dice():

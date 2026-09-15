@@ -175,6 +175,18 @@ Tres clases de dato (`core/modelos.DATOS`): vacío (nada sensible), `negocio`
 exige siempre, sin flag que valga, y `core/traza` no guarda extracto del
 pedido ni de la respuesta: solo tokens y latencia).
 
+**La TNA llega por dos vías, y donde no llega NO se deriva.** El motor publica
+una sola tasa por bono, la TEA. La TNA aparece en `metrics.TNA` por dos
+caminos de `curvas_vista`: `_tna_de` la calcula para `tasa_fija` (convención
+de 1816 plazo-remanente, medida contra su API con error 0,00 pp), y la rama
+`manda_1816` la copia del proveedor para **cualquier** curva cuando 1816 manda
+(pata secundaria, o tamar no corporativo). Donde ninguna aplica, `curva`
+devuelve `tna_pct: null` — **aunque la pantalla CURVAS ahí muestre un número**,
+porque `bonos-table.tsx` la deriva con TEM×12 y esa convención **no está
+medida** para bonos que amortizan. ⚠️ PENDIENTE: medirla contra 1816 (mismo
+método que se usó para tasa fija) antes de copiarla a ningún lado. Mientras
+tanto la tasa comparable de todas las curvas es `tea_pct`.
+
 La junta (sin herramientas) recibe el esquema `{respuesta, falta}` si el
 proveedor lo soporta. Un agente con herramientas no: OpenAI, con
 `response_format` en Chat Completions, exige que toda herramienta sea `strict`

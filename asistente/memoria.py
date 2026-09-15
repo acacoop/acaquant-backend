@@ -124,7 +124,10 @@ def de_mundo(historial: list[dict], mundo: str) -> list[dict]:
     out = []
     for d in historial or []:
         if d.get("role") == "user":
-            if mundo in (d.get("mundos") or [mundo]):
+            # Sin marca (historial viejo) la ven todos; `[]` es «la contestó una
+            # regla»: no la ve nadie.
+            atendida_por = d.get("mundos")
+            if atendida_por is None or mundo in atendida_por:
                 out.append(d)
         elif d.get("mundo") == mundo:
             out.append(d)

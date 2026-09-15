@@ -3558,7 +3558,7 @@ ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS conv_id;
 ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS feedback;
 -- La CONVERSACIÓN a la que pertenece la llamada: un id que nace en el backend
 -- en la primera pregunta del asistente y que el navegador devuelve en las
--- siguientes (`asistente/ciclo.py`). ⚠️ Es el `conv_id` de arriba, de vuelta —
+-- siguientes (`asistente/sesiones.py`). ⚠️ Es el `conv_id` de arriba, de vuelta —
 -- aquél se borró por no tener lector; éste nace con el suyo:
 -- `asistente/panel.conversacion()`, que la tab LAB muestra en cada respuesta
 -- (docs/AGENT.md §0.fl). Solo el asistente lo escribe; el resto queda NULL.

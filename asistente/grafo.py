@@ -1,5 +1,5 @@
 """El grafo del asistente (LangGraph): despacho → mundos en paralelo → junta.
-Cada mundo es un agente (`agentes.py`) que corre su propio bucle
+Cada mundo es un agente (`mundos/<nombre>.py`) que corre su propio bucle
 modelo ↔ herramientas como subgrafo. Arquitectura: docs/AvAgentAI.md."""
 from __future__ import annotations
 
@@ -15,13 +15,15 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import Send
 
-from asistente import agentes as AG
 from asistente import control as CTL
+from asistente import despacho as DESP
 from asistente import esquema as ESQ
 from asistente import estado as EST
 from asistente import herramientas as H
+from asistente import junta as JU
 from asistente import memoria, puerta
-from asistente.agentes import Agente
+from asistente.agente import Agente
+from asistente.mundos import MUNDOS
 from core import modelos
 from core.traza import Traza
 
@@ -211,7 +213,7 @@ class Estado(TypedDict, total=False):
     control: dict
 
 
-_SUBGRAFOS = {n: subgrafo(a) for n, a in AG.MUNDOS.items()}
+_SUBGRAFOS = {n: subgrafo(a) for n, a in MUNDOS.items()}
 
 
 def preparar(s: Estado) -> dict:
@@ -227,20 +229,25 @@ def preparar(s: Estado) -> dict:
 
 
 def despacho(s: Estado) -> dict:
-    """Qué mundos atienden la pregunta. Si el modelo no contesta algo legible,
-    van todos: es más caro, no más peligroso."""
-    todos = list(AG.MUNDOS)
-    entrada = [SystemMessage(content=AG.DESPACHO.instruccion(s.get("foco") or {})),
+    """Qué mundos atienden la pregunta: las reglas primero; si ninguna decide,
+    el modelo; si el modelo no contesta algo legible, van todos (más caro, no
+    más peligroso)."""
+    todos = list(MUNDOS)
+    if (d := DESP.por_reglas(s["pregunta"], s.get("foco"))) is not None:
+        salida: dict = {"mundos": list(d.mundos),
+                        "eventos": [{"tipo": "despacho", "agente": "despacho",
+                                     "mundos": list(d.mundos), "motivo": d.motivo}]}
+        if not d.mundos:
+            salida.update({"respuesta": d.respuesta, "falta": None, "error": None,
+                           "eventos": salida["eventos"] + [{"tipo": "texto", "agente": "despacho",
+                                                           "texto": d.respuesta}]})
+        return salida
+    entrada = [SystemMessage(content=DESP.DESPACHO.instruccion(s.get("foco") or {})),
                HumanMessage(content=s["pregunta"])]
     try:
-        tr = _traza(AG.DESPACHO, s)
-        msg = _modelo_de(AG.DESPACHO, s, tr, esquema=None).invoke(entrada)
-        texto = memoria.texto(msg.content).strip().lower()
-        # Solo se acepta una lista de nombres. Una frase («no hace falta la
-        # cuenta») no se interpreta: van todos.
-        nombres = "|".join(map(re.escape, todos))
-        elegidos = ([m for m in todos if re.search(rf"\b{m}\b", texto)]
-                    if re.fullmatch(rf"({nombres})(\s*[,y]\s*({nombres}))*\.?", texto) else [])
+        tr = _traza(DESP.DESPACHO, s)
+        msg = _modelo_de(DESP.DESPACHO, s, tr).invoke(entrada)
+        elegidos = DESP.leer_eleccion(memoria.texto(msg.content))
         uso = msg.usage_metadata or {}
         extra = {"tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
                  "llamadas": list(tr.ids)}
@@ -253,12 +260,14 @@ def despacho(s: Estado) -> dict:
             **extra}
 
 
-def a_mundos(s: Estado) -> list[Send]:
-    return [Send(m, s) for m in s["mundos"]]
+def a_mundos(s: Estado) -> list[Send] | str:
+    """A cada mundo elegido, en paralelo. Sin mundos (una regla ya contestó),
+    directo a cerrar."""
+    return [Send(m, s) for m in s["mundos"]] or "finalizar"
 
 
 def nodo_mundo(nombre: str):
-    agente = AG.MUNDOS[nombre]
+    agente = MUNDOS[nombre]
 
     def correr(s: Estado) -> dict:
         # Cada mundo ve del historial solo lo suyo y las preguntas: lo que
@@ -311,11 +320,11 @@ def junta(s: Estado) -> dict:
         dijo = u.get("respuesta") or (f"no contestó ({u['error']})" if u.get("error") else "(sin respuesta)")
         partes.append(f"## {m}\nrespuesta: {dijo}\n"
                       f"datos: {json.dumps(u.get('datos') or [], ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]}")
-    entrada = [SystemMessage(content=AG.JUNTA.instruccion(s.get("foco") or {})),
+    entrada = [SystemMessage(content=JU.JUNTA.instruccion(s.get("foco") or {})),
                HumanMessage(content=f"Pregunta: {s['pregunta']}\n\n" + "\n\n".join(partes))]
     try:
-        tr = _traza(AG.JUNTA, s)
-        msg = _modelo_de(AG.JUNTA, s, tr).invoke(entrada)
+        tr = _traza(JU.JUNTA, s)
+        msg = _modelo_de(JU.JUNTA, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
     except Exception as e:
         return {"error": f"La junta no pudo redactar: {e}",
                 "eventos": [{"tipo": "corte", "agente": "junta", "motivo": str(e)}]}
@@ -341,8 +350,12 @@ def finalizar(s: Estado) -> dict:
     for m in [*s["mundos"], "junta"]:
         # Cada mensaje queda marcado con su mundo; la junta corre como el mundo
         # de su tarea. La marca no viaja al proveedor (`memoria.desde_dicts`).
-        mundo = AG.JUNTA_COMO if m == "junta" else m
+        mundo = JU.JUNTA_COMO if m == "junta" else m
         mensajes += [{**d, "mundo": mundo} for d in (salidas.get(m) or {}).get("mensajes") or []]
+    if not s["mundos"] and s.get("respuesta"):
+        # Contestó una regla del despacho: queda en el historial de la persona
+        # y de ningún mundo (la marca no es de nadie).
+        mensajes.append({"role": "assistant", "content": s["respuesta"], "mundo": "despacho"})
     # El texto que se revisa se excluye del contexto; el resto (todo lo que el
     # modelo vio, de todos los mundos) es la fuente.
     crudos = [u.get("crudo") for u in salidas.values() if u.get("crudo")]
@@ -357,14 +370,14 @@ def _armar():
     g = StateGraph(Estado)
     g.add_node("preparar", preparar)
     g.add_node("despacho", despacho)
-    for nombre in AG.MUNDOS:
+    for nombre in MUNDOS:
         g.add_node(nombre, nodo_mundo(nombre))
     g.add_node("junta", junta)
     g.add_node("finalizar", finalizar)
     g.add_edge(START, "preparar")
     g.add_edge("preparar", "despacho")
-    g.add_conditional_edges("despacho", a_mundos, list(AG.MUNDOS))
-    for nombre in AG.MUNDOS:
+    g.add_conditional_edges("despacho", a_mundos, [*MUNDOS, "finalizar"])
+    for nombre in MUNDOS:
         g.add_edge(nombre, "junta")
     g.add_edge("junta", "finalizar")
     g.add_edge("finalizar", END)

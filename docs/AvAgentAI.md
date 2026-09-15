@@ -2,7 +2,8 @@
 
 Documento oficial de la IA conversacional. Todo lo que hace el asistente está
 acá; el código está en `asistente/`. Doc [VIVO]: se actualiza en el mismo commit
-que el código.
+que el código. Regla que se carga sola al tocar el paquete:
+`.claude/rules/asistente.md`. Para sumar un mundo: skill `add-mundo`.
 
 ## 1. Qué es
 
@@ -16,55 +17,92 @@ llamada, `core/traza.py`.
 
 ```
 pregunta ─► preparar ─► despacho ─► [cuenta] ─┐
-                                   [mercado] ─┴─► junta ─► finalizar ─► respuesta
+                          │        [mercado] ─┴─► junta ─► finalizar ─► respuesta
+                          └─(una regla contestó)──────────────┘
 ```
 
-| Nodo | Qué hace | Modelo |
-|---|---|---|
-| `preparar` | poda y achica el historial, sanea el foco | ninguno |
-| `despacho` | lee la pregunta y elige qué mundos hacen falta | `asistente_despacho` (DeepSeek flash) |
-| `cuenta` | agente con `cobros_futuros`, `tenencia_actual` | `asistente_cuenta` (OpenAI pro, datos de negocio) |
-| `mercado` | agente con `curva`, `ficha_bono` | `asistente_mercado` (DeepSeek flash) |
-| `junta` | con un mundo, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cuenta` |
-| `finalizar` | arma el historial de salida y corre el control de números | ninguno |
+| Nodo | Módulo | Qué hace | Modelo |
+|---|---|---|---|
+| `preparar` | `memoria.py` | poda y achica el historial, sanea el foco | ninguno |
+| `despacho` | `despacho.py` | reglas primero; si ninguna decide, el modelo elige mundos | `asistente_despacho` solo si las reglas no deciden |
+| `cuenta` | `mundos/cuenta.py` | agente con `cobros_futuros`, `tenencia_actual` | `asistente_cuenta` (OpenAI pro, datos de negocio) |
+| `mercado` | `mundos/mercado.py` | agente con `curva`, `ficha_bono` | `asistente_mercado` (DeepSeek flash) |
+| `junta` | `junta.py` | con un mundo, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cuenta` |
+| `finalizar` | `grafo.py` + `control.py` | arma el historial de salida y corre el control de números | ninguno |
 
 Los mundos corren en paralelo. Cada uno es un subgrafo `modelo ↔ herramientas`
-con tope de 6 vueltas.
+con tope de 6 vueltas. **Un nodo del grafo = un módulo del paquete.**
 
-## 3. Piezas
+## 3. El paquete
 
-| Módulo | Rol |
-|---|---|
-| `agentes.py` | `Agente` (nombre, tarea, instrucción, herramientas, si aprende foco) y los declarados: `CUENTA`, `MERCADO`, `DESPACHO`, `JUNTA`. `MUNDOS` es el registro |
-| `grafo.py` | el grafo principal, el subgrafo de cada agente, `preguntar()` |
-| `core/modelos.py` | proveedores (`ChatOpenAI`, `ChatDeepSeek`), la tabla `TAREAS`, la elección guardada en `ia.config`, y `modelo(tarea)` que arma el `ChatModel` con su traza. `completar()` para tareas de una vuelta (el AV AGENT) |
-| `core/traza.py` | `Traza`: callback de LangChain que escribe cada llamada en `ia.llamadas` (tarea, modelo, tokens, caché, latencia, sesión, error) |
-| `herramientas.py` | las funciones. Docstring = descripción; firma = esquema (`Literal` → enum). `DE_LA_CUENTA`, `DEL_MERCADO` |
-| `memoria.py` | poda por turnos, achicado de resultados viejos, dicts del proveedor ⇄ mensajes de LangChain |
-| `estado.py` | el foco (`cuenta`): lista cerrada, lo aprende el código de una herramienta que contestó |
-| `puerta.py` | controles antes de ejecutar una herramienta (cuenta habilitada). Por argumento, nunca por nombre |
-| `control.py` | control de números sobre la respuesta final. Avisa, no bloquea |
-| `esquema.py` | respuesta final `{respuesta, falta}` cuando el proveedor soporta esquema |
-| `permitido.py` | `ASISTENTE_CUENTAS` del `.env`. Sin cuentas, no muestra nada |
-| `panel.py` | gasto por tarea y por conversación, tarifas, elección de modelo por tarea |
+```
+asistente/
+  agente.py        qué es un Agente (nombre, tarea, describe, instrucción, herramientas,
+                   señales, aprende_foco) y COMUN, la instrucción que todos comparten
+  mundos/
+    __init__.py    MUNDOS: el registro, explícito
+    cuenta.py      las herramientas de cuenta + AGENTE
+    mercado.py     las herramientas de mercado + AGENTE
+  despacho.py      reglas (Decision), el agente DESPACHO y cómo se lee su elección
+  junta.py         el agente JUNTA
+  grafo.py         el StateGraph, el subgrafo de cada agente, preguntar()
+  herramientas.py  función → tool (docstring = descripción, firma = esquema); TODAS, POR_NOMBRE
+  memoria.py       poda, achicado, marcas por mundo, dicts ⇄ mensajes de LangChain
+  estado.py        el foco: claves con lista cerrada de valores
+  puerta.py        controles antes de ejecutar una herramienta, por argumento
+  control.py       control de números sobre la respuesta final
+  esquema.py       {respuesta, falta}: esquema del proveedor o renglón «Falta:»
+  permitido.py     ASISTENTE_CUENTAS (.env, fail-closed)
+  sesiones.py      conversaciones guardadas (ia.conversaciones)
+  panel.py         gasto, tarifas y elección de modelo por tarea
+```
+
+Fuera del paquete: `core/modelos.py` (proveedores, `TAREAS`, `modelo(tarea)`),
+`core/traza.py` (una fila en `ia.llamadas` por llamada), `api/routers/agente.py`
+(`/api/agente/lab/*`), `scripts/asistente.py` (la terminal), `scripts/diag_herramienta.py`.
 
 ## 4. Cómo corre una pregunta
 
 «¿Qué bono CER rinde más que los que tengo en la 805?»
 
-1. `preparar`: historial podado a 8 turnos, resultados viejos achicados, foco saneado.
-2. `despacho` contesta `cuenta, mercado`.
+1. `preparar`: memoria podada a 8 turnos, resultados viejos achicados, foco saneado.
+2. `despacho`: la regla de señales ve «tengo» (cuenta) y «bono», «cer», «rinde»
+   (mercado): van los dos, sin llamar a ningún modelo. Evento
+   `despacho · regla: señales (…)`.
 3. En paralelo: `cuenta` pide `tenencia_actual(805)` y redacta; `mercado` pide
    `curva("cer")` y redacta. Cada uno con sus dos fichas, no las cuatro.
 4. `junta` recibe las dos respuestas con sus datos y escribe una sola.
-5. `finalizar`: historial = anterior + pregunta + lo nuevo de cada mundo + la junta.
-   El control busca cada número de la respuesta en los datos.
+5. `finalizar`: historial = anterior + pregunta (marcada con sus mundos) + lo
+   nuevo de cada mundo + la junta. El control busca cada número de la respuesta
+   en los datos.
 
 Respuesta al front: `respuesta`, `falta`, `error`, `estado`, `sesion` (con su
 costo), `titulo`, `guardada`, `mundos`, `eventos` (cada paso, con el agente que
 lo hizo), `control`, tokens y vueltas.
 
-## 5. Ruteo de modelos
+## 5. El despacho
+
+Tres capas, de la más barata a la más cara:
+
+1. **Reglas** (`despacho.REGLAS`, en orden; la primera que decide, decide):
+   - `meta`: «¿qué sabés hacer?» se contesta desde los objetos `Agente`, sin
+     modelo ni mundos.
+   - `foco`: hay cuenta (nombrada o en foco) y ninguna señal de otro mundo →
+     el mundo que aprende foco, solo.
+   - `señales`: las señales de uno o más mundos aparecen en la pregunta → esos.
+2. **El modelo** `asistente_despacho`, solo si ninguna regla decidió. Se acepta
+   una lista de nombres y nada más.
+3. **Todos**, si el modelo no se entendió o falló. Más caro, no más peligroso.
+
+Una señal es una palabra entera, en minúsculas y sin acentos, declarada en el
+`Agente` (`senales`; las variantes se declaran: «cer» no es «cerca»). Una
+cuenta nombrada suma al mundo que la atiende aunque no haya otra palabra suya.
+Una pregunta meta es una de las frases de `META` entera, no una frase que las
+contenga. El evento `despacho` dice siempre quién decidió: `regla: …`,
+`eligió el modelo` o `van todos`. Con eso se mide, en `eventos` e `ia.llamadas`,
+qué parte de las preguntas no paga la llamada.
+
+## 6. Ruteo de modelos
 
 Una tarea = un agente = un modelo. Las tareas viven en `core/modelos.TAREAS`; se
 cambian desde el panel del LAB sin deploy (se prueba el modelo antes de guardar).
@@ -87,22 +125,47 @@ con un último renglón `Falta: …` que `esquema.leer` entiende.
 aflojado por `IA_PERMITE_PROVEEDOR_QUE_ENTRENA` (ver `docs/SECURITY.md`). Sin la
 clave del proveedor, la llamada no sale y el error vuelve como dato.
 
-## 6. Herramientas
+## 7. Cómo agregar
 
-Una herramienta es una función de Python en `herramientas.py`:
+Cada paso tiene un test que falla si se olvida. Si un cambio necesita tocar
+`grafo.py`, algo está mal diseñado: preguntar antes.
 
+**Un mundo** (skill `add-mundo`):
+1. `asistente/mundos/<nombre>.py` con sus herramientas y un `AGENTE = Agente(...)`
+   con `nombre`, `tarea`, `describe` (lo lee el despacho), `instruccion`
+   (`COMUN` + lo suyo), `herramientas`, `senales`.
+2. La tarea en `core/modelos.TAREAS` (tier, `datos: "negocio"` si ve cuentas,
+   `usa_herramientas: True`).
+3. Una línea en `mundos/__init__.py::MUNDOS`.
+4. Tests en `tests/unit/test_asistente.py` con el proveedor falso, y este doc
+   (§2, §3, §6).
+Test: `test_todo_mundo_esta_registrado_y_declarado`.
+
+**Una herramienta**: una función en el archivo de su mundo, agregada a la tupla
+`herramientas` de su `AGENTE`.
 - docstring: qué hace, qué **no** es (cuál es la otra parecida), qué devuelve.
 - firma: `cuenta` sin default si es de la cuenta; listas cerradas con `Literal`.
 - devuelve un dict; errores como `{"error": ...}`, nunca excepción.
-- topes declarados y `truncado` cuando recorta; totales calculados en SQL, no sumando la lista.
+- topes declarados y `truncado` cuando recorta; totales calculados en SQL.
 - claves con `_` (`_tabla`) son para la pantalla y no viajan al modelo.
-- se agrega a `DE_LA_CUENTA` o `DEL_MERCADO`. El test del techo de ficha falla si el docstring se pasa.
+- toda consulta de cuentas lleva `{permitido.FILTRO_SQL}`.
+Tests: techo de ficha, docstring, permiso, `_` no viaja.
 
-## 7. Mundos
+**Una regla de despacho**: una función `(pregunta_normalizada, foco) -> Decision | None`
+en `despacho.py`, sumada a `REGLAS` en el orden que corresponda. Se lee en una
+línea o no es una regla.
 
-Un mundo es un `Agente` en `agentes.py` con su tarea en `core/modelos.TAREAS`, su
-instrucción, sus herramientas y su `describe` (lo que lee el despacho). Se suma
-al registro `MUNDOS`. Nada más cambia: el grafo lo enchufa solo.
+**Un control antes de una herramienta**: una función en `puerta.py`, por
+argumento, sumada a `CONTROLES`.
+
+**Una clave de foco**: una entrada en `estado.EN_FOCO` con su lista cerrada.
+
+**Un proveedor**: una fila en `core/modelos.PROVEEDORES` y su rama en `armar()`.
+
+**Un sub-agente**: es una herramienta más de un mundo, una función que arma su
+propio `Agente` y corre `grafo.subgrafo(agente).invoke(...)`. El mundo lo pide
+por nombre como a cualquier herramienta y recibe su respuesta como dato. No
+hay que tocar el grafo principal.
 
 ## 8. Memoria, estado y conversaciones
 
@@ -117,12 +180,12 @@ al registro `MUNDOS`. Nada más cambia: el grafo lo enchufa solo.
   corrida del grafo, y una corrida es una pregunta. La conversación es un dato
   del negocio, con dueño, lista y borrado: una tabla nuestra.
 - Cada mensaje de la memoria lleva la marca `mundo` (cuenta, mercado; la junta
-  queda como cuenta) y cada pregunta la marca `mundos` (quiénes la atendieron).
-  Un mundo recibe solo lo marcado con su nombre y las preguntas que atendió:
-  lo que trajo cuenta nunca llega al proveedor de mercado, y una pregunta que
-  fue solo a cuenta no la ve mercado después (la tomaba como pendiente). Un
-  mundo que no pudo contestar deja igual su turno cerrado. Las marcas no viajan
-  al proveedor.
+  queda como cuenta; una regla que contestó, `despacho`) y cada pregunta la marca
+  `mundos` (quiénes la atendieron). Un mundo recibe solo lo marcado con su
+  nombre y las preguntas que atendió: lo que trajo cuenta nunca llega al
+  proveedor de mercado, y una pregunta que fue solo a cuenta no la ve mercado
+  después. Un mundo que no pudo contestar deja igual su turno cerrado. Las
+  marcas no viajan al proveedor.
 - El foco (`estado`) es un dict aparte: hoy `cuenta`. Lo escribe el mundo cuenta,
   lo lee su instrucción. Valores fuera de la lista cerrada no entran.
 - La sesión es el uuid de la conversación; cada llamada al modelo lo escribe en
@@ -151,13 +214,14 @@ al registro `MUNDOS`. Nada más cambia: el grafo lo enchufa solo.
 
 ## 11. Tests
 
-`tests/unit/test_asistente.py`. Cubren agentes, esquemas, permisos, puerta,
-control, foco, memoria, el ruteo de modelos, la traza y el grafo de punta a punta con un proveedor
-falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
+`tests/unit/test_asistente.py`. Cubren agentes, el registro de mundos, las
+reglas del despacho, esquemas, permisos, puerta, control, foco, memoria, el
+ruteo de modelos, la traza, las sesiones y el grafo de punta a punta con un
+proveedor falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
 
 ## 12. Lo que falta para el MVP
 
 - Probar en el LAB con los proveedores reales: DeepSeek en mercado y despacho.
-- Despacho por reglas para el caso común, antes de llamar al modelo (diseño en discusión).
-- Eval por tarea: 15 preguntas con la herramienta y los argumentos esperados.
+- Eval por tarea: 15 preguntas con la herramienta y los argumentos esperados,
+  y con la decisión del despacho esperada.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).

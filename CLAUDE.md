@@ -27,7 +27,7 @@ más.** Doc madre: `docs/ARQUITECTURA.md`.
 | Al tocar… | Se carga |
 |---|---|
 | `api/`, `engines/`, `jobs/`, `scripts/` | el `CLAUDE.md` de esa carpeta (REGLA #1 vive en `api/CLAUDE.md`) |
-| `agente/`, `docs/AGENT.md` | `.claude/rules/agente.md` — el AV AGENT: tablas, invariantes, pantallas |
+| `agente/` · `asistente/`, `core/modelos.py` | `rules/agente.md` — el AV AGENT · `rules/asistente.md` — EL ASISTENTE (un mundo = un archivo) |
 | `api/**`, `gen_mapa_app` | `rules/api-superficie.md` — `MAPA_APP.md` y la trampa de `app.routes` |
 | `deploy/**` | `rules/sistema-deploy.md` — `SISTEMA.md`, el deploy NO reinicia motores |
 | operaciones / comercial | `rules/operaciones.md` — HOT/COLD, arancel vs bruto, tablero |

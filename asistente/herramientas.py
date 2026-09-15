@@ -8,6 +8,7 @@ import json
 from langchain_core.tools import StructuredTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
+from asistente import pantalla
 from asistente.agentes import AGENTES
 
 # Techo del esquema que viaja al modelo por herramienta (chars de JSON).
@@ -28,10 +29,19 @@ def ficha(fn) -> dict:
 
 
 def para_el_modelo(resultado):
-    """El resultado sin las claves que empiezan con `_` (instrucciones de pantalla)."""
+    """El resultado como lo ve el modelo: sin las claves que empiezan con `_`
+    (instrucciones de dibujo, no datos) y CON `se_muestra` si hubo tabla.
+
+    Las dos mitades de la misma decisión: los datos de la tabla no viajan —
+    ya están en el resultado— pero sí viaja que la tabla existe. Sin eso el
+    modelo enumera lo mismo que la pantalla ya dibujó, porque no tiene cómo
+    saber que se dibujó (`pantalla.aviso`)."""
     if not isinstance(resultado, dict):
         return resultado
-    return {k: v for k, v in resultado.items() if not str(k).startswith("_")}
+    limpio = {k: v for k, v in resultado.items() if not str(k).startswith("_")}
+    if (av := pantalla.aviso(resultado)) is not None:
+        limpio["se_muestra"] = av
+    return limpio
 
 
 def peso_ficha(fn) -> int:

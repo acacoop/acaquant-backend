@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal, get_args
 
+from asistente import pantalla
 from asistente.agente import COMUN, Agente
 
 MAX_INSTRUMENTOS = 50
@@ -221,10 +222,10 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         "emisores": emisores,
         "cuantos": len(filas),
         "truncado": len(filas) > n,
-        "_tabla": {
-            "campo": "instrumentos",
-            "columnas": ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
-        },
+        "_tabla": pantalla.tabla(
+            "instrumentos",
+            ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
+            f"Curva {curva}" + (f" · {emisor}" if emisor else "")),
     }
     if len(filas) > n:
         # El corte esconde un extremo: el último de la lista NO es el último de
@@ -300,10 +301,9 @@ def ficha_bono(ticker: str) -> dict:
             "paridad_pct": _num(m.get("paridad")),
             "duration": _num(m.get("duration")),
         } if m else None,
-        "_tabla": {
-            "campo": "proximos_pagos",
-            "columnas": ["fecha", "interes", "amortizacion", "monto"],
-        },
+        "_tabla": pantalla.tabla(
+            "proximos_pagos", ["fecha", "interes", "amortizacion", "monto"],
+            f"Próximos pagos del {tk}"),
     }
 
 

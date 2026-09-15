@@ -88,6 +88,8 @@ asistente/
   puerta.py        controles antes de ejecutar una herramienta, por argumento
   control.py       control de números sobre la respuesta final
   esquema.py       {respuesta, falta}: esquema del proveedor o renglón «Falta:»
+  pantalla.py      el contrato tabla↔pantalla: cómo se declara, qué dibuja la
+                   pantalla y qué se le avisa al modelo que ya se dibujó
   permitido.py     ASISTENTE_CUENTAS (.env, fail-closed)
   sesiones.py      conversaciones guardadas (ia.conversaciones)
   panel.py         gasto, tarifas y elección de modelo por tarea
@@ -338,6 +340,16 @@ comparación.
 
 ## 12. Observabilidad
 
+- **El resultado de una herramienta tiene DOS destinatarios** (`pantalla.py`):
+  el MODELO, que lo lee para redactar, y la PANTALLA, que dibuja una tabla con
+  él. `_tabla` es para la pantalla y al modelo se le oculta (son instrucciones
+  de dibujo, no datos), pero sí viaja `se_muestra`: una línea que dice que la
+  tabla existe, de qué es y cuántas filas tiene. Sin eso, «si hay tabla no la
+  enumeres» le pedía al modelo evaluar una condición sobre lo único que no
+  recibe, y enumeraba lo mismo que la pantalla ya había dibujado.
+- **Toda tabla declara su sujeto.** `pantalla.tabla()` exige `titulo` por firma:
+  en un turno pueden correr dos herramientas y salir dos tablas pegadas; sin
+  título no se sabe cuál es de cuál. Un test prohíbe armar el dict a mano.
 - `eventos` en cada respuesta: `pregunta`, `podado`, `achicado`, `ruteo`,
   `vuelta`, `pide`, `resultado`, `estado`, `texto`, `corte`, `junta`, con `agente`.
 - `ia.llamadas`: una fila por llamada con tarea, modelo, tokens, caché, latencia,

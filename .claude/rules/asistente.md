@@ -36,6 +36,11 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    tiene señales (lo compartido va en `agente.py`, no en un helper ahí). Puede
    no tener herramientas todavía: entonces contesta que no puede consultarlo,
    sin modelo. Sumar un agente NO toca `grafo.py`.
+2b. **Una tabla tiene sujeto, y el modelo sabe que existe.** Se declara con
+   `pantalla.tabla(campo, columnas, titulo)` —el título va por firma— y el
+   modelo recibe `se_muestra` en vez de los datos de dibujo: sin eso enumera
+   lo mismo que la pantalla ya muestra. Tests: el título y que nadie arme el
+   dict a mano.
 2. **Todo dato sale de una herramienta.** El docstring ES el prompt de la
    herramienta (viaja como `description`), la firma es el esquema. La ficha
    dice QUÉ hay; el CÓMO va en `COMUN` una sola vez (test). Todo agregado

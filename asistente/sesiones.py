@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 from psycopg.types.json import Jsonb
 
-from asistente import grafo, panel
+from asistente import grafo, panel, pantalla
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -44,27 +44,13 @@ def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None) -> dict
             "sesion": panel.conversacion(r["sesion"])}
 
 
-TABLA_MAX_FILAS = 200
-
-
 def tablas_de(eventos: list[dict]) -> list[dict]:
-    """Las tablas que declararon las herramientas de un turno (`_tabla`), para
-    que una conversación reabierta las muestre igual. El mismo criterio que la
-    pantalla: columnas, filas y total salen del resultado, no se calculan."""
-    out = []
-    for e in eventos or []:
-        res = e.get("resultado") if e.get("tipo") == "resultado" else None
-        decl = (res or {}).get("_tabla") if isinstance(res, dict) else None
-        if not isinstance(decl, dict) or not decl.get("campo"):
-            continue
-        filas = res.get(decl["campo"])
-        if not isinstance(filas, list) or not filas:
-            continue
-        out.append({"columnas": list(decl.get("columnas") or []),
-                    "filas": filas[:TABLA_MAX_FILAS], "cuantas": len(filas),
-                    "total": res.get(decl["total"]) if decl.get("total") else None,
-                    "moneda": decl.get("moneda")})
-    return out
+    """Las tablas que declararon las herramientas de un turno, para que una
+    conversación reabierta las muestre igual. El criterio no se reimplementa
+    acá: es el mismo `pantalla.para_dibujar` que arma la tabla en vivo."""
+    return [t for e in eventos or []
+            if e.get("tipo") == "resultado"
+            and (t := pantalla.para_dibujar(e.get("resultado"))) is not None]
 
 
 def _titulo(pregunta: str) -> str:

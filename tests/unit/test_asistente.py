@@ -154,12 +154,38 @@ def test_un_docstring_dice_que_hace_y_nunca_como_contestar():
             assert frase not in doc, f"`{fn.__name__}` dice cómo contestar"
 
 
-def test_lo_que_empieza_con_guion_bajo_no_viaja_al_modelo():
+def test_lo_que_empieza_con_guion_bajo_no_viaja_al_modelo_pero_el_aviso_si():
+    """Los DATOS de la tabla no viajan (ya están en el resultado) pero el HECHO
+    de que se dibujó sí: sin eso, «no la enumeres» le pide al modelo evaluar una
+    condición sobre lo único que se le oculta, y enumera igual."""
     from asistente import herramientas as H
+    from asistente import pantalla
 
-    r = {"total": 1, "posiciones": [{"a": 1}], "_tabla": {"campo": "posiciones"}}
-    assert H.para_el_modelo(r) == {"total": 1, "posiciones": [{"a": 1}]}
+    r = {"total": 1, "posiciones": [{"a": 1}],
+         "_tabla": pantalla.tabla("posiciones", ["a"], "Tenencia de la 805")}
+    visto = H.para_el_modelo(r)
+    assert set(visto) == {"total", "posiciones", "se_muestra"}, "_tabla no, se_muestra sí"
+    assert "Tenencia de la 805" in visto["se_muestra"] and "1 fila" in visto["se_muestra"]
     assert H.para_el_modelo("texto") == "texto"
+    # sin tabla, o con una tabla sin filas, no se le anuncia nada
+    assert H.para_el_modelo({"total": 1}) == {"total": 1}
+    vacia = {"posiciones": [], "_tabla": pantalla.tabla("posiciones", ["a"], "Vacía")}
+    assert H.para_el_modelo(vacia) == {"posiciones": []}
+
+
+def test_toda_tabla_declara_de_que_es():
+    """Una tabla sin sujeto es un dato sin dueño: con dos herramientas en un
+    turno salen dos tablas pegadas y no se sabe cuál es de qué. El título va
+    por FIRMA para que no se pueda olvidar, y ninguna herramienta arma el dict
+    a mano."""
+    from asistente import pantalla
+
+    with pytest.raises(ValueError):
+        pantalla.tabla("x", ["a"], "")
+    for nombre in ("cartera", "renta_fija", "dolares", "cliente", "operaciones"):
+        fuente = (RAIZ / "asistente" / "agentes" / f"{nombre}.py").read_text(encoding="utf-8")
+        assert '"_tabla": {' not in fuente, (
+            f"{nombre}.py arma la tabla a mano: usá `pantalla.tabla(...)`, que exige el título")
 
 
 def test_toda_consulta_a_datos_de_cuentas_lleva_el_permiso():
@@ -1349,8 +1375,8 @@ def test_un_turno_guardado_lleva_las_tablas_que_declararon_las_herramientas():
     eventos = [{"tipo": "pide"}, {"tipo": "resultado", "resultado": {
         "total": 9, "posiciones": [{"a": 1}] * 3, "_tabla": {"campo": "posiciones", "columnas": ["a"], "total": "total", "moneda": "ARS"}}},
         {"tipo": "resultado", "resultado": {"error": "x"}}, {"tipo": "resultado", "resultado": "texto"}]
-    assert sesiones.tablas_de(eventos) == [{"columnas": ["a"], "filas": [{"a": 1}] * 3, "cuantas": 3,
-                                            "total": 9, "moneda": "ARS"}]
+    assert sesiones.tablas_de(eventos) == [{"titulo": "", "columnas": ["a"], "filas": [{"a": 1}] * 3,
+                                            "cuantas": 3, "total": 9, "moneda": "ARS"}]
 
 
 # ── cliente, operaciones y el dato personal ─────────────────────────────────

@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from typing import Literal
 
 from asistente import estado as EST
-from asistente import permitido
+from asistente import pantalla, permitido
 from asistente.agente import COMUN, Agente
 from asistente.agentes.renta_fija import clave_emisor, es_del_emisor, metricas_por_ticker
 from core.postgres import get_pool
@@ -316,13 +316,11 @@ def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
         "truncado": len(filas) > MAX_POSICIONES,
         "sin_mercado": sin_mercado,
         "mercado_error": mercado_error,
-        "_tabla": {
-            "campo": "posiciones",
-            "columnas": ["ticker", "emisor", "cantidad", "valuacion", "share", "tea_pct",
-                         "vencimiento"],
-            "total": "total",
-            "moneda": "ARS",
-        },
+        "_tabla": pantalla.tabla(
+            "posiciones",
+            ["ticker", "emisor", "cantidad", "valuacion", "share", "tea_pct", "vencimiento"],
+            f"Tenencia de la {pedida} al {r.get('fecha')}",
+            total="total", moneda="ARS"),
     }
 
 
@@ -438,11 +436,10 @@ def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> di
         "cuantas": len(alternativas),
         "truncado": len(alternativas) > MAX_ALTERNATIVAS,
         "sin_tasa": [f["ticker"] for f in tenes if not _mirable(f)],
-        "_tabla": {
-            "campo": "alternativas",
-            "columnas": ["ticker", "vencimiento", "tea_pct", "delta_tea_pp", "duration",
-                         "delta_duration"],
-        },
+        "_tabla": pantalla.tabla(
+            "alternativas",
+            ["ticker", "vencimiento", "tea_pct", "delta_tea_pp", "duration", "delta_duration"],
+            f"Alternativas de {hacia_emisor} para el {ref['ticker']}"),
     }
 
 

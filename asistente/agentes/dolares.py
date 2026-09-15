@@ -7,6 +7,7 @@ parecerían tener razón (REGLA #9).
 """
 from __future__ import annotations
 
+from asistente import pantalla
 from asistente.agente import COMUN, Agente
 
 # Los tipos de cambio que sabemos contestar, con la etiqueta EXACTA que usa
@@ -79,11 +80,9 @@ def tipos_de_cambio() -> dict:
         "brecha_mep_oficial_pct": _brecha(valores.get("mep"), valores.get("oficial")),
         "brecha_ccl_oficial_pct": _brecha(valores.get("ccl"), valores.get("oficial")),
         "faltan": faltan,
-        "_tabla": {
-            "campo": "dolares",
-            "columnas": ["nombre", "valor", "variacion_dia_pct"],
-            "moneda": "ARS",
-        },
+        "_tabla": pantalla.tabla(
+            "dolares", ["nombre", "valor", "variacion_dia_pct"],
+            "Tipos de cambio de hoy", moneda="ARS"),
     }
 
 

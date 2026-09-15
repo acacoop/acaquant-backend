@@ -2239,8 +2239,8 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 
 | Pieza | Qué es | Estado |
 |---|---|---|
-| `core/llm.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/ai.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 4 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente`) |
+| `core/modelos.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
+| `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 6 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente_despacho`, `asistente_cuenta`, `asistente_mercado`) |
 | `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta, y `sesion` (a qué conversación del asistente pertenece; NULL en las demás tareas). Se llamaba `ia.trazas` | la lee la tab LAB |
 | `ia.config` | ajustes editables sin deploy. Hoy guarda UNA cosa: qué modelo cumple cada rol (`modelo_flash`, `modelo_pro`) | la escribe la tab LAB |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |
@@ -2303,155 +2303,20 @@ nadie lo miraba.
 - **La vista RESEARCH** — el mail de 1816 se guarda crudo y se muestra tal cual.
   BCRA, FRED y las series de 1816 son ingestas de API, sin modelo en el medio.
 
-> ⚠️ **La excepción, y es la única: el ASISTENTE** (`asistente/`). Es el primer
-> y único consumo de LLM del producto que **razona en varios pasos**: se le hace
-> una pregunta y el modelo elige qué herramientas usar hasta poder contestar. El
-> ciclo completo está escrito a mano en `asistente/ciclo.py` (sin framework), las
-> herramientas sólo LEEN, y **el alcance de cuentas se declara fuera del código**
-> (env var `ASISTENTE_CUENTAS`, fail-closed: vacío = no muestra nada).
+> ⚠️ **La excepción, y es la única: el ASISTENTE** (`asistente/`, doc única
+> `docs/AvAgentAI.md`). Un grafo LangGraph: despacho → mundos (`cuenta`,
+> `mercado`) en paralelo → junta. Cada mundo es un agente con su tarea de ruteo
+> y sus herramientas; solo `asistente_cuenta` ve datos del negocio, y el alcance
+> de cuentas es `ASISTENTE_CUENTAS` (fail-closed).
 >
-> **Lo que sabe hacer** (`asistente/herramientas.py`; la ficha que ve el modelo
-> se arma sola desde el docstring y la firma, así que no hay una lista paralela
-> que mantener):
->
-> | Herramienta | Qué contesta | De dónde sale |
-> |---|---|---|
-> | `cobros_futuros(cuenta, dias)` | **cuánta plata cobra esa cuenta y cuándo** — cupones y amortizaciones juntos, por moneda, con el total por título y el detalle por fecha. Cada título trae su `vence`, así que contesta también «¿qué bono me vence?» | `operaciones.acreencias`, que ya precomputa el cron de `jobs/acreencias.py` (12:45 UTC L-V) cruzando la tenencia contra el cronograma de cada bono. **No recalcula nada y NO mira la tenencia**: rehacer esa multiplicación serían dos versiones del mismo número sin árbitro |
-> | `tenencia_actual(cuenta, horizonte)` | **qué TIENE la cuenta hoy** — una fila por título con nominales, precio, valuación y su peso en la cartera, más el total. `horizonte` es la misma perilla T0/T1 de la pantalla: `t1` (default) es la posición liquidada a mañana, con lo concertado hoy adentro —«cuánto vale el cliente»—; `t0` es lo liquidado a hoy, lo que está en custodia y se puede entregar o caucionar | **`valuaciones_sql.posiciones_actuales()`: el MISMO código que dibuja NEGOCIO → CARTERAS**, no un SELECT parecido. Esa función no es una consulta — filtra `aum='si'`, cae sola a la foto conciliada si el daemon de `tenencia_live` no corrió, junta filas por `unidad` y **pisa el precio de Aunesa con el nuestro** (el de Aunesa es el cierre de ayer mientras el mercado se mueve). Un SELECT propio daría un número distinto al de la pantalla sin que fallara nada (REGLA #9) |
->
-> | `curva(curva, ordenar_por, limit)` | **qué hay HOY en una curva y cuánto rinde** — una fila por instrumento con emisor, vencimiento, precio, TEA y TEM (ya en porcentaje: el motor las da en decimal y el modelo tiene prohibido convertir), paridad, duration, volumen y `tasa_ruido` (la tasa de un bono que vence en días no es comparable: viaja marcada y va última). `curva` y `ordenar_por` son listas cerradas en la firma (`Literal` → `enum`): el proveedor rechaza otro valor antes de que cueste una vuelta. **El orden lo pone la herramienta** y se prueba con valores distintos | `curvas_vista.get_curvas_vista()`: la MISMA vista que dibuja CURVAS → LIVE, filtrada por pill. No `listar_curva` de `/api/analitica`: esa ordena `tea` ascendente y no marca el ruido — el primer borrador la usaba y «los que más rinden» salían al revés (§0.fm). Tope 50, `truncado` |
-> | `ficha_bono(ticker)` | **qué ES un bono** — emisor, moneda, ajuste, ley, vencimiento, cupón, los próximos pagos por 100 VN y cómo cotiza hoy. No dice cuánto cobra una cuenta: eso es `cobros_futuros`. Un ticker que no está en el master vuelve como `error` con la orden de PREGUNTAR, nunca de probar otro parecido (REGLA #9) | `bono_detalle.get_bono()`: el mismo master `mercado.curvas` de donde `cobros_futuros` saca `vence`, y las métricas de la misma vista que la pantalla. Tope 24 pagos futuros, `truncado` |
->
-> **DOS MUNDOS, DECLARADOS** (§0.fm): `DE_LA_CUENTA` (reciben `cuenta`, pasan por el
-> permiso, dejan la cuenta en foco) y `DEL_MERCADO` (no reciben `cuenta`: son lo
-> que hay, sin importar quién lo tenga). Un test exige las dos cosas — una de
-> mercado con `cuenta` sería un alcance filtrado por la puerta de atrás. Es lo que
-> permite CRUZAR: «¿qué bono CER rinde más que los que tengo?» es `tenencia_actual`
-> + `curva` en una pregunta. Cada ficha tiene techo (`MAX_FICHA_CHARS`, por test):
-> con cuatro herramientas son ~1.700 tokens fijos por vuelta, y la #8 con un
-> docstring de dos páginas rompe la suite antes que la factura.
->
-> ⚠️ **Las herramientas se parecen y el modelo tiene que elegir**, así que cada docstring dice cuál es la OTRA: «esto es lo que tenés, no lo que vas a cobrar» y al revés; «esto es el mercado, no tu cuenta». No es redundancia — ya pasó que `bonos_que_vencen` le ganara al docstring por el nombre.
->
-> ⚠️ **LA TABLA LA DECLARA LA HERRAMIENTA, NO LA ELIGE EL MODELO.** El resultado de `tenencia_actual` trae `_tabla` —qué campo suyo es una lista de filas, con qué columnas y cuál es su total— y la pantalla la dibuja leyendo **ese mismo objeto**, así que el modelo no re-tipea un número. Las claves que empiezan con `_` NO viajan al modelo (`ciclo._para_el_modelo`): son instrucción de pantalla, no dato. Hubo una versión donde el modelo NOMBRABA qué dibujar (campo `mostrar` del esquema) y, con tres campos disponibles, nombró los tres: «¿cuánto cobro?» se contestaba con tres tablas del mismo total. La diferencia no es el tope — es que acá **no hay nada que elegir**: una tenencia SON posiciones. `cobros_futuros` no declara tabla y sigue contestando en prosa.
->
-> ⚠️ **`tenencia_actual` NO escribe SQL, y eso abre un agujero que hubo que tapar aparte.** `posiciones_actuales` no conoce las cuentas habilitadas (su control de acceso vive en el router de `/api/valuaciones`), y el test que congela «todo SELECT lleva `FILTRO_SQL`» pasa sin mirar nada cuando no hay SELECT. La pared es una validación explícita contra `permitido.cuentas()` antes de llamar al service, congelada por `test_toda_herramienta_con_cuenta_valida_contra_el_permiso`. **`con_pnl` va apagado**: cuesta una corrida del motor y «qué tengo» no necesita el cost-basis.
->
-> ⚠️ `cuenta` **no tiene default**, así que la ficha la marca `required` y el
-> modelo no puede omitirla. **`dias` sí tiene** (90), y no es asimetría sino
-> riesgo: adivinar la cuenta es contestar sobre la plata de otro y no se nota;
-> adivinar la ventana se VE en la respuesta. Sin default, el modelo gastaba una
-> vuelta entera (1.178 tokens medidos) sólo en preguntar cuántos días. Y la lista de cuentas habilitadas viaja en el
-> **SYSTEM** (`ciclo._instruccion()`, al final del bloque fijo para no romperle
-> el caché), así que no necesita pedirla ni preguntar: se ahorra una vuelta por
-> conversación. `cuentas_disponibles()` sigue existiendo —es de donde el SYSTEM
-> la saca— pero ya no se le ofrece como herramienta.
->
-> **Cuatro endpoints, `require_admin` heredado del router de `/api/agente`:**
+> **Endpoints, `require_admin` heredado del router de `/api/agente`:**
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Recibe `historial`, `estado` y `sesion` tal cual los devolvió la anterior. Devuelve la respuesta MÁS `eventos`: el ciclo paso por paso (qué herramienta pidió, con qué argumentos, qué le volvió, qué quedó en foco) MÁS `sesion`: el id de la charla y lo que lleva gastado (llamadas, tokens, caché, USD). Sin los pasos, cuando contesta mal no se puede distinguir si eligió mal la herramienta, si la herramienta trajo basura, o si razonó mal |
-> | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas` (con el costo calculado por pedazo: lo cacheado a precio de caché), el **hit rate**, las tarifas cargadas, y con qué proveedor/modelo corre cada TAREA |
-> | `POST /api/agente/lab/modelo` | fija con qué proveedor y modelo corre **UNA TAREA** (`asistente`, `agente_texto`, …). Sin `modelo`, vuelve al default del código. ⚠️ **Prueba antes de guardar**, y qué le exige depende de la tarea: si ofrece herramientas, el modelo tiene que PEDIR una. Uno que ignora `tools` deja al asistente contestando de memoria, sin un solo error — así que la prueba no es un botón que se pueda saltear, vive adentro de `panel.elegir_modelo` |
-> | `POST /api/agente/lab/precio` | la tarifa de un modelo: **TRES precios** (entrada · entrada cacheada · salida) en USD por millón, y van en un solo valor. El del caché es el que más cambia el total — esa entrada cuesta una fracción (en `gpt-5.6-luna`, 10× menos), así que cobrar todo a precio de entrada infla la factura justo en la parte que el diseño viene optimizando |
->
-> **LA IDENTIDAD DE LA CONVERSACIÓN** (`ciclo._sesion`, §0.fl): un uuid por
-> charla que nace en el backend en la primera pregunta y el navegador devuelve
-> en las siguientes, con el historial y el estado. Cada vuelta lo lleva a su
-> fila de `ia.llamadas.sesion`; `panel.conversacion()` las junta y la tab
-> muestra «esta conversación: N llamadas · tokens · caché · USD» en cada
-> respuesta. Es el `conv_id` que se borró el 28/08 por no tener lector,
-> de vuelta **con su lector**. Lo que llega de afuera se valida por forma
-> (uuid hex) o se descarta y nace uno nuevo. Es la caja *Identification* de la
-> sesión de ADK; las otras dos son el historial (*Event History*) y `estado`
-> (*State*). No hay persistencia de la charla: la sostiene el navegador.
->
-> **LA PODA** (`ciclo._podar`, §0.fk): la conversación no crece sin límite.
-> Antes de empezar se conservan los últimos `TURNOS_QUE_QUEDAN` turnos completos
-> (de `user` a `user`) y nunca más de `MENSAJES_QUE_QUEDAN` mensajes (un turno
-> no tiene tamaño fijo: el modelo puede pedir varias herramientas en una
-> vuelta), tirando turnos enteros; después `_achicar` baja el peso de lo que
-> quedó. **Por turnos, nunca por mensajes sueltos**: un `tool` sin el
-> `assistant` que lo pidió hace que el proveedor rechace la llamada entera. La respuesta
-> devuelve el historial ya podado, así que el navegador nunca acumula más que
-> eso, y el tope del router (600) pasa a ser de sanidad. Antes era 60 sin poda:
-> a la pregunta 15 el request volvía 422 y la charla moría sin explicación.
-> Podar es seguro recién desde que el foco vive en `estado`, aparte del historial.
->
-> **EL ESTADO** (`asistente/estado.py`, §0.fj): lo que el asistente SABE de la
-> conversación, aparte de lo que se DIJO. Hoy una clave: la `cuenta` de la que
-> se viene hablando. Viaja ida y vuelta con el historial pero **aparte de él**:
-> el dato pasa de inferido (un número en los argumentos de un `tool_call` viejo)
-> a explícito (un renglón del SYSTEM), y deja de depender del historial. Que
-> eso ahorre la re-pregunta «¿de qué cuenta?» es hipótesis, sin medir.
->
-> Lo escribe el **código, desde los argumentos** de una herramienta que
-> contestó sin `error` (mismo criterio que la puerta: se mira el argumento,
-> nunca la herramienta, así que la #8 que reciba `cuenta` queda cubierta sola;
-> y una cuenta que la puerta cortó no queda en foco). Lo lee el modelo en un
-> renglón al **final del SYSTEM**, después de las cuentas (lo variable atrás, el
-> caché del bloque fijo intacto), y es el estado de ANTES de la pregunta: lo que
-> se aprende adentro va al que se devuelve. El renglón es **dato, no regla**:
-> qué hacer con el foco lo dice el SYSTEM, una sola vez. **No le completa
-> `cuenta` a ninguna herramienta**: la pared «cuenta sin default» sigue. Lo que
-> llega del navegador pasa por `EN_FOCO`, que declara cada clave **con su lista
-> cerrada de valores** (`cuenta` → las habilitadas): va derecho al SYSTEM, así
-> que un string libre sería un canal de inyección. La tab lo muestra («📌 en
-> foco») y lo cuenta como evento del ciclo cuando cambia. En ADK es
-> `session.state`; los prefijos `user:`/`app:` no existen porque no hay
-> persistencia por decisión.
->
-> **LA PUERTA** (`asistente/puerta.py`): entre que el modelo PIDE una herramienta
-> y que la herramienta CORRE, hay un lugar donde el código mira los argumentos que
-> eligió y puede cortar. Hoy tiene un control: **ninguna herramienta corre sobre
-> una cuenta que no esté habilitada**. Un corte no es una excepción — es el
-> resultado que lee el modelo, así que puede corregir o decir que no pudo.
->
-> ⚠️ **Los controles se disparan por el ARGUMENTO, nunca por la herramienta.**
-> `cuenta_habilitada` se activa con cualquier herramienta que reciba un argumento
-> `cuenta`, sin saber cuál es: por eso la herramienta #8 queda cubierta sin tocar
-> el archivo. Un `if nombre == "…"` ahí adentro es la señal de que ese control va
-> adentro de la herramienta. Dos tests lo congelan: que `puerta.py` no nombre
-> ninguna herramienta, y que **ninguna herramienta le ponga otro nombre a la
-> cuenta** (`id_cuenta`, `comitente`…) — un alias pasaría de largo en silencio,
-> que es el peor modo de falla.
->
-> NO reemplaza la validación de cada herramienta, y no son dos copias sin árbitro
-> (REGLA #9): las dos leen la MISMA fuente, `permitido.cuentas()`. Hacen falta las
-> dos porque **no toda llamada pasa por el ciclo** — `scripts/diag_herramienta.py`
-> corre la función directo. En Google ADK este gancho se llama
-> `before_tool_callback`.
->
-> **El control determinístico** (`asistente/control.py`): antes de devolver la
-> respuesta, el código saca sus números y los busca en todo lo que se le dio al
-> modelo más la pregunta. Lo que no sale de ninguna fuente, lo puso él — y acá
-> un número puesto por el modelo es plata que no existe. **Avisa, no bloquea**:
-> el veredicto viaja al lado de la respuesta y la tab lo muestra debajo.
->
-> No sabe nada de las herramientas (trabaja sobre tres textos), así que una
-> herramienta nueva queda cubierta sin tocarlo. En su primera corrida encontró
-> que el modelo sumaba los totales por mes a mano — y la respuesta no fue
-> aflojar el control, fue darle `por_mes` agregado en SQL.
->
-> **LA FORMA DE LA RESPUESTA** (`asistente/esquema.py`, *structured output*):
-> cuando el proveedor lo soporta, la respuesta final deja de ser texto libre y
-> pasa a ser un JSON de dos campos que el proveedor **fuerza** — `respuesta` (la
-> prosa, sin markdown) y `falta` (qué no pudo contestar, que sin ese renglón se
-> lee como contestado).
->
-> ⚠️ **Hubo un tercer campo, `mostrar`, y se borró.** El modelo nombraba qué
-> partes del resultado dibujar como tabla y la pantalla las dibujaba. Era una
-> lista sin tope y sin criterio, así que a «¿cuánto cobro?» contestaba con TRES
-> tablas del mismo total. El arreglo no fue ponerle tope: una tabla no era la
-> forma de contestar esa pregunta.
->
-> `soporta_esquema` vive en la ficha del proveedor (`core/llm.py`) al lado de
-> `no_entrena`, MEDIDO con `scripts/diag_structured_output.py`: DeepSeek contesta
-> `HTTP 400 — This response_format type is unavailable now`; OpenAI lo acepta **y
-> sigue pidiendo herramientas**, por eso el esquema viaja en todas las vueltas.
-> Al que no lo soporta, `core/ai.py` le manda la pregunta sin esquema y contesta
-> prosa. Una capacidad de menos, no un camino cortado.
+> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona. Recibe `historial`, `estado` y `sesion` tal cual los devolvió la anterior. Devuelve la respuesta, `eventos` (cada paso del grafo, con el agente), `mundos`, y `sesion` con el costo de la charla |
+> | `GET /api/agente/lab/panel` | el gasto por tarea desde `ia.llamadas` (lo cacheado a precio de caché), el hit rate, las tarifas, y con qué proveedor/modelo corre cada tarea |
+> | `POST /api/agente/lab/modelo` | fija proveedor y modelo de UNA tarea; prueba antes de guardar (si la tarea usa herramientas, el modelo tiene que pedir una). Sin `modelo`, vuelve al default |
+> | `POST /api/agente/lab/precio` | la tarifa de un modelo: entrada · entrada cacheada · salida, USD por millón |
 >
 > ⚠️⚠️ **LA ELECCIÓN SE GUARDA POR TAREA** (`tarea:<tarea>` → `proveedor/modelo`
 > en `ia.config`), y las dos partes de esa frase salieron de equivocarse:

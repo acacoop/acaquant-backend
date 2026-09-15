@@ -285,7 +285,7 @@ def por_modelo(filas: list[dict], emisores: list[str]) -> dict[str, str]:
         return {}
     permitidos = {e.strip().upper(): e.strip() for e in emisores if e.strip()}
     try:
-        from core import ai
+        from core import modelos as ai
         crudo = ai.completar(TAREA, system=_SYSTEM,
                              user=_pedido(filas[:TOPE_MODELO], emisores),
                              detalle=f"emisor · {len(filas)} título(s)")

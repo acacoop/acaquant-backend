@@ -54,7 +54,7 @@ HERRAMIENTAS: dict[str, str] = {
     "ext_ver":               "inspector de la API externa (/ext): qué ve un accionista con SU token.",
     # contratos y auditoría (dan un veredicto, no una opinión)
     "diag_herramienta":      "corre UNA herramienta del asistente SIN el modelo y muestra el JSON\n                             exacto que recibiría, su peso en tokens y cuánto tardó. Separa «el dato\n                             está mal» de «el modelo lo usó mal», que sin esto se adivinan.",
-    "asistente":             "la terminal del ASISTENTE conversacional (`asistente/ciclo.py`) desde el "
+    "asistente":             "la terminal del ASISTENTE conversacional (`asistente/grafo.py`) desde el "
                              "Droplet: misma pregunta, mismas herramientas y mismo ciclo que la tab "
                              "LAB, pero mostrando cada paso. Es como se prueba un cambio del ciclo "
                              "sin pasar por el front.",
@@ -65,10 +65,6 @@ HERRAMIENTAS: dict[str, str] = {
     "diag_byma_red":         "¿por qué el Droplet no llega a `api.byma.com.ar`? Separa «BYMA filtra "
                              "nuestra IP» de «el Droplet bloquea la salida» — dos causas con "
                              "soluciones opuestas. Read-only, sin credenciales.",
-    "diag_structured_output": "¿el proveedor acepta un esquema de salida (`response_format`) en la "
-                             "MISMA llamada que trae herramientas, y sigue pidiéndolas? Es la "
-                             "medición que decide si structured output se puede aplicar en todas "
-                             "las vueltas del asistente o sólo en la última.",
     "audit_superficie_http": "inventario de la superficie HTTP por categoría — la contracara de audit_rbac.",
     "diag_fci_primary":      "qué FCI lista Primary, qué campos trae y si hay histórico (no lo hay): "
                              "es la medición que decide la fuente del mercado FCI (docs/FCI.md) y "

@@ -250,57 +250,31 @@ def explicar(body: Explicar, email: str = Depends(get_user_email)):
 
 
 
-# ── EL LABORATORIO — el asistente conversacional ───────────────────────────
+# ── EL LABORATORIO — el asistente (asistente/, docs/AvAgentAI.md) ──────────
 #
-# La tab LAB del modal. Es la única boca HTTP de `asistente/`: acá no hay
-# lógica, solo se traduce un pedido de la pantalla a una llamada a `ciclo` y se
-# junta lo que el ciclo va contando por el camino.
-#
-# ⚠️ **SÍNCRONO A PROPÓSITO, Y ESTÁ MEDIDO.** Una pregunta con una herramienta
-# tarda 4,5 s de punta a punta; el peor caso (6 vueltas) queda por debajo de los
-# 30 s que aguanta el proxy de Vercel. Una cola con estado sería infraestructura
-# para un problema que todavía no existe.
+# Síncrono: una pregunta con herramientas tarda segundos y el peor caso queda
+# por debajo del proxy de Vercel.
 
 class Preguntar(BaseModel):
     pregunta: str = Field(..., min_length=1, max_length=2000)
-    # Los mensajes de las preguntas anteriores, tal cual los devolvió la
-    # respuesta anterior. El modelo no recuerda nada: la conversación la
-    # sostiene la pantalla mandando esto de vuelta.
-    #
-    # ⚠️ El tope es de SANIDAD (un cliente roto), no el límite de la charla:
-    # quien poda es `ciclo._podar`, por turnos y con techo de mensajes, y
-    # devuelve el historial ya podado — así que lo que vuelve nunca pasa de
-    # `MENSAJES_QUE_QUEDAN` más un turno. Esto es el doble. Con 60 acá y sin
-    # poda, la pregunta 15 volvía 422 y la conversación moría (§0.fk).
+    # Historial, foco y sesión: tal cual los devolvió la respuesta anterior. La
+    # conversación la sostiene el navegador. El tope del historial es de sanidad:
+    # el asistente lo poda antes de usarlo y devuelve el podado.
     historial: list[dict] = Field(default_factory=list, max_length=600)
-    # Lo que quedó en foco (la cuenta de la que se viene hablando), tal cual lo
-    # devolvió la respuesta anterior. Viaja APARTE del historial porque el
-    # achicado del historial no lo toca. El backend lo reduce a lo declarado
-    # en `asistente/estado.py` antes de usarlo: acá sólo se recibe.
     estado: dict = Field(default_factory=dict)
-    # El id de la conversación, tal cual lo devolvió la respuesta anterior.
-    # Vacío en la primera pregunta: nace en el backend. Un id con otra forma
-    # se descarta ahí y nace uno nuevo (`ciclo._sesion`).
     sesion: str = Field("", max_length=64)
 
 
 @router.post("/lab/preguntar")
 def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
-    """Una pregunta al asistente. Devuelve la respuesta MÁS todo lo que pasó.
+    """Una pregunta al asistente. Devuelve la respuesta, el historial y el foco
+    para la siguiente, los eventos del grafo paso a paso y el costo de la
+    conversación."""
+    from asistente import grafo, panel
 
-    `eventos` es la traza del ciclo paso por paso (qué herramienta pidió, con
-    qué argumentos, qué devolvió). Viaja a la pantalla porque el punto de esta
-    tab es VER el ciclo, no solo su resultado.
-    """
-    from asistente import ciclo, panel
-
-    eventos: list[dict] = []
-    r = ciclo.preguntar(body.pregunta, usuario=email, historial=body.historial,
-                        estado=body.estado, sesion=body.sesion, ver=eventos.append)
-    # Lo que lleva gastado ESTA conversación, recién anotada la pregunta. Es
-    # el lector de `ia.llamadas.sesion` (§0.fl): sin esto el id sería una
-    # columna que nadie mira, que es por lo que se borró la anterior.
-    return {**r, "sesion": panel.conversacion(r["sesion"]), "eventos": eventos}
+    r = grafo.preguntar(body.pregunta, usuario=email, historial=body.historial,
+                        estado=body.estado, sesion=body.sesion)
+    return {**r, "sesion": panel.conversacion(r["sesion"])}
 
 
 # ── EL PANEL DEL LAB — qué gastamos y con qué modelo corremos ───────────────
@@ -334,7 +308,7 @@ def lab_modelo(body: ElegirModelo, email: str = Depends(get_user_email)):
     herramientas, el modelo tiene que PEDIR una; un modelo que ignora `tools`
     deja al asistente contestando de memoria, sin un solo error.
 
-    Sin `modelo` vuelve al default que declara `core/ai.py` — «elegí mal y
+    Sin `modelo` vuelve al default que declara `core/modelos.py` — «elegí mal y
     quiero deshacerlo» no se resuelve eligiendo otra cosa.
     """
     from asistente import panel

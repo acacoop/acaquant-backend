@@ -168,7 +168,7 @@ def _parsear(texto: str) -> dict | None:
 
 def explicar(nombre: str, *, por: str = "") -> dict:
     """La explicación de la última corrida rota de esa habilidad. Nunca levanta."""
-    from core import ai, llm
+    from core import modelos
     try:
         ctx = contexto(nombre)
     except Exception as e:
@@ -187,12 +187,12 @@ def explicar(nombre: str, *, por: str = "") -> dict:
     if c:
         return {"ok": True, "cacheada": True, **c}
 
-    if not llm.configurado():
+    if not modelos.configurado(modelos.resolver(TAREA).proveedor):
         return {"ok": False, "error": ("la IA no está configurada en este entorno "
                                        "(falta la credencial del proveedor en el .env)")}
     user = json.dumps({k: v for k, v in ctx.items() if not k.startswith("_")},
                       ensure_ascii=False, default=str)
-    texto = ai.completar(TAREA, system=_SYSTEM, user=user, usuario=por or None,
+    texto = modelos.completar(TAREA, system=_SYSTEM, user=user, usuario=por or None,
                          detalle=f"{nombre}: {ctx['error'][:120]}")
     if not texto:
         return {"ok": False, "error": ("la IA no contestó: presupuesto agotado o proveedor "
@@ -203,7 +203,7 @@ def explicar(nombre: str, *, por: str = "") -> dict:
                 "crudo": texto[:800]}
     modelo = ""
     try:
-        modelo = llm.modelo("flash") or ""
+        modelo = modelos.resolver(TAREA).modelo or ""
     except Exception:
         pass
     try:

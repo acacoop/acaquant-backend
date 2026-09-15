@@ -956,7 +956,7 @@ def test_ninguna_habilidad_detecta_con_ia():
     creer al que lee el gateway que el agente hace algo que no hace.
     """
     import re
-    src = (RAIZ / "core" / "ai.py").read_text()
+    src = (RAIZ / "core" / "modelos.py").read_text()
     declaradas = set(re.findall(r'^\s*"(av_agent_\w+)":\s*\{', src, re.M))
     assert not declaradas, f"tareas de IA del agente viejo aún declaradas: {declaradas}"
     con_ia = [h.nombre for h in catalogo.HABILIDADES.values() if h.usa_ia]
@@ -3551,7 +3551,7 @@ def test_explicar_manda_el_repo_y_no_solo_el_error(monkeypatch):
     ese código cita y el traceback entero — y cada respuesta viaja con esa
     lista. Sin contexto, «KeyError: 'x'» se explica adivinando."""
     from agente import explicar
-    from core import ai, llm
+    from core import modelos
     ctx = {"habilidad": "soberanos_faltantes", "que_mira": "…", "dominio": "MERCADO",
            "resultado": "error", "corrida_at": None,
            "error": "KeyError: 'fechaVencimiento'",
@@ -3563,8 +3563,10 @@ def test_explicar_manda_el_repo_y_no_solo_el_error(monkeypatch):
     monkeypatch.setattr(explicar, "_cache", lambda h: None)
     guardadas = []
     monkeypatch.setattr(explicar, "_guardar", lambda *a: guardadas.append(a))
-    monkeypatch.setattr(llm, "configurado", lambda p=None: True)
-    monkeypatch.setattr(llm, "modelo", lambda tier, nombre=None: "flash-x")
+    monkeypatch.setattr(modelos, "configurado", lambda p=None: True)
+    monkeypatch.setattr(modelos, "resolver", lambda t: modelos.Tarea(
+        nombre=t, proveedor="deepseek", modelo="flash-x", max_tokens=1, timeout_s=1,
+        datos_negocio=False, usa_herramientas=False, para_que="", elegido=False))
     pedidos = []
     def _completar(tarea, *, system, user, usuario=None, detalle=None):
         pedidos.append((tarea, user))
@@ -3572,7 +3574,7 @@ def test_explicar_manda_el_repo_y_no_solo_el_error(monkeypatch):
                 'sin vencimiento.", "afecta": "solo esa habilidad", "que_hacer": "saltearlo", '
                 '"test": "", "tarea": {"titulo": "Tolerar instrumento sin vencimiento", '
                 '"prompt": "en agente/detectores/mercado.py …"}}\n```')
-    monkeypatch.setattr(ai, "completar", _completar)
+    monkeypatch.setattr(modelos, "completar", _completar)
     r = explicar.explicar("soberanos_faltantes", por="nico@x")
     assert r["ok"] and r["respuesta"]["de_quien"] == "dato"
     assert r["fuentes"] == ctx["_fuentes"]
@@ -3590,12 +3592,12 @@ def test_explicar_manda_el_repo_y_no_solo_el_error(monkeypatch):
     assert r["ok"] and r["cacheada"] and not pedidos
     # Sin IA configurada, se dice; sin error que explicar, también.
     monkeypatch.setattr(explicar, "_cache", lambda h: None)
-    monkeypatch.setattr(llm, "configurado", lambda p=None: False)
+    monkeypatch.setattr(modelos, "configurado", lambda p=None: False)
     assert not explicar.explicar("soberanos_faltantes")["ok"]
     monkeypatch.setattr(explicar, "contexto", lambda n: {**ctx, "error": "", "traceback": ""})
     assert "ningún error" in explicar.explicar("soberanos_faltantes")["error"]
     # La tarea está registrada en el gateway y el motor guarda el traceback.
-    assert "explicar_error" in ai._TAREAS
+    assert "explicar_error" in modelos.TAREAS
     assert "traceback=" in inspect.getsource(registro.guardar)
     assert "ultimo_traceback" in inspect.getsource(registro.sellar_corrida)
 
@@ -4174,7 +4176,7 @@ def test_lo_que_no_contesta_deja_el_piso_y_dice_por_que():
     fila = {"habilidad": "db_peso", "regla": "peso_total_11", "sujeto": "la base",
             "problema": "x", "que_hacer": "y", "evidencia": {}}
     import agente.redactar as r
-    from core import ai as _ai
+    from core import modelos as _ai
     orig = _ai.completar_con_traza
     try:
         _ai.completar_con_traza = lambda *a, **k: (None, None)
@@ -4750,7 +4752,7 @@ def test_el_modelo_elige_de_la_lista_y_lo_de_afuera_se_descarta(monkeypatch):
     from agente import emisor
 
     monkeypatch.setattr(
-        "core.ai.completar",
+        "core.modelos.completar",
         lambda *a, **k: '{"[1] Ciclo Nova": "iam", "[2] X": "Banco Inventado", '
                         '"[3] Y": "", "[4] Z": "OTROS"}')
     r = emisor.por_modelo(
@@ -4775,14 +4777,14 @@ def test_si_el_gateway_no_contesta_las_filas_quedan_como_estaban(monkeypatch):
     from agente import emisor
 
     filas = [{"unidad": "[15154] Ciclo Nova Ahorro Plus", "ticker": "x"}]
-    monkeypatch.setattr("core.ai.completar", lambda *a, **k: None)
+    monkeypatch.setattr("core.modelos.completar", lambda *a, **k: None)
     assert emisor.proponer(filas, ["IEB"]) == [
         {**filas[0], "propuesto": "", "fuente": ""}]
 
     # Y si el gateway LEVANTA, tampoco se cae la pantalla.
     def _revienta(*a, **k):
         raise RuntimeError("proveedor caído")
-    monkeypatch.setattr("core.ai.completar", _revienta)
+    monkeypatch.setattr("core.modelos.completar", _revienta)
     assert emisor.proponer(filas, ["IEB"])[0]["propuesto"] == ""
 
 
@@ -4905,10 +4907,10 @@ def test_la_tarea_de_emisor_esta_declarada_en_el_gateway():
     sin presupuesto propio — o sea, gasta sin techo y su traza no se puede
     rastrear. Declararla es lo que la hace auditable."""
     from agente import emisor
-    from core.ai import _TAREAS
+    from core.modelos import TAREAS
 
-    cfg = _TAREAS.get(emisor.TAREA)
-    assert cfg, f"«{emisor.TAREA}» no está declarada en core/ai.py::_TAREAS"
+    cfg = TAREAS.get(emisor.TAREA)
+    assert cfg, f"«{emisor.TAREA}» no está declarada en core/modelos.py::TAREAS"
     # `pro`: acá no se redacta, se RECONOCE, y equivocarse escribe un dato en un
     # campo por el que se agrupa plata.
     assert cfg["tier"] == "pro" and cfg["timeout_s"] <= 45

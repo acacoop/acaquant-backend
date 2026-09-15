@@ -15,6 +15,10 @@ openpyxl==3.1.5  # escritura de .xlsx — export de SENEBIS (api/services/senebi
 psycopg[binary]==3.3.4  # driver Postgres (Supabase). Pineado 2026-08-22: es la version MEDIDA en el Droplet (diag_entorno) — estaba sin pin y era el unico drift real.
 psycopg-pool  # pool de conexiones para la API (core.postgres.get_pool)
 python-dotenv==1.2.2
+langgraph==1.2.11  # el asistente (asistente/grafo.py, docs/AvAgentAI.md)
+langchain-openai==1.6.2
+langchain-deepseek==1.1.0
+langchain-core==1.6.3
 holidays==0.93
 requests==2.32.5
 yfinance==1.2.0  # Yahoo Finance histórico OHLC (Finnhub free bloqueó candles)

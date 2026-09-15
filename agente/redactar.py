@@ -353,7 +353,7 @@ def redactar_uno(fila: dict) -> dict:
 
     bloque = hechos(fila)
     try:
-        from core import ai
+        from core import modelos as ai
         crudo, traza = ai.completar_con_traza(
             TAREA, system=_SYSTEM, user=bloque,
             detalle=f"{fila.get('habilidad')}/{fila.get('regla')}/{fila.get('sujeto')}")

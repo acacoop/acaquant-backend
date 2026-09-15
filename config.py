@@ -320,7 +320,7 @@ EXT_MAX_FILAS = int(os.getenv("EXT_MAX_FILAS", "20000"))
 # ⚠️⚠️ **ESTA CONSTANTE AFLOJA UNA GARANTÍA, A PROPÓSITO Y POR DECISIÓN DEL USER
 # (2026-09-13).** Leerla entera antes de tocarla.
 #
-# Qué apaga: `core/ai.py::_ruteo_seguro()` niega una llamada cuando una tarea
+# Qué apaga: `core/modelos.py::_ruteo_seguro()` niega una llamada cuando una tarea
 # marcada `datos: "negocio"` (ve tenencias, cuentas, plata de la casa) va hacia
 # un proveedor cuya ficha dice `no_entrena: False`. Con esto en True, sale igual
 # y queda un WARNING en el log.

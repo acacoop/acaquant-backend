@@ -159,7 +159,7 @@ obligatorio en el mismo commit.
 |---|---|
 | Arquitectura, datos, roadmap | `ARQUITECTURA.md` |
 | Vistas / tabs / endpoints / permisos (superficie completa) | `MAPA_APP.md` **[VIVO]** — §0 autogenerado y verificado por CI |
-| EL AV AGENT | `AGENT.md` **[VIVO]** — parte A manda; parte B es diario, no describe el código |
+| EL AV AGENT · EL ASISTENTE (LangGraph) | `AGENT.md` **[VIVO]** (parte B es diario) · `AvAgentAI.md` **[VIVO]** |
 | Modelo SQL · API HTTP (payloads) | `SQL.md` + `sql/schema.sql` · `API.md` |
 | API EXTERNA para accionistas (`/ext`) | `API_EXTERNA.md` **[VIVO]** — fail-closed, no reusa `verify_api_key` |
 | Renta fija / curvas · Renta variable + Reuters · FCI | `RENTA_FIJA.md` · `RENTA_VARIABLE.md` · `FCI.md` **[VIVO]** |
@@ -195,6 +195,6 @@ suite de integración**: `pytest -m integration` no selecciona nada y sale en ve
 - **Deploy backend**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → schema → restart
   de `api.service` **y nada más** → smoke). Motores: los maneja cron; reiniciarlos en rueda es decisión
   de la mesa. Push a `main` deploya el front en Vercel solo.
-- **EL ASISTENTE** (`asistente/`): ciclo agente↔herramientas a mano sobre `core/ai.py`, tab LAB del AV
-  AGENT; alcance por `ASISTENTE_CUENTAS` (`.env`, fail-closed). El copiloto viejo y el MCP se borraron.
+- **EL ASISTENTE** (`asistente/`): grafo LangGraph de agentes por mundo, tab LAB del AV AGENT. Doc única:
+  `docs/AvAgentAI.md`. Alcance por `ASISTENTE_CUENTAS` (`.env`, fail-closed).
 - **Frontend**: repo hermano `../acaquant-web/` (checkout paralelo). Proxies de data live: `force-dynamic` + `revalidate = 0`.

@@ -1,25 +1,9 @@
-"""`scripts/asistente.py` — HABLAR CON EL ASISTENTE DESDE LA TERMINAL.
+"""Hablar con el asistente desde la terminal. Corre en el Droplet, sin control
+de acceso (solo entra el admin); gasta plata de verdad y queda en ia.llamadas.
 
-    python -m scripts.asistente                        # conversación (se escribe y listo)
-    python -m scripts.asistente "¿qué me vence?"       # una pregunta y chau
-    python -m scripts.asistente --callado "…"          # sólo la respuesta, sin el detrás
-
-── SU ROL EN EL CICLO: es la PANTALLA, y por ahora la única ──
-
-No tiene nada de lógica: arma la pregunta, llama a `asistente.ciclo.preguntar()`
-y dibuja los eventos que van saliendo. El día que esto sea un endpoint, lo único
-que cambia es quién dibuja.
-
-Y dibuja TODO a propósito. En cada vuelta se ve qué herramienta pidió el modelo,
-con qué argumentos, y qué le devolvió el código. Sin eso, cuando conteste mal no
-se puede saber si eligió mal la herramienta, si la herramienta trajo basura, o
-si razonó mal con datos buenos — que son tres problemas distintos.
-
-⚠️ ACÁ NO HAY CONTROL DE ACCESO, y no hace falta: esto corre en el Droplet, al
-que sólo entra el admin. El día que sea un endpoint, ahí sí `require_admin`.
-
-⚠️ GASTA PLATA DE VERDAD. Cada vuelta es una llamada a OpenAI, y queda anotada
-en `ia.llamadas` con este usuario.
+    python -m scripts.asistente                        # conversación
+    python -m scripts.asistente "¿qué me vence?"       # una pregunta
+    python -m scripts.asistente --callado "…"          # sólo la respuesta
 """
 from __future__ import annotations
 
@@ -34,7 +18,7 @@ VERDE, ROJO, GRIS, AZUL, NEGRITA, FIN = (
 
 
 def _dibujar(e: dict) -> None:
-    """Un evento del ciclo → una línea en pantalla."""
+    """Un evento del grafo → una línea en pantalla."""
     t = e["tipo"]
     if t == "pregunta":
         print(f"\n{NEGRITA}❓ {e['texto']}{FIN}")
@@ -60,6 +44,10 @@ def _dibujar(e: dict) -> None:
         print(f"\n{GRIS}{'─' * 66}{FIN}\n{VERDE}💬{FIN} {e['texto']}")
     elif t == "corte":
         print(f"\n{ROJO}⛔ {e['motivo']}{FIN}")
+    elif t == "despacho":
+        print(f"\n{AZUL}🧭 DESPACHO{FIN} → {', '.join(e['mundos'])} {GRIS}({e['motivo']}){FIN}")
+    elif t == "junta":
+        print(f"\n{AZUL}🔗 JUNTA{FIN} de {', '.join(e['mundos'])}")
 
 
 def _pie(r: dict) -> None:
@@ -79,7 +67,7 @@ def main() -> int:
     ap.add_argument("--callado", action="store_true", help="sólo la respuesta")
     a = ap.parse_args()
 
-    from asistente import ciclo, permitido
+    from asistente import grafo, permitido
 
     # ⚠️ EL ALCANCE, ANTES DE PREGUNTAR NADA. Saber qué cuentas ve el asistente
     # no puede depender de acordarse de mirar el `.env`: si no se dice acá, una
@@ -95,11 +83,15 @@ def main() -> int:
                   f"{GRIS}  Se declaran en el `.env` del servidor:"
                   f"  {permitido.CLAVE_ENV}=id1,id2,id3{FIN}")
 
-    ver = None if a.callado else _dibujar
+    def mostrar(r: dict) -> None:
+        if not a.callado:
+            for e in r["eventos"]:
+                _dibujar(e)
 
     # ── Una sola pregunta ──
     if a.pregunta:
-        r = ciclo.preguntar(" ".join(a.pregunta), usuario=a.usuario, ver=ver)
+        r = grafo.preguntar(" ".join(a.pregunta), usuario=a.usuario)
+        mostrar(r)
         if a.callado:
             print(r["respuesta"] or r["error"])
         elif r["error"]:
@@ -112,6 +104,8 @@ def main() -> int:
     # pueda decir «y de ese, ¿cuánto tengo?» sin repetir de qué habla. ──
     print(f"{NEGRITA}Asistente de la mesa{FIN} {GRIS}— Ctrl-C o 'chau' para salir.{FIN}")
     historial: list[dict] = []
+    foco: dict = {}
+    sesion: str | None = None
     while True:
         try:
             pregunta = input(f"\n{NEGRITA}vos>{FIN} ").strip()
@@ -122,16 +116,16 @@ def main() -> int:
             continue
         if pregunta.lower() in ("chau", "salir", "exit", "quit"):
             return 0
-        r = ciclo.preguntar(pregunta, usuario=a.usuario, historial=historial, ver=ver)
+        r = grafo.preguntar(pregunta, usuario=a.usuario, historial=historial,
+                            estado=foco, sesion=sesion)
+        mostrar(r)
+        foco, sesion = r["estado"], r["sesion"]
         if r["error"]:
             print(f"\n{ROJO}{r['error']}{FIN}")
         if a.callado and r["respuesta"]:
             print(r["respuesta"])
         if not a.callado:
             _pie(r)
-        # ⚠️ El historial se guarda SIEMPRE, aunque la vuelta haya fallado: si
-        # se descartara, la pregunta siguiente perdería el hilo justo después
-        # de un error, que es cuando más se necesita poder repreguntar.
         historial = r["mensajes"]
 
 

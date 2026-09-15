@@ -59,6 +59,15 @@
 - q: "Cual es el vencimiento mas lejano de la curva de HD excluyendo bonos de YPF?"
   agentes: [renta_fija]
 
+- q: "Cuanto subio el CCL hoy?"
+  agentes: [dolares]
+
+- q: "Cual es la brecha entre el MEP y el oficial?"
+  agentes: [dolares]
+
+- q: "Que ONs de YPF hay en hard dolar?"
+  agentes: [renta_fija]
+
 # ── sembradas (las puso Claude; corregir el `agentes` donde no coincida) ────
 
 - q: "¿qué bono CER rinde más que los que tengo en la 805?"

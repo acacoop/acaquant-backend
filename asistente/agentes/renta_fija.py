@@ -41,17 +41,45 @@ def _instrumento(b: dict, hoy: date) -> dict:
         meses = None
     return {
         "ticker": b.get("ticker_corto"),
+        # `emisor` es el NOMBRE (YPF S.A.); `emisor_tipo`, la categoría
+        # (soberano · provincial · corporativo · bcra). Son dos datos distintos.
         "emisor": b.get("emisor"),
+        "emisor_tipo": b.get("emisor_tipo"),
         "vencimiento": str(vto)[:10] if vto else None,
         "meses_al_vencimiento": meses,
         "precio": _num(m.get("last_price"), 4),
         "tea_pct": _pct(m.get("TEA")),
         "tem_pct": _pct(m.get("TEM")),
+        # La TNA la calcula el backend (`curvas_vista._tna_de`) y SOLO para tasa
+        # fija: es la convención de 1816, medida contra su API. En las demás
+        # curvas viene None a propósito — nadie midió qué convención usan, y un
+        # número plausible con la fórmula equivocada es peor que no tenerlo.
+        "tna_pct": _pct(m.get("TNA")),
         "paridad_pct": _num(m.get("paridad")),
         "duration": _num(m.get("duration")),
         "volumen_dia": _num(m.get("total_nominals"), 0),
         "tasa_ruido": bool(b.get("tasa_ruido")),
     }
+
+
+def _emisores_de(filas: list[dict]) -> list[dict]:
+    """Qué emisores hay en estas filas y cuántos bonos tiene cada uno, en orden
+    de cantidad. Va SIEMPRE en la respuesta: sin esto el modelo tiene que
+    adivinar el nombre exacto para filtrar, y adivinar un nombre es inventar."""
+    cuenta: dict[str, int] = {}
+    for f in filas:
+        if nombre := (f.get("emisor") or "").strip():
+            cuenta[nombre] = cuenta.get(nombre, 0) + 1
+    return [{"emisor": n, "bonos": c}
+            for n, c in sorted(cuenta.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def _es_del_emisor(fila: dict, buscado: str) -> bool:
+    """¿Esta fila es de ese emisor? Se compara por NOMBRE normalizado y por
+    pedazo: el usuario escribe «YPF» y en la base dice «YPF S.A.». Al revés no
+    vale (un nombre entero no matchea una sigla suelta), así que el que se
+    contiene es siempre el buscado."""
+    return buscado in " ".join((fila.get("emisor") or "").split()).upper()
 
 
 def metricas_por_ticker() -> dict[str, dict]:
@@ -66,34 +94,40 @@ def metricas_por_ticker() -> dict[str, dict]:
             for b in CV.get_curvas_vista().get("bonos") or [] if b.get("ticker_corto")}
 
 
-def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15) -> dict:
+def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
+          emisor: str | None = None) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
-    Es el MERCADO, no una cuenta: acá no hay nominales de nadie ni plata que
-    entra. Para «qué tengo» está `tenencia_actual`; para «qué cobro»,
-    `cobros_futuros`. Esto contesta «qué hay», «qué rinde más», «qué vence en
-    tal plazo», «cuál conviene».
+    Es el MERCADO, no una cuenta: acá no hay nominales de nadie. Para «qué
+    tengo» está `tenencia_actual`; para «qué cobro», `cobros_futuros`.
 
-    Curvas: `cer` (ajustan por inflación), `tasa_fija` (LECAP/BONCAP y tasa
-    fija en pesos), `hard_dolar` (bonos en dólares: AL, GD, ONs), `dolar_linked`,
-    `tamar`. Si el usuario dice «bonos CER» es `cer`; «en dólares», «soberanos»
-    o «hard dollar» es `hard_dolar`; «letras» o «tasa fija» es `tasa_fija`.
+    Curvas: `cer` (ajustan por inflación), `tasa_fija` (LECAP/BONCAP),
+    `hard_dolar` (en dólares: AL, GD, ONs), `dolar_linked`, `tamar`. «Bonos
+    CER» es `cer`; «en dólares», «soberanos» o «hard dollar» es `hard_dolar`;
+    «letras» o «tasa fija» es `tasa_fija`.
 
     QUÉ DEVUELVE:
-      · `instrumentos` — una fila por título: `ticker`, `emisor`, `vencimiento`,
-        `meses_al_vencimiento`, `precio`, `tea_pct` y `tem_pct` (YA en
-        porcentaje), `paridad_pct`, `duration` (años), `volumen_dia` y
-        `tasa_ruido`. Si `tasa_ruido` es true, la tasa NO es comparable (el
-        bono vence en días): no la uses para decir cuál rinde más.
-      · `cuantos` — cuántos hay en la curva en total; `truncado` si entraron
-        menos que eso en `instrumentos`.
-      · Todo lo que hay que calcular YA VIENE CALCULADO. No conviertas tasas.
+      · `instrumentos` — por título: `ticker`, `emisor` (el NOMBRE: «YPF S.A.»),
+        `emisor_tipo` (soberano · provincial · corporativo · bcra),
+        `vencimiento`, `meses_al_vencimiento`, `precio`, `tea_pct`, `tem_pct`,
+        `tna_pct`, `paridad_pct`, `duration` (años), `volumen_dia`,
+        `tasa_ruido`. Los `_pct` YA están en porcentaje.
+      · `tasa_ruido` true = la tasa NO es comparable (vence en días).
+      · `tna_pct` viene SOLO en `tasa_fija`; en el resto es null y la tasa
+        comparable es `tea_pct`. No conviertas tasas.
+      · `emisores` — los que hay y cuántos bonos tiene cada uno. Mirá acá cómo
+        se escribe un emisor antes de filtrar por él.
+      · `cuantos` y `truncado`; si truncó, `aviso` dice qué quedó afuera.
 
     Args:
-        curva: cuál de las curvas mirar.
-        ordenar_por: cómo ordenar; con `tea` los que más rinden van primero.
-            Si el usuario no dijo, es `tea` y no hace falta preguntar.
-        limit: cuántos instrumentos traer, de 1 a 50. Si no dijo, 15.
+        curva: cuál mirar.
+        ordenar_por: con `tea` los que más rinden van primero; si no lo dijo, es
+            `tea`. Si preguntan por un EXTREMO (el que más rinde, el que vence
+            más lejos), ordená por ESE campo: el extremo queda primero y el
+            límite no te lo esconde.
+        limit: cuántos traer, 1 a 50. Si no dijo, 15.
+        emisor: filtra por nombre, por pedazo («YPF» encuentra «YPF S.A.»). Si
+            no existe, la respuesta trae los que sí: no inventes un nombre.
     """
     from api.services import curvas_vista as CV
     from core import curvas_ejes as ce
@@ -115,10 +149,24 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15) -> dic
         return {"error": f"no pude leer la curva: {type(e).__name__}: {e}"}
     hoy = date.today()
     filas = _ordenar([_instrumento(b, hoy) for b in bonos], ordenar_por)
-    return {
+    emisores = _emisores_de(filas)
+    if emisor is not None:
+        buscado = " ".join(str(emisor).split()).upper()
+        if not buscado:
+            return {"error": "`emisor` llegó vacío: o mandás un nombre o no mandás el campo"}
+        filas = [f for f in filas if _es_del_emisor(f, buscado)]
+        if not filas:
+            return {"error": f"en la curva {curva} no hay ningún bono de un emisor que "
+                             f"contenga {emisor!r}",
+                    "emisores": emisores,
+                    "que_hacer": "Decile al usuario cuáles hay. No busques el mismo emisor "
+                                 "en otra curva por tu cuenta."}
+    salida = {
         "curva": curva,
+        "emisor": emisor,
         "ordenado_por": ordenar_por,
         "instrumentos": filas[:n],
+        "emisores": emisores,
         "cuantos": len(filas),
         "truncado": len(filas) > n,
         "_tabla": {
@@ -126,6 +174,15 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15) -> dic
             "columnas": ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
         },
     }
+    if len(filas) > n:
+        # El corte esconde un extremo: el último de la lista NO es el último de
+        # la curva. Sin decirlo, «el que vence más lejos» se contesta con el
+        # número 15 — plausible, en el lugar correcto, y mal.
+        salida["aviso"] = (f"hay {len(filas)} y estás viendo los primeros {n} ordenados por "
+                           f"{ordenar_por}: el último de esta lista NO es el último de la "
+                           f"curva. Si la pregunta es por un extremo, volvé a pedir ordenando "
+                           f"por ese campo o subí `limit`.")
+    return salida
 
 
 def ficha_bono(ticker: str) -> dict:

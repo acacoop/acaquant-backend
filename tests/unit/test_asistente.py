@@ -198,6 +198,110 @@ def test_la_tenencia_sale_del_mismo_codigo_que_la_pantalla(permiso):
     assert "error" in MC.tenencia_actual("805", horizonte="t9")
 
 
+def _vista_emisores():
+    """Una curva hard dollar con tres emisores y un soberano, más una letra con
+    TNA: lo mínimo para probar filtro, lista de emisores y la TNA de pantalla."""
+    def b(tk, emisor, tipo, pill="hard_dolar", tea=0.10, vto="2030-01-01", tna=None):
+        return {"ticker_corto": tk, "pill": pill, "emisor": emisor, "emisor_tipo": tipo,
+                "vencimiento": vto, "tasa_ruido": False,
+                "metrics": {"last_price": 100.0, "TEA": tea, "TEM": 0.008, "TNA": tna,
+                            "paridad": 95.0, "duration": 3.0, "total_nominals": 10}}
+    return {"bonos": [
+        b("YMCXO", "YPF S.A.", "corporativo", tea=0.09, vto="2033-01-01"),
+        b("YMCHO", "YPF S.A.", "corporativo", tea=0.08, vto="2031-01-01"),
+        b("PNDCO", "PAN AMERICAN ENERGY", "corporativo", tea=0.07),
+        b("GD30", "REPUBLICA ARGENTINA", "soberano", tea=0.12),
+        b("S30J6", "REPUBLICA ARGENTINA", "soberano", pill="tasa_fija", tea=0.40, tna=0.3412),
+    ]}
+
+
+def test_la_curva_filtra_por_emisor_por_pedazo_y_nunca_devuelve_vacio_en_silencio():
+    """«la curva de YPF»: el usuario escribe la sigla y en la base dice «YPF
+    S.A.». Y si el emisor no está, la respuesta trae los que sí — que el modelo
+    adivine el nombre exacto es que lo invente."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
+        r = RF.curva("hard_dolar", emisor="YPF")
+        assert [i["ticker"] for i in r["instrumentos"]] == ["YMCXO", "YMCHO"], "por pedazo"
+        assert r["emisor"] == "YPF" and r["cuantos"] == 2
+        assert {i["emisor"] for i in r["instrumentos"]} == {"YPF S.A."}
+        assert all(i["emisor_tipo"] == "corporativo" for i in r["instrumentos"])
+        # minúsculas y espacios de más no cambian nada
+        assert len(RF.curva("hard_dolar", emisor="  ypf  ")["instrumentos"]) == 2
+        # la lista de emisores viaja SIEMPRE, ordenada por cantidad
+        assert RF.curva("hard_dolar")["emisores"] == [
+            {"emisor": "YPF S.A.", "bonos": 2},
+            {"emisor": "PAN AMERICAN ENERGY", "bonos": 1},
+            {"emisor": "REPUBLICA ARGENTINA", "bonos": 1}]
+        # un emisor que no está: error CON la salida, no una lista vacía
+        fallo = RF.curva("hard_dolar", emisor="TENARIS")
+        assert "error" in fallo and "TENARIS" in fallo["error"]
+        assert [e["emisor"] for e in fallo["emisores"]] and "instrumentos" not in fallo
+        assert "error" in RF.curva("hard_dolar", emisor="   ")
+
+
+def test_la_tna_de_la_curva_es_la_que_calculo_el_backend_y_solo_donde_esta_medida():
+    """`tna_pct` sale de `metrics.TNA` (`curvas_vista._tna_de`, convención 1816
+    medida) y SOLO existe en tasa fija. Derivarla acá para las otras curvas daría
+    un número plausible con la fórmula equivocada."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
+        letra = RF.curva("tasa_fija")["instrumentos"][0]
+        assert letra["tna_pct"] == 34.12 and letra["tea_pct"] == 40.0
+        assert all(i["tna_pct"] is None for i in RF.curva("hard_dolar")["instrumentos"])
+
+
+def test_si_el_limite_corta_la_curva_la_respuesta_lo_dice():
+    """Ordenado por vencimiento y cortado en 2, el último de la lista NO es el
+    que vence más lejos. Sin el aviso, «el más lejano» se contesta con un número
+    plausible, en el lugar correcto, y mal."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
+        r = RF.curva("hard_dolar", ordenar_por="vencimiento", limit=2)
+        assert r["truncado"] and "NO es el último" in r["aviso"] and "4" in r["aviso"]
+        assert "aviso" not in RF.curva("hard_dolar", ordenar_por="vencimiento", limit=50)
+
+
+def test_los_tres_dolares_se_distinguen_y_las_brechas_las_calcula_el_codigo():
+    """El modelo tiene prohibido calcular: si la brecha no viene hecha, no la
+    puede decir. Y un dólar que la fuente no trajo se nombra en `faltan`, no se
+    estima con los otros."""
+    from api.services import argy
+    from asistente.agentes import dolares as D
+
+    filas = [
+        {"label": "DOLAR MEP", "value": 1531.0, "ret_day": 0.42, "ts": "2026-09-15T15:18:00", "source": "live"},
+        {"label": "DOLAR CCL", "value": 1593.0, "ret_day": 0.51, "ts": "2026-09-15T15:18:00", "source": "live"},
+        {"label": "DOLAR OFICIAL", "value": 1506.5, "ret_day": -0.10, "ts": None, "source": "mae"},
+        {"label": "CANJE", "value": 4.09, "ret_day": None},
+        {"label": "CAUCION ARS", "value": 19.98, "ret_day": None},
+    ]
+    with patch.object(argy, "get_argy_with_returns", return_value=filas):
+        r = D.tipos_de_cambio()
+    por = {d["nombre"]: d for d in r["dolares"]}
+    assert set(por) == {"mep", "ccl", "oficial"}, "los tres, cada uno con su nombre"
+    assert (por["mep"]["valor"], por["ccl"]["valor"], por["oficial"]["valor"]) == (1531.0, 1593.0, 1506.5)
+    assert por["mep"]["variacion_dia_pct"] == 0.42 and por["oficial"]["variacion_dia_pct"] == -0.10
+    assert r["canje_pct"] == 4.09 and r["faltan"] == []
+    assert r["brecha_mep_oficial_pct"] == 1.63 and r["brecha_ccl_oficial_pct"] == 5.74
+    assert r["_tabla"]["campo"] == "dolares"
+    # un dólar sin valor se declara faltante y no se estima
+    with patch.object(argy, "get_argy_with_returns", return_value=[f for f in filas
+                                                                  if f["label"] != "DOLAR OFICIAL"]):
+        r2 = D.tipos_de_cambio()
+    assert r2["faltan"] == ["oficial"] and r2["brecha_mep_oficial_pct"] is None
+    assert {d["nombre"] for d in r2["dolares"]} == {"mep", "ccl"}
+    # la fuente caída vuelve como dato, nunca como excepción
+    with patch.object(argy, "get_argy_with_returns", side_effect=RuntimeError("caída")):
+        assert "error" in D.tipos_de_cambio()
+
+
 def test_la_curva_lee_la_vista_de_curvas_y_ordena_de_verdad():
     from datetime import date
 
@@ -565,6 +669,7 @@ _TOOLS = {
     "curva": lambda **a: {"instrumentos": [{"ticker": "TX28", "tea_pct": 11.0}], "cuantos": 1},
     "ficha_bono": lambda **a: {"ticker": "AL30"},
     "ficha_cliente": lambda **a: {"cuenta": a["cuenta"], "titular": {"denominacion": "NOMBRE 805"}},
+    "tipos_de_cambio": lambda **a: {"dolares": [{"nombre": "mep", "valor": 1531.0}]},
 }
 
 

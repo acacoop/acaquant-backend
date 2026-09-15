@@ -50,12 +50,12 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 | `cartera` | una cuenta | | qué TIENE: títulos, nominales, valuación, rendimiento, cobros | `tenencia_actual`, `cobros_futuros` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
 | `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
-| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva, qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
+| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor), qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
 | `renta_variable` | una acción o un CEDEAR | mercado | cómo cotiza, cuánto varió, qué panel | ninguna todavía | ticker |
 | `fondos` | un FCI | mercado | qué es, cuánto rinde, qué tiene, cuánto tarda el rescate | ninguna todavía | ticker |
 | `derivados` | un futuro o una opción | mercado | dónde cotiza, tasa implícita, cadena de opciones | ninguna todavía | ticker |
 | `financiamiento` | la tasa | mercado | caución por plazo, tasas de referencia | ninguna todavía | |
-| `dolares` | el tipo de cambio | mercado | MEP, CCL, oficial, brechas | ninguna todavía | |
+| `dolares` | el tipo de cambio | mercado | MEP, CCL, oficial, brechas | `tipos_de_cambio` | |
 
 Un agente **sin herramientas** existe igual: el ruteo lo conoce, la
 presentación lo lista, y si le toca una pregunta contesta «todavía no puedo

@@ -314,17 +314,37 @@ ningún proveedor ve datos del otro agente.
 - `scripts/diag_herramienta.py` corre una herramienta sin modelo.
 - `scripts/asistente.py` conversa desde la terminal del Droplet.
 
-## 13. Tests
+## 13. Tests y eval
 
-`tests/unit/test_asistente.py`. Cubren agentes y familias, el registro, las
-reglas del ruteo, el foco, esquemas, permisos, puerta, control, memoria, el
-ruteo de modelos, la traza, las sesiones y el grafo de punta a punta con un
-proveedor falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
+**Tests** (`tests/unit/test_asistente.py`): cubren agentes y familias, el
+registro, las reglas del ruteo, el foco, esquemas, permisos, puerta, control,
+memoria, el ruteo de modelos, la traza, las sesiones y el grafo de punta a punta
+con un proveedor falso. `python -m pytest -q tests/unit/test_asistente.py`.
+
+**Eval del ruteo** (`evals/ruteo.yaml` + `scripts/eval_ruteo.py`). Un test dice
+si el código anda; el eval dice si el ruteo **decide bien**, contra preguntas
+reales de la mesa. Corre el MISMO nodo que producción (`grafo.ruteo`), no una
+copia. Los dos errores no cuestan lo mismo y se miden aparte:
+
+| Métrica | Qué es | Objetivo |
+|---|---|---|
+| **cobertura** | ¿está el agente que hacía falta? | **100%.** Si falta, la respuesta sale, se ve bien y está incompleta: nadie se entera |
+| **de más** | agentes que corrieron sin hacer falta | bajo, pero **nunca** a costa de la cobertura: es presupuesto, no corrección |
+| **capa** | dónde cerró cada pregunta (1 regla · 2 modelo · 3 van todos) | cuánto cuesta rutear: la capa 1 es gratis |
+
+```bash
+python -m scripts.eval_ruteo --sin-modelo   # solo capa 1: gratis, no sale a ningún proveedor
+python -m scripts.eval_ruteo                # completo: la capa 2 llama al modelo real
+```
+
+La capa 1 del eval corre también como test (gratis, en CI): una señal que se
+toca y pierde una pregunta rompe la suite. Cuando el eval y el código no
+coinciden, **manda el eval**: se corrige la señal del agente, no la fila.
 
 ## 14. Lo que falta para el MVP
 
 - Probar en el LAB con los proveedores reales.
 - Las herramientas de los agentes modelados sin ellas, en el orden que pida la mesa.
-- Eval por tarea: 15 preguntas con la herramienta, los argumentos y la decisión
-  del ruteo esperados.
+- Eval de HERRAMIENTAS: el del ruteo ya está (§13); falta el que fija, para cada
+  pregunta, qué herramienta y con qué argumentos tiene que pedir el agente.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).

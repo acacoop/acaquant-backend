@@ -58,6 +58,14 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    foto, `periodo` de lista cerrada más `desde`/`hasta` para un rango. El
    modelo nunca calcula días.
 
+## El eval del ruteo
+
+`evals/ruteo.yaml` = preguntas REALES de la mesa → los agentes que TIENEN que
+atenderlas. Si tocás una señal, corré `python -m scripts.eval_ruteo --sin-modelo`
+y mirá la **cobertura** (que falte un agente es el error caro; que sobre, no).
+Cuando el eval y el código no coinciden, manda el eval. Una pregunta nueva del
+usuario va ahí, no a un test.
+
 ## Antes de pushear
 
 `python -m pytest -q tests/unit/test_asistente.py` · `ruff check .` ·

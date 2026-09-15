@@ -147,7 +147,7 @@ core/ infra (postgres, pg_mirror, *_sql, market_snapshot, websocket, roles)   qu
 engines/ motores WS → SQL (L-V 13-20 UTC)   jobs/ batch/cron (JobRunLogger, run_job.sh, crontab)
 agente/ EL AV AGENT (catalogo · registro · motor · detectores/ · arreglos · vista)
 api/ services (lógica pura) + routers (HTTP) · auth.py · superficie.py    scripts/ one-shot, diags
-sql/ schema.sql   deploy/ systemd + crontab (fuente de verdad)   tests/ unit   .claude/ ver INDEX.md
+sql/ schema.sql   deploy/ systemd + crontab   tests/ unit   evals/ ruteo esperado   .claude/ INDEX.md
 ```
 
 ## Mapa de docs — cuál leer ANTES de tocar cada dominio

@@ -1010,6 +1010,20 @@ def test_las_reglas_del_ruteo_deciden_lo_obvio_y_dejan_el_resto_al_modelo(permis
     assert R.leer_eleccion("no hace falta la cuenta") == []
 
 
+def test_el_eval_de_ruteo_es_valido_y_ninguna_pregunta_pierde_un_agente(permiso):
+    """El eval (`evals/ruteo.yaml`) son preguntas REALES de la mesa con los
+    agentes que tienen que atenderlas. Acá corre su capa 1, sin proveedor: es
+    gratis y corta la regresión en CI. El informe completo, con el modelo de la
+    capa 2, sale de `python -m scripts.eval_ruteo`."""
+    from scripts.eval_ruteo import ARCHIVO, cargar, correr
+
+    filas = cargar(ARCHIVO)          # valida que todo agente nombrado exista
+    assert len(filas) >= 20, "un eval con menos de 20 preguntas no mide nada"
+    perdidas = [s for s in correr(filas, usar_modelo=False) if s["faltan"]]
+    assert not perdidas, "\n".join(
+        f"«{s['q']}» no llega a {', '.join(s['faltan'])} ({s['motivo']})" for s in perdidas)
+
+
 def test_una_regla_que_contesta_no_llama_a_ningun_modelo(permiso):
     from asistente import grafo
     from core import modelos

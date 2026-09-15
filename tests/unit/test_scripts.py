@@ -54,6 +54,7 @@ HERRAMIENTAS: dict[str, str] = {
     "ext_ver":               "inspector de la API externa (/ext): qué ve un accionista con SU token.",
     # contratos y auditoría (dan un veredicto, no una opinión)
     "diag_herramienta":      "corre UNA herramienta del asistente SIN el modelo y muestra el JSON\n                             exacto que recibiría, su peso en tokens y cuánto tardó. Separa «el dato\n                             está mal» de «el modelo lo usó mal», que sin esto se adivinan.",
+    "eval_ruteo":            "el EVAL del ruteo del asistente: pasa las preguntas reales de la mesa\n                             (`evals/ruteo.yaml`) por el mismo nodo que producción y mide cobertura\n                             (¿falta un agente? el error caro), agentes de más y en qué capa cerró\n                             cada una. Es lo único que dice si tocar una señal mejoró o empeoró.",
     "asistente":             "la terminal del ASISTENTE conversacional (`asistente/grafo.py`) desde el "
                              "Droplet: misma pregunta, mismas herramientas y mismo ciclo que la tab "
                              "LAB, pero mostrando cada paso. Es como se prueba un cambio del ciclo "

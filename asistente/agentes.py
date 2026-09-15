@@ -12,7 +12,7 @@ class Agente:
     """Un agente es una tarea de ruteo, una instrucción y un conjunto de herramientas."""
 
     nombre: str
-    # Clave en `core/ai._TAREAS`: decide proveedor, modelo y si ve datos del negocio.
+    # Clave en `core/modelos.TAREAS`: decide proveedor, modelo y si ve datos del negocio.
     tarea: str
     # Una línea que el despacho lee para decidir si este mundo atiende la pregunta.
     describe: str
@@ -100,7 +100,7 @@ MERCADO = Agente(
     herramientas=H.DEL_MERCADO,
 )
 
-# Los mundos, por nombre. Sumar uno es declararlo acá y en `core/ai._TAREAS`.
+# Los mundos, por nombre. Sumar uno es declararlo acá y en `core/modelos.TAREAS`.
 MUNDOS: dict[str, Agente] = {a.nombre: a for a in (CUENTA, MERCADO)}
 
 

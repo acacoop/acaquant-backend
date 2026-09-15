@@ -11,8 +11,9 @@
 # Qué hace, en orden:
 #   1. git pull  — trae el código nuevo y muestra el commit resultante.
 #   2. apply_schema — crea las tablas/columnas/índices que falten. Es idempotente
-#      y NO destructivo (solo CREATE ... IF NOT EXISTS y semillas guardadas: no
-#      hay un solo DROP/DELETE/TRUNCATE). Se puede saltear con --sin-schema.
+#      y no toca datos del negocio: los DROP que hay son de vistas que se rehacen
+#      abajo y de columnas/tablas que el código dejó de usar, declarados en el
+#      mismo archivo. Se puede saltear con --sin-schema.
 #   3. restart api.service + agente.service. Los MOTORES no se tocan.
 #   4. Smoke — pega a /api/health local y muestra el estado del service.
 #

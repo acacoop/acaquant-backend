@@ -32,26 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 def sellar_corrida(habilidad: str, *, resultado: str, error: str = "",
-                   duracion_ms: int = 0, traceback: str = "") -> None:
+                   duracion_ms: int = 0) -> None:
     """La fila del catálogo. **Va SIEMPRE**, y es lo que separa «corrí y no
     encontré nada» de «no corrí» — que en el agente viejo se veían iguales."""
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE agente.habilidades SET "
             "  ultima_corrida_at = now(), ultimo_resultado = %s, "
-            "  ultimo_error = %s, ultimo_traceback = %s, ultima_duracion_ms = %s, "
+            "  ultimo_error = %s, ultima_duracion_ms = %s, "
             # El contador se resetea solo cuando cambia el día: sin la fecha al
             # lado, un contador miente en el primer cambio de día. Sin cron.
             "  corridas_hoy = CASE WHEN corridas_dia = current_date "
             "                      THEN corridas_hoy + 1 ELSE 1 END, "
             "  corridas_dia = current_date "
             "WHERE nombre = %s",
-            (resultado, (error or "")[:500], (traceback or "")[:6000],
-             int(duracion_ms), habilidad))
+            (resultado, (error or "")[:500], int(duracion_ms), habilidad))
 
 
 def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
-            error: str = "", duracion_ms: int = 0, traceback: str = "") -> dict:
+            error: str = "", duracion_ms: int = 0) -> dict:
     """Escribe lo que una corrida vio. **La única puerta.**
 
     ⚠️ **`resultado` es la guarda más importante del subsistema.** Solo una
@@ -80,7 +79,7 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
     # sellar dos veces (lo cazó el revisor antes del push) contaba doble justo
     # en las pasadas con algo sin mirar.
     sellar_corrida(habilidad, resultado=resultado, error=error,
-                   duracion_ms=duracion_ms, traceback=traceback)
+                   duracion_ms=duracion_ms)
     if resultado != tipos.OK:
         return {"ok": False, "resultado": resultado, "abiertos": 0,
                 "nuevos": 0, "cerrados": 0, "reincidencias": 0,
@@ -132,81 +131,6 @@ def guardar(habilidad: str, hallazgos, *, resultado: str = tipos.OK,
             # muere un monitoreo — si una habilidad junta 40, esa habilidad está
             # mal pensada y el número tiene que poder decirlo.
             "silenciados": silenciados}
-
-
-# ── EL TEXTO DE LA IA ──────────────────────────────────────────────────────
-#
-# Vive acá y no en `agente/redactar.py` por el invariante #5: **una función
-# escribe hallazgos y un test prohíbe el resto**. El redactor es puro (arma el
-# pedido, llama al gateway, valida) y no sabe que existe una base; la escritura
-# entra por la misma puerta que todo lo demás.
-
-def pendientes_de_texto(limite: int) -> list[dict]:
-    """Los AVISOS abiertos que todavía no tienen texto del modelo.
-
-    El filtro `arreglo = ''` es el alcance entero, y es DERIVADO: lo que tiene
-    botón no se redacta porque su texto es el botón. No hay una lista de
-    habilidades acá ni en ningún lado — una habilidad nueva sin arreglo entra
-    sola, que es lo que pide la REGLA #10.
-    """
-    from agente import redactar
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT f.id, f.habilidad, f.sujeto, f.regla, f.problema, f.detalle, "
-            "       f.que_hacer, f.evidencia, h.que_mira "
-            "  FROM agente.hallazgos f "
-            "  LEFT JOIN agente.habilidades h ON h.nombre = f.habilidad "
-            " WHERE f.estado = ANY(%s) AND f.arreglo = '' "
-            "   AND f.ia_texto = '' AND f.ia_intentos < %s "
-            " ORDER BY f.detectado_at DESC LIMIT %s",
-            (list(tipos.ABIERTOS), redactar.MAX_INTENTOS, int(limite)))
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
-
-
-def guardar_texto_ia(hallazgo_id: int, *, texto: str, rechazo: str = "",
-                     traza: int | None = None) -> None:
-    """Escribe lo que redactó el modelo — **y NO toca `que_hacer`.**
-
-    El texto determinista es el PISO: se conserva entero, así apagar la IA no
-    deja un aviso mudo y se puede comparar una cosa con la otra. Tampoco toca
-    `severidad`, `estado`, `arreglo` ni nada que DECIDA: el modelo explica, no
-    resuelve.
-
-    `ia_intentos` sube SIEMPRE, salga bien o mal. Es lo que impide que un
-    hallazgo cuya evidencia no alcanza se pague en cada pasada del daemon para
-    siempre: dos intentos y se queda con el piso.
-    """
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE agente.hallazgos SET "
-            "  ia_texto = %s, "
-            "  ia_at = CASE WHEN %s <> '' THEN now() ELSE ia_at END, "
-            "  ia_rechazo = %s, ia_llamada = COALESCE(%s, ia_llamada), "
-            "  ia_intentos = ia_intentos + 1 "
-            "WHERE id = %s",
-            (texto, texto, (rechazo or "")[:200], traza, int(hallazgo_id)))
-
-
-def borrar_textos_ia(habilidad: str = "") -> int:
-    """Borra lo redactado de los avisos ABIERTOS para que se vuelva a escribir.
-
-    **No es una limpieza de una vez: es la contracara de tocar el prompt o un
-    validador.** Un texto se escribe UNA vez por hallazgo, así que un cambio en
-    cómo se redacta no alcanza a lo que ya está en pantalla — y lo que está en
-    pantalla es justamente lo que hizo falta cambiar. Sin esto, la única forma
-    de aplicar una corrección era esperar a que el hallazgo cerrara y volviera.
-
-    Tampoco toca `que_hacer`: lo que queda mientras se rehace es el piso.
-    """
-    donde = " AND habilidad = %s" if habilidad else ""
-    args = (list(tipos.ABIERTOS), habilidad) if habilidad else (list(tipos.ABIERTOS),)
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE agente.hallazgos SET ia_texto = '', ia_rechazo = '', "
-            "  ia_at = NULL, ia_intentos = 0 "
-            "WHERE estado = ANY(%s) AND arreglo = ''" + donde, args)
-        return cur.rowcount
 
 
 def _silenciados(conn, habilidad: str) -> set[tuple[str, str]]:

@@ -113,8 +113,6 @@ POR_OCASION: dict[str, str] = {
     "agente.silenciados":
         "escribe cuando una persona aprieta «no me interesa». Que nadie "
         "silencie nada en una semana es lo esperable",
-    "agente.explicaciones":
-        "el caché de «explicámelo»: escribe cuando alguien pregunta",
     "mercado.adhoc_subscriptions":
         "los símbolos que alguien pidió a mano desde OPERAR (o desde el botón "
         "«pedir pata» del agente): si nadie pide ninguno, no hay nada que "

@@ -192,7 +192,6 @@ def ficha_incompleta(u: dict) -> list[Hallazgo]:
                        # títulos. Con la lista, `registro._ver` sólo declara
                        # reincidencia si alguno de estos lo escribió la acción
                        # que cerró el anterior. Son unidades, no fichas.
-                       # El `_` lo esconde de la pantalla — misma convención
-                       # que `_fuentes` en `agente/explicar.py`.
+                       # El `_` lo esconde de la pantalla.
                        "_items": [f["unidad"] for f in filas]}))
     return out

@@ -5354,38 +5354,15 @@ UPDATE agente.habilidades SET sujeto_es = '' WHERE sujeto_es IS NULL;
 ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET DEFAULT '';
 ALTER TABLE agente.habilidades ALTER COLUMN sujeto_es SET NOT NULL;
 
--- EL TEXTO DEL AVISO ESCRITO POR EL MODELO (`agente/redactar.py`, §0.dn).
---
--- ⚠️ **`que_hacer` NO SE TOCA.** El texto determinista del detector es el PISO
--- y sigue donde estaba: lo del modelo vive acá al lado, en columnas propias.
--- Por eso el CHECK `hallazgos_que_hacer` sigue valiendo, apagar la IA
--- (`AGENTE_REDACTA=0`) no deja un solo aviso sin texto, y se puede comparar
--- una cosa con la otra sin haber perdido ninguna de las dos.
---
--- `ia_rechazo` es la mitad que se olvida: guarda POR QUÉ se descartó lo que
--- escribió (número inventado, muletilla, calco del problema). Sin eso, «no
--- contestó» y «contestó una macana que tiré» se ven iguales en la tabla.
--- `ia_llamada` apunta a `ia.llamadas` (modelo, tokens, latencia): el costo no
--- se copia acá — se referencia, que es lo que pide la REGLA #9. Se llamaba
--- `ia_traza` y se renombró con la tabla: media renombrada es peor que ninguna.
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_texto text NOT NULL DEFAULT '';
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_at timestamptz;
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_rechazo text NOT NULL DEFAULT '';
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_intentos smallint NOT NULL DEFAULT 0;
-DO $rencol$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_schema = 'agente' AND table_name = 'hallazgos'
-                  AND column_name = 'ia_traza')
-       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'agente' AND table_name = 'hallazgos'
-                          AND column_name = 'ia_llamada')
-    THEN
-        ALTER TABLE agente.hallazgos RENAME COLUMN ia_traza TO ia_llamada;
-    END IF;
-END
-$rencol$;
-ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_llamada bigint;
+-- El texto de los avisos escrito por un modelo se sacó. Las columnas y su
+-- índice se van; el CASCADE tira la vista que las leía, que se rehace abajo.
+DROP INDEX IF EXISTS agente.hallazgos_sin_texto_ia;
+ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_texto CASCADE;
+ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_at CASCADE;
+ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_rechazo CASCADE;
+ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_intentos CASCADE;
+ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_traza CASCADE;
+ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_llamada CASCADE;
 
 -- ⚠️⚠️ **CUÁNDO SE APLICÓ EL ARREGLO — sin esto, «esperando» no se puede
 -- distinguir de «ya contestó».** `arreglo_aplicado` guarda QUÉ se apretó, y el
@@ -5399,13 +5376,6 @@ ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS ia_llamada bigint;
 -- `visto_ultima_vez`. NULL = se aplicó antes de que existiera la columna, o
 -- sea hace mucho: ahí el detector ya volvió seguro. Historia: `AGENT.md` §0.fe.
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS arreglo_aplicado_at timestamptz;
--- Los pendientes de redactar: abiertos, SIN arreglo (un aviso), sin texto y
--- con intentos de sobra. Parcial y chico — lo consulta el daemon en cada pasada.
-CREATE INDEX IF NOT EXISTS hallazgos_sin_texto_ia
-    ON agente.hallazgos (detectado_at DESC)
-    WHERE estado IN ('nuevo','en_curso','reincidio')
-      AND arreglo = '' AND ia_texto = '';
-
 -- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
 -- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
 --
@@ -5603,21 +5573,10 @@ ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS donde text NOT NULL
 ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS por text NOT NULL DEFAULT '';
 ALTER TABLE agente.avisos_dirigidos ADD COLUMN IF NOT EXISTS interrumpe boolean NOT NULL DEFAULT false;
 
--- §0.dh: el traceback ENTERO de la última corrida que reventó (el error de
--- una línea no dice dónde), y lo que la IA explicó de cada error, cacheado
--- por hash: el mismo error no se paga dos veces y la explicación queda con
--- quién la pidió y cuándo.
-ALTER TABLE agente.habilidades ADD COLUMN IF NOT EXISTS ultimo_traceback text NOT NULL DEFAULT '';
-CREATE TABLE IF NOT EXISTS agente.explicaciones (
-    hash        text PRIMARY KEY,
-    habilidad   text NOT NULL,
-    error       text NOT NULL,
-    respuesta   jsonb NOT NULL,
-    fuentes     jsonb NOT NULL DEFAULT '[]'::jsonb,
-    modelo      text NOT NULL DEFAULT '',
-    por         text NOT NULL DEFAULT '',
-    at          timestamptz NOT NULL DEFAULT now()
-);
+-- «Explicámelo» (el error contado por un modelo) se sacó: su tabla y el
+-- traceback que guardaba para eso se van.
+DROP TABLE IF EXISTS agente.explicaciones;
+ALTER TABLE agente.habilidades DROP COLUMN IF EXISTS ultimo_traceback CASCADE;
 
 -- ── LAS VISTAS. Las pantallas LEEN, no derivan. ────────────────────────────
 --
@@ -5635,10 +5594,6 @@ CREATE OR REPLACE VIEW agente.v_ahora AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
        f.visto_ultima_vez, f.veces, hab.dominio,
-       -- El texto del modelo y CUÁNDO lo escribió. Van los dos: un texto sin
-       -- hora rompe el invariante #3, y la pantalla tiene que poder decir «esto
-       -- lo escribió la IA» sin que el que lee lo tenga que adivinar.
-       f.ia_texto, f.ia_at,
        (f.arreglo <> '') AS accionable
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
@@ -5685,7 +5640,6 @@ CREATE OR REPLACE VIEW agente.v_habilidades AS
 SELECT h.nombre, h.tipo, h.dominio, h.que_mira, h.usa_ia, h.cada_segundos,
        h.ventana, h.activa, h.umbrales,
        h.ultima_corrida_at, h.ultimo_resultado, h.ultimo_error,
-       (h.ultimo_traceback <> '') AS tiene_traceback,
        h.ultima_duracion_ms,
        CASE WHEN h.corridas_dia = current_date THEN h.corridas_hoy ELSE 0 END
            AS corridas_hoy,

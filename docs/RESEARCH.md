@@ -141,7 +141,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
   | `/v1/mercado/series` (≤10 tickers, ≤1 año) | `tickers × campos × días` ★ |
   | `/v1/mercado/cashflow/{ticker}` | `cupones` (1 por cupón devuelto) |
   | `/v1/creditos/balance` | 0 (control) |
-- **Presupuesto en el cliente (igual que `core/ai`):** antes de un pull grande
+- **Presupuesto en el cliente:** antes de un pull grande
   (backfill de series) el cliente consulta el balance y **corta si el costo
   estimado supera el margen** — kill switch. Se registra cada request y su costo en
   una tabla de auditoría (`research.mkt_1816_creditos_log`) → panel de

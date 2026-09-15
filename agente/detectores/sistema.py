@@ -1390,10 +1390,8 @@ def _peso_total(hoy: dict[str, int]) -> list[Hallazgo]:
     # ⚠️ **LA QUE CRECIÓ NO ES LA QUE PESA.** El aviso pedía «mirar qué creció»
     # y la evidencia sólo traía las cinco MÁS GRANDES — que son casi siempre las
     # mismas y casi nunca las que se movieron. Con eso, la pregunta que el propio
-    # texto deja abierta no se podía contestar ni a mano: lo confirmó el primer
-    # texto redactado por el modelo (§0.dn), que no nombró una sola tabla porque
-    # el dato no estaba. `peso.referencia()` YA devuelve la foto vieja tabla por
-    # tabla y se estaba usando sólo para sumarla.
+    # texto deja abierta no se podía contestar ni a mano. `peso.referencia()` YA
+    # devuelve la foto vieja tabla por tabla y se estaba usando sólo para sumarla.
     #
     # Va APARTE de `top` a propósito: son dos preguntas distintas —«qué es
     # grande» y «qué se movió»— y juntarlas en una lista fue el error original.

@@ -63,40 +63,6 @@ def _aplicar_solo() -> None:
         logger.debug("agente: no apliqué SOLO (%s)", e)
 
 
-def _redactar_avisos() -> None:
-    """**EL TEXTO DE LOS AVISOS**, escrito con la evidencia adelante. §0.dn.
-
-    Vive acá porque es el único lugar que conoce
-    las dos mitades. `agente/redactar.py` REDACTA y no sabe que existe una base
-    ni un daemon; `agente/registro.py` ESCRIBE y no sabe que existe un modelo.
-
-    Las tres guardas, y ninguna es opcional:
-
-      · el ALCANCE lo pone la query (`arreglo = ''`): sólo avisos
-      · `TOPE_POR_PASADA`, techo de plata declarado
-      · `MAX_INTENTOS` por hallazgo, para que uno que la validación rechaza
-        siempre no se pague eternamente
-
-    ⚠️ **NADA DE ESTO PUEDE TIRAR ABAJO AL AGENTE**, igual que las dos de
-    arriba. Y si falla, no hay hueco: el aviso muestra su texto determinista,
-    que nunca se borró.
-    """
-    try:
-        from agente import redactar, registro
-        if not redactar.encendido():
-            return
-        filas = registro.pendientes_de_texto(redactar.TOPE_POR_PASADA)
-        for f in filas:
-            r = redactar.redactar_uno(f)
-            registro.guardar_texto_ia(f["id"], texto=r["texto"],
-                                      rechazo=r["rechazo"], traza=r["traza"])
-            if r["texto"]:
-                logger.info("redacté %s/%s «%s» → %s", f["habilidad"], f["regla"],
-                            f["sujeto"], r["texto"][:100])
-    except Exception as e:
-        logger.debug("agente: no redacté avisos (%s)", e)
-
-
 def _una_pasada() -> dict:
     from agente import motor
     r = motor.tick()
@@ -104,9 +70,6 @@ def _una_pasada() -> dict:
     # Va DESPUÉS del tick, porque los detectores de esta pasada ya guardaron
     # sus hallazgos.
     _aplicar_solo()
-    # Último: el texto es lo que se LEE de un hallazgo, así que se escribe
-    # cuando el hallazgo ya está guardado y con su evidencia de esta pasada.
-    _redactar_avisos()
     if r["corridas"]:
         logger.info("agente: %d habilidad(es) · %d nuevos · %d reincidencias · %dms",
                     len(r["corridas"]), r["nuevos"], r["reincidencias"], r["ms"])
@@ -167,10 +130,6 @@ def main() -> int:
     ap.add_argument("--skill", default="", help="corre UNA habilidad")
     ap.add_argument("--sync", action="store_true",
                     help="solo sincroniza el catálogo con el código")
-    ap.add_argument("--reredactar", action="store_true",
-                    help="borra el texto de IA de los avisos abiertos para que "
-                         "se vuelva a escribir (usar al cambiar el prompt o un "
-                         "validador; el texto fijo nunca se toca)")
     ap.add_argument("--estado", action="store_true",
                     help="qué sabe hacer el agente y cuándo miró cada cosa")
     a = ap.parse_args()
@@ -182,13 +141,6 @@ def main() -> int:
     r = catalogo.sincronizar()
     logger.info("agente: catálogo sincronizado — %d habilidades", r["habilidades"])
     if a.sync:
-        return 0
-
-    if a.reredactar:
-        from agente import registro
-        n = registro.borrar_textos_ia(a.skill)
-        print(f"listo: {n} aviso(s) vuelven a redactarse (mientras tanto "
-              f"muestran su texto fijo)")
         return 0
 
     if a.skill:

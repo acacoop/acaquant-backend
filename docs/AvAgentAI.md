@@ -144,4 +144,3 @@ falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
 - Eval por tarea: 15 preguntas con la herramienta y los argumentos esperados.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).
 - Persistir conversaciones (checkpointer en Postgres) cuando haga falta reabrirlas.
-- Borrar las tareas `agente_texto` y `explicar_error` si se confirma que no aportan.

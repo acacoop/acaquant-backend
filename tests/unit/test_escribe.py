@@ -205,7 +205,7 @@ def test_las_tablas_del_AGENTE_son_POR_OCASION():
     día tranquilo. Y `agente.reincidencias` **debe** estar vacía — exigirle
     frescura es exigir que algo se rompa."""
     for tabla in ("agente.acciones", "agente.reincidencias",
-                  "agente.silenciados", "agente.explicaciones"):
+                  "agente.silenciados"):
         assert escribe.la_dispara(tabla) == escribe.EVENTO, tabla
         assert escribe.que_relanzar(tabla) == "", tabla
         assert escribe.por_ocasion(tabla), f"{tabla} sin motivo declarado"

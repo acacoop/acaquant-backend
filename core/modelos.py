@@ -51,11 +51,6 @@ PROVEEDORES: dict[str, dict] = {
 # no entrena. usa_herramientas: al elegir modelo desde el panel se exige que
 # sepa pedir una.
 TAREAS: dict[str, dict] = {
-    "explicar_error": {"tier": "flash", "max_tokens": 1200, "timeout_s": 60,
-                       "para_que": "el botón «explicámelo» de HABILIDADES"},
-    "agente_texto": {"tier": "flash", "max_tokens": 400, "timeout_s": 45,
-                     "para_que": "el texto de cada aviso del agente en AHORA "
-                                 "(lo único que corre SOLO, sin que nadie apriete)"},
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
                       "para_que": "las propuestas de emisor en «completar ficha» (ENCONTRÓ)"},
     "asistente_despacho": {"tier": "flash", "max_tokens": 200, "timeout_s": 30,

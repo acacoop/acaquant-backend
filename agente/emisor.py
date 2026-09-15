@@ -77,8 +77,7 @@ TAREA = "agente_emisor"
 # dice Chevron Corp» no es el mismo acto que confirmar «el modelo eligió IEB».
 REGLA, NOMBRE, FINNHUB, MODELO = "regla", "nombre", "finnhub", "modelo"
 
-# Cuántas filas van al modelo por pantalla. Un tope que no está escrito no es un
-# tope — mismo criterio que `redactar.TOPE_POR_PASADA`.
+# Cuántas filas van al modelo por pantalla. Un tope que no está escrito no es un tope.
 TOPE_MODELO = 80
 # ⚠️⚠️ **DÓNDE EL MODELO NO OPINA, Y ESTÁ MEDIDO** (2026-09-05).
 #
@@ -306,8 +305,7 @@ def por_modelo(filas: list[dict], emisores: list[str]) -> dict[str, str]:
             rechazadas.append(f"{unidad}→{valor}")
     if rechazadas:
         # Se cuenta y se logea: «el modelo no supo» y «el modelo dijo una macana
-        # y la tiré» no se pueden ver iguales. Es la misma razón por la que
-        # `redactar.py` guarda el motivo del rechazo.
+        # y la tiré» no se pueden ver iguales.
         logger.info("emisor: %d propuesta(s) fuera de la lista, descartadas: %s",
                     len(rechazadas), "; ".join(rechazadas[:5]))
     return validas

@@ -235,20 +235,6 @@ def correr(body: Correr):
     return r
 
 
-class Explicar(BaseModel):
-    habilidad: str = Field(..., min_length=1, max_length=64)
-
-
-@router.post("/explicar")
-def explicar(body: Explicar, email: str = Depends(get_user_email)):
-    """«Explicámelo»: el último error de esa habilidad, contado por la IA con el
-    código, las fuentes y el diario en la mano (`agente/explicar.py`, §0.dh).
-    Solo a pedido, cacheado por error, con la firma de quién lo pidió.
-    """
-    from agente import explicar as ex
-    return ex.explicar(body.habilidad, por=email)
-
-
 
 # ── EL LABORATORIO — el asistente (asistente/, docs/AvAgentAI.md) ──────────
 #
@@ -291,7 +277,7 @@ def lab_panel(dias: int = 30):
 
 
 class ElegirModelo(BaseModel):
-    # La TAREA, no un rol: `asistente`, `agente_texto`, … Una fila de la
+    # La TAREA, no un rol: `asistente_cuenta`, `agente_emisor`, … Una fila de la
     # pantalla es una cosa que corre.
     tarea: str = Field(..., min_length=1, max_length=48)
     proveedor: str = Field("", max_length=32)

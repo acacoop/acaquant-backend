@@ -1,4 +1,4 @@
-"""Aplica sql/schema.sql a la base Postgres real — idempotente y NO destructivo.
+"""Aplica sql/schema.sql a la base Postgres real — idempotente.
 
 EL PROBLEMA QUE RESUELVE: `schema.sql` NO se aplica solo. `sync_postgres` asume
 que las tablas existen. Resultado: tablas que están en el archivo pero NUNCA se
@@ -7,9 +7,9 @@ crearon en la DB (ej. mercado.dias_habiles, valuaciones.dolar, macro.series_macr
 queda trabada. Esto las crea TODAS de una.
 
 SEGURO de correr cuantas veces quieras: schema.sql es 100% idempotente —
-CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS + ALTER TABLE ADD COLUMN IF NOT EXISTS,
-sin un solo DROP/DELETE/TRUNCATE. Lo que ya existe se saltea; solo crea lo que
-falta.
+CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS + ALTER TABLE ADD COLUMN IF NOT EXISTS.
+No toca datos del negocio: los DROP que tiene son de vistas que se rehacen en
+el mismo archivo y de columnas/tablas que el código dejó de usar.
 
 Uso (Droplet, raíz):
     python -m scripts.apply_schema            # aplica

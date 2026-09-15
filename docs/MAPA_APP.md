@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **520 endpoints** montados en `api.main.app`, en **35 routers**.
-- **196 escriben** (POST/PUT/PATCH/DELETE); 324 son de solo lectura.
+- **519 endpoints** montados en `api.main.app`, en **35 routers**.
+- **195 escriben** (POST/PUT/PATCH/DELETE); 324 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 20 | 12 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 19 | 11 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
@@ -2240,7 +2240,7 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 | Pieza | Qué es | Estado |
 |---|---|---|
 | `core/modelos.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 6 tareas (`agente_texto`, `agente_emisor`, `explicar_error`, `asistente_despacho`, `asistente_cuenta`, `asistente_mercado`) |
+| `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 4 tareas (`agente_emisor`, `asistente_despacho`, `asistente_cuenta`, `asistente_mercado`) |
 | `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta, y `sesion` (a qué conversación del asistente pertenece; NULL en las demás tareas). Se llamaba `ia.trazas` | la lee la tab LAB |
 | `ia.config` | ajustes editables sin deploy. Hoy guarda UNA cosa: qué modelo cumple cada rol (`modelo_flash`, `modelo_pro`) | la escribe la tab LAB |
 | `ia.config` | los topes diarios de tokens (precedencia: tabla > env > default) | vacía |

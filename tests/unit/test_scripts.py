@@ -127,12 +127,7 @@ HERRAMIENTAS: dict[str, str] = {
                              "daemon viejo, todavía no le tocó, o el código no hace lo que "
                              "creíamos. Compara la huella de las reglas (`no_esta_en_curvas` = "
                              "una fila por ON = código viejo) contra lo que produce el checkout.",
-    "diag_redaccion":        "la ÚNICA forma de juzgar si el texto que el modelo le escribe a los "
-                             "avisos (AGENT.md §0.di) sirve o es berreta: pone el piso determinista "
-                             "y el texto del modelo uno debajo del otro, y agrupa lo que la "
-                             "validación rechazó por MOTIVO. Un test congela que el mecanismo no "
-                             "pueda hacer daño; si el texto informa o no lo dice una persona "
-                             "leyéndolo, y para eso hay que poder verlo.",
+    # monitoreo de integraciones vivas
     "diag_caducidad":        "el ANTES de la caducidad del agente (AGENT.md §6.8): a qué hallazgos "
                              "abiertos les pegaría, con qué fundamento y de qué fuente, sin escribir "
                              "una fila. Un cierre automático que no se puede mirar antes es fe, no "
@@ -148,7 +143,6 @@ HERRAMIENTAS: dict[str, str] = {
                              "está en la tabla?». Mide las tres puertas por las que una fila se cae "
                              "(la fecha del cierre, el filtro de cartera, el cruce unidad→key) en vez "
                              "de que haya que adivinar cuál fue.",
-    # monitoreo de integraciones vivas
     "healthcheck_sql":       "ejecuta el reader REAL de cada dominio contra Postgres. Es el smoke de después "
                              "de un deploy grande o un cambio de schema.",
     "diag_interbanking":     "smoke de las 5 APIs de Interbanking con datos reales. Distinto de «respondió», "

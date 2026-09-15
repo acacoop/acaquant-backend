@@ -2,10 +2,10 @@
 
 Mapa del paquete (un nodo del grafo = un módulo):
   agente.py      qué es un agente (el objeto) y la instrucción común
-  agentes/        un archivo por agente: sus herramientas + su agente; el registro AGENTES
-  despacho.py    qué agentes atienden la pregunta: reglas primero, modelo después
+  agentes/       un archivo por agente: sus herramientas + su AGENTE; el registro AGENTES
+  ruteo.py       a qué agentes les toca la pregunta: reglas primero, modelo después
   junta.py       cruza lo que contestaron varios agentes
-  grafo.py       el grafo LangGraph que los enchufa: preparar → despacho → agentes → junta → finalizar
+  grafo.py       el grafo LangGraph que los enchufa: preparar → ruteo → agentes → junta → finalizar
   herramientas.py función → tool del modelo (docstring = descripción, firma = esquema)
   memoria.py     poda y achicado del historial; dicts del proveedor ⇄ mensajes
   estado.py      el foco (lo que se sabe, aparte de lo que se dijo)

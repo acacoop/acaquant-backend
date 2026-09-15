@@ -1,6 +1,6 @@
-"""El grafo del asistente (LangGraph): despacho → agentes en paralelo → junta.
-Cada agente es un agente (`agentes/<nombre>.py`) que corre su propio bucle
-modelo ↔ herramientas como subgrafo. Arquitectura: docs/AvAgentAI.md."""
+"""El grafo del asistente (LangGraph): ruteo → agentes en paralelo → junta.
+Cada agente (`agentes/<nombre>.py`) corre su propio bucle modelo ↔ herramientas
+como subgrafo. Arquitectura: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 import json
@@ -17,12 +17,12 @@ from langgraph.types import Send
 
 from asistente import agente as AGT
 from asistente import control as CTL
-from asistente import despacho as DESP
 from asistente import esquema as ESQ
 from asistente import estado as EST
 from asistente import herramientas as H
 from asistente import junta as JU
 from asistente import memoria, puerta
+from asistente import ruteo as RUT
 from asistente.agente import Agente
 from asistente.agentes import AGENTES
 from core import modelos
@@ -68,23 +68,28 @@ def _evento(agente: Agente, tipo: str, **datos) -> dict:
 NO_SALE = (KeyError, modelos.SinClave, modelos.RuteoInseguro)
 
 
+def _modelo(tarea: str, s: dict, traza: Traza, *, esquema: dict | None = None):
+    """El modelo de una tarea, con su traza. Levanta `NO_SALE` si no puede salir."""
+    return modelos.modelo(tarea, usuario=s.get("usuario"), sesion=s.get("sesion"),
+                          esquema=esquema, traza=traza)
+
+
+def _traza(tarea: str, s: dict) -> Traza:
+    """La traza de una llamada de esta tarea. Dato personal: sin extracto de texto."""
+    t = modelos.resolver(tarea)
+    return Traza(t.nombre, t.modelo, usuario=s.get("usuario"), sesion=s.get("sesion"),
+                 guardar_texto=not t.datos_personales)
+
+
 def _modelo_de(agente: Agente, s: dict, traza: Traza, *, esquema: dict | None = None):
-    """El modelo de un agente, con su traza. Levanta `NO_SALE` si no puede salir.
-    El esquema y las herramientas se excluyen (ver `esquema.py`): con
-    herramientas, el esquema que pida el que llama se ignora."""
+    """El modelo de un agente, con sus herramientas atadas. El esquema y las
+    herramientas se excluyen (ver `esquema.py`): con herramientas, el esquema
+    que pida el que llama se ignora."""
     con_tools = bool(agente.herramientas)
-    m = modelos.modelo(agente.tarea, usuario=s.get("usuario"), sesion=s.get("sesion"),
-                       esquema=None if con_tools else esquema, traza=traza)
+    m = _modelo(agente.tarea, s, traza, esquema=None if con_tools else esquema)
     if con_tools:
         m = m.bind_tools([H.como_tool(f) for f in agente.herramientas])
     return m
-
-
-def _traza(agente: Agente, s: dict) -> Traza:
-    """La traza de una llamada de este agente. Dato personal: sin extracto de texto."""
-    t = modelos.resolver(agente.tarea)
-    return Traza(t.nombre, t.modelo, usuario=s.get("usuario"), sesion=s.get("sesion"),
-                 guardar_texto=not t.datos_personales)
 
 
 def subgrafo(agente: Agente):
@@ -93,9 +98,9 @@ def subgrafo(agente: Agente):
     def modelo(s: EstadoAgente) -> dict:
         vuelta = s.get("vueltas", 0) + 1
         eventos = [_evento(agente, "vuelta", n=vuelta)]
-        entrada = [SystemMessage(content=AGT.sistema(agente, s.get("foco") or {}))] + list(s["mensajes"])
+        entrada = [SystemMessage(content=AGT.sistema(agente.instruccion, s.get("foco") or {}))] + list(s["mensajes"])
         try:
-            tr = _traza(agente, s)
+            tr = _traza(agente.tarea, s)
             msg = _modelo_de(agente, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
         except NO_SALE as e:
             eventos.append(_evento(agente, "corte", motivo=f"la llamada no salió: {e}"))
@@ -193,7 +198,7 @@ def _ejecutar(agente: Agente, nombre: str, args: dict | None) -> dict:
         return {"error": f"la herramienta falló: {type(e).__name__}: {e}"}
 
 
-# ── el grafo principal: despacho → agentes → junta ────────────────────────────
+# ── el grafo principal: ruteo → agentes → junta ──────────────────────────────
 
 
 class Estado(TypedDict, total=False):
@@ -231,41 +236,42 @@ def preparar(s: Estado) -> dict:
     return {"historial": historial, "eventos": eventos}
 
 
-def despacho(s: Estado) -> dict:
-    """Qué agentes atienden la pregunta: las reglas primero; si ninguna decide,
-    el modelo; si el modelo no contesta algo legible, van todos (más caro, no
-    más peligroso)."""
-    todos = list(AGENTES)
-    entre: tuple[str, ...] = ()
-    regla = ""
-    if (d := DESP.por_reglas(s["pregunta"], s.get("foco"))) is not None:
-        if d.agentes or d.respuesta:
-            salida: dict = {"agentes": list(d.agentes),
-                            "eventos": [{"tipo": "despacho", "agente": "despacho",
-                                         "agentes": list(d.agentes), "motivo": d.motivo}]}
-            if not d.agentes:
-                salida.update({"respuesta": d.respuesta, "falta": None, "error": None,
-                               "eventos": salida["eventos"] + [{"tipo": "texto", "agente": "despacho",
-                                                               "texto": d.respuesta}]})
-            return salida
-        # La regla acotó los candidatos a una familia; el modelo elige entre ellos.
-        entre, regla, todos = d.entre, d.motivo + " · ", list(d.entre)
-    entrada = [SystemMessage(content=DESP.instruccion(s.get("foco") or {}, entre)),
-               HumanMessage(content=s["pregunta"])]
+def ruteo(s: Estado) -> dict:
+    """Quién atiende la pregunta, en tres capas (`ruteo.py`): las reglas; si
+    ninguna decide, el modelo entre los candidatos; si el modelo no se entiende,
+    todos los candidatos (más caro, no más peligroso)."""
+    d = RUT.por_reglas(s["pregunta"])
+    if d is not None and d.tipo == "contesta":
+        return {"agentes": [], "respuesta": d.respuesta, "falta": None, "error": None,
+                "eventos": [_ev_ruteo([], d.motivo),
+                            {"tipo": "texto", "agente": "ruteo", "texto": d.respuesta}]}
+    if d is not None and d.tipo == "van":
+        return {"agentes": list(d.agentes), "eventos": [_ev_ruteo(d.agentes, d.motivo)]}
+    # Ninguna regla cerró: elige el modelo. Si una acotó los candidatos a una
+    # familia, elige solo entre ellos; si no hubo regla, entre todos.
+    candidatos = tuple(d.agentes) if d is not None else ()
+    porque = f"{d.motivo} · " if d is not None else ""
+    todos = list(candidatos) or list(AGENTES)
     try:
-        tr = _traza(DESP.DESPACHO, s)
-        msg = _modelo_de(DESP.DESPACHO, s, tr).invoke(entrada)
-        elegidos = DESP.leer_eleccion(memoria.texto(msg.content), entre)
+        tr = _traza(RUT.TAREA, s)
+        entrada = [SystemMessage(content=RUT.instruccion(s.get("foco") or {}, candidatos or None)),
+                   HumanMessage(content=s["pregunta"])]
+        msg = _modelo(RUT.TAREA, s, tr).invoke(entrada)
+        elegidos = RUT.leer_eleccion(memoria.texto(msg.content), candidatos or None)
         uso = msg.usage_metadata or {}
         extra = {"tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
                  "llamadas": list(tr.ids)}
-        motivo = regla + ("eligió el modelo" if elegidos else "no se entendió la elección: van todos")
+        motivo = porque + ("eligió el modelo" if elegidos else "no se entendió la elección: van todos")
     except Exception as e:
-        elegidos, extra, motivo = [], {}, f"{regla}el despacho falló ({e}): van todos"
+        elegidos, extra, motivo = [], {}, f"{porque}el ruteo falló ({e}): van todos"
     agentes = elegidos or todos
-    return {"agentes": agentes, "vueltas": 1,
-            "eventos": [{"tipo": "despacho", "agente": "despacho", "agentes": agentes, "motivo": motivo}],
-            **extra}
+    return {"agentes": agentes, "vueltas": 1, "eventos": [_ev_ruteo(agentes, motivo)], **extra}
+
+
+def _ev_ruteo(elegidos, motivo: str) -> dict:
+    """El evento del ruteo: a quiénes les tocó y por qué. Siempre dice quién
+    decidió (una regla, el modelo, o que no se entendió)."""
+    return {"tipo": "ruteo", "agente": "ruteo", "elegidos": list(elegidos), "motivo": motivo}
 
 
 def a_agentes(s: Estado) -> list[Send] | str:
@@ -337,11 +343,11 @@ def junta(s: Estado) -> dict:
         dijo = u.get("respuesta") or (f"no contestó ({u['error']})" if u.get("error") else "(sin respuesta)")
         partes.append(f"## {m}\nrespuesta: {dijo}\n"
                       f"datos: {json.dumps(u.get('datos') or [], ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]}")
-    entrada = [SystemMessage(content=AGT.sistema(JU.JUNTA, s.get("foco") or {})),
+    entrada = [SystemMessage(content=AGT.sistema(JU.instruccion, s.get("foco") or {})),
                HumanMessage(content=f"Pregunta: {s['pregunta']}\n\n" + "\n\n".join(partes))]
     try:
-        tr = _traza(JU.JUNTA, s)
-        msg = _modelo_de(JU.JUNTA, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
+        tr = _traza(JU.TAREA, s)
+        msg = _modelo(JU.TAREA, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
     except Exception as e:
         return {"error": f"La junta no pudo redactar: {e}",
                 "eventos": [{"tipo": "corte", "agente": "junta", "motivo": str(e)}]}
@@ -367,12 +373,12 @@ def finalizar(s: Estado) -> dict:
     for m in [*s["agentes"], "junta"]:
         # Cada mensaje queda marcado con su agente; la junta corre como el agente
         # de su tarea. La marca no viaja al proveedor (`memoria.desde_dicts`).
-        agente = JU.JUNTA_COMO if m == "junta" else m
+        agente = JU.COMO if m == "junta" else m
         mensajes += [{**d, "agente": agente} for d in (salidas.get(m) or {}).get("mensajes") or []]
     if not s["agentes"] and s.get("respuesta"):
-        # Contestó una regla del despacho: queda en el historial de la persona
-        # y de ningún agente (la marca no es de nadie).
-        mensajes.append({"role": "assistant", "content": s["respuesta"], "agente": "despacho"})
+        # Contestó una regla del ruteo: queda en el historial de la persona y
+        # de ningún agente (la marca no es de nadie).
+        mensajes.append({"role": "assistant", "content": s["respuesta"], "agente": "ruteo"})
     # El texto que se revisa se excluye del contexto; el resto (todo lo que el
     # modelo vio, de todos los agentes) es la fuente.
     crudos = [u.get("crudo") for u in salidas.values() if u.get("crudo")]
@@ -386,14 +392,14 @@ def finalizar(s: Estado) -> dict:
 def _armar():
     g = StateGraph(Estado)
     g.add_node("preparar", preparar)
-    g.add_node("despacho", despacho)
+    g.add_node("ruteo", ruteo)
     for nombre in AGENTES:
         g.add_node(nombre, nodo_agente(nombre))
     g.add_node("junta", junta)
     g.add_node("finalizar", finalizar)
     g.add_edge(START, "preparar")
-    g.add_edge("preparar", "despacho")
-    g.add_conditional_edges("despacho", a_agentes, [*AGENTES, "finalizar"])
+    g.add_edge("preparar", "ruteo")
+    g.add_conditional_edges("ruteo", a_agentes, [*AGENTES, "finalizar"])
     for nombre in AGENTES:
         g.add_edge(nombre, "junta")
     g.add_edge("junta", "finalizar")

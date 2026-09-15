@@ -44,8 +44,9 @@ def _dibujar(e: dict) -> None:
         print(f"\n{GRIS}{'─' * 66}{FIN}\n{VERDE}💬{FIN} {e['texto']}")
     elif t == "corte":
         print(f"\n{ROJO}⛔ {e['motivo']}{FIN}")
-    elif t == "despacho":
-        print(f"\n{AZUL}🧭 DESPACHO{FIN} → {', '.join(e['agentes'])} {GRIS}({e['motivo']}){FIN}")
+    elif t == "ruteo":
+        print(f"\n{AZUL}🧭 RUTEO{FIN} → {', '.join(e['elegidos']) or '(contesta una regla)'} "
+              f"{GRIS}({e['motivo']}){FIN}")
     elif t == "junta":
         print(f"\n{AZUL}🔗 JUNTA{FIN} de {', '.join(e['agentes'])}")
 

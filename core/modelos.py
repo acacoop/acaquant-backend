@@ -55,8 +55,8 @@ DATOS = ("", "negocio", "personal")
 TAREAS: dict[str, dict] = {
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
                       "para_que": "las propuestas de emisor en «completar ficha» (ENCONTRÓ)"},
-    "asistente_despacho": {"tier": "flash", "max_tokens": 200, "timeout_s": 30,
-                           "para_que": "el asistente: decidir qué agentes atienden la pregunta"},
+    "asistente_ruteo": {"tier": "flash", "max_tokens": 200, "timeout_s": 30,
+                        "para_que": "el asistente: decidir qué agentes atienden la pregunta"},
     "asistente_cartera": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
                           "proveedor": "openai", "datos": "negocio", "usa_herramientas": True,
                           "para_que": "el asistente, CARTERA: el patrimonio de una cuenta"},

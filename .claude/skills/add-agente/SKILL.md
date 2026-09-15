@@ -1,13 +1,13 @@
 ---
 name: add-agente
-description: Sumar un agente al ASISTENTE (un modelo con sus herramientas, sus señales de despacho, su familia y sus claves de foco), o una herramienta a un agente que ya existe. Cubre las cuatro piezas que lo dejan conectado — el archivo del agente, la tarea en el ruteo, el registro y los tests — sin tocar el grafo. Doc que manda: docs/AvAgentAI.md §10.
+description: Sumar un agente al ASISTENTE (un modelo con sus herramientas, sus señales de ruteo, su familia y sus claves de foco), o una herramienta a un agente que ya existe. Cubre las cuatro piezas que lo dejan conectado — el archivo del agente, la tarea en el ruteo, el registro y los tests — sin tocar el grafo. Doc que manda: docs/AvAgentAI.md §10.
 ---
 
 # Sumar un agente al ASISTENTE
 
 Se aplica cuando el usuario pide «que el asistente también sepa de X»,
 «agregá una herramienta que traiga Y» o «quiero que pueda contestar Z». Doc
-que manda: `docs/AvAgentAI.md` (§3 los agentes, §6 el despacho, §9 el tiempo, §10 cómo agregar).
+que manda: `docs/AvAgentAI.md` (§3 los agentes, §6 el ruteo, §9 el tiempo, §10 cómo agregar).
 
 ## 0. Antes de escribir: dos preguntas
 
@@ -38,7 +38,7 @@ def _instruccion(_foco: dict) -> str:
 AGENTE = Agente(
     nombre="<nombre>",
     tarea="asistente_<nombre>",
-    describe="una línea que el despacho lee para saber cuándo mandarle la pregunta",
+    describe="una línea que el ruteo lee para saber cuándo mandarle la pregunta",
     instruccion=_instruccion,
     herramientas=(mi_herramienta,),  # puede nacer vacío: el agente existe y dice que no puede consultar
     senales=("palabra1", "palabra2"), # ESPECÍFICAS, palabras enteras sin acentos; las genéricas van en la familia
@@ -73,7 +73,7 @@ proveedor que entrena, y la traza no guarda texto).
 
 Una línea: importar el módulo y sumar `<modulo>.AGENTE` a la tupla de `AGENTES`.
 Si es de una familia nueva, la entrada en `FAMILIAS` con sus señales genéricas.
-Nada más cambia: el grafo lo enchufa solo, el despacho lee su `describe` y sus
+Nada más cambia: el grafo lo enchufa solo, el ruteo lee su `describe` y sus
 `senales`, el panel del LAB muestra su tarea.
 
 ## 4. Tests y doc

@@ -1,5 +1,5 @@
 """Agente FONDOS (familia mercado): un fondo común de inversión. Modelado, todavía sin herramientas:
-existe para que el despacho lo conozca y para que el asistente diga «eso todavía
+existe para que el ruteo lo conozca y para que el asistente diga «eso todavía
 no lo puedo consultar» en vez de inventar. Doc: docs/AvAgentAI.md.
 
 Las primeras herramientas que van a entrar, con su pregunta:

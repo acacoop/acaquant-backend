@@ -2,7 +2,7 @@
 qué se compró y vendió, en qué títulos, por cuánto, con qué arancel. La cuenta
 es un filtro, no el sujeto: el sujeto es la mesa. Doc: docs/AvAgentAI.md.
 
-Todavía no tiene herramientas: existe para que el despacho lo conozca y para
+Todavía no tiene herramientas: existe para que el ruteo lo conozca y para
 que el asistente diga «eso todavía no lo puedo consultar» en vez de inventar.
 Las primeras que van a entrar, con su pregunta:
   · «¿qué se operó hoy / en el mes, por título o por cliente?» → un consolidado

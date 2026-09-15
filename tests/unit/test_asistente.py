@@ -29,27 +29,31 @@ def permiso():
 
 
 def test_cada_agente_es_un_objeto_con_su_tarea_declarada_en_el_ruteo():
-    from asistente import despacho as DESP
     from asistente import junta as JU
+    from asistente import ruteo as RUT
     from asistente.agentes import AGENTES
     from core import modelos
 
-    for a in (DESP.DESPACHO, JU.JUNTA, *AGENTES.values()):
+    for a in AGENTES.values():
         assert a.tarea in modelos.tareas(), f"`{a.nombre}` rutea por una tarea que no existe"
         assert a.instruccion({}).strip()
     assert AGENTES["cartera"].tarea != AGENTES["renta_fija"].tarea, "cada agente tiene su propio ruteo"
-    assert JU.JUNTA.tarea == AGENTES["cartera"].tarea, "la junta ve datos del negocio"
-    assert not DESP.DESPACHO.herramientas and not JU.JUNTA.herramientas
+    assert AGENTES["cartera"].tarea == JU.TAREA, "la junta ve datos del negocio"
+    # El ruteo y la junta NO son agentes: no tienen herramientas ni bucle, son
+    # una tarea y una función. Un `Agente` sin herramientas sería un agente falso.
+    for mod in (RUT, JU):
+        assert mod.TAREA in modelos.tareas() and not hasattr(mod, "AGENTE")
+        assert mod.instruccion({}).strip()
 
 
 def test_solo_el_agente_cuenta_ve_datos_del_negocio_y_aprende_el_foco():
-    from asistente import despacho as DESP
+    from asistente import ruteo as RUT
     from asistente.agentes import AGENTES
     from core import modelos
 
     assert modelos.resolver(AGENTES["cartera"].tarea).datos_negocio
     assert not modelos.resolver(AGENTES["renta_fija"].tarea).datos_negocio
-    assert not modelos.resolver(DESP.DESPACHO.tarea).datos_negocio
+    assert not modelos.resolver(RUT.TAREA).datos_negocio
     assert AGENTES["cartera"].foco == ("cuenta",) and AGENTES["renta_fija"].foco == ("ticker",)
 
 
@@ -79,11 +83,11 @@ def test_la_instruccion_de_cuenta_lleva_las_cuentas_y_el_foco_al_final(permiso):
     assert "cuenta = 805" not in AGENTES["renta_fija"].instruccion({"cuenta": "805"})
 
 
-def test_el_despacho_describe_cada_agente_por_su_nombre():
-    from asistente import despacho as DESP
+def test_el_ruteo_describe_cada_agente_por_su_nombre():
+    from asistente import ruteo as RUT
     from asistente.agentes import AGENTES
 
-    txt = DESP.DESPACHO.instruccion({})
+    txt = RUT.instruccion({})
     for n, a in AGENTES.items():
         assert f"{n}: {a.describe}" in txt
 
@@ -511,11 +515,11 @@ def test_la_traza_escribe_una_fila_por_llamada_con_sesion_y_cache():
 
 
 class _Falso:
-    """Un ChatModel falso: el despacho contesta `despacho`; un agente con
+    """Un ChatModel falso: el ruteo contesta `ruteo`; un agente con
     herramientas pide la primera con argumentos razonables y después redacta."""
 
-    def __init__(self, despacho: str, tarea: str, esquema: dict | None, pide: str | None = None):
-        self.despacho, self.tarea, self.esquema, self.tools = despacho, tarea, esquema, []
+    def __init__(self, ruteo: str, tarea: str, esquema: dict | None, pide: str | None = None):
+        self.ruteo, self.tarea, self.esquema, self.tools = ruteo, tarea, esquema, []
         # Qué herramienta pide (por nombre); sin esto, la primera del agente.
         self.pide = pide
 
@@ -528,8 +532,8 @@ class _Falso:
 
         ultimo = mensajes[-1]
         uso = lambda i, o: {"input_tokens": i, "output_tokens": o, "total_tokens": i + o}  # noqa: E731
-        if self.tarea == "asistente_despacho":
-            return AIMessage(content=self.despacho, usage_metadata=uso(50, 3))
+        if self.tarea == "asistente_ruteo":
+            return AIMessage(content=self.ruteo, usage_metadata=uso(50, 3))
         if ultimo.type == "human" and self.tools and not ultimo.content.startswith("Pregunta:"):
             from langchain_core.utils.function_calling import convert_to_openai_tool
 
@@ -545,12 +549,12 @@ class _Falso:
                          usage_metadata=uso(1200, 40))
 
 
-def _proveedor(despacho: str, pide: str | None = None):
+def _proveedor(ruteo: str, pide: str | None = None):
     """Reemplaza `modelos.modelo`: devuelve el ChatModel falso de esa tarea."""
     def fake(tarea, *, usuario=None, sesion=None, esquema=None, traza=None):
         if traza is not None:
             traza.ids.append(1)
-        return _Falso(despacho, tarea, esquema, pide)
+        return _Falso(ruteo, tarea, esquema, pide)
 
     return fake
 
@@ -564,24 +568,26 @@ _TOOLS = {
 }
 
 
-def _correr(pregunta, despacho="renta_fija", pide=None, **kw):
+def _correr(pregunta, ruteo="renta_fija", pide=None, **kw):
     from asistente import grafo
     from core import modelos
 
-    with patch.object(modelos, "modelo", _proveedor(despacho, pide)), \
+    with patch.object(modelos, "modelo", _proveedor(ruteo, pide)), \
          patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a) if n in ag.por_nombre
                       else {"error": "no existe"}):
         return grafo.preguntar(pregunta, usuario="t", **kw)
 
 
 def test_una_pregunta_de_un_agente_corre_solo_ese_agente(permiso):
-    r = _correr("¿qué es el AL30?", despacho="renta_fija")
+    r = _correr("¿qué es el AL30?", ruteo="renta_fija")
     assert r["agentes"] == ["renta_fija"] and r["error"] is None
     assert r["respuesta"].startswith("[asistente_renta_fija]")
     tipos = [(e["tipo"], e.get("agente")) for e in r["eventos"]]
-    assert tipos == [("pregunta", None), ("despacho", "despacho"), ("vuelta", "renta_fija"),
+    assert tipos == [("pregunta", None), ("ruteo", "ruteo"), ("vuelta", "renta_fija"),
                      ("pide", "renta_fija"), ("resultado", "renta_fija"), ("vuelta", "renta_fija"),
                      ("texto", "renta_fija")]
+    ruteo = next(e for e in r["eventos"] if e["tipo"] == "ruteo")
+    assert ruteo["elegidos"] == ["renta_fija"] and ruteo["motivo"]
     assert [m["role"] for m in r["mensajes"]] == ["user", "assistant", "tool", "assistant"]
     assert r["estado"] == {}, "el mercado no deja nada en foco"
     assert r["vueltas"] == 3 and r["tokens_in"] == 50 + 900 + 1200 and r["llamadas"] == [1, 1, 1]
@@ -589,11 +595,11 @@ def test_una_pregunta_de_un_agente_corre_solo_ese_agente(permiso):
 
 
 def test_el_agente_cuenta_aprende_el_foco_y_la_sesion_se_conserva(permiso):
-    r = _correr("¿cuánto cobro de la 805?", despacho="cartera", sesion="a" * 32)
+    r = _correr("¿cuánto cobro de la 805?", ruteo="cartera", sesion="a" * 32)
     assert r["agentes"] == ["cartera"] and r["estado"] == {"cuenta": "805"} and r["sesion"] == "a" * 32
     assert any(e["tipo"] == "estado" and e["estado"] == {"cuenta": "805"} for e in r["eventos"])
     assert r["control"]["ok"], "el total está en los datos"
-    r2 = _correr("¿y en dólares?", despacho="cartera", historial=r["mensajes"],
+    r2 = _correr("¿y en dólares?", ruteo="cartera", historial=r["mensajes"],
                  estado=r["estado"], sesion=r["sesion"])
     assert r2["sesion"] == r["sesion"] and r2["estado"] == {"cuenta": "805"}
     assert [m["role"] for m in r2["mensajes"]][:4] == ["user", "assistant", "tool", "assistant"]
@@ -601,7 +607,7 @@ def test_el_agente_cuenta_aprende_el_foco_y_la_sesion_se_conserva(permiso):
 
 
 def test_una_pregunta_cruzada_corre_los_dos_agentes_y_la_junta_redacta(permiso):
-    r = _correr("¿qué bono CER rinde más que los que tengo?", despacho="cartera, renta_fija")
+    r = _correr("¿qué bono CER rinde más que los que tengo?", ruteo="cartera, renta_fija")
     assert r["agentes"] == ["cartera", "renta_fija"] and r["error"] is None
     assert r["respuesta"].startswith("[asistente_cartera]"), "la junta corre con la tarea de cartera"
     agentes = [e.get("agente") for e in r["eventos"] if e["tipo"] != "estado"]
@@ -611,7 +617,7 @@ def test_una_pregunta_cruzada_corre_los_dos_agentes_y_la_junta_redacta(permiso):
     assert roles.count("user") == 1, "la entrada de la junta no va al historial"
     # 5 y no 6: la pregunta la despachó una regla, sin llamar al modelo.
     assert r["vueltas"] == 5 and r["estado"] == {"cuenta": "805"}
-    assert next(e for e in r["eventos"] if e["tipo"] == "despacho")["motivo"].startswith("regla")
+    assert next(e for e in r["eventos"] if e["tipo"] == "ruteo")["motivo"].startswith("regla")
 
 
 def test_cada_agente_ve_del_historial_solo_lo_suyo(permiso):
@@ -620,7 +626,7 @@ def test_cada_agente_ve_del_historial_solo_lo_suyo(permiso):
     from asistente import grafo, memoria
     from core import modelos
 
-    r = _correr("¿qué bono CER rinde más que los que tengo?", despacho="cartera, renta_fija")
+    r = _correr("¿qué bono CER rinde más que los que tengo?", ruteo="cartera, renta_fija")
     assert {m.get("agente") for m in r["mensajes"]} == {None, "cartera", "renta_fija"}
     assert [m["agente"] for m in r["mensajes"] if m["role"] == "tool"] == ["cartera", "renta_fija"]
     assert r["mensajes"][-1]["agente"] == "cartera", "la junta queda como cuenta"
@@ -651,15 +657,15 @@ def test_cada_agente_ve_del_historial_solo_lo_suyo(permiso):
     assert "3926.8" in json.dumps(primera_cuenta) and "TX28" not in json.dumps(primera_cuenta)
 
 
-def test_si_el_despacho_no_se_entiende_van_todos_los_agentes(permiso):
+def test_si_el_ruteo_no_se_entiende_van_todos_los_agentes(permiso):
     from asistente.agentes import AGENTES
 
     for raro in ("no sé", "no hace falta la cuenta, alcanza con mercado", ""):
-        r = _correr("hola", despacho=raro)
+        r = _correr("hola", ruteo=raro)
         assert r["agentes"] == list(AGENTES), raro
-        assert "van todos" in next(e for e in r["eventos"] if e["tipo"] == "despacho")["motivo"]
-    assert _correr("hola", despacho="Renta_fija.")["agentes"] == ["renta_fija"]
-    assert _correr("hola", despacho="cartera y renta_fija")["agentes"] == ["cartera", "renta_fija"]
+        assert "van todos" in next(e for e in r["eventos"] if e["tipo"] == "ruteo")["motivo"]
+    assert _correr("hola", ruteo="Renta_fija.")["agentes"] == ["renta_fija"]
+    assert _correr("hola", ruteo="cartera y renta_fija")["agentes"] == ["cartera", "renta_fija"]
 
 
 def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
@@ -673,7 +679,7 @@ def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
 
     class Insistente(_Falso):
         def invoke(self, mensajes):
-            if self.tarea == "asistente_despacho":
+            if self.tarea == "asistente_ruteo":
                 return AIMessage(content="renta_fija")
             return AIMessage(content="", tool_calls=[
                 {"name": "curva", "args": {"curva": "cer"}, "id": f"c{len(mensajes)}", "type": "tool_call"}])
@@ -713,7 +719,7 @@ def test_sin_clave_no_rompe_y_deja_la_sesion(permiso):
     with patch.object(modelos, "configurado", return_value=False):
         r = grafo.preguntar("hola", usuario="t", sesion="b" * 32)
     assert r["error"] and r["respuesta"] is None and r["sesion"] == "b" * 32
-    assert r["agentes"] == list(AGENTES), "sin despacho, van todos"
+    assert r["agentes"] == list(AGENTES), "sin ruteo, van todos"
 
 
 def test_la_sesion_se_valida_por_forma():
@@ -754,13 +760,13 @@ class _Base:
         return True
 
 
-def _conversar(base, pregunta, sesion=None, despacho="cartera", usuario="t"):
+def _conversar(base, pregunta, sesion=None, ruteo="cartera", usuario="t"):
     from asistente import grafo, panel, sesiones
     from core import modelos
 
     with patch.object(sesiones, "cargar", base.cargar), patch.object(sesiones, "guardar", base.guardar), \
          patch.object(panel, "conversacion", lambda s: {"id": s, "llamadas": 2}), \
-         patch.object(modelos, "modelo", _proveedor(despacho)), \
+         patch.object(modelos, "modelo", _proveedor(ruteo)), \
          patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):
         return sesiones.preguntar(pregunta, usuario=usuario, sesion=sesion)
 
@@ -821,7 +827,7 @@ def test_una_pregunta_de_un_solo_agente_no_le_llega_al_otro_despues(permiso):
     buscar la ficha del bono «805»."""
     from asistente import memoria
 
-    r = _correr("¿la tenencia de la 805?", despacho="cartera")
+    r = _correr("¿la tenencia de la 805?", ruteo="cartera")
     pregunta = r["mensajes"][0]
     assert pregunta["role"] == "user" and pregunta["agentes"] == ["cartera"]
     assert memoria.de_agente(r["mensajes"], "renta_fija") == []
@@ -859,10 +865,10 @@ def test_leer_entiende_el_renglon_falta_y_la_instruccion_lo_pide():
 def test_con_herramientas_nunca_viaja_el_esquema_y_sin_ellas_si():
     """OpenAI con `response_format` exige herramientas `strict` y las nuestras
     no lo son (medido: «Only `strict` function tools can be auto-parsed»)."""
-    from asistente import despacho as DESP
     from asistente import esquema as ESQ
     from asistente import grafo
     from asistente import junta as JU
+    from asistente import ruteo as RUT
     from asistente.agentes import AGENTES
     from core import modelos
 
@@ -874,10 +880,10 @@ def test_con_herramientas_nunca_viaja_el_esquema_y_sin_ellas_si():
 
     with patch.object(modelos, "modelo", fake):
         grafo._modelo_de(AGENTES["cartera"], {}, None, esquema=ESQ.FORMATO)
-        grafo._modelo_de(JU.JUNTA, {}, None, esquema=ESQ.FORMATO)
-        grafo._modelo_de(DESP.DESPACHO, {}, None)
+        grafo._modelo(JU.TAREA, {}, None, esquema=ESQ.FORMATO)
+        grafo._modelo(RUT.TAREA, {}, None)
     assert pedidos == [("asistente_cartera", None), ("asistente_cartera", ESQ.FORMATO),
-                       ("asistente_despacho", None)]
+                       ("asistente_ruteo", None)]
 
 
 def test_la_ficha_de_una_tarea_dice_lo_declarado_para_el_panel():
@@ -929,7 +935,7 @@ def test_elegir_un_modelo_prueba_antes_de_guardar_y_solo_exige_tools_a_quien_las
     assert cuerpo.index("probar(") < cuerpo.index("INSERT INTO"), "la prueba vive antes del INSERT"
     with patch.object(modelos, "ajustes", return_value={}):
         assert modelos.ficha_de("asistente_cartera")["usa_herramientas"] is True
-        assert modelos.ficha_de("asistente_despacho")["usa_herramientas"] is False
+        assert modelos.ficha_de("asistente_ruteo")["usa_herramientas"] is False
 
 
 def test_cada_tarea_del_asistente_dice_para_que_es():
@@ -940,7 +946,7 @@ def test_cada_tarea_del_asistente_dice_para_que_es():
             assert modelos.ficha_de(t)["para_que"]
 
 
-# ── el registro y el despacho por reglas ────────────────────────────────────
+# ── el registro y el ruteo por reglas ────────────────────────────────────
 
 
 def test_todo_agente_esta_registrado_y_declarado():
@@ -958,45 +964,50 @@ def test_todo_agente_esta_registrado_y_declarado():
         assert hasattr(mod, "AGENTE"), f"asistente/agentes/{nombre}.py no declara AGENTE"
         assert AGENTES.get(mod.AGENTE.nombre) is mod.AGENTE, f"{nombre} no está en AGENTES"
         assert mod.AGENTE.tarea in modelos.TAREAS, f"{nombre}: tarea sin declarar"
-        assert mod.AGENTE.senales, f"{nombre}: sin señales, el despacho no lo encontraría"
+        assert mod.AGENTE.senales, f"{nombre}: sin señales, el ruteo no lo encontraría"
     assert set(AGENTES) == set(archivos)
 
 
-def test_las_reglas_del_despacho_deciden_lo_obvio_y_dejan_el_resto_al_modelo(permiso):
-    from asistente import despacho as D
+def test_las_reglas_del_ruteo_deciden_lo_obvio_y_dejan_el_resto_al_modelo(permiso):
+    from asistente import ruteo as R
     from asistente.agentes import AGENTES
 
-    assert D.por_reglas("hola, ¿cómo va?", {}) is None
-    meta = D.por_reglas("¿Qué sabés hacer?", {})
-    assert meta.agentes == () and "cobros_futuros" in meta.respuesta and "curva" in meta.respuesta
-    assert D.por_reglas("cuál es la tenencia de la 805", {}).agentes == ("cartera",)
-    assert D.por_reglas("quién es el titular de la 805", {}).agentes == ("cliente",)
-    assert D.por_reglas("qué se operó hoy en AL30", {}).agentes == ("operaciones",)
-    # Con cuenta en foco o nombrada pero sin señales, tres agentes la atienden: decide el modelo.
-    assert D.por_reglas("¿y en dólares?", {"cuenta": "805"}) is None
-    assert D.por_reglas("dame la 805", {}) is None
-    assert "cuenta = 805" in D.DESPACHO.instruccion({"cuenta": "805"})
-    assert D.por_reglas("qué bonos CER conocés", {}).agentes == ("renta_fija",)
-    cruzada = D.por_reglas("qué bono CER rinde más que los que tengo en la 805", {})
-    assert cruzada.agentes == ("cartera", "renta_fija") and cruzada.motivo.startswith("regla: señales")
+    assert R.por_reglas("hola, ¿cómo va?") is None
+    meta = R.por_reglas("¿Qué sabés hacer?")
+    assert meta.tipo == "contesta" and meta.agentes == ()
+    assert "cobros_futuros" in meta.respuesta and "curva" in meta.respuesta
+    assert R.por_reglas("cuál es la tenencia de la 805").agentes == ("cartera",)
+    assert R.por_reglas("quién es el titular de la 805").agentes == ("cliente",)
+    assert R.por_reglas("qué se operó hoy en AL30").agentes == ("operaciones",)
+    # Sin señales, aunque nombre una cuenta, no decide ninguna regla: va el modelo.
+    assert R.por_reglas("¿y en dólares?") is None
+    assert R.por_reglas("dame la 805") is None
+    assert "cuenta = 805" in R.instruccion({"cuenta": "805"})
+    assert R.por_reglas("qué bonos CER conocés").agentes == ("renta_fija",)
+    cruzada = R.por_reglas("qué bono CER rinde más que los que tengo en la 805")
+    assert cruzada.tipo == "van" and cruzada.agentes == ("cartera", "renta_fija")
+    assert cruzada.motivo.startswith("regla: señales")
     # «rinde» es de la familia mercado, no de un agente: el modelo elige entre los seis.
-    fam = D.por_reglas("cuánto rinde el TX28", {"cuenta": "805"})
-    assert fam.agentes == () and fam.entre == tuple(n for n, a in AGENTES.items() if a.familia == "mercado")
-    assert "cartera" not in D.instruccion({}, fam.entre) and "renta_fija" in D.instruccion({}, fam.entre)
-    assert D.leer_eleccion("renta_fija", fam.entre) == ["renta_fija"] and D.leer_eleccion("cartera", fam.entre) == []
-    assert D.por_reglas("cómo cotiza YPF", {}).entre and D.por_reglas("a cuánto está el MEP", {}).agentes == ("dolares",)
-    assert D.por_reglas("cuánto rinde la caución a 7 días", {}).agentes == ("financiamiento",)
-    assert D.por_reglas("quién atiende la 805 y qué tenencia tiene", {}).agentes == ("cartera", "cliente")
+    fam = R.por_reglas("cuánto rinde el TX28")
+    assert fam.tipo == "elige_el_modelo"
+    assert fam.agentes == tuple(n for n, a in AGENTES.items() if a.familia == "mercado")
+    assert "cartera" not in R.instruccion({}, fam.agentes) and "renta_fija" in R.instruccion({}, fam.agentes)
+    assert R.leer_eleccion("renta_fija", fam.agentes) == ["renta_fija"]
+    assert R.leer_eleccion("cartera", fam.agentes) == [], "un candidato de afuera no cuenta"
+    assert R.por_reglas("cómo cotiza YPF").tipo == "elige_el_modelo"
+    assert R.por_reglas("a cuánto está el MEP").agentes == ("dolares",)
+    assert R.por_reglas("cuánto rinde la caución a 7 días").agentes == ("financiamiento",)
+    assert R.por_reglas("quién atiende la 805 y qué tenencia tiene").agentes == ("cartera", "cliente")
     # Palabra entera, no raíz: «cerca» y «cerrá» no son CER; «tealdi» no es TEA.
-    assert D.por_reglas("cerrá la posición", {}).agentes == ("cartera",)
-    assert D.por_reglas("qué hay cerca del vencimiento", {}).entre, "«vencimiento» es de la familia"
-    assert D.por_reglas("qué tasa tiene la ON de tealdi", {}).motivo == "regla: señales (renta_fija: on)"
-    assert D.por_reglas("tenés alguna ON?", {}).agentes == ("renta_fija",)
+    assert R.por_reglas("cerrá la posición").agentes == ("cartera",)
+    assert R.por_reglas("qué hay cerca del vencimiento").tipo == "elige_el_modelo"
+    assert R.por_reglas("qué tasa tiene la ON de tealdi").motivo == "regla: señales (renta_fija: on)"
+    assert R.por_reglas("tenés alguna ON?").agentes == ("renta_fija",)
     # Meta es la pregunta entera, no una palabra adentro.
-    assert D.por_reglas("hola, ¿qué sabés hacer vos?", {}).agentes == ()
-    assert D.por_reglas("necesito ayuda con la 805", {}) is None
-    assert D.leer_eleccion("cartera, renta_fija") == ["cartera", "renta_fija"]
-    assert D.leer_eleccion("no hace falta la cuenta") == []
+    assert R.por_reglas("hola, ¿qué sabés hacer vos?").tipo == "contesta"
+    assert R.por_reglas("necesito ayuda con la 805") is None
+    assert R.leer_eleccion("cartera, renta_fija") == ["cartera", "renta_fija"]
+    assert R.leer_eleccion("no hace falta la cuenta") == []
 
 
 def test_una_regla_que_contesta_no_llama_a_ningun_modelo(permiso):
@@ -1006,19 +1017,19 @@ def test_una_regla_que_contesta_no_llama_a_ningun_modelo(permiso):
     with patch.object(modelos, "modelo", side_effect=AssertionError("no tenía que llamar")):
         r = grafo.preguntar("¿qué sabés hacer?", usuario="t")
     assert r["agentes"] == [] and "cuenta" in r["respuesta"] and r["error"] is None
-    assert r["tokens_in"] == 0 and [e["tipo"] for e in r["eventos"]] == ["pregunta", "despacho", "texto"]
-    assert r["mensajes"][-1] == {"role": "assistant", "content": r["respuesta"], "agente": "despacho"}
+    assert r["tokens_in"] == 0 and [e["tipo"] for e in r["eventos"]] == ["pregunta", "ruteo", "texto"]
+    assert r["mensajes"][-1] == {"role": "assistant", "content": r["respuesta"], "agente": "ruteo"}
     assert r["mensajes"][0]["agentes"] == []
     # En el turno siguiente, ningún agente recibe esa pregunta: la contestó una regla.
     from asistente import memoria
     assert memoria.de_agente(r["mensajes"], "cartera") == [] and memoria.de_agente(r["mensajes"], "renta_fija") == []
-    r2 = _correr("cuánto tengo en la 805", despacho="cartera", historial=r["mensajes"], sesion=r["sesion"])
+    r2 = _correr("cuánto tengo en la 805", ruteo="cartera", historial=r["mensajes"], sesion=r["sesion"])
     assert [m["role"] for m in memoria.de_agente(r2["mensajes"], "cartera")][:2] == ["user", "assistant"]
 
 
-def test_una_pregunta_sin_senales_va_al_modelo_de_despacho(permiso):
-    r = _correr("hola, ¿cómo va?", despacho="renta_fija")
-    ev = next(e for e in r["eventos"] if e["tipo"] == "despacho")
+def test_una_pregunta_sin_senales_va_al_modelo_de_ruteo(permiso):
+    r = _correr("hola, ¿cómo va?", ruteo="renta_fija")
+    ev = next(e for e in r["eventos"] if e["tipo"] == "ruteo")
     assert ev["motivo"] == "eligió el modelo" and r["agentes"] == ["renta_fija"]
 
 
@@ -1075,7 +1086,7 @@ def test_el_system_lleva_la_fecha_de_hoy_al_final_y_pide_texto_plano(permiso):
     from asistente import agente as AGT
     from asistente.agentes import AGENTES
 
-    s = AGT.sistema(AGENTES["renta_fija"], {})
+    s = AGT.sistema(AGENTES["renta_fija"].instruccion, {})
     assert s.rstrip().endswith(f"Hoy es {date.today().isoformat()}.") and "sin asteriscos" in s
 
 
@@ -1130,9 +1141,9 @@ def test_el_dato_personal_nunca_sale_a_quien_entrena_y_no_deja_texto_en_la_traza
     # Por el camino real: la traza que arma el grafo para el agente cliente.
     from asistente import grafo
     from asistente.agentes import AGENTES
-    tr = grafo._traza(AGENTES["cliente"], {"usuario": "u", "sesion": "s"})
+    tr = grafo._traza(AGENTES["cliente"].tarea, {"usuario": "u", "sesion": "s"})
     assert isinstance(tr, TR.Traza) and tr.guardar_texto is False
-    assert grafo._traza(AGENTES["cartera"], {}).guardar_texto is True
+    assert grafo._traza(AGENTES["cartera"].tarea, {}).guardar_texto is True
     cur = MagicMock()
     cur.fetchone.return_value = (7,)
     pool = MagicMock()
@@ -1159,9 +1170,9 @@ def test_un_agente_sin_herramientas_no_llama_al_modelo_y_lo_dice(permiso):
 
 
 def test_la_familia_mercado_agrupa_a_sus_agentes_y_el_modelo_elige_entre_ellos(permiso):
-    from asistente import despacho as D
     from asistente import grafo
-    from asistente.agentes import AGENTES, FAMILIAS
+    from asistente import ruteo as R
+    from asistente.agentes import AGENTES, FAMILIAS, presentacion
     from core import modelos
 
     mercado = [n for n, a in AGENTES.items() if a.familia == "mercado"]
@@ -1169,12 +1180,13 @@ def test_la_familia_mercado_agrupa_a_sus_agentes_y_el_modelo_elige_entre_ellos(p
     assert set(FAMILIAS) == {"mercado"} and "rinde" in FAMILIAS["mercado"].senales
     for n in mercado:
         assert not (set(AGENTES[n].senales) & set(FAMILIAS["mercado"].senales)), f"{n} repite una señal genérica"
-    assert "[mercado]" in D.presentacion() or "mercado:" in D.presentacion()
-    # Con «cotiza» sola, el despacho llama al modelo con los candidatos acotados.
+    assert "[mercado]" in presentacion() or "mercado:" in presentacion()
+    assert R.por_reglas("cómo cotiza YPF").agentes == tuple(mercado)
+    # Con «cotiza» sola, el ruteo llama al modelo con los candidatos acotados.
     visto = {}
 
     def fake(tarea, *, usuario=None, sesion=None, esquema=None, traza=None):
-        assert tarea == "asistente_despacho"
+        assert tarea == "asistente_ruteo"
         m = _Falso("renta_variable", tarea, esquema)
         original = m.invoke
 
@@ -1187,7 +1199,7 @@ def test_la_familia_mercado_agrupa_a_sus_agentes_y_el_modelo_elige_entre_ellos(p
     with patch.object(modelos, "modelo", fake):
         r = grafo.preguntar("¿cómo cotiza YPF?", usuario="t")
     assert r["agentes"] == ["renta_variable"] and "cartera" not in visto["system"]
-    ev = next(e for e in r["eventos"] if e["tipo"] == "despacho")
+    ev = next(e for e in r["eventos"] if e["tipo"] == "ruteo")
     assert ev["motivo"].startswith("regla: familia mercado") and ev["motivo"].endswith("eligió el modelo")
 
 
@@ -1200,5 +1212,5 @@ def test_el_ticker_queda_en_foco_y_lo_leen_los_agentes_que_lo_declaran(permiso):
     assert EST.aprender({}, {"ticker": "tx26"}, {"ok": 1}, claves=("ticker",)) == {"ticker": "TX26"}
     assert EST.aprender({}, {"ticker": "tx26"}, {"ok": 1}, claves=("cuenta",)) == {}
     assert AGENTES["operaciones"].foco == ("cuenta", "ticker") and AGENTES["dolares"].foco == ()
-    r = _correr("¿qué es el AL30?", despacho="renta_fija", pide="ficha_bono")
+    r = _correr("¿qué es el AL30?", ruteo="renta_fija", pide="ficha_bono")
     assert r["agentes"] == ["renta_fija"] and r["estado"] == {"ticker": "AL30"}

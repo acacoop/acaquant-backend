@@ -2240,7 +2240,7 @@ pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gatewa
 | Pieza | Qué es | Estado |
 |---|---|---|
 | `core/modelos.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 11 tareas (`agente_emisor`, `asistente_despacho`, y una por agente del asistente: `asistente_cartera`, `asistente_cliente`, `asistente_operaciones`, `asistente_renta_fija`, `asistente_renta_variable`, `asistente_fondos`, `asistente_derivados`, `asistente_financiamiento`, `asistente_dolares`) |
+| `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 11 tareas (`agente_emisor`, `asistente_ruteo`, y una por agente del asistente: `asistente_cartera`, `asistente_cliente`, `asistente_operaciones`, `asistente_renta_fija`, `asistente_renta_variable`, `asistente_fondos`, `asistente_derivados`, `asistente_financiamiento`, `asistente_dolares`) |
 | `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta, y `sesion` (a qué conversación del asistente pertenece; NULL en las demás tareas). Se llamaba `ia.trazas` | la lee la tab LAB |
 | `ia.config` | ajustes editables sin deploy: qué proveedor/modelo corre cada tarea (`tarea:<nombre>`) y la tarifa de cada modelo (`precio:<modelo>`) | la escribe la tab LAB |
 | `ia.conversaciones` | las conversaciones del asistente: dueño, título, la memoria que ve el modelo (podada), el foco y los turnos que ve la persona (enteros). 90 días sin retomar y se borra | la escribe y la lee la tab LAB |
@@ -2305,7 +2305,7 @@ nadie lo miraba.
   BCRA, FRED y las series de 1816 son ingestas de API, sin modelo en el medio.
 
 > ⚠️ **La excepción, y es la única: el ASISTENTE** (`asistente/`, doc única
-> `docs/AvAgentAI.md`). Un grafo LangGraph: despacho → agentes (`cartera`,
+> `docs/AvAgentAI.md`). Un grafo LangGraph: ruteo → agentes (`cartera`,
 > `cliente`, `operaciones` y la familia mercado: `renta_fija`, `renta_variable`,
 > `fondos`, `derivados`, `financiamiento`, `dolares`) en paralelo → junta. Cada
 > agente tiene su tarea de ruteo y sus herramientas; los datos del negocio salen

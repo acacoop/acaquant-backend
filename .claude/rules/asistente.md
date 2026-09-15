@@ -17,14 +17,15 @@ paths:
 operaciones, renta_fija, renta_variable, fondos, derivados, financiamiento,
 dolares). Cada uno tiene un **sujeto** (una cuenta, la mesa, un bono).
 **Familia** = agentes con un tema en común (mercado); no corre, agrupa.
-**Despacho** y **junta** = los dos pasos fijos del workflow, antes y después.
+**Ruteo** y **junta** = los dos pasos fijos del workflow, antes y después. No
+son agentes: no tienen herramientas ni bucle.
 
 ## El mapa
 
 Un nodo del grafo = un módulo. `agentes/<nombre>.py` = las herramientas de un
 agente + su `AGENTE`, en un solo archivo; `agentes/__init__.py` tiene los
-registros `AGENTES` y `FAMILIAS`. `despacho.py` decide quién va (reglas
-primero, modelo después), `junta.py` cruza, `grafo.py` enchufa. El resto son
+registros `AGENTES` y `FAMILIAS`. `ruteo.py` decide quién va (reglas primero,
+modelo después), `junta.py` cruza, `grafo.py` enchufa. El resto son
 piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
 `permitido`, `sesiones`, `panel`.
 
@@ -45,9 +46,9 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    herramientas.
 4. **Con herramientas no viaja esquema** (OpenAI exige tools `strict`). La
    respuesta cierra con `Falta: …`; `esquema.leer` entiende las dos formas.
-5. **Reglas antes que modelo.** Una regla se lee en una línea. Las señales
-   genéricas de un tema van en la `Familia`, no en un agente (test). El evento
-   `despacho` dice siempre quién decidió.
+5. **Reglas antes que modelo.** Una regla se lee en una línea y NO ve el foco.
+   Las señales genéricas de un tema van en la `Familia`, no en un agente
+   (test). El evento `ruteo` dice siempre a quiénes les tocó y quién decidió.
 6. **Las conversaciones tienen dueño** (`ia.conversaciones`, filtradas por
    email en cada query). El navegador manda pregunta + sesión, nada más.
 7. **Una tarea = un agente = un modelo**, declarada en `core/modelos.TAREAS`;

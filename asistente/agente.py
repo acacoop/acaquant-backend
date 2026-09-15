@@ -1,6 +1,6 @@
-"""Qué es un agente del asistente. Un objeto: tarea de ruteo, instrucción,
-herramientas, señales para el despacho. Los declarados viven en `agentes/`
-(uno por archivo), `despacho.py` y `junta.py`. Doc: docs/AvAgentAI.md."""
+"""Qué es un agente del asistente: un objeto con su tarea, su instrucción, sus
+herramientas y sus señales. Los declarados viven en `agentes/`, uno por
+archivo. Doc: docs/AvAgentAI.md §3."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -15,17 +15,17 @@ class Agente:
     nombre: str
     # Clave en `core/modelos.TAREAS`: decide proveedor, modelo y si ve datos del negocio.
     tarea: str
-    # Una línea que el despacho lee para decidir si este agente atiende la pregunta.
+    # Una línea que el ruteo lee para decidir si este agente atiende la pregunta.
     describe: str
     # Devuelve el SYSTEM a partir del foco de la conversación.
     instruccion: Callable[[dict], str]
     herramientas: tuple[Callable, ...] = ()
     # Palabras enteras (sin acentos, minúsculas; las variantes se declaran) que
-    # delatan que la pregunta es de este agente. Las lee `despacho.por_reglas`:
+    # delatan que la pregunta es de este agente. Las lee `ruteo.por_reglas`:
     # si alcanzan, no se llama al modelo.
     senales: tuple[str, ...] = ()
     # Agentes con un tema en común (hoy: "mercado"). No corre: agrupa en la
-    # presentación y en la instrucción del despacho.
+    # presentación y en la instrucción del ruteo.
     familia: str = ""
     # Claves del foco que este agente lee y aprende (`estado.EN_FOCO`). Varios
     # agentes pueden compartir una: es lo que los relaciona entre preguntas.
@@ -75,8 +75,9 @@ no dibuja markdown.
 """ + ESQ.INSTRUCCION + "\n"
 
 
-def sistema(agente: Agente, foco: dict) -> str:
-    """El SYSTEM completo de un agente: su instrucción más la fecha de hoy. Va
-    al final para no romper el caché del prefijo. Sin esto, «hasta fin de
-    año» se calcula desde una fecha que el modelo inventa."""
-    return agente.instruccion(foco) + f"\nHoy es {date.today().isoformat()}.\n"
+def sistema(instruccion: Callable[[dict], str], foco: dict) -> str:
+    """El SYSTEM de quien redacta: su instrucción más la fecha de hoy. Va al
+    final para no romper el caché del prefijo. Sin esto, «hasta fin de año» se
+    calcula desde una fecha que el modelo inventa. Lo usan los agentes y la
+    junta: cualquiera que reciba el foco y devuelva texto."""
+    return instruccion(foco) + f"\nHoy es {date.today().isoformat()}.\n"

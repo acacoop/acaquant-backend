@@ -16,23 +16,25 @@ LangChain (proveedores, herramientas, mensajes). La puerta a los proveedores es
 **Las palabras.** Un **agente** es un modelo que llama herramientas en un bucle
 hasta contestar (cartera, cliente, operaciones, renta fija…). Cada agente tiene
 un **sujeto** (una cuenta, la mesa, un bono). Una **familia** es un grupo de
-agentes con un tema en común (mercado); no corre, agrupa. El **despacho** y la
-**junta** son los dos pasos fijos del workflow que envuelve a los agentes.
+agentes con un tema en común (mercado); no corre, agrupa. El **ruteo** y la
+**junta** son los dos pasos fijos del workflow que envuelve a los agentes:
+ninguno de los dos es un agente (no tienen herramientas ni bucle), son una
+función antes y una llamada después.
 
 ## 2. Arquitectura
 
 ```
-pregunta ─► preparar ─► despacho ─► [cartera · cliente · operaciones]     ─┐
-                          │        [mercado: renta_fija · renta_variable ─┼─► junta ─► finalizar ─► respuesta
-                          │         fondos · derivados · financiamiento   │
-                          │         dolares]                              ─┘
-                          └─(una regla contestó)──────────────────────────┘
+pregunta ─► preparar ─► ruteo ─► [cartera · cliente · operaciones]        ─┐
+                         │       [mercado: renta_fija · renta_variable  ─┼─► junta ─► finalizar ─► respuesta
+                         │        fondos · derivados · financiamiento    │
+                         │        dolares]                               ─┘
+                         └─(una regla contestó)──────────────────────────┘
 ```
 
 | Nodo | Módulo | Qué hace | Modelo |
 |---|---|---|---|
 | `preparar` | `memoria.py` | poda y achica el historial, sanea el foco | ninguno |
-| `despacho` | `despacho.py` | reglas primero; si ninguna decide, el modelo elige agentes | `asistente_despacho` solo si las reglas no deciden |
+| `ruteo` | `ruteo.py` | reglas primero; si ninguna decide, el modelo elige agentes | `asistente_ruteo` solo si las reglas no deciden |
 | cada agente | `agentes/<nombre>.py` | su bucle modelo ↔ herramientas, tope de 6 vueltas | su tarea (§6) |
 | `junta` | `junta.py` | con un agente, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cartera` |
 | `finalizar` | `grafo.py` + `control.py` | arma el historial de salida y corre el control de números | ninguno |
@@ -55,7 +57,7 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 | `financiamiento` | la tasa | mercado | caución por plazo, tasas de referencia | ninguna todavía | |
 | `dolares` | el tipo de cambio | mercado | MEP, CCL, oficial, brechas | ninguna todavía | |
 
-Un agente **sin herramientas** existe igual: el despacho lo conoce, la
+Un agente **sin herramientas** existe igual: el ruteo lo conoce, la
 presentación lo lista, y si le toca una pregunta contesta «todavía no puedo
 consultar esto» sin llamar a ningún modelo. Cada archivo anota las primeras
 herramientas que van a entrar y sobre qué servicio existente se apoyan.
@@ -76,8 +78,9 @@ asistente/
     __init__.py    AGENTES y FAMILIAS: los registros, explícitos
     cartera.py     cliente.py     operaciones.py
     renta_fija.py  renta_variable.py  fondos.py  derivados.py  financiamiento.py  dolares.py
-  despacho.py      reglas (Decision), el agente DESPACHO y cómo se lee su elección
-  junta.py         el agente JUNTA
+  ruteo.py         las tres capas: reglas (Decision), la instrucción del modelo
+                   y cómo se lee su elección. No es un agente: no tiene bucle
+  junta.py         la instrucción y la tarea de la junta. Tampoco es un agente
   grafo.py         el StateGraph, el subgrafo de cada agente, preguntar()
   herramientas.py  función → tool (docstring = descripción, firma = esquema); TODAS, POR_NOMBRE
   memoria.py       poda, achicado, marcas por agente, dicts ⇄ mensajes de LangChain
@@ -99,9 +102,9 @@ Fuera del paquete: `core/modelos.py` (proveedores, `TAREAS`, `modelo(tarea)`),
 «¿Qué bono CER rinde más que los que tengo en la 805?»
 
 1. `preparar`: memoria podada a 8 turnos, resultados viejos achicados, foco saneado.
-2. `despacho`: la regla de señales ve «tengo» (cartera) y «bono», «cer»
+2. `ruteo`: la regla de señales ve «tengo» (cartera) y «bono», «cer»
    (renta_fija): van los dos, sin llamar a ningún modelo. Evento
-   `despacho · regla: señales (…)`.
+   `ruteo · regla: señales (…)`.
 3. En paralelo: `cartera` pide `tenencia_actual(805)` y redacta; `renta_fija`
    pide `curva("cer")` y redacta. Cada uno con sus fichas, no las de todos.
 4. `junta` recibe las dos respuestas con sus datos y escribe una sola.
@@ -114,31 +117,44 @@ Respuesta al front: `respuesta`, `falta`, `error`, `estado`, `sesion` (con su
 costo), `titulo`, `guardada`, `agentes`, `eventos` (cada paso, con el agente
 que lo hizo), `control`, tokens y vueltas.
 
-## 6. El despacho
+## 6. El ruteo
 
-De la capa más barata a la más cara:
+Quién atiende la pregunta. **No es un agente**: no tiene herramientas ni bucle.
+Es una función pura de la pregunta (`ruteo.por_reglas`) más, si hace falta, UNA
+llamada a un modelo. Devuelve una `Decision` con tres formas posibles, y el
+campo `tipo` dice cuál es (no se deduce de qué campo vino lleno):
 
-1. **Reglas** (`despacho.REGLAS`, en orden; la primera que decide, decide):
-   - `meta`: «¿qué sabés hacer?» se contesta desde los objetos `Agente`, sin
-     modelo ni agentes.
-   - `señales`: las señales de uno o más agentes aparecen en la pregunta →
-     esos. Si solo aparecen señales **de una familia** («cuánto rinde», «cómo
-     cotiza», «a cuánto vence»), la regla acota los candidatos a esa familia y
-     el modelo elige entre ellos.
-2. **El modelo** `asistente_despacho`, solo si ninguna regla decidió del todo.
+| `Decision.tipo` | Qué significa | Qué hace el grafo |
+|---|---|---|
+| `van` | estos agentes, seguro | los corre en paralelo, sin modelo |
+| `contesta` | la respuesta ya está | la devuelve; ningún agente corre |
+| `elige_el_modelo` | es de esta familia, falta cuál | llama al modelo entre esos candidatos |
+
+Tres capas, de la más barata a la más cara:
+
+1. **Las reglas** (`ruteo.REGLAS`, en orden; la primera que decide, decide).
+   Son código: sin costo, sin latencia, y el motivo queda escrito.
+   - `regla_meta`: «¿qué sabés hacer?» → `contesta`, con la presentación armada
+     desde el registro de agentes. Sin modelo y sin agentes.
+   - `regla_senales`: las señales propias de uno o más agentes aparecen en la
+     pregunta → `van` esos. Si solo aparecen señales **de una familia**
+     («cuánto rinde», «cómo cotiza», «a cuánto vence») → `elige_el_modelo`
+     entre los agentes de esa familia y nadie más.
+2. **El modelo** `asistente_ruteo`, solo si ninguna regla decidió del todo.
    Recibe el foco («la conversación viene hablando de cuenta = 805»), porque una
    pregunta corta sobre una cuenta puede ser de cartera, de cliente o de
    operaciones, y elegir entre esos es suyo. Se acepta una lista de nombres y
-   nada más.
+   nada más: una frase no se interpreta.
 3. **Todos los candidatos**, si el modelo no se entendió o falló. Más caro, no
-   más peligroso.
+   más peligroso: cada agente sigue viendo solo lo suyo.
 
 Una señal es una palabra entera, en minúsculas y sin acentos, declarada en el
 `Agente` (`senales`; las variantes se declaran: «cer» no es «cerca»). Las
 genéricas de un tema («rinde», «cotiza», «precio», «tasa», «vence») viven en la
 `Familia`, no en un agente, y un test falla si un agente las repite. Una
-pregunta meta es una de las frases de `META` entera. El evento `despacho` dice
-siempre quién decidió: `regla: …`, `eligió el modelo` o `van todos`.
+pregunta meta es una de las frases de `META` entera. El evento `ruteo` dice
+siempre a quiénes les tocó (`elegidos`) y quién decidió (`motivo`: `regla: …`,
+`eligió el modelo` o `van todos`).
 
 ## 7. Ruteo de modelos
 
@@ -148,7 +164,7 @@ Una tarea desconocida no corre.
 
 | Tarea | Default | Datos | Por qué |
 |---|---|---|---|
-| `asistente_despacho` | DeepSeek flash | ninguno | clasifica, no contesta |
+| `asistente_ruteo` | DeepSeek flash | ninguno | clasifica, no contesta |
 | `asistente_cartera` | OpenAI pro | negocio | herramientas + no entrena |
 | `asistente_cliente` | OpenAI pro | personal | contacto y documento: nunca a quien entrena, sin texto en la traza |
 | `asistente_operaciones` | OpenAI pro | negocio | el libro de la mesa |
@@ -184,7 +200,7 @@ vuelve como dato.
   corrida del grafo, y una corrida es una pregunta. La conversación es un dato
   del negocio, con dueño, lista y borrado: una tabla nuestra.
 - Cada mensaje de la memoria lleva la marca `agente` (la junta queda como
-  cartera; una regla que contestó, `despacho`) y cada pregunta la marca
+  cartera; una regla que contestó, `ruteo`) y cada pregunta la marca
   `agentes` (quiénes la atendieron). Un agente recibe solo lo marcado con su
   nombre y las preguntas que atendió: lo que trajo cartera nunca llega al
   proveedor de renta fija, y una pregunta que fue solo a cartera no la ve
@@ -226,7 +242,7 @@ Cada paso tiene un test que falla si se olvida. Si un cambio necesita tocar
 
 **Un agente** (skill `add-agente`):
 1. `asistente/agentes/<nombre>.py` con sus herramientas y un `AGENTE = Agente(...)`
-   con `nombre`, `tarea`, `describe` (lo lee el despacho), `instruccion`
+   con `nombre`, `tarea`, `describe` (lo lee el ruteo), `instruccion`
    (`COMUN` + lo suyo), `herramientas` (puede nacer vacío), `senales`
    (específicas: las genéricas van en la familia), `familia`, `foco`.
 2. La tarea en `core/modelos.TAREAS` (tier, `datos: "negocio"` o `"personal"`,
@@ -253,9 +269,11 @@ genéricas, y `familia="..."` en cada agente que la integra.
 **Una clave de foco**: una entrada en `estado.EN_FOCO` (normalizador y
 validador), y `foco=(...)` en los agentes que la leen.
 
-**Una regla de despacho**: una función `(pregunta_normalizada, foco) -> Decision | None`
-en `despacho.py`, sumada a `REGLAS` en el orden que corresponda. Se lee en una
-línea o no es una regla.
+**Una regla de ruteo**: una función `(pregunta_normalizada) -> Decision | None`
+en `ruteo.py`, sumada a `REGLAS` en el orden que corresponda. Se lee en una
+línea o no es una regla: si no, es un modelo escrito a mano. Una regla NO ve el
+foco — el foco no cambia de qué habla la pregunta, solo de qué cuenta; quien lo
+necesita es el modelo de la capa 2.
 
 **Un control antes de una herramienta**: una función en `puerta.py`, por
 argumento, sumada a `CONTROLES`.
@@ -286,7 +304,7 @@ ningún proveedor ve datos del otro agente.
 
 ## 12. Observabilidad
 
-- `eventos` en cada respuesta: `pregunta`, `podado`, `achicado`, `despacho`,
+- `eventos` en cada respuesta: `pregunta`, `podado`, `achicado`, `ruteo`,
   `vuelta`, `pide`, `resultado`, `estado`, `texto`, `corte`, `junta`, con `agente`.
 - `ia.llamadas`: una fila por llamada con tarea, modelo, tokens, caché, latencia,
   sesión, un extracto del pedido y de la respuesta (salvo dato personal). El
@@ -299,7 +317,7 @@ ningún proveedor ve datos del otro agente.
 ## 13. Tests
 
 `tests/unit/test_asistente.py`. Cubren agentes y familias, el registro, las
-reglas del despacho, el foco, esquemas, permisos, puerta, control, memoria, el
+reglas del ruteo, el foco, esquemas, permisos, puerta, control, memoria, el
 ruteo de modelos, la traza, las sesiones y el grafo de punta a punta con un
 proveedor falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
 
@@ -308,5 +326,5 @@ proveedor falso. Correr con `python -m pytest -q tests/unit/test_asistente.py`.
 - Probar en el LAB con los proveedores reales.
 - Las herramientas de los agentes modelados sin ellas, en el orden que pida la mesa.
 - Eval por tarea: 15 preguntas con la herramienta, los argumentos y la decisión
-  del despacho esperados.
+  del ruteo esperados.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).

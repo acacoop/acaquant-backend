@@ -1,27 +1,23 @@
-"""La junta: cuando varios agentes contestaron, una llamada más redacta con los
-datos de todos delante. Corre con la tarea de CARTERA porque ve datos del
-negocio, y lo que escribe queda en el historial como de ese agente."""
+"""La JUNTA: cuando contestaron varios agentes, una llamada más redacta con los
+datos de todos delante. No es un agente: no tiene herramientas ni bucle.
+
+Corre con la tarea de CARTERA porque ve datos del negocio, y lo que escribe
+queda en el historial marcado como de ese agente: es el único que puede
+releerlo. Doc: docs/AvAgentAI.md §2."""
 from __future__ import annotations
 
-from asistente.agente import COMUN, Agente
+from asistente.agente import COMUN
 from asistente.agentes import cartera
 
+TAREA = cartera.AGENTE.tarea
+# Con qué marca queda en el historial lo que escribe.
+COMO = cartera.AGENTE.nombre
 
-def _instruccion(_foco: dict) -> str:
+
+def instruccion(_foco: dict) -> str:
     return (
         COMUN
         + "\nTe llegan la pregunta y lo que contestó cada agente, con los datos que usó. "
-          "Escribí UNA respuesta que cruce los dos. Todo número que escribas tiene que "
+          "Escribí UNA respuesta que los cruce. Todo número que escribas tiene que "
           "estar en esos datos.\n"
     )
-
-
-JUNTA = Agente(
-    nombre="junta",
-    tarea=cartera.AGENTE.tarea,
-    describe="cruza lo que contestaron varios agentes",
-    instruccion=_instruccion,
-)
-# Con qué marca queda en el historial: el agente que ve datos del negocio es el
-# único que puede releer lo que escribió la junta.
-JUNTA_COMO = cartera.AGENTE.nombre

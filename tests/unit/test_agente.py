@@ -1331,8 +1331,11 @@ def test_toda_fila_sin_cartera_dice_POR_QUE():
     sugiere una cartera»* — y no podía entenderlo, porque la fila mostraba un
     guion y nada más. Las razones son cuatro y se atienden distinto: una es un
     bug (el prefijo `CRN.` que no estaba), otra es completar los ejes de un
-    bono, otra es que el título es un CEDEAR y la mesa no declaró con qué
-    cartera los sigue, y otra es que no hay nada de dónde derivarlo.
+    bono, y otra es que no hay nada de dónde derivarlo.
+
+    El CEDEAR estaba en esta lista —«la mesa no declaró con qué cartera los
+    sigue»— y se fue de acá el 2026-09-16: la mesa la declaró y ahora propone
+    (§0.fm, `test_el_cedear_va_a_RENTA_VARIABLE`).
     """
     from agente import cartera
 
@@ -1340,7 +1343,6 @@ def test_toda_fila_sin_cartera_dice_POR_QUE():
     # El caso que estaba roto: un futuro de maíz de CHICAGO. `PRODUCTO` sabía
     # que `CRN` es maíz y la lista del job no.
     chicago = {**base, "unidad": "[CRN.CME/ABR27]", "ticker": "CRN.CME/ABR27"}
-    cedear = {**base, "unidad": "[8012] CAT", "ticker": "CAT"}
     sin_ejes = {**base, "unidad": "[1] X", "ticker": "XBONO"}
     en_1816 = {**base, "unidad": "[2] Y", "ticker": "YBONO"}
     huerfano = {**base, "unidad": "[3] Z", "ticker": "ZZZ"}
@@ -1348,7 +1350,7 @@ def test_toda_fila_sin_cartera_dice_POR_QUE():
     master = [{"ticker_corto": "XBONO", "moneda_eje": "", "ajuste": ""}]
     univ = {"instrumentos": {"YBONO": {"_curva": "Una curva que 1816 inventó"}}}
 
-    r = cartera.proponer([chicago, cedear, sin_ejes, en_1816, huerfano],
+    r = cartera.proponer([chicago, sin_ejes, en_1816, huerfano],
                          master, univ, usadas=["DERIVADOS", "ARS", "HD"],
                          cedears=[{"ticker_corto": "CAT"}])
     notas = {f["unidad"]: f["nota"] for f in r}
@@ -1361,10 +1363,80 @@ def test_toda_fila_sin_cartera_dice_POR_QUE():
         assert f["propuesto"] == "" and f["nota"], (
             f"«{f['unidad']}» quedó sin propuesta Y SIN MOTIVO: en pantalla es "
             "un guion pelado")
-    assert "CEDEAR" in notas["[8012] CAT"]
     assert "EJES" in notas["[1] X"] and "completá" in notas["[1] X"]
     assert "1816" in notas["[2] Y"]
     assert "ninguna regla" in notas["[3] Z"]
+
+
+def test_el_cedear_va_a_RENTA_VARIABLE():
+    """⚠️ **LA CUARTA FUENTE DE LA CARTERA** (§0.fm). El user, mirando las dos
+    filas que quedaban con la nota «es un CEDEAR (está en mercado.cedears):
+    ninguna regla dice con qué cartera los sigue la mesa»: *«si esta en mercado
+    cedears la crayera es renta variable.. no hay muchas vueltas»*.
+
+    Tres cosas se congelan acá, y las tres son el riesgo de una regla de una
+    línea:
+
+    1. **Propone, y dice de dónde salió** (`fuente == CEDEAR`): la nota se
+       convirtió en propuesta, no desapareció.
+    2. **La lista cerrada sigue mandando.** Si `RENTA VARIABLE` no estuviera en
+       el catálogo, la regla NO inventa la grafía (mismo invariante que las
+       otras tres fuentes).
+    3. **Va ÚLTIMA.** Si el ticker ya se explicó como bono por sus ejes, esa
+       explicación gana: los tickers están topeados en 5 caracteres y un choque
+       de grafía entre un bono y un CEDEAR no es imposible (REGLA #9.A).
+    """
+    from agente import cartera
+    from core.cartera import RENTA_VARIABLE
+
+    base = {"clase_activo": "", "emisor": "", "cartera": ""}
+    upst = {**base, "unidad": "[8578] UPST", "ticker": "UPST"}
+    mp = {**base, "unidad": "[8737] MP - CEDEAR MP MATERIALS CORP.", "ticker": "MP"}
+    cedears = [{"ticker_corto": "UPST"}, {"ticker_corto": "MP"}]
+    usadas = ["HD", "ARS", RENTA_VARIABLE]
+
+    r = cartera.proponer([upst, mp], master=[], universo_1816={},
+                         usadas=usadas, cedears=cedears)
+    assert [(f["propuesto"], f["fuente"]) for f in r] == [
+        (RENTA_VARIABLE, cartera.CEDEAR)] * 2
+    assert all(f["nota"] == "" for f in r)
+
+    # Y es determinístico: el ejecutor lo escribe sin que nadie apriete.
+    assert cartera.deterministas(r) == [
+        {"unidad": upst["unidad"], "valor": RENTA_VARIABLE},
+        {"unidad": mp["unidad"], "valor": RENTA_VARIABLE}]
+
+    # (2) La lista cerrada: sin la cartera cargada, no se inventa la grafía.
+    sin_lista = cartera.proponer([upst], master=[], universo_1816={},
+                                 usadas=["HD"], cedears=cedears)
+    assert sin_lista[0]["propuesto"] == ""
+    assert RENTA_VARIABLE in sin_lista[0]["nota"]
+
+    # (3) El orden: un ticker que TAMBIÉN está en el master de curvas con ejes
+    # de bono se queda con la explicación del bono.
+    choque = cartera.proponer(
+        [upst], master=[{"ticker_corto": "UPST", "moneda_eje": "USD",
+                         "ajuste": "fija"}],
+        universo_1816={}, usadas=usadas, cedears=cedears)
+    assert (choque[0]["propuesto"], choque[0]["fuente"]) == ("HD", cartera.CURVA)
+
+
+def test_el_ejecutor_de_cartera_LEE_EL_MISMO_MASTER_DE_CEDEARS(monkeypatch):
+    """⚠️ **UN UNIVERSO, UN CRITERIO** (REGLA #9, §0.fm). Mientras el master de
+    CEDEARs era sólo evidencia para la nota, el ejecutor (`solo`) podía
+    ahorrárselo y el preview lo pedía: dos universos distintos sin consecuencia.
+    Desde que PROPONE, esa asimetría se vuelve un desacuerdo mudo — la pantalla
+    ofrece `RENTA VARIABLE` para un CEDEAR y el agente nunca lo escribe solo, o
+    al revés, y nadie puede explicar de dónde salió.
+    """
+    import inspect as _i
+
+    from agente import arreglos
+
+    for fn in (arreglos.CompletarFicha.preview, arreglos.CompletarFicha.solo):
+        assert "cedears_master()" in _i.getsource(fn), (
+            f"{fn.__name__} dejó de leer mercado.cedears: el preview y el "
+            "ejecutor tienen que ver el mismo universo")
 
 
 def test_no_queda_ni_un_hilo_del_auto_control_viejo():

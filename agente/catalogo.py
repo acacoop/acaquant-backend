@@ -389,8 +389,9 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
                     "persona.",
                     "sin_cartera":
                     "reglas del job (pagarés, FCI, OTC/agro) + los ejes del "
-                    "bono en el master o en el catálogo de 1816: "
-                    "dolar_linked → DL, USD/EUR → HD, ARS → ARS. Lo demás "
+                    "bono en el master o en el catálogo de 1816 "
+                    "(dolar_linked → DL, USD/EUR → HD, ARS → ARS) + los que "
+                    "están en mercado.cedears → RENTA VARIABLE. Lo demás "
                     "queda para una persona."}),
 
     # ── DATOS · SEGURIDAD ──────────────────────────────────────────────────

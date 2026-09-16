@@ -7101,7 +7101,7 @@ distinto —
 **Lo que queda abierto y es criterio de la mesa**: si un CEDEAR va a cartera
 `RENTA VARIABLE`, eso es una regla de una línea (`mercado.cedears` ya está
 leído) y completa `CAT`, `GEV` y lo que venga. Nadie lo declaró todavía, así que
-no se inventó.
+no se inventó. → **Se declaró cinco días después: §0.fm.**
 
 ---
 
@@ -7132,3 +7132,58 @@ los mensajes siguen en el navegador y «empezar de nuevo» los borra. Reabrir un
 conversación de ayer sigue sin existir hasta que exista la pregunta que lo pida.
 Cuando exista, el id ya está, y con él se agrupan las llamadas que ya quedaron
 anotadas desde hoy.
+
+---
+
+### 0.fm EL CEDEAR YA NO PREGUNTA — la nota que se volvió regla (2026-09-16)
+
+`UPST` y `MP` esperando en la pantalla de CARTERA con la misma nota, la que
+§0.fi había dejado a propósito: *«es un CEDEAR (está en `mercado.cedears`):
+ninguna regla dice con qué cartera los sigue la mesa»*. El user la contestó en
+una línea: *«si esta en mercado cedears la crayera es renta variable.. no hay
+muchas vueltas»*.
+
+**Eso es exactamente lo que le faltaba a la regla, y no es un detalle de
+implementación.** El master de CEDEARs ya estaba leído, indexado y colgado de la
+fila desde §0.fi; lo único que faltaba era el CRITERIO, que no se podía derivar
+de ningún dato: saber que un título es una acción no dice con qué etiqueta la
+sigue la mesa. Por eso viajaba como evidencia y no como propuesta. Declarado el
+criterio, la nota se convirtió en la cuarta fuente de `agente/cartera.py`:
+
+| Fuente | De dónde sale |
+|---|---|
+| `REGLA` | las reglas de `jobs/assets_autofill` (pagarés, FCI, OTC/agro) |
+| `CURVA` | los EJES del bono en `mercado.curvas` |
+| `1816` | los EJES del bono en el catálogo local de 1816 |
+| **`CEDEAR`** | **está en `mercado.cedears` → `RENTA VARIABLE`** |
+
+**Las tres guardas que la regla de una línea NO se saltea:**
+
+- **Va ÚLTIMA en la cadena.** Los tickers están topeados en 5 caracteres y un
+  choque de grafía entre un bono y un CEDEAR no es imposible (REGLA #9.A): si el
+  título ya se explicó como bono por sus ejes, esa explicación gana. La regla
+  nueva sólo contesta donde antes había un guion.
+- **La LISTA CERRADA sigue mandando.** Si `RENTA VARIABLE` no estuviera cargada
+  en el catálogo, la regla no inventa la grafía: la fila vuelve sin propuesta y
+  con la nota de siempre. Es el mismo invariante de las otras tres fuentes.
+- **El PREVIEW y el EJECUTOR leen el mismo master.** Mientras era evidencia, el
+  ejecutor (`CompletarFicha.solo`) podía ahorrarse esa consulta y la pantalla la
+  hacía: dos universos distintos sin consecuencia. Desde que PROPONE, esa
+  asimetría se vuelve el desacuerdo mudo de siempre —la pantalla ofrece una
+  cartera que el agente nunca escribiría solo— así que el ejecutor la lee
+  también. Un universo, un criterio (§0.fh, REGLA #9). Lo congela
+  `test_el_ejecutor_de_cartera_LEE_EL_MISMO_MASTER_DE_CEDEARS`.
+
+- **`None` no es una lista vacía, tampoco en la nota.** `cedears_master()`
+  devuelve `None` cuando no pudo leer y `[]` cuando afirma que no hay ninguno
+  cargado. Mientras era evidencia daba igual; desde que propone, «no está en
+  `mercado.cedears`» con la lectura caída sería una afirmación que nadie midió
+  (REGLA #2). La fila se queda sin propuesta en los dos casos — lo que cambia es
+  qué hay que ir a mirar, y la nota lo dice.
+
+**Qué cambia en pantalla.** Los CEDEARs sin cartera dejan de ser una pregunta:
+llegan con `RENTA VARIABLE` propuesto y su fuente, y —por estar declarada en
+`automatico` de la habilidad `ficha_incompleta`— el ejecutor los completa solo
+dentro de la hora, sin que nadie apriete. La cartera decide el divisor de la
+valuación, así que cada CEDEAR que se completa es una tenencia que deja de caer
+en el balde «otras» del AuM y de `/aca`.

@@ -778,13 +778,18 @@ class CompletarFicha(Arreglo):
             # podrían ver universos distintos: el agente escribiría solo una
             # cartera que la pantalla nunca ofreció, y nadie podría explicar de
             # dónde salió (REGLA #9). Un universo, un criterio.
-            # Sin `cedears`: ese master es EVIDENCIA PARA LA NOTA y no propone
-            # nada, así que el ejecutor no lo necesita (y es una consulta menos
-            # en cada pasada del daemon).
+            # ⚠️ **Y `cedears` TAMBIÉN, desde §0.fm.** Mientras ese master
+            # era sólo evidencia para la nota, el ejecutor podía ahorrárselo.
+            # Desde que PROPONE `RENTA VARIABLE` es una fuente como el master
+            # de curvas: sin él, la pantalla ofrecería una cartera que el
+            # agente nunca escribiría solo — el mismo desacuerdo mudo de acá
+            # arriba, en otra fuente. Es una consulta cacheada por pasada
+            # (`fuentes._una_vez`).
             return cartera.deterministas(
                 cartera.proponer(det.faltantes(c), fuentes.master(),
                                  fuentes.universo_1816_local(),
-                                 det.valores_usados("cartera")))
+                                 det.valores_usados("cartera"),
+                                 cedears=fuentes.cedears_master()))
         return None
 
     def aplicar(self, sujeto: str, ev: dict, por: str = "",

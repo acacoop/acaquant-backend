@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **522 endpoints** montados en `api.main.app`, en **35 routers**.
-- **196 escriben** (POST/PUT/PATCH/DELETE); 326 son de solo lectura.
+- **527 endpoints** montados en `api.main.app`, en **35 routers**.
+- **196 escriben** (POST/PUT/PATCH/DELETE); 331 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -53,7 +53,7 @@
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
-| `/api/back-office` | 67 | 39 | `back-office` · 34 rutas con gate extra | `back-office` |  |
+| `/api/back-office` | 72 | 39 | `back-office` · 34 rutas con gate extra | `back-office` |  |
 | `/api/back-office/custodia` | 2 | 0 | `back-office` | `back-office` |  |
 | `/api/back-office/interbanking` | 27 | 18 | `back-office` · 23 rutas con gate extra | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |

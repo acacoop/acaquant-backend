@@ -17,6 +17,14 @@ sino en otra tabla (`mercado.curvas`) o en el censo de 1816.
     CURVA    — los EJES del bono en el master (`agente.fuentes.master`)
     1816     — los EJES del bono en el catálogo local de 1816
                (`agente.fuentes.universo_1816`, vía `core.curvas_ejes.desde_1816`)
+    CEDEAR   — está en `mercado.cedears` → `RENTA VARIABLE` (§0.fm)
+
+**El CEDEAR va ÚLTIMO en la cadena, y es a propósito.** Es la regla más simple
+de las cuatro —un ticker que está en `mercado.cedears` es una acción, y la mesa
+sigue las acciones en `RENTA VARIABLE`—, pero se pregunta recién cuando ninguna
+otra contestó: los tickers están topeados en 5 caracteres y un choque de grafía
+entre un bono y un CEDEAR no es imposible (REGLA #9.A). Si el título ya se
+explicó como bono —por sus ejes en el master o en 1816—, esa explicación gana.
 
 ⚠️ **LISTA CERRADA, mismo invariante que `clase.py` y `emisor.py`.** Una regla
 no inventa grafías: si el valor que la regla derivaría todavía no existe en
@@ -29,13 +37,13 @@ from __future__ import annotations
 import logging
 
 from agente.detectores.mercado import _es_pata_1816, _tk
-from core.cartera import de_ejes
+from core.cartera import RENTA_VARIABLE, de_ejes
 from core.clase_activo import en_lista_cerrada
 from core.curvas_ejes import desde_1816
 
 logger = logging.getLogger(__name__)
 
-REGLA, CURVA, MIL816 = "regla", "curva", "1816"
+REGLA, CURVA, MIL816, CEDEAR = "regla", "curva", "1816", "cedear"
 
 
 def _reglas_job():
@@ -85,10 +93,13 @@ def _indice_1816(universo_1816: dict | None) -> dict[str, dict]:
 
 def _tickers_cedears(cedears: list[dict] | None) -> set[str]:
     """`{ticker_corto.upper()}` del master de CEDEARs (`fuentes.cedears_master`).
-    No propone nada: es **evidencia para la nota**. Saber que un título es un
-    CEDEAR no dice con qué cartera lo sigue la mesa —eso es criterio, no
-    derivación—, pero convierte «no sé qué es esto» en «sé qué es y no sé cómo
-    lo llaman ustedes», que es una pregunta que alguien puede contestar."""
+
+    Nació como **evidencia para la nota** —«sé qué es y no sé cómo lo llaman
+    ustedes»— porque el criterio no estaba declarado. El user lo declaró
+    (§0.fm): *«si está en mercado.cedears la cartera es renta variable, no hay
+    muchas vueltas»*. Desde entonces PROPONE, y es la única de las cuatro
+    fuentes que no deriva de ejes ni de la forma de la unidad: deriva de que
+    alguien cargó ese ticker como CEDEAR."""
     return {(c.get("ticker_corto") or "").strip().upper()
             for c in (cedears or []) if (c.get("ticker_corto") or "").strip()}
 
@@ -98,6 +109,14 @@ def proponer(filas: list[dict], master: list[dict] | None,
              cedears: list[dict] | None = None) -> list[dict]:
     """Cada fila con `propuesto`, `fuente` y `nota`. **PURA** salvo el import
     lazy de las reglas del job. `master` es `agente.fuentes.master()`.
+
+    `cedears` es `agente.fuentes.cedears_master()`. ⚠️ **Los DOS llamadores
+    —el preview y el ejecutor (`agente.arreglos.CompletarFicha`)— lo tienen que
+    pasar.** Desde que propone, un ejecutor sin este master vería un universo
+    más chico que la pantalla: la pantalla ofrecería `RENTA VARIABLE` para un
+    CEDEAR y el agente nunca lo escribiría, o al revés — un desacuerdo que no
+    falla (REGLA #9). Si llega `None`, no propone y la fila cae en la nota
+    genérica.
 
     `universo_1816` es **`agente.fuentes.universo_1816_local()`** —el catálogo
     persistido— y no el censo vivo: el censo son ~29 llamadas con 2,5 s de
@@ -113,6 +132,14 @@ def proponer(filas: list[dict], master: list[dict] | None,
     indice_master = _indice_master(master)
     indice_1816 = _indice_1816(universo_1816)
     tickers_cedear = _tickers_cedears(cedears)
+    # ⚠️ **`None` NO ES UNA LISTA VACÍA** (el invariante de `agente/fuentes.py`).
+    # `cedears_master()` devuelve `None` cuando NO PUDO LEER y `[]` cuando
+    # AFIRMA que no hay ninguno cargado. Las dos cosas dejan el set vacío, pero
+    # no se explican igual: una es «faltó la fuente», la otra es «la fuente
+    # contestó, y contestó que no». Sin esta distinción, el día que la lectura
+    # falle la fila diría que el título no es un CEDEAR — que es exactamente lo
+    # que no se puede afirmar (REGLA #2).
+    hubo_master_cedears = cedears is not None
     out = []
     for f in filas:
         fila = {**f, "propuesto": "", "fuente": "", "nota": ""}
@@ -138,9 +165,14 @@ def proponer(filas: list[dict], master: list[dict] | None,
             if (v := de_ejes(ejes_1816.moneda, ejes_1816.ajuste)):
                 fila["propuesto"], fila["fuente"] = v, MIL816
 
+        # ── EL CEDEAR (§0.fm). Última de la cadena, ver el encabezado.
+        if not fila["propuesto"] and ticker and ticker in tickers_cedear:
+            fila["propuesto"], fila["fuente"] = RENTA_VARIABLE, CEDEAR
+
         # ── POR QUÉ NO, cuando no hay propuesta. Las razones se atienden
         #    distinto: una es cargar un valor, otra es completar los ejes de un
-        #    bono, otra es que no hay regla y lo tiene que decidir la mesa.
+        #    bono, otra es que faltó una fuente en esta corrida, y otra es que
+        #    no hay de dónde derivarlo y lo tiene que decidir la mesa.
         if not fila["propuesto"]:
             if fin_ is None:
                 fila["nota"] = ("no pude leer las reglas del job "
@@ -155,12 +187,20 @@ def proponer(filas: list[dict], master: list[dict] | None,
                 fila["nota"] = (
                     f"1816 lo pone en la curva «{inst.get('_curva') or '—'}», "
                     "que no traduce a ejes conocidos")
-            elif ticker and ticker in tickers_cedear:
-                fila["nota"] = ("es un CEDEAR (está en mercado.cedears): ninguna "
-                                "regla dice con qué cartera los sigue la mesa")
-            else:
+            elif not hubo_master_cedears:
                 fila["nota"] = ("ninguna regla del job lo reconoce y no está ni "
-                                "en mercado.curvas ni en el catálogo de 1816")
+                                "en mercado.curvas ni en el catálogo de 1816 — y "
+                                "en esta corrida NO PUDE LEER mercado.cedears, "
+                                "así que tampoco se pudo descartar que sea un "
+                                "CEDEAR")
+            elif not tickers_cedear:
+                fila["nota"] = ("ninguna regla del job lo reconoce y no está en "
+                                "mercado.curvas ni en el catálogo de 1816, y "
+                                "mercado.cedears no tiene NINGÚN ticker cargado")
+            else:
+                fila["nota"] = ("ninguna regla del job lo reconoce y no está en "
+                                "mercado.curvas, ni en el catálogo de 1816, ni "
+                                "en mercado.cedears")
 
         # ⚠️ **LA LISTA CERRADA**, mismo invariante que `clase.py`/`emisor.py`,
         # tolerante a grafía (`en_lista_cerrada`).

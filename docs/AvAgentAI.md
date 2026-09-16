@@ -381,10 +381,35 @@ del turno anterior, copiarla mal no fallaría: devolvería otra lista, igual de
 convincente (REGLA #9). Y si no se conoce el vencimiento de la referencia, no
 se contesta: «más largo» que nada no quiere decir nada.
 
+**El modelo elige la herramienta por lo que ella dice de sí misma, no por lo
+que hace: el código es invisible.** Lo único que ve es NOMBRE + DESCRIPCIÓN +
+ESQUEMA, así que esas tres cosas son la interfaz real y se auditan como código:
+
+- **Nombre**: dice qué devuelve. Uno genérico atrae llamadas que no le tocan.
+- **Descripción**: dice cuándo usarla **y cuándo NO**, nombrando a la que sí
+  corresponde. Dos herramientas que se pisan sin decirlo terminan llamadas las
+  dos — y si las dos dibujan tabla, salen dos tablas de lo mismo.
+- **Esquema**: tipos, enums, formatos y rangos. Lo que el esquema declara NO se
+  repite en la prosa (los valores de un `Literal`, `format: date`, el
+  `minimum`/`maximum` de un entero): repetirlo gasta contexto y, si alguna vez
+  difieren, el modelo tiene dos verdades sobre el mismo argumento. Ojo: el
+  grafo llama a la función CRUDA (`grafo._ejecutar` hace `fn(**args)`), no al
+  `StructuredTool`, así que pydantic no valida nada en runtime — el esquema es
+  para que el modelo no se equivoque, y el que valida sigue siendo el código.
+
+**Un dato que la herramienta puede deducir no se pregunta.** `opciones_para_rotar`
+pedía «¿qué título sale?» porque el usuario había dicho «venderlo» en vez de
+nombrarlo — pero la cuenta tenía UN solo bono. Con uno solo no hay ambigüedad y
+el código lo resuelve; con dos o más se pregunta, porque ahí elegir por él sería
+inventar. Preguntar lo que ya se sabe le quema un turno al operador.
+
 **Cuántas opciones se presentan es una decisión, no un tope técnico.**
-`opciones_para_rotar` muestra **3** (`cuantas`, hasta 20 si piden más).
+`opciones_para_rotar` muestra **3** (`mostrar`, hasta 20 si piden más).
 Devolver 45 alternativas a «¿hay alguno?» no es ser más completo: es no haber
-contestado.
+contestado. Y por eso `truncado` es true **solo si pidieron un número y había
+más**: mostrar las 3 mejores de 4 cuando nadie pidió un número ES la respuesta,
+y avisarle al modelo que «hay más» lo manda a completar con otra herramienta —
+así salió la segunda tabla medida en el LAB.
 
 **En el resultado viajan DATOS, no instrucciones.** El modelo no distingue una
 cosa de la otra: un `aviso` en prosa escrito para él («hay 125 y estás viendo

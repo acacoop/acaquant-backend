@@ -4,13 +4,16 @@ y su agente, en un solo archivo. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Literal, get_args
+from typing import Annotated, Literal, get_args
+
+from pydantic import Field
 
 from asistente import estado as EST
 from asistente import pantalla, permitido
 from asistente.agente import COMUN, Agente
 from asistente.agentes.renta_fija import (
     EmisorTipo,
+    Fecha,
     clave_emisor,
     en_ventana,
     es_del_emisor,
@@ -89,7 +92,8 @@ def _cuenta_habilitada(cuenta) -> tuple[str | None, dict | None]:
     return pedida, None
 
 
-def cobros_futuros(cuenta: str, dias: int = 90, hasta: str | None = None) -> dict:
+def cobros_futuros(cuenta: str, dias: Annotated[int, Field(ge=1, le=MAX_DIAS)] = 90,
+                   hasta: Fecha | None = None) -> dict:
     """Cuánta PLATA va a cobrar una cuenta de acá a una fecha, y en qué fechas.
 
     Contesta las dos preguntas que parecen distintas y no lo son:
@@ -122,10 +126,10 @@ def cobros_futuros(cuenta: str, dias: int = 90, hasta: str | None = None) -> dic
 
     Args:
         cuenta: el `id_cuenta` a mirar.
-        dias: cuántos días para adelante mirar. Entre 1 y 730; si el usuario
-            no dijo un plazo, son 90 y NO hace falta preguntárselo.
-        hasta: la fecha límite, `YYYY-MM-DD`, si el usuario nombró una («hasta
-            fin de año», «al 31 de diciembre»). Pisa a `dias`.
+        dias: cuántos días para adelante mirar. Si el usuario no dijo un
+            plazo, son 90 y NO hace falta preguntárselo.
+        hasta: la fecha límite, si el usuario nombró una («hasta fin de año»,
+            «al 31 de diciembre»). Pisa a `dias`.
     """
     hoy = date.today()
     if hasta:
@@ -411,8 +415,9 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
                         desde_emisor: str | None = None, hacia_emisor: str | None = None,
                         hacia_tipo: EmisorTipo | None = None,
                         hacia_plazo: HaciaPlazo | None = None,
-                        hacia_vencimiento: str | None = None,
-                        cuantas: int = ALTERNATIVAS) -> dict:
+                        hacia_vencimiento: Fecha | None = None,
+                        mostrar: Annotated[int, Field(ge=1, le=MAX_ALTERNATIVAS)]
+                        | None = None) -> dict:
     """Qué opciones hay para cambiar un título de la cuenta por otro.
 
     Compara RENDIMIENTOS, no plata: acá no hay nominales ni valuación. «Rotar
@@ -421,31 +426,34 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
     Las alternativas salen de la MISMA CURVA que el título que sale: la TEA de
     un CER y la de un hard dollar no son el mismo número.
 
+    Ya mira el mercado por vos: NO llames `curva` después para completar la
+    lista —serían dos tablas de lo mismo— ni para mirar el título que sale.
+    NO es para comprar sin vender nada («qué bono me conviene»): eso es
+    `curva`. Acá siempre hay algo de la cuenta que SALE.
+
     QUÉ DEVUELVE:
       · `referencia` — el título tuyo que SALE, con su tasa y duration.
       · `alternativas` — las mejores por `delta_tea_pp` (cuánto MÁS rinde que
         la referencia, en puntos), con `delta_duration` (positivo = estirás el
         plazo). Ya restados.
-      · `ventana` — entre qué fechas se buscó, si pediste un plazo.
-      · `tenes` — tus títulos que entraron en el criterio; `sin_tasa`, los que
-        no se pudieron comparar.
+      · `ventana` — entre qué fechas se buscó, si pediste plazo.
+      · `tenes` — los tuyos que entraron; `sin_tasa`, los que no comparan.
       · Un delta positivo NO es una recomendación: mirá también la duration.
 
     Args:
         cuenta: el `id_cuenta` a mirar.
-        ticker: QUÉ título sale, si el usuario lo nombró («rotar mi YFCOO»).
+        ticker: QUÉ título sale. Si el usuario lo señaló sin nombrarlo
+            («venderlo», «ese», «el que tengo»), es el ticker que ya trajo
+            una herramienta en esta conversación: mandá ése.
         desde_emisor: si no nombró un título sino un emisor («mis bonos de
             YPF»); sale el que MENOS rinde de ésos. Hace falta uno de los dos.
         hacia_emisor: alternativas de este emisor, por pedazo del nombre.
-        hacia_tipo: o de este tipo — soberano · provincial · corporativo ·
-            bcra. `hacia_emisor` y `hacia_tipo` son excluyentes.
-        hacia_plazo: `mas_largo` o `mas_corto` cuando el usuario quiere
-            estirar o acortar el vencimiento. NO le mandes la fecha del título
-            que sale: ésa la pone el sistema, que la tiene.
-        hacia_vencimiento: `YYYY-MM-DD`, el OTRO extremo, si el usuario lo
-            nombró («hasta 2029» es `2029-12-31` con `mas_largo`). Se busca en
-            ese lapso y nada más.
-        cuantas: cuántas mostrar; 3 si no pidió un número.
+        hacia_tipo: o de este tipo. Excluyente con `hacia_emisor`.
+        hacia_plazo: cuando quiere estirar o acortar el vencimiento. NO le
+            mandes la fecha del que sale: ésa la pone el sistema, que la tiene.
+        hacia_vencimiento: el OTRO extremo, si el usuario lo nombró («hasta
+            2029» es `2029-12-31` con `mas_largo`). Se busca en ese lapso.
+        mostrar: cuántas querés; 3 si no pedís un número.
     """
     try:
         permitido.parametros()
@@ -458,9 +466,6 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
     tk = (str(ticker or "").strip().upper()) or None
     tipo = (str(hacia_tipo or "").strip().lower()) or None
     plazo = (str(hacia_plazo or "").strip().lower()) or None
-    if not tk and not desde_e:
-        return {"error": "hace falta decir QUÉ sale: `ticker` (el título que el usuario "
-                         "nombró) o `desde_emisor`"}
     if plazo and plazo not in get_args(HaciaPlazo):
         return {"error": f"`hacia_plazo` tiene que ser uno de {list(get_args(HaciaPlazo))}, "
                          f"llegó {hacia_plazo!r}"}
@@ -481,10 +486,15 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
             return {"error": "`hacia_vencimiento` es UN extremo de la ventana: mandá también "
                              "`hacia_plazo`, porque el otro extremo lo pone el vencimiento del "
                              "título que sale"}
+    # `mostrar` en None = nadie pidió un número. La diferencia importa para
+    # `truncado`: mostrar las 3 mejores de 4 cuando nadie pidió un número ES la
+    # respuesta, no un recorte. Decirle «truncado» ahí lo manda a buscar el
+    # resto con otra herramienta — medido en el LAB, así salió la segunda tabla.
+    pidio_numero = mostrar is not None
     try:
-        n = int(cuantas)
+        n = ALTERNATIVAS if mostrar is None else int(mostrar)
     except (TypeError, ValueError):
-        return {"error": f"`cuantas` tiene que ser un número entero, llegó {cuantas!r}"}
+        return {"error": f"`mostrar` tiene que ser un número entero, llegó {mostrar!r}"}
     n = max(1, min(n, MAX_ALTERNATIVAS))
 
     tenencia = tenencia_actual(pedida)
@@ -505,7 +515,7 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
         if not mios:
             return {"error": f"la cuenta {pedida} no tiene {ticker!r}",
                     "tickers_en_la_cuenta": sorted(p["ticker"] for p in posiciones if p.get("ticker"))}
-    else:
+    elif desde_e:
         mios = [p for p in posiciones
                 if es_del_emisor(p, desde_e) or es_del_emisor(mercado.get(p["ticker"]) or {}, desde_e)]
         if not mios:
@@ -513,6 +523,12 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
             return {"error": f"la cuenta {pedida} no tiene títulos de un emisor que contenga "
                              f"{desde_emisor!r}",
                     "emisores_en_la_cuenta": hay}
+    else:
+        # Nadie dijo qué sale. No es motivo para cortar todavía: si la cuenta
+        # tiene UN SOLO título comparable, «venderlo» señala con el dedo y el
+        # dedo apunta al único que hay. Preguntar «¿cuál?» con uno solo le
+        # quema un turno al operador. Con dos o más sí se pregunta (abajo).
+        mios = posiciones
 
     tenes = [{"ticker": p["ticker"], "curva": (mercado.get(p["ticker"]) or {}).get("curva"),
               "tea_pct": p.get("tea_pct"), "duration": p.get("duration"),
@@ -520,14 +536,23 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
               "tasa_ruido": p.get("tasa_ruido", False)} for p in mios]
     comparables = [f for f in tenes if _mirable(f) and f["curva"]]
     if not comparables:
-        return {"error": f"tenés {ticker or desde_emisor} pero sin tasa comparable hoy",
+        return {"error": f"tenés {ticker or desde_emisor or 'títulos'} pero sin tasa "
+                         f"comparable hoy",
                 "tenes": tenes,
                 "que_hacer": "Decilo así: no es que no haya alternativas, es que no hay con "
                              "qué compararlas."}
+    unico = not tk and not desde_e
+    if unico:
+        if len(comparables) > 1:
+            return {"error": "hace falta decir QUÉ sale: el `ticker` que el usuario nombró "
+                             "o señaló, o `desde_emisor`",
+                    "titulos_comparables": [f["ticker"] for f in comparables]}
+        # con uno solo, el resto de la cartera no es del tema
+        tenes = comparables
 
     # El que menos rinde es el candidato natural a salir, y es contra ése que
     # los deltas significan algo. Se nombra: el modelo no lo tiene que deducir.
-    ref = comparables[0] if tk else min(comparables, key=lambda f: f["tea_pct"])
+    ref = comparables[0] if (tk or unico) else min(comparables, key=lambda f: f["tea_pct"])
 
     # ⚠️ LA VENTANA LA ANCLA EL CÓDIGO, NO EL MODELO. El usuario nombra UNA
     # punta («hasta 2029»); la otra es el vencimiento del título que sale, que
@@ -590,11 +615,12 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
         "tenes": tenes,
         "referencia": {"ticker": ref["ticker"], "tea_pct": ref["tea_pct"],
                        "duration": ref["duration"], "vencimiento": ref["vencimiento"],
-                       "por_que": ("lo nombró el usuario" if tk
-                                   else "es el que menos rinde de los tuyos de ese emisor")},
+                       "por_que": ("lo nombró el usuario" if tk else
+                                   "es el único título comparable de la cuenta" if unico else
+                                   "es el que menos rinde de los tuyos de ese emisor")},
         "alternativas": alternativas[:n],
         "cuantas": len(alternativas),
-        "truncado": len(alternativas) > n,
+        "truncado": pidio_numero and len(alternativas) > n,
         "sin_tasa": [f["ticker"] for f in tenes if not _mirable(f)],
         "_tabla": pantalla.tabla(
             "alternativas",

@@ -166,6 +166,11 @@ def test_lo_que_empieza_con_guion_bajo_no_viaja_al_modelo_pero_el_aviso_si():
     visto = H.para_el_modelo(r)
     assert set(visto) == {"total", "posiciones", "se_muestra"}, "_tabla no, se_muestra sí"
     assert "Tenencia de la 805" in visto["se_muestra"] and "1 fila" in visto["se_muestra"]
+    # y es PREVENTIVO: además de «no la repitas», frena la SEGUNDA herramienta.
+    # Dibujar una tabla no es una acción del modelo —es un efecto de un payload
+    # que no ve—, así que llamar dos con tabla le sale gratis y al usuario le
+    # aparecen dos tablas pegadas de lo mismo (pasó con rotar + curva).
+    assert "otra herramienta" in visto["se_muestra"], "tiene que frenar la segunda tabla"
     assert H.para_el_modelo("texto") == "texto"
     # sin tabla, o con una tabla sin filas, no se le anuncia nada
     assert H.para_el_modelo({"total": 1}) == {"total": 1}
@@ -426,7 +431,6 @@ def test_rotar_acepta_un_TIPO_de_emisor_como_destino(permiso):
         sob = MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="soberano")
         assert [a["ticker"] for a in sob["alternativas"]] == ["GD30"]
         # las combinaciones que no se pueden resolver se dicen, no se adivinan
-        assert "error" in MC.opciones_para_rotar("805", hacia_emisor="Vista")
         assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO")
         assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO",
                                                  hacia_emisor="Vista", hacia_tipo="soberano")
@@ -483,10 +487,18 @@ def test_rotar_a_MAS_LARGO_ancla_el_punto_de_partida_en_el_bono_que_sale(permiso
         abierta = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
         assert abierta["ventana"] == {"desde": "2028-10-31", "hasta": None}
         assert "GD46" in [a["ticker"] for a in abierta["alternativas"]]
-        # se muestran TRES si no pidió un número, aunque haya más
-        assert len(abierta["alternativas"]) == 3 and abierta["truncado"] is True
-        assert len(MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
-                                          cuantas=5)["alternativas"]) == 5
+        # se muestran TRES si no pidió un número, aunque haya más — y eso NO es
+        # una truncación: decirle que se está perdiendo algo lo manda a buscar
+        # el resto con otra herramienta, y aparece una segunda tabla
+        assert len(abierta["alternativas"]) == 3 and abierta["cuantas"] > 3
+        assert abierta["truncado"] is False, "3 de 4 sin pedir número ES la respuesta"
+        cinco = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                       mostrar=5)
+        assert len(cinco["alternativas"]) == 5
+        # si SÍ pidió un número y hay más, ahí sí se avisa
+        una = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                     mostrar=1)
+        assert len(una["alternativas"]) == 1 and una["truncado"] is True
 
         # el otro lado: más corto es de hoy hasta MI vencimiento
         corto = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_corto")
@@ -510,6 +522,43 @@ def test_rotar_a_MAS_LARGO_ancla_el_punto_de_partida_en_el_bono_que_sale(permiso
         # respuesta: se dice, no se devuelve vacío
         assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
                                                  hacia_vencimiento="2027-01-01")
+
+
+def test_rotar_con_UN_SOLO_titulo_no_pregunta_cual_sale(permiso):
+    """«Quiero venderlo» es señalar con el dedo, y con un solo bono en la cuenta
+    el dedo no tiene a dónde más apuntar. La herramienta pedía `ticker` o
+    `desde_emisor` porque el usuario no lo había NOMBRADO, y le quemaba un turno
+    al operador preguntando algo que el código sabe. Con dos o más sí se
+    pregunta: ahí la respuesta depende de cuál, y elegir por él sería inventar."""
+    from asistente.agentes import cartera as MC
+
+    uno = {"posiciones": [{"ticker": "AO28", "emisor": "REPUBLICA ARGENTINA", "tea_pct": 8.0,
+                           "duration": 3.0, "paridad_pct": 95.0,
+                           "vencimiento": "2028-10-31", "tasa_ruido": False}]}
+    with patch.object(MC, "tenencia_actual", return_value=uno), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        r = MC.opciones_para_rotar("805", hacia_plazo="mas_largo",
+                                   hacia_vencimiento="2029-12-31")
+        assert r["sale"] == "AO28"
+        assert r["referencia"]["por_que"] == "es el único título comparable de la cuenta"
+        assert [a["ticker"] for a in r["alternativas"]] == ["YM29", "GD29", "AL29"]
+
+    # una acción y un FCI no son títulos comparables: no vuelven ambigua la cuenta
+    con_ruido = {"posiciones": uno["posiciones"] + [
+        {"ticker": "GGAL", "emisor": "GRUPO GALICIA", "tea_pct": None, "duration": None,
+         "paridad_pct": None, "vencimiento": None, "tasa_ruido": False}]}
+    with patch.object(MC, "tenencia_actual", return_value=con_ruido), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        assert MC.opciones_para_rotar("805", hacia_plazo="mas_largo")["sale"] == "AO28"
+
+    # con DOS bonos comparables sí hay que preguntar, y se dice cuáles son
+    dos = {"posiciones": uno["posiciones"] + [
+        {"ticker": "GD35", "emisor": "REPUBLICA ARGENTINA", "tea_pct": 10.0, "duration": 5.0,
+         "paridad_pct": 95.0, "vencimiento": "2035-07-09", "tasa_ruido": False}]}
+    with patch.object(MC, "tenencia_actual", return_value=dos), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        r = MC.opciones_para_rotar("805", hacia_plazo="mas_largo")
+    assert "error" in r and sorted(r["titulos_comparables"]) == ["AO28", "GD35"]
 
 
 def test_rotar_por_plazo_sin_saber_cuando_vence_el_mio_no_contesta(permiso):

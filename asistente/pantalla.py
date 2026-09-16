@@ -80,10 +80,19 @@ def aviso(resultado) -> str | None:
 
     Existe porque la instrucción «si hay tabla no la enumeres» era inejecutable:
     `_tabla` es justo lo que se le oculta, así que se le pedía evaluar una
-    condición sobre un dato que no recibe. Con esto la puede evaluar."""
+    condición sobre un dato que no recibe. Con esto la puede evaluar.
+
+    Y es PREVENTIVO, no descriptivo: además de «no la repitas», dice que no
+    pida otra herramienta que vuelva a dibujar lo mismo. Dibujar una tabla no
+    es una acción del modelo —es un efecto de un payload que no ve—, así que
+    llamar dos herramientas con tabla le sale gratis y al usuario le aparecen
+    dos tablas pegadas de lo mismo. Medido en el LAB: `opciones_para_rotar`
+    contestó la rotación y el modelo llamó igual a `curva` para «completar»."""
     if (d := declarada(resultado)) is None:
         return None
     decl, filas = d
     cols = ", ".join(decl.get("columnas") or [])
     return (f"La pantalla YA le está mostrando al usuario la tabla «{decl.get('titulo')}» "
-            f"con {len(filas)} fila(s) y estas columnas: {cols}. No la repitas en el texto.")
+            f"con {len(filas)} fila(s) y estas columnas: {cols}. No la repitas en el texto, "
+            f"y NO llames otra herramienta para volver a mostrar lo mismo: serían dos tablas "
+            f"pegadas de lo mismo.")

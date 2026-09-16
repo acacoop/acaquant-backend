@@ -59,7 +59,9 @@ from core.postgres import get_job_pool
 _FCI = [x.upper() for x in FCI]
 _W_FCI = "upper(btrim(coalesce(t.cartera, ''))) = ANY(%(fci)s)"
 
-# Clase de activo → moneda, la misma tabla que usa `jobs/fci_universo`.
+# Clase de activo → moneda. COPIA de la tabla de `jobs/fci_universo` (importarla
+# arrastra pyRofex, que un diag no necesita). Es un diag descartable: si se
+# reusa en código productivo, la tabla se mueve a `core/` y se importa.
 _MONEDA_POR_CLASE = {"MM ARS": "ARS", "ARS T1": "ARS", "RENTA VARIABLE": "ARS",
                      "MM USD": "USD", "HD T1": "USD"}
 
@@ -96,6 +98,8 @@ SELECT t.unidad,
        count(*)         FILTER (WHERE coalesce(t.aum, 'si') <> 'si') AS n_no_aum,
        (SELECT v.vcp FROM mercado.fci_vcp v
          WHERE v.fci_id = f.fci_id AND v.fuente = 'primary'
+           -- hasta 5 días atrás: cubre un fin de semana largo sin arrastrar un
+           -- VCP de la semana anterior; si no hay, sale "SIN VCP", no un número viejo
            AND v.fecha <= %(corte)s AND v.fecha >= %(corte)s - 5
          ORDER BY v.fecha DESC LIMIT 1)           AS vcp_primary
 FROM portafolio.tenencia t

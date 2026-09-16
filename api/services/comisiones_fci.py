@@ -55,6 +55,7 @@ from core.cartera import FCI
 # donde cambiarla (y este docstring al lado explicando por qué).
 PARTE_ACA = 0.5
 DIAS_ANIO = 365
+INICIO_HISTORICO = date(2026, 5, 1)
 
 # `cartera` convive con dos grafías ('FCI' y 'CARTERA FCI', ver core/cartera.py) y
 # puede venir con espacios o en minúscula según quién cargó el asset.
@@ -79,9 +80,13 @@ def _corte(ini: date, fin: date) -> date | None:
     mes en curso corta en la última foto disponible y un mes cerrado corta en su
     último día hábil. None = no hay foto en ese mes (mes sin datos, no mes en cero).
     """
+    if fin < INICIO_HISTORICO:
+        return None
     r = _q(f"SELECT max(t.fecha) AS f FROM portafolio.tenencia t "
-           f"WHERE t.fecha >= %(ini)s AND t.fecha <= %(fin)s AND {_W_FCI}",
-           {"ini": ini, "fin": fin, "fci": _FCI_PARAMS})
+           f"WHERE t.fecha >= %(ini)s AND t.fecha <= %(fin)s "
+           f"AND t.fecha >= %(inicio)s AND {_W_FCI}",
+           {"ini": ini, "fin": fin, "inicio": INICIO_HISTORICO,
+            "fci": _FCI_PARAMS})
     return r[0]["f"] if r and r[0]["f"] else None
 
 
@@ -93,7 +98,7 @@ _TRAMOS = f"""
 WITH ini_ancla AS (
     SELECT coalesce(
         (SELECT max(t.fecha) FROM portafolio.tenencia t
-          WHERE t.fecha <= %(ini)s AND {_W_FCI}),
+          WHERE t.fecha <= %(ini)s AND t.fecha >= %(inicio)s AND {_W_FCI}),
         %(ini)s) AS f
 ),
 anclas AS (
@@ -117,7 +122,8 @@ SELECT fecha, n_dias FROM tramo WHERE n_dias > 0
 def _tramos(ini: date, fin: date) -> dict[date, int]:
     """{fecha_de_foto: días corridos que cubre} dentro de [ini, fin]."""
     return {r["fecha"]: int(r["n_dias"]) for r in _q(
-        _TRAMOS, {"ini": ini, "fin": fin, "fci": _FCI_PARAMS})}
+        _TRAMOS, {"ini": ini, "fin": fin, "inicio": INICIO_HISTORICO,
+              "fci": _FCI_PARAMS})}
 
 
 def _sql_agregado(group_by: str, extra_where: str = "") -> str:
@@ -141,7 +147,8 @@ def _sql_agregado(group_by: str, extra_where: str = "") -> str:
     FROM portafolio.tenencia t
     JOIN tramo tr ON tr.fecha = t.fecha
     LEFT JOIN portafolio.assets a ON a.unidad = t.unidad
-    WHERE t.fecha >= %(ini)s AND t.fecha <= %(fin)s AND {_W_FCI}{extra_where}
+        WHERE t.fecha >= %(ini)s AND t.fecha <= %(fin)s
+            AND t.fecha >= %(inicio)s AND {_W_FCI}{extra_where}
     GROUP BY {group_by}
     """
 
@@ -151,7 +158,8 @@ def _f(x) -> float:
 
 
 def _p(ini: date, fin: date, corte: date) -> dict:
-    return {"ini": ini, "fin": fin, "corte": corte, "fci": _FCI_PARAMS}
+    return {"ini": ini, "fin": fin, "corte": corte,
+            "inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS}
 
 
 def _vacio(mes: str) -> dict:
@@ -171,6 +179,8 @@ def resumen_mes(mes: str) -> dict:
     que el total y la tabla no se puedan contradecir.
     """
     ini, fin = _mes_rango(mes)
+    if fin < INICIO_HISTORICO:
+        return _vacio(mes)
     corte = _corte(ini, fin)
     if corte is None:
         return _vacio(mes)
@@ -261,7 +271,8 @@ def detalle_fondo(mes: str, unidad: str) -> dict:
 _SQL_SERIE = f"""
 WITH anclas AS (
     SELECT fecha, LEAD(fecha) OVER (ORDER BY fecha) AS sig
-    FROM (SELECT DISTINCT t.fecha FROM portafolio.tenencia t WHERE {_W_FCI}) d
+    FROM (SELECT DISTINCT t.fecha FROM portafolio.tenencia t
+          WHERE t.fecha >= %(inicio)s AND {_W_FCI}) d
 ),
 tramo AS (
     -- El tramo se corta en fin de mes: una foto de un 31 no puede devengar días
@@ -293,7 +304,7 @@ GROUP BY 1, 2 ORDER BY 1
 def serie_mensual() -> dict:
     """Acumulado por MES y por moneda, toda la historia. Para el gráfico de barras."""
     por_mes: dict[str, dict] = {}
-    for r in _q(_SQL_SERIE, {"fci": _FCI_PARAMS}):
+    for r in _q(_SQL_SERIE, {"inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS}):
         mon = (r["moneda"] or "ARS").upper()
         m = por_mes.setdefault(r["mes"], {"mes": r["mes"], "ARS": 0.0, "USD": 0.0})
         m[mon if mon in ("ARS", "USD") else "ARS"] += _f(r["acum"])
@@ -307,8 +318,9 @@ def meses_disponibles() -> dict:
     """Meses con foto FCI — alimenta el selector. Que salga de los datos y no de un
     rango inventado evita ofrecer un mes que va a venir vacío."""
     rows = _q(f"SELECT DISTINCT to_char(t.fecha, 'YYYY-MM') AS mes "
-              f"FROM portafolio.tenencia t WHERE {_W_FCI} ORDER BY 1 DESC",
-              {"fci": _FCI_PARAMS})
+              f"FROM portafolio.tenencia t WHERE t.fecha >= %(inicio)s "
+              f"AND {_W_FCI} ORDER BY 1 DESC",
+              {"inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS})
     return {"meses": [r["mes"] for r in rows]}
 
 

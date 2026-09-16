@@ -63,6 +63,10 @@ def test_el_mes_se_cierra_en_su_ultimo_dia(mes, ini, fin):
     assert s._mes_rango(mes) == (ini, fin)
 
 
+def test_el_historico_comienza_el_primero_de_mayo_de_2026():
+    assert s.INICIO_HISTORICO == date(2026, 5, 1)
+
+
 # ── Tramos: el fin de semana no es un agujero ────────────────────────────────
 def _cubren(fechas: list[date], ini: date, fin: date) -> dict[date, int]:
     """Replica la aritmética de `_TRAMOS` sin ir a la base: cada foto cubre hasta

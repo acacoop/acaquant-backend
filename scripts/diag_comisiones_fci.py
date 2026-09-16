@@ -43,13 +43,18 @@ WITH base AS (
     WHERE t.fecha >= %(desde)s AND {_WHERE_FCI}
 ),
 meses AS (
-    SELECT date_trunc('month', fecha)::date AS mes, max(fecha) AS ultima_foto
+    SELECT date_trunc('month', fecha)::date AS mes,
+           min(fecha) AS primera_foto,
+           count(DISTINCT fecha) AS fotos_distintas,
+           max(fecha) AS ultima_foto
     FROM base
     GROUP BY 1
 ), corte AS (
     SELECT
         m.mes,
         m.ultima_foto,
+        m.primera_foto,
+        m.fotos_distintas,
         sum(t.valuacion) AS valuacion_corte,
         count(DISTINCT t.unidad) AS fondos_corte,
         count(DISTINCT t.id_cuenta) AS cuentas_corte,
@@ -136,12 +141,12 @@ def _float_rows(rows: list[dict]) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--desde", default="2025-06-01", help="fecha inicial YYYY-MM-DD")
+    parser.add_argument("--desde", default="2026-05-01", help="fecha inicial YYYY-MM-DD")
     parser.add_argument("--mes", default="2026-05", help="mes cuyo salto se quiere explicar")
     parser.add_argument("--top", type=int, default=20, help="fondos principales por mes")
     args = parser.parse_args()
 
-    desde = date.fromisoformat(args.desde)
+    desde = max(date.fromisoformat(args.desde), svc.INICIO_HISTORICO)
     params = {"desde": desde, "fci": _FCI}
     meses = _float_rows(_q(_SQL_MESES, params))
     cambios = _float_rows(_q(_SQL_TOP, params))
@@ -172,6 +177,7 @@ def main() -> int:
             {"fci": _FCI},
         )),
         "mes_objetivo": args.mes,
+        "inicio_historico": svc.INICIO_HISTORICO,
     }
     print(json.dumps(resultado, ensure_ascii=True, indent=2, default=_json_default))
     return 0

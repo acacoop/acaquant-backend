@@ -193,7 +193,7 @@ suite de integración**: `pytest -m integration` no selecciona nada y sale en ve
   el motor de PnL es lógica pura sobre dicts. `sql/schema.sql` puede ir adelante de la base real:
   `scripts/apply_schema.py` crea lo que falte. Ref: `docs/SQL.md`.
 - **Deploy backend**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → schema → restart
-  de `api.service` **y nada más** → smoke). Motores: los maneja cron; reiniciarlos en rueda es decisión
+  de `api.service` + `agente.service` **y nada más** → smoke). Motores: los maneja cron; reiniciarlos en rueda es decisión
   de la mesa. Push a `main` deploya el front en Vercel solo.
 - **EL ASISTENTE** (`asistente/`): grafo LangGraph de agentes por tema, tab LAB del AV AGENT. Doc única:
   `docs/AvAgentAI.md`. Alcance por `ASISTENTE_CUENTAS` (`.env`, fail-closed).

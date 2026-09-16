@@ -40,7 +40,7 @@ RestrictSUIDSGID=true
 # crear el usuario, mover/chown el venv y /root/TradingAV, y revisar los paths
 # de logs — hay que hacerlo con la consola a mano y verificar el arranque. Lo
 # mismo para ProtectSystem=strict / ProtectHome (hoy romperían: el WorkingDirectory
-# ESTÁ en /root). Ver docs/SECURITY.md.
+# ESTÁ en /root). Ver docs/ACAQUANT.md §7.
 
 [Install]
 WantedBy=multi-user.target

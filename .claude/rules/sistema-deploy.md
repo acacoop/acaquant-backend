@@ -30,7 +30,7 @@ quién escribe) o aparece marcado. Skill: `/sistema`.
 
 ## Deploy
 
-Push a `main` → Vercel auto-deploya acaquant-web. Backend, **un solo comando en el Droplet**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → `apply_schema` → **restart de api.service Y NADA MÁS** → smoke a `/api/health`, cortando al primer fallo; `--sin-schema` saltea el schema). También existe la skill `/deploy` como wrapper del procedimiento. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
+Push a `main` → Vercel auto-deploya acaquant-web. Backend, **un solo comando en el Droplet**: `cd /root/TradingAV && git pull && bash deploy/deploy.sh` (pull → `apply_schema` → **restart de api.service + agente.service Y NADA MÁS** → smoke a `/api/health`, cortando al primer fallo; `--sin-schema` saltea el schema). También existe la skill `/deploy` como wrapper del procedimiento. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
 
 > **⚠️ EL DEPLOY NO REINICIA LOS MOTORES** (regla del user, 2026-08-18: *«no puedo
 > estar reiniciando todos los motores en vivo… antes era git pull y luego reinicio

@@ -6,7 +6,7 @@
 -- 2026-06-29): no hay dual-write, ni espejo, ni fallback. Si Postgres se cae, se
 -- cae el sistema — motores, jobs y API escriben y leen SQL nativo
 -- (ver core/pg_mirror.py).
--- Ver docs/SQL.md y docs/ARQUITECTURA.md §5.
+-- Ver docs/SQL.md y docs/ACAQUANT.md §5.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- ORGANIZACIÓN POR SCHEMA (v2, 2026-06-18) — nada en `public`.

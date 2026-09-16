@@ -1,6 +1,6 @@
 # ACAQUANT — cómo funciona todo
 
-**Última actualización:** 2026-09-16 19:21 (hora Buenos Aires) · huella `43bce641`
+**Última actualización:** 2026-09-16 19:32 (hora Buenos Aires) · huella `36371a32`
 > **Este es EL documento oficial de AcaQuant.** Tiene la posta de cómo está armado y
 > cómo funciona el sistema. Si algo de acá contradice al código, es un bug de uno de
 > los dos y se arregla en el mismo commit. Es **privado**: no sale de la empresa.
@@ -255,7 +255,7 @@ Los dos son `admin`. El invitado solo ve el BRIEFING.
 | Repo | Cómo |
 |---|---|
 | **Frontend** | Push a `main` → Vercel construye y publica solo. Si el autor del commit no es miembro del proyecto en Vercel, **no deploya y no avisa**: mirar Deployments antes que el código |
-| **Backend** | En el servidor: `cd /root/TradingAV && git pull && bash deploy/deploy.sh`. Trae el código, aplica el schema que falte, reinicia la API **y nada más**, y hace un smoke a `/api/health` |
+| **Backend** | En el servidor: `cd /root/TradingAV && git pull && bash deploy/deploy.sh`. Trae el código, aplica el schema que falte, reinicia la API y el AV AGENT (`api.service` + `agente.service`) **y nada más**, y hace un smoke a `/api/health` |
 
 **El deploy no reinicia los motores.** Reiniciar un motor en rueda corta el feed de la mesa;
 es una decisión de la mesa, fuera de horario (`systemctl try-restart motor_x.service`).

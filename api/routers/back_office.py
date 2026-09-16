@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import acreencias as svc_acr
+from api.services import comisiones_fci as svc_fci
 from api.services import contabilidad_sql as svc_conta
 from api.services import tenencia_hd as svc_ten
 from api.services import tesoreria as svc_tes
@@ -1001,3 +1002,63 @@ def contabilidad_detalle(
 ):
     """Drill-down auditable: los boletos del mes que componen la fila."""
     return svc_conta.detalle(id_cuenta=svc_conta.canonica(id_cuenta), mes=mes, key=key)
+
+
+# ?????????????????????????????????????????????????????????????????????????????
+# COMISIONES FCI ? qu? cobra ACA Valores por la tenencia de fondos
+# ?????????????????????????????????????????????????????????????????????????????
+# C?lculo y decisiones: api/services/comisiones_fci.py. Solo lectura: no hay ABM,
+# todo sale de `portafolio.tenencia` (la misma foto que AuM) y del `fee_admin` de
+# Manager ? T?TULOS. El filtro es por MES y no desde/hasta: la comisi?n se liquida
+# por mes, y un rango libre invitar?a a comparar per?odos que no son comparables.
+
+
+@router.get("/comisiones-fci")
+def comisiones_fci_mes(
+    mes: str = Query(..., pattern=_RE_MES, description="YYYY-MM"),
+    _email: str = Depends(get_user_email),
+):
+    """Tabla por fondo + acumulado por sociedad gerente + totales ARS/USD del mes.
+
+    `arancel_dia` es el devengamiento del d?a de CORTE (la ?ltima foto del mes: el
+    mes en curso corta en la m?s reciente, uno cerrado en su ?ltimo h?bil) y
+    `arancel_acum` es lo acumulado del 1? hasta ese corte.
+
+    Los fondos SIN `fee_admin` cargado vienen con `sin_fee: true` y NO suman a los
+    totales ? ah? el arancel no es cero, es desconocido, y el bloque `sin_fee` dice
+    cu?ntos son y cu?nta valuaci?n qued? sin poder devengar."""
+    return svc_fci.resumen_mes(mes)
+
+
+@router.get("/comisiones-fci/detalle")
+def comisiones_fci_detalle(
+    mes: str = Query(..., pattern=_RE_MES, description="YYYY-MM"),
+    unidad: str = Query(..., min_length=1, max_length=256, description="Fondo"),
+    _email: str = Depends(get_user_email),
+):
+    """Las CUENTAS que tuvieron ese fondo en el mes ? trazabilidad de la fila.
+
+    Usa el MISMO c?lculo y los mismos tramos que la tabla, as? el detalle no puede
+    contradecir al n?mero que lo abri?."""
+    return svc_fci.detalle_fondo(mes, unidad)
+
+
+@router.get("/comisiones-fci/serie")
+def comisiones_fci_serie(_email: str = Depends(get_user_email)):
+    """Acumulado MENSUAL hist?rico por moneda (gr?fico de barras)."""
+    return svc_fci.serie_mensual()
+
+
+@router.get("/comisiones-fci/meses")
+def comisiones_fci_meses(_email: str = Depends(get_user_email)):
+    """Meses que tienen foto de tenencia FCI ? alimenta el selector."""
+    return svc_fci.meses_disponibles()
+
+
+@router.get("/comisiones-fci/fees")
+def comisiones_fci_fees(_email: str = Depends(get_user_email)):
+    """Fee de cada fondo/gerente + la f?rmula, para el modal de ayuda (`?`).
+
+    Viajan el honorario ENTERO y la mitad que cobra ACA por separado: el modal
+    muestra la cuenta completa en vez de pedir que se conf?e en el ?2."""
+    return svc_fci.fees_vigentes()

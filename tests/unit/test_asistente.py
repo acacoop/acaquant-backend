@@ -210,6 +210,66 @@ def test_sin_cuentas_habilitadas_no_se_muestra_nada():
             assert "error" in r and "habilitada" in r["error"]
 
 
+def _posiciones_805():
+    """La cuenta 805 real: 5 bonos en dos carteras (HD) y tres saldos de caja.
+    CP41O es el caso que importa — es un bono sin datos de mercado hoy, y sigue
+    siendo un bono: lo dice su cartera, no si el master de curvas lo encontró."""
+    def p(tk, cartera, val, tea=None):
+        return {"ticker": tk, "emisor": "x", "clase_activo": cartera, "cartera": cartera,
+                "cantidad": 1, "precio": 1, "valuacion": val, "share": 1, "tea_pct": tea}
+    return [p("AO28", "HD", 13027902.8, 9.17), p("YFCOO", "HD", 11478600, 4.4),
+            p("AO29", "HD", 8885280, 10.12), p("YM38O", "HD", 8778412, 3.51),
+            p("CP41O", "HD", 1555000), p("USDC", "MONEDAS", 797.73),
+            p("ARS", "MONEDAS", -646079.25), p("USD", "MONEDAS", -10654489.42)]
+
+
+def _tenencia(cuenta="805", **kw):
+    """Corre `tenencia_actual` con la 805 real y sin base."""
+    from api.services import valuaciones_sql
+    from asistente.agentes import cartera as MC
+
+    with patch.object(valuaciones_sql, "posiciones_actuales",
+                      return_value={"posiciones": _posiciones_805(), "total": 32425423.87,
+                                    "fecha": "2026-09-15"}), \
+         patch.object(MC, "metricas_por_ticker", return_value={}):
+        return MC.tenencia_actual(cuenta, **kw)
+
+
+def test_preguntar_por_bonos_no_devuelve_la_cuenta_entera(permiso):
+    """«Qué bonos tengo» traía los 8 renglones, con los saldos de caja adentro y
+    el total de toda la cuenta abajo. Un saldo en USD no es un bono."""
+    r = _tenencia(tipo="bonos")
+    assert [p["ticker"] for p in r["posiciones"]] == ["AO28", "YFCOO", "AO29", "YM38O", "CP41O"]
+    assert "CP41O" in [p["ticker"] for p in r["posiciones"]], (
+        "un bono sin mercado hoy sigue siendo un bono: lo dice su cartera")
+    assert r["cuantas"] == 5 and r["cuantas_en_la_cuenta"] == 8
+    # el total de la tabla es el de lo pedido, no el de la cuenta con la caja adentro
+    assert r["total_tipo"] == 43725194.8 and r["total"] == 32425423.87
+    assert r["_tabla"]["total"] == "total_tipo"
+    assert r["_tabla"]["titulo"].startswith("Bonos de la 805")
+    # y la caja es el complemento exacto
+    assert [p["ticker"] for p in _tenencia(tipo="caja")["posiciones"]] == ["USDC", "ARS", "USD"]
+
+
+def test_sin_tipo_viene_todo_y_el_total_sigue_siendo_el_de_la_cuenta(permiso):
+    r = _tenencia()
+    assert r["cuantas"] == 8 and r["tipo"] is None and r["total_tipo"] is None
+    assert r["_tabla"]["total"] == "total" and r["_tabla"]["titulo"].startswith("Tenencia de la 805")
+    assert r["carteras"] == [{"cartera": "HD", "posiciones": 5},
+                             {"cartera": "MONEDAS", "posiciones": 3}]
+
+
+def test_un_tipo_que_la_cuenta_no_tiene_dice_que_si_tiene(permiso):
+    """Una tabla vacía haría creer que se miró y no había. Se contesta con el
+    dato que destraba: qué carteras SÍ hay."""
+    r = _tenencia(tipo="acciones")
+    assert "error" in r and "acciones" in r["error"]
+    assert r["carteras_en_la_cuenta"] == [{"cartera": "HD", "posiciones": 5},
+                                          {"cartera": "MONEDAS", "posiciones": 3}]
+    assert "posiciones" not in r
+    assert "error" in _tenencia(tipo="cripto"), "un tipo que no existe no corre"
+
+
 def test_una_cuenta_no_habilitada_vuelve_como_error(permiso):
     """TODA herramienta de cartera corta antes de tocar la base si la cuenta no
     está habilitada. Los demás argumentos se rellenan desde la firma: una

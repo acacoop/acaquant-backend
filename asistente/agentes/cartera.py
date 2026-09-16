@@ -15,6 +15,21 @@ from core.postgres import get_pool
 MAX_DIAS = 730
 MAX_PAGOS = 300
 MAX_POSICIONES = 200
+
+# QUÉ ES CADA COSA, según la mesa. La fuente es `portafolio.assets.cartera`, que
+# viaja en cada posición: un solo campo decide, no hay taxonomía que mantener.
+#
+# BONOS son TRES carteras y no una (HD · ARS · DL): por eso no alcanza con
+# comparar `cartera` contra la palabra que dijo el usuario. El resto sí es
+# directo. Fijado con el user: estas categorías agarran todo lo que hay.
+TIPOS: dict[str, tuple[str, ...]] = {
+    "bonos": ("HD", "ARS", "DL"),
+    "acciones": ("RENTA VARIABLE",),
+    "fondos": ("FCI", "CARTERA FCI"),
+    "derivados": ("DERIVADOS",),
+    "caja": ("MONEDAS",),
+}
+Tipo = Literal["bonos", "acciones", "fondos", "derivados", "caja"]
 MAX_ALTERNATIVAS = 20
 HORIZONTES = ("t1", "t0")
 
@@ -220,42 +235,57 @@ def _por_mes(filas, mon) -> list[dict]:
     return [out[k] for k in sorted(out)]
 
 
-def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
-    """Qué TIENE hoy una cuenta: los títulos, cuántos nominales, cuánto valen y
-    cuánto RINDEN hoy a precios de mercado (TEA, paridad, duration, vencimiento).
+def _cartera_de(fila: dict) -> str:
+    """La cartera de una posición, normalizada para comparar. Sin esto, «FCI» y
+    «fci » son dos cosas distintas y el filtro pierde títulos en silencio."""
+    return " ".join(str(fila.get("cartera") or "").split()).upper()
+
+
+def _carteras_de(filas: list[dict]) -> list[dict]:
+    """Qué carteras hay en la cuenta y cuántas posiciones tiene cada una. Va
+    SIEMPRE: si un filtro no encuentra nada, esto dice qué sí hay, en vez de
+    devolver una tabla vacía que parece «no tenés»."""
+    cuenta: dict[str, int] = {}
+    for f in filas:
+        cuenta[_cartera_de(f) or "-"] = cuenta.get(_cartera_de(f) or "-", 0) + 1
+    return [{"cartera": c, "posiciones": n}
+            for c, n in sorted(cuenta.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1",
+                    tipo: Tipo | None = None) -> dict:
+    """Qué TIENE hoy una cuenta: títulos, nominales, valuación y cuánto RINDEN
+    a precios de mercado.
 
     Es la posición, la cartera, el patrimonio: lo que está en la cuenta AHORA.
-    También contesta «¿cuánto rinden los bonos que tengo?»: cada título trae lo
-    que el mercado dice hoy de él, cuando está en el master de curvas.
+    NO es lo que va a cobrar — para «cuánta plata entra», «qué me pagan» o «qué
+    bono me vence» está `cobros_futuros`. Es la pantalla NEGOCIO → CARTERAS.
 
-    NO es lo que va a cobrar. Para «cuánta plata entra», «qué me pagan», «qué
-    cupón viene» o «qué bono me vence» está `cobros_futuros`. Acá no hay fechas
-    de pago ni cupones: hay tenencia.
-
-    Es lo mismo que la pantalla NEGOCIO → CARTERAS: corre el mismo código.
+    **Si preguntan por un TIPO de título («qué bonos tengo», «tengo acciones?»)
+    pasá `tipo`.** Sin eso viene la cuenta entera, saldos de caja incluidos, y
+    la tabla los muestra.
 
     QUÉ DEVUELVE:
-      · `total` — la valuación de toda la cuenta, en la moneda de `moneda_valuacion`.
-      · `posiciones` — una fila por título: ticker, emisor, clase de activo,
-        cartera, nominales (`cantidad`), precio, valuación y `share` (qué % de la
-        cuenta es ese título, YA CALCULADO — no lo dividas vos). Y del mercado
-        de hoy: `tea_pct`, `paridad_pct`, `duration`, `vencimiento`,
-        `precio_mercado` (null si el título no está en el master de curvas).
-      · `sin_mercado` — los tickers sin datos de mercado hoy. No les inventes TEA.
-      · `fecha` — de cuándo es la posición. Si no es de hoy, es la última foto
-        conciliada y no incluye lo de después.
-      · `truncado` — true si hay más títulos de los que entraron en la lista;
-        `total` y `cuantas` siguen siendo de la cuenta COMPLETA.
-
-    Todo lo que hay que sumar YA VIENE SUMADO. No rehagas las cuentas.
+      · `posiciones` — por título: ticker, emisor, clase, cartera, `cantidad`
+        (nominales), precio, valuación, `share` y, del mercado de hoy,
+        `tea_pct`, `paridad_pct`, `duration`, `vencimiento`. Con trampa:
+        `share` es sobre la cuenta COMPLETA, así que con `tipo` no suma 100;
+        `precio_mercado` null = el título no está en el master de curvas.
+      · `total` es de la cuenta ENTERA siempre; `total_tipo` es la suma de lo
+        que pediste, ya hecha. Con `tipo`, el que corresponde es `total_tipo`.
+      · `carteras` — qué hay en la cuenta y cuántas posiciones cada una.
+      · `sin_mercado` — sin datos de mercado hoy: no les inventes TEA.
+      · `cuantas` (lo devuelto) vs `cuantas_en_la_cuenta`. Todo lo que hay que
+        sumar YA VIENE SUMADO.
 
     Args:
         cuenta: el `id_cuenta` a mirar.
         horizonte: `t1` (default) es la posición liquidada a MAÑANA, con lo
             concertado hoy adentro — «cuánto vale el cliente». `t0` es lo
-            liquidado a HOY: lo que está en custodia y se puede entregar o
-            caucionar. Si el usuario no dijo nada, `t1` y no hace falta
-            preguntárselo.
+            liquidado a HOY: lo que se puede entregar o caucionar. Si no lo
+            dijo, `t1` y no preguntes.
+        tipo: qué mirar — `bonos` · `acciones` · `fondos` · `derivados` ·
+            `caja`. Sin esto viene todo junto.
     """
     h = str(horizonte or "t1").strip().lower()
     if h not in HORIZONTES:
@@ -305,22 +335,42 @@ def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1") -> dict:
             "precio_mercado": m.get("precio"),
             "tasa_ruido": m.get("tasa_ruido", False),
         })
+    carteras = _carteras_de(posiciones)
+    pedido = str(tipo or "").strip().lower() or None
+    mostradas, total_tipo = posiciones, None
+    if pedido:
+        if pedido not in TIPOS:
+            return {"error": f"`tipo` tiene que ser uno de {sorted(TIPOS)}, llegó {tipo!r}"}
+        mostradas = [p for p in posiciones if _cartera_de(p) in TIPOS[pedido]]
+        if not mostradas:
+            return {"error": f"la cuenta {pedida} no tiene {pedido} hoy",
+                    "carteras_en_la_cuenta": carteras,
+                    "que_hacer": "Decile qué SÍ tiene. No busques en otra cuenta por tu cuenta."}
+        # El total de lo filtrado lo suma el código: el modelo no puede, y sin
+        # esto la tabla mostraría 5 bonos con el total de TODA la cuenta abajo
+        # —caja negativa incluida— y las dos cifras serían defendibles.
+        total_tipo = round(sum(p.get("valuacion") or 0 for p in mostradas), 2)
     return {
         "cuenta": {"id_cuenta": pedida, "nombre": nombres.get(pedida, "")},
         "fecha": r.get("fecha"),
         "horizonte": h,
+        "tipo": pedido,
         "moneda_valuacion": "ARS",
         "total": r.get("total"),
-        "posiciones": posiciones,
-        "cuantas": len(filas),
+        "total_tipo": total_tipo,
+        "posiciones": mostradas,
+        "carteras": carteras,
+        "cuantas": len(mostradas),
+        "cuantas_en_la_cuenta": len(filas),
         "truncado": len(filas) > MAX_POSICIONES,
-        "sin_mercado": sin_mercado,
+        "sin_mercado": [s for s in sin_mercado
+                        if any(p["ticker"] == s for p in mostradas)] if pedido else sin_mercado,
         "mercado_error": mercado_error,
         "_tabla": pantalla.tabla(
             "posiciones",
             ["ticker", "emisor", "cantidad", "valuacion", "share", "tea_pct", "vencimiento"],
-            f"Tenencia de la {pedida} al {r.get('fecha')}",
-            total="total", moneda="ARS"),
+            f"{pedido.capitalize() if pedido else 'Tenencia'} de la {pedida} al {r.get('fecha')}",
+            total="total_tipo" if pedido else "total", moneda="ARS"),
     }
 
 

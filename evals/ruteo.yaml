@@ -43,6 +43,14 @@
 - q: "En que titulo tengo mas plata y en cual tengo menos?"
   agentes: [cartera]
 
+- q: "que bonos tengo en mi cuenta 805?"
+  agentes: [cartera]
+  nota: "«bonos» = cartera HD/ARS/DL (`tenencia_actual(tipo=\"bonos\")`); los
+    saldos de caja no son un título. renta_fija suma de más por «bonos»."
+
+- q: "tengo acciones en la 805?"
+  agentes: [cartera]
+
 - q: "Cual es el operador de la 1230?"
   agentes: [cliente]
 

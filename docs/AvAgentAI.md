@@ -47,7 +47,7 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 
 | Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |
 |---|---|---|---|---|---|
-| `cartera` | una cuenta | | qué TIENE: títulos, nominales, valuación, rendimiento, cobros, y qué opciones hay para rotar de un emisor a otro | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
+| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar de un emisor a otro | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
 | `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
 | `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor), qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
@@ -309,6 +309,15 @@ argumento, sumada a `CONTROLES`.
 **Un sub-agente**: es una herramienta más de un agente, una función que arma su
 propio `Agente` y corre `grafo.subgrafo(agente).invoke(...)`. No hay que tocar
 el grafo principal.
+
+**Qué es un «bono», un «fondo», una «acción».** Las palabras de la mesa no se
+traducen con una taxonomía ni con un diccionario de sinónimos: **son carteras de
+`portafolio.assets`**, que viaja en cada posición (`cartera.TIPOS`). Bonos son
+TRES (`HD`, `ARS`, `DL`) y por eso no alcanza comparar la palabra contra el
+campo; el resto es uno a uno. Un título sin datos de mercado hoy **sigue siendo
+lo que su cartera dice que es**: la pantalla CURVAS descarta los bonos sin ejes
+acordados (`curvas_vista._armar` → `sin_clasificar`), y clasificar con esa vista
+—que filtra para poder dibujar— haría que un bono de verdad dejara de serlo.
 
 **Un cruce entre agentes** («cuánto rinden los bonos que tengo», «qué opciones
 tengo para rotar de YPF a Vista»): lo hace el CÓDIGO, no un modelo. Un agente

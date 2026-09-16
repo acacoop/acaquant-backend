@@ -139,3 +139,8 @@
 - q: "necesito ayuda con la 805"
   agentes: [cartera, cliente, operaciones]
   nota: "borde: NO es meta. Sin señal de tema, los tres de cuenta la atienden."
+
+- q: "quiero venderlo y comprar uno con vencimiento más lejano, ejemplo 2029"
+  agentes: [cartera]
+  nota: "rotar por PLAZO, pregunta real del LAB. La contesta entera
+    `opciones_para_rotar`, que vive en cartera porque necesita la cuenta."

@@ -11,8 +11,14 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from asistente import pantalla
 from asistente.agentes import AGENTES
 
-# Techo del esquema que viaja al modelo por herramienta (chars de JSON).
-MAX_FICHA_CHARS = 2_300
+# Techo del esquema que viaja al modelo por herramienta (chars de JSON). Es un
+# tope de cordura, NO el presupuesto: lo que llega al proveedor es la SUMA de
+# las herramientas de ese agente (cartera ya son ~6.200 chars entre sus tres).
+# Subió de 2.300 a 3.000 cuando `curva` sumó la ventana de vencimiento: con el
+# tope viejo, agregar un filtro obligaba a borrar la explicación de otro, y la
+# explicación es lo único que evita que el modelo llame mal la herramienta —
+# que es el error caro. El techo frena la verborragia, no la capacidad.
+MAX_FICHA_CHARS = 3_000
 
 TODAS = tuple(f for a in AGENTES.values() for f in a.herramientas)
 POR_NOMBRE = {f.__name__: f for f in TODAS}

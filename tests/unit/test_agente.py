@@ -5727,7 +5727,12 @@ def test_sin_dato_vivo_no_se_juzga_con_la_foto(monkeypatch):
     de `x` falló, eso NO es un hallazgo: es un `NoMirado`. Juzgar con la foto es
     exactamente lo que puso diez tablas sanas en rojo a las 09:19."""
     from datetime import datetime, timedelta
-    ahora = datetime(2026, 9, 11, 12, 19, tzinfo=UTC)
+    # `ahora` es AHORA de verdad: el detector mide el atraso contra el reloj, no
+    # contra una fecha que le pase el test. Con un instante clavado, «la lectura
+    # viva dice que escribió recién» dejaba de ser reciente al día siguiente y
+    # la tabla sana aparecía como hallazgo — el test se rompía solo con el
+    # almanaque, sin que nadie tocara el código.
+    ahora = datetime.now(UTC)
     foto_vieja = ahora - timedelta(days=5)
     perfiles = [{"schema": "mercado", "tabla": "sana", "ultimo_dato": foto_vieja},
                 {"schema": "mercado", "tabla": "muerta", "ultimo_dato": foto_vieja}]

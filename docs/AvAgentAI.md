@@ -47,10 +47,10 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 
 | Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |
 |---|---|---|---|---|---|
-| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar de un emisor a otro | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
+| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar — a otro emisor, a otro tipo o a otro plazo | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
 | `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
-| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor), qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
+| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor, tipo de emisor y ventana de vencimiento), qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
 | `renta_variable` | una acción o un CEDEAR | mercado | cómo cotiza, cuánto varió, qué panel | ninguna todavía | ticker |
 | `fondos` | un FCI | mercado | qué es, cuánto rinde, qué tiene, cuánto tarda el rescate | ninguna todavía | ticker |
 | `derivados` | un futuro o una opción | mercado | dónde cotiza, tasa implícita, cadena de opciones | ninguna todavía | ticker |
@@ -243,6 +243,12 @@ una nueva:
   `semana`, `mes`, `anio`) más `desde` y `hasta` explícitos si el usuario dio
   fechas; el código resuelve el período contra hoy. `cobros_futuros` ya lo
   hace con `dias` y `hasta`.
+- Lo que se busca **en un lapso** toma una VENTANA de dos fechas
+  (`curva(vence_desde=…, vence_hasta=…)`). Nunca se sustituye por un orden:
+  `ordenar_por="vencimiento"` empieza por el más corto y contesta el extremo
+  contrario al que se pidió. Cuando una de las dos puntas es «lo que yo tengo»,
+  esa punta **la pone el código** desde el sujeto que ya tiene en la mano
+  (`opciones_para_rotar(hacia_plazo=…)`), no el modelo desde el texto anterior.
 - Toda respuesta dice de cuándo son sus datos (`fecha`, `tenencia_del`,
   `ventana`), y la instrucción común obliga a decirlo.
 
@@ -354,6 +360,31 @@ corporativo HD para rotar» ordenó 125 por TEA, cortó en 15, y de esos 4 eran
 corporativos: se recomendó entre 4 de ~110. Por eso un criterio que la mesa usa
 tiene que poder expresarse como ARGUMENTO (`emisor`, `emisor_tipo`, `tipo`): sin
 eso el modelo sobre-pide y recorta a ojo.
+
+**Una pregunta comparativa necesita ANCLA y VENTANA — y ordenar no es
+filtrar.** «Más lejano», «más corto», «que rinda más» se dicen *respecto de
+algo que ya está en la conversación*. Faltaban las dos mitades. La ventana:
+ningún argumento de tiempo en renta fija, así que «hasta 2029» no tenía dónde
+entrar y el modelo cayó en `ordenar_por="vencimiento"` — que ordena
+ASCENDENTE, o sea arranca por el más CORTO: se pidió lo más largo y salieron
+45 bonos desde 2026. **Cuando la herramienta no puede recibir el filtro, el
+modelo usa el orden como sustituto, y el orden tiene una dirección fija que la
+mitad de las veces es la contraria.** Por eso `curva` toma `vence_desde` /
+`vence_hasta` (§9), filtrados antes del recorte. Y el ancla: el punto de
+partida era el vencimiento del bono que el usuario tenía, que existía solo
+como texto del turno anterior —el foco aprende de los ARGUMENTOS de la llamada,
+no del resultado (§8)—. **Esa punta la pone el CÓDIGO, no el modelo**: en
+`opciones_para_rotar` el usuario nombra la dirección (`hacia_plazo`) y como
+mucho una fecha (`hacia_vencimiento`); la otra punta sale de la referencia,
+que la función ya tiene en la mano. Si el modelo tuviera que copiar esa fecha
+del turno anterior, copiarla mal no fallaría: devolvería otra lista, igual de
+convincente (REGLA #9). Y si no se conoce el vencimiento de la referencia, no
+se contesta: «más largo» que nada no quiere decir nada.
+
+**Cuántas opciones se presentan es una decisión, no un tope técnico.**
+`opciones_para_rotar` muestra **3** (`cuantas`, hasta 20 si piden más).
+Devolver 45 alternativas a «¿hay alguno?» no es ser más completo: es no haber
+contestado.
 
 **En el resultado viajan DATOS, no instrucciones.** El modelo no distingue una
 cosa de la otra: un `aviso` en prosa escrito para él («hay 125 y estás viendo

@@ -130,6 +130,14 @@ def test_la_serie_historica_si_exige_fee():
     assert "a.fee_admin IS NOT NULL" in s._SQL_SERIE
 
 
+def test_la_serie_no_proyecta_dias_del_mes_en_curso():
+    """La barra del mes actual debe cortar en la última foto, igual que la tabla;
+    proyectar desde esa foto hasta hoy o fin de mes infla el acumulado."""
+    assert "date_trunc('month', CURRENT_DATE)" in s._SQL_SERIE
+    assert "AND sig IS NULL" in s._SQL_SERIE
+    assert "THEN 1" in s._SQL_SERIE
+
+
 def test_el_mes_vacio_se_declara_y_no_da_cero():
     """Un mes sin foto no es un mes sin comisiones."""
     v = s._vacio("2019-01")

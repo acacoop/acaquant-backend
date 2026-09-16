@@ -267,8 +267,15 @@ tramo AS (
     -- El tramo se corta en fin de mes: una foto de un 31 no puede devengar días
     -- del mes siguiente, o el gráfico mensual mezclaría períodos.
     SELECT fecha,
-           (LEAST(coalesce(sig - 1, fecha), (date_trunc('month', fecha)
-              + interval '1 month - 1 day')::date) - fecha + 1) AS n_dias
+                     (CASE
+                            -- El mes en curso debe coincidir con el resumen: corta en la
+                            -- última foto disponible y no proyecta días todavía no cerrados.
+                                WHEN date_trunc('month', fecha) = date_trunc('month', CURRENT_DATE)
+                                    AND sig IS NULL
+                                THEN 1
+                            ELSE LEAST(coalesce(sig - 1, fecha), (date_trunc('month', fecha)
+                                     + interval '1 month - 1 day')::date) - fecha + 1
+                        END) AS n_dias
     FROM anclas
 )
 SELECT to_char(t.fecha, 'YYYY-MM')        AS mes,

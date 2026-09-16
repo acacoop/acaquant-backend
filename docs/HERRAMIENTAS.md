@@ -10,7 +10,7 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 <!-- AUTOGEN:START — generado por scripts.gen_herramientas, no editar a mano -->
 
-*14 herramientas en 5 categorías.*
+*15 herramientas en 5 categorías.*
 
 ### Performance / profiling
 
@@ -36,6 +36,7 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 | `python -m scripts.diag_desglose_texto` | Cero escrituras. Corre sobre las fechas que hay en la base. |
 | `python -m scripts.diag_duales_pata_fija` | Sigue la cadena hasta el punto exacto donde se corta. |
 | `python -m scripts.diag_produccion_operador` | Solo SELECT, cero escrituras. |
+| `python -m scripts.diag_rofex_crudo` | one-shot · READ-ONLY total (solo GETs; jamás `send_order` |
 | `python -m scripts.diag_saldo_cierre` | Cero escrituras. Corre sobre las fechas que hay en la base. |
 
 ### fci

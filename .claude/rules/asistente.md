@@ -55,7 +55,7 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    dict a mano.
 2e. **Comparativa = ANCLA + VENTANA, y ordenar NUNCA sustituye a filtrar.**
    «Más largo», «hasta 2029» son lapsos: van como dos fechas
-   (`curva(vence_desde/vence_hasta)`), filtradas antes del recorte. Si no hay
+   (`instrumentos_de_la_curva(vence_desde/vence_hasta)`), filtradas antes del recorte. Si no hay
    argumento, el modelo cae en `ordenar_por` — que tiene una dirección fija y
    contesta el extremo contrario. Y cuando una punta es «lo que yo tengo», la
    pone el CÓDIGO desde el sujeto que ya tiene en la mano

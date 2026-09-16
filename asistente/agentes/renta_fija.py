@@ -177,7 +177,7 @@ def es_del_emisor(fila: dict, buscado: str) -> bool:
 
 def metricas_por_ticker() -> dict[str, dict]:
     """Lo que el mercado dice hoy de cada bono del master de curvas, por ticker
-    corto: la misma foto que `curva`. Es un helper de DATOS, no una herramienta:
+    corto: la misma foto que `instrumentos_de_la_curva`. Es un helper de DATOS, no
     lo usa el agente cartera para decir cuánto rinde lo que una cuenta tiene, sin
     que ningún modelo cruce nada. Levanta si la vista no contesta."""
     from api.services import curvas_vista as CV
@@ -187,11 +187,13 @@ def metricas_por_ticker() -> dict[str, dict]:
             for b in CV.get_curvas_vista().get("bonos") or [] if b.get("ticker_corto")}
 
 
-def curva(curva: Curva, ordenar_por: OrdenCurva = "tea",
-          limit: Annotated[int, Field(ge=1, le=MAX_INSTRUMENTOS)] = 15,
-          emisor: str | None = None, emisor_tipo: EmisorTipo | None = None,
-          vence_desde: Fecha | None = None, vence_hasta: Fecha | None = None,
-          con_emisores: bool = False) -> dict:
+def instrumentos_de_la_curva(curva: Curva, ordenar_por: OrdenCurva = "tea",
+                             limit: Annotated[int, Field(ge=1, le=MAX_INSTRUMENTOS)] = 15,
+                             emisor: str | None = None,
+                             emisor_tipo: EmisorTipo | None = None,
+                             vence_desde: Fecha | None = None,
+                             vence_hasta: Fecha | None = None,
+                             con_emisores: bool = False) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
     Es el MERCADO, no una cuenta: «qué tengo» es `tenencia_actual`, y rotar un
@@ -422,7 +424,7 @@ AGENTE = Agente(
     describe="bonos, letras y ONs: qué hay en una curva, cuánto rinde, qué es un bono, cuándo "
              "vence y qué paga, cómo cotiza hoy.",
     instruccion=_instruccion,
-    herramientas=(curva, ficha_bono),
+    herramientas=(instrumentos_de_la_curva, ficha_bono),
     familia="mercado",
     foco=("ticker",),
     senales=("curva", "curvas", "tea", "tir", "bono", "bonos", "paridad", "duration", "ficha",

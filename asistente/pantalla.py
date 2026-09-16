@@ -87,7 +87,8 @@ def aviso(resultado) -> str | None:
     es una acción del modelo —es un efecto de un payload que no ve—, así que
     llamar dos herramientas con tabla le sale gratis y al usuario le aparecen
     dos tablas pegadas de lo mismo. Medido en el LAB: `opciones_para_rotar`
-    contestó la rotación y el modelo llamó igual a `curva` para «completar»."""
+    contestó la rotación y el modelo llamó igual a `instrumentos_de_la_curva`
+    para «completar»."""
     if (d := declarada(resultado)) is None:
         return None
     decl, filas = d

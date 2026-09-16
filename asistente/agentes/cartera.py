@@ -426,10 +426,10 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
     Las alternativas salen de la MISMA CURVA que el título que sale: la TEA de
     un CER y la de un hard dollar no son el mismo número.
 
-    Ya mira el mercado por vos: NO llames `curva` después para completar la
-    lista —serían dos tablas de lo mismo— ni para mirar el título que sale.
-    NO es para comprar sin vender nada («qué bono me conviene»): eso es
-    `curva`. Acá siempre hay algo de la cuenta que SALE.
+    Ya mira el mercado por vos: NO llames `instrumentos_de_la_curva` después
+    para completar la lista —serían dos tablas de lo mismo— ni para mirar el
+    que sale. Y NO es para comprar sin vender nada («qué bono me conviene»):
+    para eso está esa otra. Acá siempre sale algo tuyo.
 
     QUÉ DEVUELVE:
       · `referencia` — el título tuyo que SALE, con su tasa y duration.

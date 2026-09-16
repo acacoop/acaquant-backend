@@ -505,17 +505,70 @@ def test_la_tna_es_la_que_publico_el_backend_y_nunca_se_deriva_acá():
     assert hd["GD30"]["tea_pct"] == 12.0, "la TEA está siempre: es la comparable"
 
 
-def test_si_el_limite_corta_la_curva_la_respuesta_lo_dice():
-    """Ordenado por vencimiento y cortado en 2, el último de la lista NO es el
-    que vence más lejos. Sin el aviso, «el más lejano» se contesta con un número
-    plausible, en el lugar correcto, y mal."""
+def test_los_tipos_de_emisor_son_los_de_core():
+    """El `Literal` viaja como `enum` en la ficha, así que es lo único que el
+    modelo puede pedir. Si se separa de `core.curvas_ejes.EMISORES`, el filtro
+    rechaza un tipo que la base sí tiene, y al revés."""
+    from typing import get_args
+
+    from asistente.agentes.renta_fija import EmisorTipo
+    from core.curvas_ejes import EMISORES
+
+    assert set(get_args(EmisorTipo)) == set(EMISORES)
+
+
+def test_la_curva_filtra_por_tipo_de_emisor_ANTES_de_recortar():
+    """El orden es lo único que importa acá. Medido en el LAB el 2026-09-16:
+    «un corporativo HD para rotar» ordenó 125 por TEA, cortó en 15, y de esos
+    solo 4 eran corporativos — se recomendó entre 4 de ~110, y los mejores
+    podían estar en el puesto 40 sin que nadie los mirara. La respuesta salía
+    fundamentada y mal, que es el modo de falla que no falla."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    # 3 soberanos que rinden más, y 2 corporativos abajo: con `limit=3` y sin
+    # filtro, los corporativos NO entran.
+    def b(tk, tipo, tea):
+        return {"ticker_corto": tk, "pill": "hard_dolar", "emisor": tk[:3], "emisor_tipo": tipo,
+                "vencimiento": "2030-01-01", "tasa_ruido": False,
+                "metrics": {"last_price": 100.0, "TEA": tea, "TEM": 0.01, "paridad": 95.0,
+                            "duration": 3.0, "total_nominals": 10}}
+    vista = {"bonos": [b("AL1", "soberano", 0.12), b("AL2", "soberano", 0.11),
+                       b("AL3", "soberano", 0.10), b("CP1", "corporativo", 0.09),
+                       b("CP2", "corporativo", 0.08)]}
+    with patch.object(CV, "get_curvas_vista", return_value=vista):
+        sin_filtro = RF.curva("hard_dolar", limit=3)
+        assert [i["ticker"] for i in sin_filtro["instrumentos"]] == ["AL1", "AL2", "AL3"]
+        con_filtro = RF.curva("hard_dolar", limit=3, emisor_tipo="corporativo")
+        assert [i["ticker"] for i in con_filtro["instrumentos"]] == ["CP1", "CP2"], (
+            "los corporativos salen de TODOS los corporativos, no de los 3 primeros")
+        # y el resumen también es de lo filtrado, no de la curva entera
+        assert con_filtro["resumen"]["cuantos"] == 2
+        assert con_filtro["resumen"]["rinde_mas"]["ticker"] == "CP1"
+        assert con_filtro["cuantos"] == 2 and not con_filtro["truncado"]
+        # un tipo que no existe en esa curva se dice, con los emisores que hay
+        vacio = RF.curva("hard_dolar", emisor_tipo="bcra")
+        assert "error" in vacio and "bcra" in vacio["error"] and vacio["emisores"]
+        assert "error" in RF.curva("hard_dolar", emisor_tipo="cooperativa")
+
+
+def test_la_curva_no_le_manda_al_modelo_notas_para_que_las_repita():
+    """El `aviso` en prosa («hay 125 y estás viendo los primeros 15…») estaba
+    escrito PARA el modelo y viajaba por el canal de los DATOS. El modelo se lo
+    repitió al usuario: «la curva está truncada: se ven 15 de 125». La
+    instrucción vive en el docstring, que es su canal; en el resultado queda el
+    dato estructurado (`truncado`, `cuantos`) y nada más."""
+    import inspect
+
     from api.services import curvas_vista as CV
     from asistente.agentes import renta_fija as RF
 
     with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
-        r = RF.curva("hard_dolar", ordenar_por="vencimiento", limit=2)
-        assert r["truncado"] and "NO es el último" in r["aviso"] and "4" in r["aviso"]
-        assert "aviso" not in RF.curva("hard_dolar", ordenar_por="vencimiento", limit=50)
+        r = RF.curva("hard_dolar", limit=2)
+    assert r["truncado"] is True and r["cuantos"] == 4, "el dato, estructurado"
+    frases = [v for v in r.values() if isinstance(v, str) and len(v) > 60]
+    assert not frases, f"hay prosa en el resultado y el modelo la va a repetir: {frases}"
+    assert "truncado" in inspect.getdoc(RF.curva), "la instrucción va en el docstring"
 
 
 def test_los_tres_dolares_se_distinguen_y_las_brechas_las_calcula_el_codigo():

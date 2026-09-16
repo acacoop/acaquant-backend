@@ -7174,6 +7174,13 @@ criterio, la nota se convirtió en la cuarta fuente de `agente/cartera.py`:
   también. Un universo, un criterio (§0.fh, REGLA #9). Lo congela
   `test_el_ejecutor_de_cartera_LEE_EL_MISMO_MASTER_DE_CEDEARS`.
 
+- **`None` no es una lista vacía, tampoco en la nota.** `cedears_master()`
+  devuelve `None` cuando no pudo leer y `[]` cuando afirma que no hay ninguno
+  cargado. Mientras era evidencia daba igual; desde que propone, «no está en
+  `mercado.cedears`» con la lectura caída sería una afirmación que nadie midió
+  (REGLA #2). La fila se queda sin propuesta en los dos casos — lo que cambia es
+  qué hay que ir a mirar, y la nota lo dice.
+
 **Qué cambia en pantalla.** Los CEDEARs sin cartera dejan de ser una pregunta:
 llegan con `RENTA VARIABLE` propuesto y su fuente, y —por estar declarada en
 `automatico` de la habilidad `ficha_incompleta`— el ejecutor los completa solo

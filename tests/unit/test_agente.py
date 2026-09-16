@@ -1421,6 +1421,35 @@ def test_el_cedear_va_a_RENTA_VARIABLE():
     assert (choque[0]["propuesto"], choque[0]["fuente"]) == ("HD", cartera.CURVA)
 
 
+def test_sin_master_de_cedears_la_fila_dice_QUE_FALTO_LA_FUENTE():
+    """⚠️ **`None` NO ES UNA LISTA VACÍA**, tampoco en la nota (§0.fm).
+
+    `fuentes.cedears_master()` devuelve `None` cuando no pudo leer y `[]` cuando
+    AFIRMA que no hay ninguno cargado. Desde que el CEDEAR propone, esa
+    diferencia deja de ser cosmética: con la lectura caída, «no está en
+    mercado.cedears» sería una afirmación que nadie midió (REGLA #2). Las dos
+    filas se quedan sin propuesta igual — lo que cambia es qué hay que ir a
+    mirar.
+    """
+    from agente import cartera
+
+    fila = {"clase_activo": "", "emisor": "", "cartera": "",
+            "unidad": "[8578] UPST", "ticker": "UPST"}
+
+    caido = cartera.proponer([dict(fila)], master=[], universo_1816={},
+                             usadas=["HD"], cedears=None)[0]
+    vacio = cartera.proponer([dict(fila)], master=[], universo_1816={},
+                             usadas=["HD"], cedears=[])[0]
+
+    assert caido["propuesto"] == "" and vacio["propuesto"] == ""
+    assert "NO PUDE LEER" in caido["nota"], (
+        "con el master caído la fila tiene que decir que FALTÓ la fuente, no "
+        "que el título no es un CEDEAR")
+    assert "NO PUDE LEER" not in vacio["nota"] and "NINGÚN" in vacio["nota"], (
+        "un master vacío es una AFIRMACIÓN de la fuente, no una falla: la nota "
+        "manda a cargar CEDEARs, no a revisar la lectura")
+
+
 def test_el_ejecutor_de_cartera_LEE_EL_MISMO_MASTER_DE_CEDEARS(monkeypatch):
     """⚠️ **UN UNIVERSO, UN CRITERIO** (REGLA #9, §0.fm). Mientras el master de
     CEDEARs era sólo evidencia para la nota, el ejecutor (`solo`) podía

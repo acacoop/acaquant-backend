@@ -132,6 +132,14 @@ def proponer(filas: list[dict], master: list[dict] | None,
     indice_master = _indice_master(master)
     indice_1816 = _indice_1816(universo_1816)
     tickers_cedear = _tickers_cedears(cedears)
+    # ⚠️ **`None` NO ES UNA LISTA VACÍA** (el invariante de `agente/fuentes.py`).
+    # `cedears_master()` devuelve `None` cuando NO PUDO LEER y `[]` cuando
+    # AFIRMA que no hay ninguno cargado. Las dos cosas dejan el set vacío, pero
+    # no se explican igual: una es «faltó la fuente», la otra es «la fuente
+    # contestó, y contestó que no». Sin esta distinción, el día que la lectura
+    # falle la fila diría que el título no es un CEDEAR — que es exactamente lo
+    # que no se puede afirmar (REGLA #2).
+    hubo_master_cedears = cedears is not None
     out = []
     for f in filas:
         fila = {**f, "propuesto": "", "fuente": "", "nota": ""}
@@ -179,14 +187,16 @@ def proponer(filas: list[dict], master: list[dict] | None,
                 fila["nota"] = (
                     f"1816 lo pone en la curva «{inst.get('_curva') or '—'}», "
                     "que no traduce a ejes conocidos")
-            elif not tickers_cedear:
-                # Sin el master de CEDEARs no se puede AFIRMAR que no lo es, así
-                # que no se dice: se dice que faltó la fuente (REGLA #2).
+            elif not hubo_master_cedears:
                 fila["nota"] = ("ninguna regla del job lo reconoce y no está ni "
                                 "en mercado.curvas ni en el catálogo de 1816 — y "
-                                "el master de mercado.cedears vino vacío en esta "
-                                "corrida, así que tampoco se pudo descartar que "
-                                "sea un CEDEAR")
+                                "en esta corrida NO PUDE LEER mercado.cedears, "
+                                "así que tampoco se pudo descartar que sea un "
+                                "CEDEAR")
+            elif not tickers_cedear:
+                fila["nota"] = ("ninguna regla del job lo reconoce y no está en "
+                                "mercado.curvas ni en el catálogo de 1816, y "
+                                "mercado.cedears no tiene NINGÚN ticker cargado")
             else:
                 fila["nota"] = ("ninguna regla del job lo reconoce y no está en "
                                 "mercado.curvas, ni en el catálogo de 1816, ni "

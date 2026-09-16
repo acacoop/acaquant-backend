@@ -36,6 +36,35 @@ def _ordenar(filas: list[dict], por: str) -> list[dict]:
     return sorted(filas, key=lambda f: (f[por] is None, f[por] or 0))
 
 
+def fecha_o_error(valor, campo: str) -> tuple[str | None, dict | None]:
+    """Una fecha `YYYY-MM-DD` validada, o un error COMO DATO. Se devuelve como
+    string porque una fecha ISO compara en orden tal cual, que es lo que hace
+    falta para una ventana: parsear cada fila sería trabajo para nada."""
+    s = str(valor or "").strip()[:10]
+    try:
+        return date.fromisoformat(s).isoformat(), None
+    except ValueError:
+        return None, {"error": f"`{campo}` tiene que ser una fecha YYYY-MM-DD, llegó {valor!r}"}
+
+
+def en_ventana(vto: str | None, desde: str | None, hasta: str | None) -> bool:
+    """¿Este vencimiento cae en la ventana? Los bordes ENTRAN. Sin fecha de
+    vencimiento queda AFUERA: no se puede probar que esté adentro, y colar un
+    título en una ventana que el operador acotó es peor que no traerlo."""
+    if not vto:
+        return False
+    return (desde is None or vto >= desde) and (hasta is None or vto <= hasta)
+
+
+def texto_ventana(desde: str | None, hasta: str | None) -> str:
+    """Cómo se nombra una ventana en el título de una tabla. Vacío si no hay."""
+    if desde and hasta:
+        return f"vence {desde} → {hasta}"
+    if desde:
+        return f"vence desde {desde}"
+    return f"vence hasta {hasta}" if hasta else ""
+
+
 def _instrumento(b: dict, hoy: date) -> dict:
     m = b.get("metrics") or {}
     vto = b.get("vencimiento")
@@ -151,6 +180,7 @@ def metricas_por_ticker() -> dict[str, dict]:
 
 def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
           emisor: str | None = None, emisor_tipo: EmisorTipo | None = None,
+          vence_desde: str | None = None, vence_hasta: str | None = None,
           con_emisores: bool = False) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
@@ -168,8 +198,7 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
       · `resumen` — los agregados de TODO lo pedido, no de lo que entró acá:
         `tea_pct` y `duration` (min/max/promedio/mediana), `rinde_mas`,
         `vence_primero`, `vence_ultimo`, ya resueltos.
-      · `emisores` SOLO con `con_emisores` (son ~47 y pesan): pedilo cuando
-        vayas a filtrar por uno y no sepas cómo se escribe.
+      · `emisores` SOLO con `con_emisores` (son ~47 y pesan).
       · `truncado` true = esto es una MUESTRA y los extremos salen de
         `resumen`. Es cocina: contestá con el dato, no con cómo lo conseguiste.
 
@@ -177,10 +206,16 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         ordenar_por: con `tea` los que más rinden primero. Default `tea`.
         limit: 1 a 50; si no dijo, 15. Si pidió UNO, pedí pocos.
         emisor: por nombre y por pedazo («YPF» encuentra «YPF S.A.»).
-        con_emisores: true si te hace falta la lista de emisores.
-        emisor_tipo: **usalo cuando lo pidan**. Filtra ANTES de recortar: los
-            candidatos salen de todos los de ese tipo, no de los que entraron
-            en `limit`.
+        emisor_tipo: soberano · provincial · corporativo · bcra. **Usalo
+            cuando lo pidan**, no filtres leyendo lo que te volvió.
+        vence_desde: fecha `YYYY-MM-DD`; de ahí en adelante, ese día incluido.
+        vence_hasta: fecha `YYYY-MM-DD`; hasta ahí, ese día incluido. Con
+            `vence_desde` son la VENTANA: «hasta 2029» es
+            `vence_hasta="2029-12-31"`; «más largo que el AL30» es pedir su
+            ficha y poner su vencimiento en `vence_desde`. ⚠️ ORDENAR NO ES
+            FILTRAR: `ordenar_por="vencimiento"` arranca por el más CORTO, así
+            que para un plazo pedido va la ventana, nunca el orden.
+        con_emisores: true si vas a filtrar por uno y no sabés cómo se escribe.
     """
     from api.services import curvas_vista as CV
     from core import curvas_ejes as ce
@@ -196,6 +231,18 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
     except (TypeError, ValueError):
         return {"error": f"`limit` tiene que ser un número entero, llegó {limit!r}"}
     n = max(1, min(n, MAX_INSTRUMENTOS))
+    desde = hasta = None
+    if vence_desde is not None:
+        desde, err = fecha_o_error(vence_desde, "vence_desde")
+        if err:
+            return err
+    if vence_hasta is not None:
+        hasta, err = fecha_o_error(vence_hasta, "vence_hasta")
+        if err:
+            return err
+    if desde and hasta and desde > hasta:
+        return {"error": f"la ventana está al revés: `vence_desde` ({desde}) es posterior a "
+                         f"`vence_hasta` ({hasta})"}
     try:
         bonos = [b for b in CV.get_curvas_vista().get("bonos") or [] if b.get("pill") == curva]
     except Exception as e:
@@ -229,6 +276,17 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
                     "emisores": emisores,
                     "que_hacer": "Decile al usuario cuáles hay. No busques el mismo emisor "
                                  "en otra curva por tu cuenta."}
+    # La ventana va ÚLTIMA a propósito: si además se filtró por emisor, el
+    # «no hay ninguno» sale con los vencimientos DE ESE EMISOR, que es lo que
+    # hay que contestar, y no con los de la curva entera.
+    if desde or hasta:
+        previas = filas
+        filas = [f for f in filas if en_ventana(f.get("vencimiento"), desde, hasta)]
+        if not filas:
+            r = _resumen(previas)
+            return {"error": f"no hay ningún bono que venza {texto_ventana(desde, hasta)} "
+                             f"entre los {len(previas)} pedidos",
+                    "vence_primero": r["vence_primero"], "vence_ultimo": r["vence_ultimo"]}
     salida = {
         "curva": curva,
         "emisor": emisor,
@@ -240,8 +298,11 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         "_tabla": pantalla.tabla(
             "instrumentos",
             ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
-            " · ".join(x for x in (f"Curva {curva}", emisor, emisor_tipo) if x)),
+            " · ".join(x for x in (f"Curva {curva}", emisor, emisor_tipo,
+                                   texto_ventana(desde, hasta)) if x)),
     }
+    if desde or hasta:
+        salida["ventana"] = {"desde": desde, "hasta": hasta}
     if con_emisores:
         salida["emisores"] = emisores
     return salida

@@ -435,6 +435,95 @@ def test_rotar_acepta_un_TIPO_de_emisor_como_destino(permiso):
         assert "error" in falta and "YMCXO" in falta["tickers_en_la_cuenta"]
 
 
+def _mercado_plazos():
+    """El mismo emisor y la misma curva para todos: acá lo único que distingue
+    a un candidato de otro es CUÁNDO vence."""
+    def b(tk, vto, tea):
+        return {"ticker": tk, "emisor": "REPUBLICA ARGENTINA", "emisor_tipo": "soberano",
+                "curva": "hard_dolar", "tea_pct": tea, "duration": 3.0, "paridad_pct": 95.0,
+                "vencimiento": vto, "tasa_ruido": False}
+    return {m["ticker"]: m for m in [
+        b("AL26", "2026-10-03", 5.0), b("AE27", "2027-07-09", 6.0),
+        b("AO28", "2028-10-31", 8.0), b("GEMELO", "2028-10-31", 8.5),
+        b("GD29", "2029-07-09", 11.0), b("AL29", "2029-12-01", 9.0),
+        b("YM29", "2029-03-15", 13.0), b("GD35", "2035-07-09", 10.0),
+        b("GD46", "2046-07-10", 12.0)]}
+
+
+def _tengo_AO28(vencimiento="2028-10-31"):
+    return {"posiciones": [{"ticker": "AO28", "emisor": "REPUBLICA ARGENTINA", "tea_pct": 8.0,
+                            "duration": 3.0, "paridad_pct": 95.0,
+                            "vencimiento": vencimiento, "tasa_ruido": False}]}
+
+
+def test_rotar_a_MAS_LARGO_ancla_el_punto_de_partida_en_el_bono_que_sale(permiso):
+    """«Quiero venderlo y comprar uno con vencimiento más lejano, ejemplo
+    2029»: el punto de partida es el vencimiento del título que SALE y el
+    punto final el que nombró el usuario. La fecha de partida NO viaja como
+    argumento — el modelo la tendría que copiar del turno anterior, y una
+    fecha mal copiada no falla: devuelve otra lista, igual de convincente."""
+    from asistente.agentes import cartera as MC
+
+    with patch.object(MC, "tenencia_actual", return_value=_tengo_AO28()), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        r = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                   hacia_vencimiento="2029-12-31")
+        # el desde lo puso el CÓDIGO, desde la referencia
+        assert r["ventana"] == {"desde": "2028-10-31", "hasta": "2029-12-31"}
+        assert [a["ticker"] for a in r["alternativas"]] == ["YM29", "GD29", "AL29"], (
+            "solo el lapso, las mejores por delta de TEA")
+        assert r["cuantas"] == 3 and r["referencia"]["vencimiento"] == "2028-10-31"
+        tickers = [a["ticker"] for a in r["alternativas"]]
+        assert "GEMELO" not in tickers, "el mismo día no es más largo"
+        assert "GD46" not in tickers, "se pasa del lapso"
+        assert "AE27" not in tickers, "es más corto"
+        assert "vence 2028-10-31 → 2029-12-31" in r["_tabla"]["titulo"]
+
+        # sin fecha nombrada, «más largo» es de mi bono en adelante, sin techo
+        abierta = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
+        assert abierta["ventana"] == {"desde": "2028-10-31", "hasta": None}
+        assert "GD46" in [a["ticker"] for a in abierta["alternativas"]]
+        # se muestran TRES si no pidió un número, aunque haya más
+        assert len(abierta["alternativas"]) == 3 and abierta["truncado"] is True
+        assert len(MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                          cuantas=5)["alternativas"]) == 5
+
+        # el otro lado: más corto es de hoy hasta MI vencimiento
+        corto = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_corto")
+        assert corto["ventana"]["hasta"] == "2028-10-31"
+        assert [a["ticker"] for a in corto["alternativas"]] == ["AE27", "AL26"]
+        assert "GEMELO" not in [a["ticker"] for a in corto["alternativas"]]
+
+        # el plazo se combina con el emisor/tipo: son ejes distintos
+        con_tipo = MC.opciones_para_rotar("805", ticker="AO28", hacia_tipo="soberano",
+                                          hacia_plazo="mas_largo",
+                                          hacia_vencimiento="2029-12-31")
+        assert [a["ticker"] for a in con_tipo["alternativas"]] == ["YM29", "GD29", "AL29"]
+
+        # una fecha suelta no dice de qué lado buscar: se pide la dirección
+        assert "error" in MC.opciones_para_rotar("805", ticker="AO28",
+                                                 hacia_vencimiento="2029-12-31")
+        assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_lejos")
+        assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                                 hacia_vencimiento="2029")
+        # más largo hasta una fecha ANTERIOR a mi vencimiento no tiene
+        # respuesta: se dice, no se devuelve vacío
+        assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                                 hacia_vencimiento="2027-01-01")
+
+
+def test_rotar_por_plazo_sin_saber_cuando_vence_el_mio_no_contesta(permiso):
+    """Sin punto de partida, «más largo» no quiere decir nada. Contestar igual
+    —con la ventana abierta— daría una lista plausible construida sobre un
+    ancla que no existe: el error que no falla."""
+    from asistente.agentes import cartera as MC
+
+    with patch.object(MC, "tenencia_actual", return_value=_tengo_AO28(vencimiento=None)), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        r = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
+    assert "error" in r and "AO28" in r["error"] and "alternativas" not in r
+
+
 def test_rotar_encuentra_el_titulo_aunque_el_emisor_se_escriba_distinto(permiso):
     """El emisor de la cuenta y el del master de curvas son dos strings que
     pueden no coincidir. Perder un título por eso sería contestar que no tenés
@@ -525,6 +614,72 @@ def test_la_curva_filtra_por_emisor_por_pedazo_y_nunca_devuelve_vacio_en_silenci
         assert "error" in fallo and "TENARIS" in fallo["error"]
         assert [e["emisor"] for e in fallo["emisores"]] and "instrumentos" not in fallo
         assert "error" in RF.curva("hard_dolar", emisor="   ")
+
+
+def _vista_plazos():
+    """Una curva hard dollar con vencimientos repartidos de 2026 a 2046, que es
+    la forma real de la curva: pocos cortos, un montón en el medio, uno muy
+    largo. Con todos al mismo vencimiento la trampa del orden no se ve."""
+    def b(tk, vto, tea=0.10, emisor="REPUBLICA ARGENTINA", tipo="soberano"):
+        return {"ticker_corto": tk, "pill": "hard_dolar", "emisor": emisor,
+                "emisor_tipo": tipo, "vencimiento": vto, "tasa_ruido": False,
+                "metrics": {"last_price": 100.0, "TEA": tea, "TEM": 0.008, "TNA": None,
+                            "paridad": 95.0, "duration": 3.0, "total_nominals": 10}}
+    return {"bonos": [
+        b("AL26", "2026-10-03", tea=0.05), b("AE27", "2027-07-09", tea=0.06),
+        b("AO28", "2028-10-31", tea=0.08), b("GD29", "2029-07-09", tea=0.11),
+        b("AL29", "2029-12-01", tea=0.09),
+        b("YM29", "2029-03-15", tea=0.13, emisor="YPF S.A.", tipo="corporativo"),
+        b("GD35", "2035-07-09", tea=0.10), b("GD46", "2046-07-10", tea=0.12),
+        b("SINVTO", None, tea=0.99),
+    ]}
+
+
+def test_la_curva_busca_en_una_VENTANA_de_vencimiento_y_no_en_un_orden():
+    """«Quiero vender el AO28 y comprar uno a 2029»: el usuario da un LAPSO.
+    Sin argumentos de ventana, lo único que el modelo podía hacer era
+    `ordenar_por="vencimiento"`, que arranca por el MÁS CORTO —el extremo
+    contrario al pedido— y devolvía 45 bonos desde 2026. Ordenar no es
+    filtrar: el orden tiene una dirección fija, y la mitad de las veces es la
+    que no se pidió."""
+    from api.services import curvas_vista as CV
+    from asistente.agentes import renta_fija as RF
+
+    with patch.object(CV, "get_curvas_vista", return_value=_vista_plazos()):
+        # la trampa, documentada: ordenar por vencimiento empieza por el corto
+        assert RF.curva("hard_dolar", ordenar_por="vencimiento")[
+            "instrumentos"][0]["ticker"] == "AL26"
+        # la ventana: del bono que sale (2028-10-31) hasta fin de 2029
+        r = RF.curva("hard_dolar", vence_desde="2028-10-31", vence_hasta="2029-12-31")
+        assert [i["ticker"] for i in r["instrumentos"]] == ["YM29", "GD29", "AL29", "AO28"], (
+            "solo los del lapso, y ordenados por TEA que es el default")
+        assert r["ventana"] == {"desde": "2028-10-31", "hasta": "2029-12-31"}
+        assert r["cuantos"] == 4 and r["truncado"] is False
+        # el resumen es de la VENTANA, no de la curva entera: si no, «el que más
+        # rinde» contestaría con un bono que no está en la tabla
+        assert r["resumen"]["rinde_mas"]["ticker"] == "YM29"
+        assert r["resumen"]["vence_ultimo"]["ticker"] == "AL29", "el último DEL LAPSO"
+        assert "SINVTO" not in [i["ticker"] for i in r["instrumentos"]], (
+            "sin fecha no se puede probar que esté adentro: queda afuera")
+        # los bordes entran, y la ventana se combina con los otros filtros
+        assert [i["ticker"] for i in RF.curva(
+            "hard_dolar", vence_hasta="2026-10-03")["instrumentos"]] == ["AL26"]
+        assert [i["ticker"] for i in RF.curva(
+            "hard_dolar", emisor_tipo="corporativo",
+            vence_hasta="2029-12-31")["instrumentos"]] == ["YM29"]
+        # el título de la tabla dice el lapso: dos tablas pegadas no se pisan
+        assert "vence 2028-10-31 → 2029-12-31" in r["_tabla"]["titulo"]
+        # vacía: error CON los extremos de lo que sí hay, no una lista vacía
+        nada = RF.curva("hard_dolar", vence_desde="2036-01-01", vence_hasta="2040-01-01")
+        assert "error" in nada and nada["vence_ultimo"]["ticker"] == "GD46"
+        assert nada["vence_primero"]["ticker"] == "AL26"
+        # y si además se filtró por emisor, los extremos son los DE ESE EMISOR
+        solo_ypf = RF.curva("hard_dolar", emisor="YPF", vence_desde="2040-01-01")
+        assert solo_ypf["vence_ultimo"]["ticker"] == "YM29"
+        # una ventana al revés, o una fecha que no es fecha, se dicen
+        assert "error" in RF.curva("hard_dolar", vence_desde="2030-01-01",
+                                   vence_hasta="2029-01-01")
+        assert "error" in RF.curva("hard_dolar", vence_hasta="fin de 2029")
 
 
 def test_la_tna_es_la_que_publico_el_backend_y_nunca_se_deriva_acá():

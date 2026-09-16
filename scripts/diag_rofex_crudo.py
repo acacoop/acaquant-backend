@@ -45,7 +45,7 @@ Si una cuenta falla, se loguea y sigue con la siguiente.
 Uso (desde la raíz del repo):
     python -m scripts.diag_rofex_crudo
     python -m scripts.diag_rofex_crudo --cuentas 100,255,805
-    python -m scripts.diag_rofex_crudo --limite 20 --salida /tmp/rofex_crudo.jsonl
+    python -m scripts.diag_rofex_crudo --limite 20 --salida /tmp/rofex_crudo.jsonl   # default ya es /tmp
 """
 from __future__ import annotations
 
@@ -57,10 +57,23 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+# ⚠️ ANTES de importar core.rofex_orders_session: ese módulo elige entorno con
+# `ROFEX_ORDERS_ENV` y su default es "remarket". Si el .env no la define (el caso
+# del Droplet), `_credenciales()` devuelve las credenciales REMARKET —vacías— y
+# la sesión muere con "Credenciales incompletas para entorno remarket" sin haber
+# llegado nunca al broker. Este diag es read-only y la operación es 100% LIVE:
+# se fuerza LIVE para ESTE proceso (os.environ local, no toca el .env ni los
+# motores), que usa ROFEX_USER / ROFEX_PASSWORD / ROFEX_ACCOUNT — las mismas que
+# ya usa el cron de `scripts/discovery_pyrofex.py`.
+os.environ["ROFEX_ORDERS_ENV"] = "live"
+
 import pyRofex
 
 from core.postgres import get_job_pool
-from core.rofex_orders_session import ensure_session_envio, resolver_cuenta_rofex
+from core.rofex_orders_session import (
+    ensure_session_envio,
+    resolver_cuenta_rofex,
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -121,14 +134,13 @@ def main() -> None:
     )
     ap.add_argument("--cuentas", help="lista separada por comas; default: todas las de SQL")
     ap.add_argument("--limite", type=int, help="procesar solo las primeras N cuentas")
-    ap.add_argument("--salida", help="ruta del JSONL (default: diag_rofex_crudo_<ts>.jsonl)")
+    ap.add_argument("--salida", help="ruta del JSONL (default: /tmp/diag_rofex_crudo_<ts>.jsonl)")
     ap.add_argument("--pausa", type=float, default=0.2,
                     help="segundos entre cuentas, para no martillar al broker (default 0.2)")
     args = ap.parse_args()
 
-    entorno = os.getenv("ROFEX_ORDERS_ENV", "remarket")
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    salida = args.salida or f"diag_rofex_crudo_{ts}.jsonl"
+    salida = args.salida or f"/tmp/diag_rofex_crudo_{ts}.jsonl"
 
     if args.cuentas:
         cuentas = [(c.strip(), "") for c in args.cuentas.split(",") if c.strip()]
@@ -137,7 +149,7 @@ def main() -> None:
     if args.limite:
         cuentas = cuentas[: args.limite]
 
-    print(f"Entorno pyRofex (ROFEX_ORDERS_ENV) = {entorno!r}")
+    print("Entorno pyRofex: LIVE (forzado por el diag; no toca el .env ni los motores)")
     print(f"Cuentas a consultar: {len(cuentas)}")
     print(f"Salida JSONL: {salida}\n")
     if not cuentas:
@@ -147,7 +159,8 @@ def main() -> None:
     try:
         ensure_session_envio()
     except Exception as e:
-        print(f"✗ No se pudo inicializar la sesión pyRofex: {e}")
+        print(f"✗ No se pudo inicializar la sesión pyRofex (LIVE): {e}")
+        print("   Revisá ROFEX_USER / ROFEX_PASSWORD / ROFEX_ACCOUNT en el .env.")
         raise SystemExit(2) from None
 
     por_cuenta: list[dict[str, Any]] = []

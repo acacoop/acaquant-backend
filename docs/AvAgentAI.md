@@ -330,6 +330,15 @@ La herramienta de cruce vive en el agente del dato **más sensible** (por eso
 `opciones_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
 cuenta, y solo los agentes con sujeto cuenta pasan por `permitido.FILTRO_SQL`).
 
+**La tabla es consecuencia del payload, así que lo que dibuja se pide.** Si el
+campo no viene, `pantalla` no dibuja nada y el modelo tampoco recibe
+`se_muestra` — no hay una segunda decisión que tomar. Por eso un bloque que
+genera tabla, o que es una lista larga, va bajo un argumento y no de arriba:
+`ficha_bono(con_pagos=…)` —se veían los flujos del YFCOO en una pregunta sobre
+rotar, porque la ficha se pidió para saber el emisor y vino todo— y
+`curva(con_emisores=…)`, que son ~47 entradas y 2.585 chars por llamada para
+algo que solo sirve cuando vas a filtrar por uno.
+
 **Lo que el usuario nombra, la herramienta lo tiene que poder recibir.** Si no,
 el modelo lo fuerza donde puede y la respuesta sale mal sin fallar. Dos casos
 medidos en el LAB, los dos en `opciones_para_rotar`: «rotar **mi YFCOO**» no

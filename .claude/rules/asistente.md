@@ -45,6 +45,9 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    selección queda sesgada y la respuesta suena fundamentada igual. Y en el
    resultado viajan datos, no prosa para el modelo — el cómo-usar va al
    docstring o se lo repite al usuario (tests).
+2d. **Lo que dibuja tabla, o es una lista larga, se PIDE** (`con_pagos`,
+   `con_emisores`). La tabla es consecuencia del payload: sin el campo no hay
+   tabla ni `se_muestra`, así que devolver menos limpia la pantalla sola.
 2b. **Una tabla tiene sujeto, y el modelo sabe que existe.** Se declara con
    `pantalla.tabla(campo, columnas, titulo)` —el título va por firma— y el
    modelo recibe `se_muestra` en vez de los datos de dibujo: sin eso enumera

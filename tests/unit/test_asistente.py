@@ -515,7 +515,8 @@ def test_la_curva_filtra_por_emisor_por_pedazo_y_nunca_devuelve_vacio_en_silenci
         # minúsculas y espacios de más no cambian nada
         assert len(RF.curva("hard_dolar", emisor="  ypf  ")["instrumentos"]) == 2
         # la lista de emisores viaja SIEMPRE, ordenada por cantidad
-        assert RF.curva("hard_dolar")["emisores"] == [
+        assert "emisores" not in RF.curva("hard_dolar"), "son ~47 y solo sirven para filtrar"
+        assert RF.curva("hard_dolar", con_emisores=True)["emisores"] == [
             {"emisor": "YPF S.A.", "bonos": 2},
             {"emisor": "PAN AMERICAN ENERGY", "bonos": 1},
             {"emisor": "REPUBLICA ARGENTINA", "bonos": 1}]
@@ -710,11 +711,19 @@ def test_la_ficha_de_un_bono_no_adivina_otro_ticker_y_usa_la_pata_principal():
                                     "paridad": 80.2, "duration": 2.345}}]}
     with patch.object(BD, "get_bono", return_value=ficha):
         r = MM.ficha_bono(" al30 ")
+        con = MM.ficha_bono("AL30", con_pagos=True)
     assert r["ticker"] == "AL30" and "flujo_vencimiento" not in r["ficha"]
-    assert r["cuantos_pagos"] == 27 and r["truncado"] and len(r["proximos_pagos"]) == MM.MAX_FLUJOS
-    assert r["proximos_pagos"][0]["fecha"] == "2026-10-15"
     assert r["hoy"] == {"precio": 71.5, "tea_pct": 12.34, "tem_pct": 0.97,
                         "paridad_pct": 80.2, "duration": 2.35}
+    # el calendario NO viene de arriba: son 24 renglones y DIBUJA UNA TABLA.
+    # Se veían los flujos del YFCOO en una pregunta sobre rotar, porque la
+    # ficha se pidió para saber el emisor y vino todo.
+    assert "proximos_pagos" not in r and "_tabla" not in r, "sin pedirlo, no viene"
+    assert r["cuantos_pagos"] == 27, "cuántos hay se dice igual, sin traerlos"
+    assert con["cuantos_pagos"] == 27 and con["truncado"]
+    assert len(con["proximos_pagos"]) == MM.MAX_FLUJOS
+    assert con["proximos_pagos"][0]["fecha"] == "2026-10-15"
+    assert con["_tabla"]["titulo"] == "Próximos pagos del AL30"
     assert "pata_principal" in inspect.getsource(BD.get_bono)
 
 

@@ -150,37 +150,37 @@ def metricas_por_ticker() -> dict[str, dict]:
 
 
 def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
-          emisor: str | None = None, emisor_tipo: EmisorTipo | None = None) -> dict:
+          emisor: str | None = None, emisor_tipo: EmisorTipo | None = None,
+          con_emisores: bool = False) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
-    Es el MERCADO, no una cuenta. Para «qué tengo» está `tenencia_actual`; para
-    «qué cobro», `cobros_futuros`.
+    Es el MERCADO, no una cuenta: «qué tengo» es `tenencia_actual`.
 
     `cer` ajusta por inflación · `tasa_fija` = LECAP/BONCAP y «letras» ·
-    `hard_dolar` = los que pagan en dólares (AL, GD, ONs), también «soberanos»
-    y «hard dollar» · `dolar_linked` · `tamar`.
+    `hard_dolar` = los que pagan en dólares (AL, GD, ONs), «soberanos» y «hard
+    dollar» · `dolar_linked` · `tamar`.
 
     QUÉ DEVUELVE:
-      · `instrumentos` — por título: ticker, emisor, vencimiento, precio,
-        tasas, paridad, duration, volumen. Tres trampas: `tasa_ruido` true =
+      · `instrumentos` — por bono: ticker, emisor, vencimiento, precio,
+        tasas, paridad, duration, volumen. Dos trampas: `tasa_ruido` true =
         esa tasa NO compara (vence en días); `tna_pct` puede venir null aunque
-        la pantalla muestre una — no la derives, usá `tea_pct`; `emisor` es el
-        NOMBRE y `emisor_tipo` la categoría.
+        la pantalla muestre una — no la derives, usá `tea_pct`.
       · `resumen` — los agregados de TODO lo pedido, no de lo que entró acá:
-        `tea_pct` y `duration` con min/max/promedio/mediana, `rinde_mas`,
+        `tea_pct` y `duration` (min/max/promedio/mediana), `rinde_mas`,
         `vence_primero`, `vence_ultimo`, ya resueltos.
-      · `emisores` — cuáles hay y con cuántos, para saber cómo se escribe uno.
+      · `emisores` SOLO con `con_emisores` (son ~47 y pesan): pedilo cuando
+        vayas a filtrar por uno y no sepas cómo se escribe.
       · `truncado` true = esto es una MUESTRA y los extremos salen de
-        `resumen`. Es cocina: contestá con el dato, no con cómo lo conseguiste
-        ni con cuántos quedaron afuera.
+        `resumen`. Es cocina: contestá con el dato, no con cómo lo conseguiste.
 
     Args:
-        ordenar_por: con `tea` los que más rinden primero; si no dijo, `tea`.
+        ordenar_por: con `tea` los que más rinden primero. Default `tea`.
         limit: 1 a 50; si no dijo, 15. Si pidió UNO, pedí pocos.
         emisor: por nombre y por pedazo («YPF» encuentra «YPF S.A.»).
-        emisor_tipo: **usalo cuando lo pidan**. Filtra ANTES de recortar, así
-            los candidatos salen de todos los de ese tipo y no de los que
-            entraron en `limit`.
+        con_emisores: true si te hace falta la lista de emisores.
+        emisor_tipo: **usalo cuando lo pidan**. Filtra ANTES de recortar: los
+            candidatos salen de todos los de ese tipo, no de los que entraron
+            en `limit`.
     """
     from api.services import curvas_vista as CV
     from core import curvas_ejes as ce
@@ -235,20 +235,21 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         "ordenado_por": ordenar_por,
         "instrumentos": filas[:n],
         "resumen": _resumen(filas),
-        "emisores": emisores,
         "cuantos": len(filas),
         "truncado": len(filas) > n,
         "_tabla": pantalla.tabla(
             "instrumentos",
             ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
-            f"Curva {curva}" + (f" · {emisor}" if emisor else "")),
+            " · ".join(x for x in (f"Curva {curva}", emisor, emisor_tipo) if x)),
     }
+    if con_emisores:
+        salida["emisores"] = emisores
     return salida
 
 
-def ficha_bono(ticker: str) -> dict:
+def ficha_bono(ticker: str, con_pagos: bool = False) -> dict:
     """Qué ES un bono: quién lo emite, en qué moneda paga, cómo ajusta, cuándo
-    vence, qué cupón tiene, qué paga en los próximos meses y cómo cotiza hoy.
+    vence, qué cupón tiene y cómo cotiza hoy.
 
     Es la ficha del INSTRUMENTO, sin importar quién lo tenga. NO dice cuánto
     cobra una cuenta de ese bono: eso depende de cuántos nominales tiene, y lo
@@ -257,17 +258,19 @@ def ficha_bono(ticker: str) -> dict:
     QUÉ DEVUELVE:
       · `ficha` — emisor, tipo, curva, moneda, ajuste, ley, emisión,
         vencimiento, valor nominal, cupón anual.
-      · `proximos_pagos` — un renglón por fecha futura: `fecha`, `interes`,
-        `amortizacion`, `monto`, por 100 VN. `cuantos_pagos` y `truncado`
-        dicen si entraron todos.
       · `hoy` — precio, `tea_pct` y `tem_pct` (YA en porcentaje), paridad y
         duration de la cotización de hoy, si el bono cotizó.
+      · `proximos_pagos` SOLO con `con_pagos`: un renglón por fecha futura,
+        por 100 VN. Dibuja una tabla en la pantalla del usuario, así que no lo
+        pidas «por las dudas».
       · Un bono que no existe devuelve `error`: decilo, no adivines otro.
 
     Args:
         ticker: el ticker CORTO del bono, en mayúsculas: `AL30`, `TX26`,
             `S31O5`. Sin sufijo de moneda (`AL30D` es la misma especie que
             `AL30`; usá `AL30`).
+        con_pagos: true SOLO si preguntan qué paga, cuándo, o por su
+            calendario. Para «qué es», «cuánto rinde» o «cuándo vence», no.
     """
     from api.services import bono_detalle as BD
 
@@ -286,7 +289,7 @@ def ficha_bono(ticker: str) -> dict:
     patas = r.get("patas") or []
     principal = next((p for p in patas if p.get("pata") == r.get("pata_principal")), None)
     m = (principal or {}).get("metrics") or {}
-    return {
+    salida = {
         "ticker": r.get("ticker"),
         "ficha": {k: v for k, v in (r.get("ficha") or {}).items()
                   if k in ("emisor", "emisor_tipo", "tipo", "curva", "moneda", "moneda_flujo",
@@ -294,14 +297,7 @@ def ficha_bono(ticker: str) -> dict:
                            "valor_nominal", "cupon_anual", "cer_fijado")},
         "unidad": r.get("unidad_flujo"),
         "nota": r.get("nota_flujo"),
-        "proximos_pagos": [{
-            "fecha": f.get("fecha"),
-            "interes": f.get("interes"),
-            "amortizacion": f.get("amortizacion"),
-            "monto": f.get("monto"),
-        } for f in futuros[:MAX_FLUJOS]],
         "cuantos_pagos": len(futuros),
-        "truncado": len(futuros) > MAX_FLUJOS,
         "hoy": {
             "precio": _num(m.get("last_price"), 4),
             "tea_pct": _pct(m.get("TEA")),
@@ -309,10 +305,24 @@ def ficha_bono(ticker: str) -> dict:
             "paridad_pct": _num(m.get("paridad")),
             "duration": _num(m.get("duration")),
         } if m else None,
-        "_tabla": pantalla.tabla(
-            "proximos_pagos", ["fecha", "interes", "amortizacion", "monto"],
-            f"Próximos pagos del {tk}"),
     }
+    # El calendario de pagos SOLO si lo pidieron. No es un extra gratis: son
+    # hasta 24 renglones al contexto y, sobre todo, DIBUJA UNA TABLA en la
+    # pantalla del usuario (la tabla es consecuencia del payload — sin el campo
+    # no hay tabla). Se veían los flujos del YFCOO en una pregunta sobre rotar,
+    # porque el modelo llamó la ficha para saber el emisor y le vino todo.
+    if con_pagos:
+        salida["proximos_pagos"] = [{
+            "fecha": f.get("fecha"),
+            "interes": f.get("interes"),
+            "amortizacion": f.get("amortizacion"),
+            "monto": f.get("monto"),
+        } for f in futuros[:MAX_FLUJOS]]
+        salida["truncado"] = len(futuros) > MAX_FLUJOS
+        salida["_tabla"] = pantalla.tabla(
+            "proximos_pagos", ["fecha", "interes", "amortizacion", "monto"],
+            f"Próximos pagos del {tk}")
+    return salida
 
 
 # ── el registro ─────────────────────────────────────────────────────────────

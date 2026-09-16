@@ -11,7 +11,17 @@
 
 Activo = la cuenta operó ≥1 vez en el período (negocio_movimientos). Inactivo = comitente
 Activa del comercial que NO operó en el período. Volumen = Σ pesificado de negocio_movimientos
-(cats de volumen). Comisiones = Σ arancel de operaciones (etapa <> 'solicitud').
+(cats de volumen). Comisiones = PRODUCCIÓN del comercial: arancel de `operaciones` +
+intermediación de Mesa de Dinero, compuesta por `api/services/produccion.py` (que declara
+cada fuente y publica el desglose para que el número sea explicable).
+
+⚠️ **LA TABLA 1 NO INCLUYE INTERMEDIACIÓN, A PROPÓSITO.** Las Tablas 2 y 3 son POR
+COMERCIAL y ahí «intermediación» tiene un dueño: el 50% del resultado que le toca al
+operador que originó el trade. La Tabla 1 son los totales de la ALyC, y ahí la pregunta
+es otra —¿cuánto generó la mesa?— cuya respuesta sería el 100% del resultado, no el 50%.
+Meter el 50% en un total de la casa no contestaría ninguna de las dos preguntas. Queda
+declarado porque **la Tabla 1 no va a dar la suma de la Tabla 2**, y esa diferencia tiene
+que ser una decisión leída y no un bug que alguien descubra comparando.
 
 SQL-native (no toca Mongo). Reusa helpers de comercial_sql (_PESIF, _CATS_VOLUMEN, _factor_usd).
 """
@@ -97,6 +107,7 @@ def _hoy_art() -> date:
 # Reusa los helpers de comercial_sql (misma definición de volumen/comisiones/conversión).
 from datetime import timedelta  # noqa: E402
 
+from api.services import produccion  # noqa: E402
 from api.services.comercial import _arancel_expr, _valor_expr  # noqa: E402
 from api.services.comercial_sql import (  # noqa: E402
     _CATS_VOLUMEN,
@@ -106,6 +117,29 @@ from api.services.comercial_sql import (  # noqa: E402
     _factor_usd,
     _q,
 )
+
+
+def _mesa_aplica(nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division) -> bool:
+    """¿Entra la intermediación de Mesa de Dinero en este pedido?
+
+    Solo si NO hay filtro por CUENTA activo. Esa plata se atribuye al operador
+    directo (`mesa_dinero.observacion_email`) y no cuelga de un comitente, así que
+    no hay forma de recortarla por nivel/segmento/referido: sumarla entera inflaría
+    cualquier vista filtrada. El filtro por OPERADOR no la apaga — la fuente ya está
+    atribuida por operador, que es justo la dimensión que ese filtro usa."""
+    return not _hay_filtro(nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
+
+
+def _meta_produccion(aplica: bool) -> dict:
+    """Metadato que acompaña a TODA respuesta que informe producción.
+
+    `fuentes` (qué compone el número y cómo llega a la persona) + `cobertura`
+    (desde/hasta con datos reales de cada una) + `mesa_excluida` (si un filtro por
+    cuenta dejó la intermediación afuera). Va siempre, no solo cuando algo falta:
+    una vista que solo avisa en el caso raro entrena a no mirar el aviso."""
+    return {"fuentes": produccion.catalogo(),
+            "cobertura": produccion.cobertura(),
+            "mesa_excluida": not aplica}
 
 
 def _prev_biz(d: date) -> date:
@@ -282,18 +316,31 @@ def datos_totales_alyc(*, moneda: str = "ARS", operador=(), nivel_1=(), nivel_2=
 
 
 def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
-                  ids: list[str] | None = None) -> dict[str, dict]:
-    """{operador_email: {activos, volumen, comisiones}} en [desde, hasta], ya EN LA MONEDA
-    destino (valuado al MEP del boleto). Agrega por cuenta y mapea a operador en Python.
-    `ids` (opcional) restringe a las cuentas del scope (filtros madre)."""
-    volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
+                  ids: list[str] | None = None, mesa_aplica: bool = True) -> dict[str, dict]:
+    """{operador_email: {activos, volumen, comisiones, + componentes}} en [desde, hasta],
+    ya EN LA MONEDA destino (valuado al MEP del boleto). Agrega por cuenta y mapea a
+    operador en Python. `ids` (opcional) restringe a las cuentas del scope (filtros madre).
+
+    `comisiones` es la PRODUCCIÓN TOTAL del comercial (arancel de mercado +
+    intermediación de Mesa de Dinero), y viene con su desglose por fuente para que
+    el número sea explicable. Quién aporta qué lo declara `api/services/produccion.py`
+    — acá NO se suma nada a mano: las dos tablas de la vista pasan por esta función,
+    así que sumar en un solo lugar es lo que impide que se contradigan.
+
+    `mesa_aplica=False` deja la intermediación afuera (filtro por cuenta activo; ver
+    `produccion.comisiones_por_operador`)."""
+    volx = _valor_expr(moneda, mep_hoy)
     op_de = _op_de()
     scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
     out: dict[str, dict] = {}
     p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
-    pc: dict = {"d": desde, "h": hasta}
     if ids is not None:
-        p["ids"] = pc["ids"] = ids
+        p["ids"] = ids
+
+    def _slot(op: str) -> dict:
+        return out.setdefault(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0,
+                                   **produccion.vacio()})
+
     for r in _q(f"SELECT id_cuenta, COALESCE(SUM({volx}),0) AS vol FROM negocio_movimientos "
                 f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
                 f"AND anulado_en IS NULL "
@@ -301,18 +348,20 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
         op = op_de.get(r["id_cuenta"])
         if not op:
             continue
-        s = out.setdefault(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})
+        s = _slot(op)
         s["activos"] += 1
         s["volumen"] += _f(r["vol"])
-    for r in _q(f"SELECT id_cuenta, COALESCE(SUM({arax}),0) AS com FROM operaciones "
-                f"WHERE {_arancel_where()} "
-                f"AND anulado_en IS NULL "
-                f"AND concertacion >= %(d)s AND concertacion <= %(h)s{scope} GROUP BY id_cuenta",
-                pc):
-        op = op_de.get(r["id_cuenta"])
-        if not op:
-            continue
-        out.setdefault(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})["comisiones"] += _f(r["com"])
+
+    prod = produccion.comisiones_por_operador(
+        desde, hasta, moneda=moneda, mep_hoy=mep_hoy, op_de=op_de, ids=ids,
+        mesa_aplica=mesa_aplica)
+    for op, comp in prod.items():
+        s = _slot(op)
+        s.update(comp)
+        # `comisiones` = el total de producción. Se lee del total que arma
+        # `produccion` en vez de re-sumarlo acá: un solo lugar decide qué compone
+        # la producción de un comercial.
+        s["comisiones"] = comp["total"]
     return out
 
 
@@ -349,12 +398,13 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
     acotan a las cuentas del scope; sin filtros = mesa completa."""
     factor = _factor_usd(moneda)
     ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
+    aplica = _mesa_aplica(nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
     dias = (d1 - d0).days
     pd1 = d0 - timedelta(days=1)            # rango anterior: termina el día previo a `desde`
     pd0 = pd1 - timedelta(days=dias)        # y arranca `dias` antes → mismo largo
-    cur = _por_operador(d0, d1, moneda, factor, ids)
-    prev = _por_operador(pd0, pd1, moneda, factor, ids)
+    cur = _por_operador(d0, d1, moneda, factor, ids, aplica)
+    prev = _por_operador(pd0, pd1, moneda, factor, ids, aplica)
     nombre = _nombres_operador()
     # AuM por operador: foto al cierre del rango (d1) vs foto al cierre del rango anterior (pd1).
     op_de = _op_de()
@@ -369,8 +419,9 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
         {"ids": ids} if ids is not None else {})}
     filas = []
     for op in sorted(set(cur) | set(total_clientes), key=lambda o: -cur.get(o, {}).get("volumen", 0.0)):
-        c = cur.get(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})
-        pv = prev.get(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})
+        vacia = {"activos": 0, "volumen": 0.0, "comisiones": 0.0, **produccion.vacio()}
+        c = cur.get(op, vacia)
+        pv = prev.get(op, vacia)
         activos = c["activos"]
         inactivos = max(0, total_clientes.get(op, 0) - activos)
         au, au_prev = aum_cur.get(op, 0.0), aum_prev.get(op, 0.0)
@@ -385,9 +436,14 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
             "volumen_pct": _pct(c["volumen"], pv["volumen"]),
             "comisiones": round(c["comisiones"], 2),
             "comisiones_pct": _pct(c["comisiones"], pv["comisiones"]),
+            # Desglose: `comisiones` es el TOTAL y estos son sus componentes. Viajan
+            # siempre (aunque den 0) para que la vista pueda explicar el número sin
+            # pedir otro endpoint — que es lo que lo hace trazable.
+            **{f.id: round(c.get(f.id, 0.0), 2) for f in produccion.FUENTES},
         }
         filas.append(fila)
-    return {"moneda": moneda, "desde": desde, "hasta": hasta, "filas": filas}
+    return {"moneda": moneda, "desde": desde, "hasta": hasta, "filas": filas,
+            **_meta_produccion(aplica)}
 
 
 def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador=(), nivel_1=(),
@@ -398,8 +454,9 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador
     _ensure()
     factor = _factor_usd(moneda)
     ids, ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
+    aplica = _mesa_aplica(nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
-    actual = _por_operador(d0, d1, moneda, factor, ids)
+    actual = _por_operador(d0, d1, moneda, factor, ids, aplica)
     # Meses que toca el rango [d0, d1] → suma de objetivos de esos (anio, mes).
     meses: list[tuple[int, int]] = []
     cur = d0.replace(day=1)
@@ -423,7 +480,7 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador
         universo &= ops
     filas = []
     for op in sorted(universo, key=lambda o: -actual.get(o, {}).get("volumen", 0.0)):
-        a = actual.get(op, {"volumen": 0.0, "comisiones": 0.0})
+        a = actual.get(op, {"volumen": 0.0, "comisiones": 0.0, **produccion.vacio()})
         o = obj.get(op, {"vo": 0.0, "co": 0.0})
         # Actual: ya en la moneda destino (MEP del trade). Objetivo: es una META sin MEP de
         # trade → se dolariza al MEP de hoy (`_cv`), es lo único razonable para un target.
@@ -439,5 +496,10 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador
             "volumen_actual": vol_act, "volumen_objetivo": vol_obj,
             "comisiones_actual": com_act, "comisiones_objetivo": com_obj,
             "pct_alcanzado": round(sum(avances) / len(avances), 1) if avances else None,
+            # Desglose de `comisiones_actual`: sin esto, un comercial que mejora su
+            # % alcanzado no puede saber si vendió más o si le empezaron a contar
+            # la intermediación que antes no se le contaba.
+            **{f.id: round(a.get(f.id, 0.0), 2) for f in produccion.FUENTES},
         })
-    return {"moneda": moneda, "desde": desde, "hasta": hasta, "filas": filas}
+    return {"moneda": moneda, "desde": desde, "hasta": hasta, "filas": filas,
+            **_meta_produccion(aplica)}

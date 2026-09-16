@@ -242,7 +242,7 @@ def test_el_writer_y_el_reader_de_series_usan_LA_MISMA_regla_de_moneda():
     raiz = pathlib.Path(__file__).resolve().parents[2]
     for archivo in ("jobs/mercado_1816_series.py",
                     "api/services/research_1816_sql.py"):
-        src = (raiz / archivo).read_text()
+        src = (raiz / archivo).read_text(encoding="utf-8")
         assert "mercado_1816.moneda_series(" in src, (
             f"{archivo} tiene que DERIVAR la moneda con core.mercado_1816."
             "moneda_series, no decidirla por su cuenta")

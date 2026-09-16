@@ -56,6 +56,7 @@ from api.services.comercial_sql import (
     _fin_de_mes,
     _iso,
 )
+from api.services.comisiones_fci import INICIO_HISTORICO, PARTE_ACA, DIAS_ANIO
 
 # Primer mes de la tabla (ejercicio en curso). El ejercicio de la mesa arranca en
 # JULIO; el pedido fue explícito: "arrancamos con el ejercicio actual, es decir la
@@ -285,6 +286,70 @@ def _mep_de(fecha: date, cache: dict[str, float | None]) -> float | None:
         from api.services._mep import get_mep_for_date
         cache[k] = get_mep_for_date(k)
     return cache[k]
+
+
+def _fci_por_periodo(*, periodos: list[dict], filtros: dict) -> dict[date, dict[str, dict[str, float]]]:
+    """Comision FCI por cierre de periodo y cuenta, en moneda nativa.
+
+    Devuelve ARS/USD por cuenta para que la vista pueda convertir con el MEP del
+    cierre, igual que hace con los aranceles de operaciones. Un solo scan de
+    tenencia cubre todos los periodos solicitados.
+    """
+    if not periodos or periodos[-1]["fin"] < INICIO_HISTORICO:
+        return {}
+    p = {"inis": [x["ini"] for x in periodos],
+         "fines": [x["fin"] for x in periodos],
+         "fci_inicio": INICIO_HISTORICO,
+         "fci_fin": min(periodos[-1]["fin"], _hoy_art()),
+         "fci": ["FCI", "CARTERA FCI"]}
+    scope = _scope(p, alias="c", **filtros)
+    rows = _q(f"""
+        WITH periodos AS (
+            SELECT * FROM unnest(%(inis)s::date[], %(fines)s::date[]) AS p(ini, fin)
+        ), anclas AS (
+            SELECT fecha, LEAD(fecha) OVER (ORDER BY fecha) AS sig
+            FROM (
+                SELECT DISTINCT t.fecha
+                FROM tenencia t
+                WHERE t.fecha >= %(fci_inicio)s AND t.fecha <= %(fci_fin)s
+                  AND upper(btrim(coalesce(t.cartera, ''))) = ANY(%(fci)s)
+            ) d
+        ), tramos AS (
+                 SELECT p.fin, a.fecha,
+                     GREATEST(0, LEAST(coalesce(a.sig - 1, p.fin), p.fin, CURRENT_DATE)
+                       - GREATEST(a.fecha, p.ini, %(fci_inicio)s) + 1) AS dias
+            FROM periodos p JOIN anclas a
+                ON a.fecha <= LEAST(p.fin, CURRENT_DATE)
+                  AND coalesce(a.sig - 1, p.fin) >= GREATEST(p.ini, %(fci_inicio)s)
+        ), esc AS (
+            SELECT c.id_cuenta, c.fecha_alta_legajo
+            FROM comitentes c
+            WHERE {scope}
+        )
+        SELECT tr.fin, t.id_cuenta, upper(coalesce(t.moneda, 'ARS')) AS moneda,
+               SUM(t.valuacion * a.fee_admin * {PARTE_ACA} / {DIAS_ANIO} * tr.dias) AS arancel
+        FROM tramos tr
+        JOIN tenencia t ON t.fecha = tr.fecha
+        JOIN esc e ON e.id_cuenta = t.id_cuenta AND e.fecha_alta_legajo <= tr.fin
+        JOIN assets a ON a.unidad = t.unidad AND a.fee_admin IS NOT NULL
+        WHERE tr.dias > 0
+          AND upper(btrim(coalesce(t.cartera, ''))) = ANY(%(fci)s)
+        GROUP BY tr.fin, t.id_cuenta, upper(coalesce(t.moneda, 'ARS'))
+    """, p)
+    out: dict[date, dict[str, dict[str, float]]] = {}
+    for r in rows:
+        fin = r["fin"]
+        idc = r["id_cuenta"]
+        out.setdefault(fin, {}).setdefault(idc, {})[r["moneda"]] = _f(r["arancel"])
+    return out
+
+
+def _fci_monto(row: dict[str, float], *, usd: bool, mep: float | None) -> float | None:
+    """Convierte el componente FCI a la moneda de la vista."""
+    ars, dolares = row.get("ARS", 0.0), row.get("USD", 0.0)
+    if not usd:
+        return ars + dolares * mep if mep else ars
+    return dolares + ars / mep if mep else None
 
 
 def _opciones_operacion(ini: date, fin: date, filtros: dict) -> list[dict]:
@@ -543,6 +608,8 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
         f"  COALESCE(SUM(arancel) FILTER (WHERE NOT ({dentro})), 0) AS aranceles_fuera "
         f"FROM por_cuenta GROUP BY fin", p2)}
 
+    fci_por_fin = _fci_por_periodo(periodos=meses, filtros=filtros)
+
     # ── 3) AuM: para cada mes, el snapshot de tenencia más reciente <= fin de mes
     # (LATERAL, un max() por índice) y sobre ESE día el AuM por cuenta.
     p3: dict = {"inis": inis, "fines": fines}
@@ -574,7 +641,12 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
         # USD: al MEP del último día DE ESE MES (o del snapshot, para el AuM).
         f_ar = _mep_de(fin, mep_cache) if usd else None
         f_aum = (_mep_de(snap, mep_cache) if usd and snap else f_ar)
-        aranceles = _cv(_f(o.get("aranceles")), f_ar) if (not usd or f_ar) else None
+        fci_total = (sum((_fci_monto(v, usd=usd, mep=f_ar) or 0.0)
+                         for v in fci_por_fin.get(fin, {}).values())
+                     if not ops_f else 0.0)
+        ops_arancel = _cv(_f(o.get("aranceles")), f_ar) if (not usd or f_ar) else None
+        aranceles = ((ops_arancel or 0.0) + fci_total
+                 if (not usd or f_ar) else None)
         # Sin snapshot no se puede mirar el AuM → null, NO cero.
         con_aum = int(a["con_aum"]) if snap is not None else None
         aum_total = (_cv(_f(a.get("aum")), f_aum) if (snap is not None and (not usd or f_aum))
@@ -599,6 +671,8 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
             # del mes y el AuM al del día del snapshot, que puede ser otro. Mostrar
             # uno solo haría que el número no cierre contra la cotización que se ve.
             "mep_aranceles": f_ar, "mep_aum": f_aum,
+            "arancel_operaciones": ops_arancel,
+            "arancel_fci": fci_total if (not usd or f_ar) else None,
             # Lo que quedó AFUERA del universo del mes (no suma; se muestra como aviso).
             "fuera_universo": {"activos": int(o.get("activos_fuera") or 0),
                                "aranceles": round(_f(o.get("aranceles_fuera")), 2)},
@@ -654,8 +728,9 @@ def profundidad_clientes(*, moneda: str = "ARS", desde: str | None = None,
                 "aum": "portafolio.tenencia (aum='si'), snapshot más reciente <= fin de mes",
                 "activos": ("operaciones.operaciones — cualquier boleto no anulado en el mes"
                             + sufijo_fuente),
-                "aranceles": ("operaciones.operaciones — arancel > 0, etapa <> 'solicitud', "
-                              "cierres incluidos (la caución cobra en el cierre); se guarda en ARS"
+                "aranceles": ("operaciones.operaciones + portafolio.tenencia FCI — "
+                              "arancel de boleto más stock FCI desde mayo 2026; "
+                              "cierres incluidos; se convierte al MEP del cierre"
                               + sufijo_fuente),
             },
         },
@@ -745,6 +820,9 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
     f_ar = _mep_de(fin, mep_cache) if usd else None
     f_aum = (_mep_de(snapshot, mep_cache) if usd and snapshot else f_ar)
 
+    fci_por_cuenta = _fci_por_periodo(
+        periodos=[{"ini": ini, "fin": fin}], filtros=filtros).get(fin, {})
+
     items = [{
         "id_cuenta": r["id_cuenta"],
         "denominacion": r["denominacion"] or "—",
@@ -756,7 +834,12 @@ def detalle_mes(*, mes: str, metrica: str = "clientes", moneda: str = "ARS",
         "es_alta": bool(r["es_alta"]),
         "aum": _cv(_f(r["aum"]), f_aum) if snapshot is not None else None,
         "n_boletos": int(r["n_boletos"] or 0),
-        "arancel": _cv(_f(r["arancel"]), f_ar),
+        "arancel_operaciones": _cv(_f(r["arancel"]), f_ar),
+        "arancel_fci": (_fci_monto(fci_por_cuenta.get(r["id_cuenta"], {}),
+                        usd=usd, mep=f_ar) or 0.0) if not ops_f else 0.0,
+        "arancel": (_cv(_f(r["arancel"]), f_ar)
+                + ((_fci_monto(fci_por_cuenta.get(r["id_cuenta"], {}),
+                       usd=usd, mep=f_ar) or 0.0) if not ops_f else 0.0)),
         "ultima_op": _iso(r["ult"]),
         "activo": int(r["n_boletos"] or 0) > 0,
     } for r in rows]

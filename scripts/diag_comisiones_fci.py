@@ -69,7 +69,7 @@ meses AS (
     FROM meses m
     JOIN base t ON t.fecha = m.ultima_foto
     LEFT JOIN portafolio.assets a ON a.unidad = t.unidad
-    GROUP BY m.mes, m.ultima_foto
+    GROUP BY m.mes, m.ultima_foto, m.primera_foto, m.fotos_distintas
 ),
 backfill AS (
     SELECT

@@ -330,6 +330,20 @@ La herramienta de cruce vive en el agente del dato **más sensible** (por eso
 `opciones_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
 cuenta, y solo los agentes con sujeto cuenta pasan por `permitido.FILTRO_SQL`).
 
+**Los filtros van ANTES del recorte.** Si la herramienta ordena todo, corta en
+`limit` y el criterio del usuario se aplica después —leyendo—, la selección sale
+sesgada y la respuesta suena igual de fundamentada. Medido en el LAB: «un
+corporativo HD para rotar» ordenó 125 por TEA, cortó en 15, y de esos 4 eran
+corporativos: se recomendó entre 4 de ~110. Por eso un criterio que la mesa usa
+tiene que poder expresarse como ARGUMENTO (`emisor`, `emisor_tipo`, `tipo`): sin
+eso el modelo sobre-pide y recorta a ojo.
+
+**En el resultado viajan DATOS, no instrucciones.** El modelo no distingue una
+cosa de la otra: un `aviso` en prosa escrito para él («hay 125 y estás viendo
+los primeros 15…») terminó repetido al usuario como «la curva está truncada: se
+ven 15 de 125». Lo que es cómo-usar-la-herramienta va al **docstring**, que es
+su canal; en el resultado queda el dato estructurado (`truncado`, `cuantos`).
+
 **Todo lo que haya que restar, promediar u ordenar lo hace la herramienta**, y
 viaja ya resuelto (`delta_tea_pp`, `resumen`): el modelo no calcula, así que un
 cruce sin los deltas hechos termina en dos párrafos pegados en vez de una

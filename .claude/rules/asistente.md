@@ -40,6 +40,11 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    `BONOS` (HD · ARS · DL), `RENTA_VARIABLE`, `DERIVADOS`, `FCI`, `MONEDAS`.
    Es lo que contesta «qué bonos tengo» (`cartera.TIPOS`) y lo mismo que leen
    el AV AGENT y los jobs. Un test falla si alguien vuelve a escribir uno.
+2c. **Filtro ANTES del recorte, y datos sin instrucciones.** Un criterio que la
+   mesa usa va como ARGUMENTO: si se recorta y después se filtra leyendo, la
+   selección queda sesgada y la respuesta suena fundamentada igual. Y en el
+   resultado viajan datos, no prosa para el modelo — el cómo-usar va al
+   docstring o se lo repite al usuario (tests).
 2b. **Una tabla tiene sujeto, y el modelo sabe que existe.** Se declara con
    `pantalla.tabla(campo, columnas, titulo)` —el título va por firma— y el
    modelo recibe `se_muestra` en vez de los datos de dibujo: sin eso enumera

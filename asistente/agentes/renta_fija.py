@@ -12,6 +12,9 @@ from asistente.agente import COMUN, Agente
 MAX_INSTRUMENTOS = 50
 MAX_FLUJOS = 24
 Curva = Literal["tasa_fija", "cer", "hard_dolar", "dolar_linked", "tamar"]
+# La lista sale de `core.curvas_ejes.EMISORES`; el `Literal` la espeja para que
+# viaje como `enum` en la ficha. Un test los compara.
+EmisorTipo = Literal["soberano", "provincial", "corporativo", "bcra"]
 OrdenCurva = Literal["tea", "vencimiento", "duration", "volumen_dia"]
 
 
@@ -147,39 +150,37 @@ def metricas_por_ticker() -> dict[str, dict]:
 
 
 def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
-          emisor: str | None = None) -> dict:
+          emisor: str | None = None, emisor_tipo: EmisorTipo | None = None) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
-    Es el MERCADO, no una cuenta: acá no hay nominales de nadie. Para «qué
-    tengo» está `tenencia_actual`; para «qué cobro», `cobros_futuros`.
+    Es el MERCADO, no una cuenta. Para «qué tengo» está `tenencia_actual`; para
+    «qué cobro», `cobros_futuros`.
 
-    Curvas: `cer` (ajustan por inflación), `tasa_fija` (LECAP/BONCAP, y es lo
-    que pidan como «letras»), `hard_dolar` (en dólares: AL, GD, ONs; también
-    «soberanos» y «hard dollar»), `dolar_linked`, `tamar`.
+    `cer` ajusta por inflación · `tasa_fija` = LECAP/BONCAP y «letras» ·
+    `hard_dolar` = los que pagan en dólares (AL, GD, ONs), también «soberanos»
+    y «hard dollar» · `dolar_linked` · `tamar`.
 
     QUÉ DEVUELVE:
-      · `instrumentos` — una fila por título, con ticker, emisor, vencimiento,
-        precio, tasas, paridad, duration y volumen. Tres campos con trampa:
-        `tasa_ruido` true = la tasa NO compara (el bono vence en días);
-        `tna_pct` puede venir null aunque la pantalla muestre una TNA: no la
-        rellenes ni la derives, usá `tea_pct`, que está en todos; `emisor` es
-        el NOMBRE («YPF S.A.») y `emisor_tipo` la categoría (soberano · …).
-      · `resumen` — los agregados de TODA la curva, no de lo que entró acá:
+      · `instrumentos` — por título: ticker, emisor, vencimiento, precio,
+        tasas, paridad, duration, volumen. Tres trampas: `tasa_ruido` true =
+        esa tasa NO compara (vence en días); `tna_pct` puede venir null aunque
+        la pantalla muestre una — no la derives, usá `tea_pct`; `emisor` es el
+        NOMBRE y `emisor_tipo` la categoría.
+      · `resumen` — los agregados de TODO lo pedido, no de lo que entró acá:
         `tea_pct` y `duration` con min/max/promedio/mediana, `rinde_mas`,
-        `vence_primero`, `vence_ultimo`. «El promedio», «el que más rinde» y
-        «el que vence más lejos» salen de acá, ya resueltos.
-      · `emisores` — los que hay y con cuántos bonos. Mirá cómo se escribe uno
-        antes de filtrar.
-      · `cuantos` y `truncado`; si truncó, `aviso` dice qué quedó afuera.
+        `vence_primero`, `vence_ultimo`, ya resueltos.
+      · `emisores` — cuáles hay y con cuántos, para saber cómo se escribe uno.
+      · `truncado` true = esto es una MUESTRA y los extremos salen de
+        `resumen`. Es cocina: contestá con el dato, no con cómo lo conseguiste
+        ni con cuántos quedaron afuera.
 
     Args:
-        curva: cuál mirar.
-        ordenar_por: con `tea` los que más rinden van primero; si no lo dijo,
-            es `tea`.
-        limit: cuántos traer, 1 a 50. Si no dijo, 15. Para un extremo o un
-            promedio no lo subas: está en `resumen`.
-        emisor: filtra por nombre, por pedazo («YPF» encuentra «YPF S.A.»). Si
-            no existe, la respuesta trae la lista de los que sí.
+        ordenar_por: con `tea` los que más rinden primero; si no dijo, `tea`.
+        limit: 1 a 50; si no dijo, 15. Si pidió UNO, pedí pocos.
+        emisor: por nombre y por pedazo («YPF» encuentra «YPF S.A.»).
+        emisor_tipo: **usalo cuando lo pidan**. Filtra ANTES de recortar, así
+            los candidatos salen de todos los de ese tipo y no de los que
+            entraron en `limit`.
     """
     from api.services import curvas_vista as CV
     from core import curvas_ejes as ce
@@ -202,6 +203,21 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
     hoy = date.today()
     filas = _ordenar([_instrumento(b, hoy) for b in bonos], ordenar_por)
     emisores = _emisores_de(filas)
+    # ⚠️ EL ORDEN IMPORTA: los filtros van ANTES del recorte. Al revés —ordenar
+    # la curva entera, cortar en `limit` y recién ahí filtrar— la selección sale
+    # sesgada y la respuesta suena fundamentada igual. Medido el 2026-09-16:
+    # «un corporativo HD para rotar» ordenó 125 por TEA, cortó en 15, y de esos
+    # solo 4 eran corporativos: se recomendó entre 4 de ~110, y los mejores
+    # podían estar en el puesto 40 sin que nadie los mirara.
+    if emisor_tipo is not None:
+        pedido = str(emisor_tipo).strip().lower()
+        if pedido not in get_args(EmisorTipo):
+            return {"error": f"`emisor_tipo` tiene que ser uno de {list(get_args(EmisorTipo))}, "
+                             f"llegó {emisor_tipo!r}"}
+        filas = [f for f in filas if (f.get("emisor_tipo") or "").strip().lower() == pedido]
+        if not filas:
+            return {"error": f"en la curva {curva} no hay ningún bono {pedido}",
+                    "emisores": emisores}
     if emisor is not None:
         buscado = clave_emisor(emisor)
         if not buscado:
@@ -227,14 +243,6 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
             ["ticker", "emisor", "vencimiento", "precio", "tea_pct", "duration"],
             f"Curva {curva}" + (f" · {emisor}" if emisor else "")),
     }
-    if len(filas) > n:
-        # El corte esconde un extremo: el último de la lista NO es el último de
-        # la curva. Sin decirlo, «el que vence más lejos» se contesta con el
-        # número 15 — plausible, en el lugar correcto, y mal.
-        salida["aviso"] = (f"hay {len(filas)} y estás viendo los primeros {n} ordenados por "
-                           f"{ordenar_por}: el último de esta lista NO es el último de la "
-                           f"curva. Para un extremo o un promedio, mirá `resumen`, que es de "
-                           f"las {len(filas)}.")
     return salida
 
 

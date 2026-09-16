@@ -86,6 +86,12 @@
 - q: "Que ONs de YPF hay en hard dolar?"
   agentes: [renta_fija]
 
+- q: "me sugeris un bono corporativo HD para rotar mi YFCOO?"
+  agentes: [cartera, renta_fija]
+  nota: "el filtro va ANTES del recorte: `curva(emisor_tipo=\"corporativo\")`.
+    Sin eso se ordenan 125 por TEA, se cortan 15 y solo 4 son corporativos —
+    la recomendación sale de 4 de ~110 y suena igual de fundamentada."
+
 # ── sembradas (las puso Claude; corregir el `agentes` donde no coincida) ────
 
 - q: "¿qué bono CER rinde más que los que tengo en la 805?"

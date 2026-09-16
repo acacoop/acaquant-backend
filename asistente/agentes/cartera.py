@@ -411,7 +411,7 @@ def _delta(a, b, dec: int = 2):
     return None if a is None or b is None else round(a - b, dec)
 
 
-def opciones_para_rotar(cuenta: str, ticker: str | None = None,
+def alternativas_para_rotar(cuenta: str, ticker: str | None = None,
                         desde_emisor: str | None = None, hacia_emisor: str | None = None,
                         hacia_tipo: EmisorTipo | None = None,
                         hacia_plazo: HaciaPlazo | None = None,
@@ -438,10 +438,9 @@ def opciones_para_rotar(cuenta: str, ticker: str | None = None,
         plazo). Ya restados.
       · `ventana` — entre qué fechas se buscó, si pediste plazo.
       · `tenes` — los tuyos que entraron; `sin_tasa`, los que no comparan.
-      · Un delta positivo NO es una recomendación: mirá también la duration.
+      · Un delta positivo NO es recomendación: mirá también la duration.
 
     Args:
-        cuenta: el `id_cuenta` a mirar.
         ticker: QUÉ título sale. Si el usuario lo señaló sin nombrarlo
             («venderlo», «ese», «el que tengo»), es el ticker que ya trajo
             una herramienta en esta conversación: mandá ése.
@@ -664,7 +663,7 @@ AGENTE = Agente(
              "valen, cuánto rinden, qué cobra y cuándo. Todo lo que se mide en plata y "
              "nominales. No sabe quién es el titular ni qué operó.",
     instruccion=_instruccion,
-    herramientas=(tenencia_actual, cobros_futuros, opciones_para_rotar),
+    herramientas=(tenencia_actual, cobros_futuros, alternativas_para_rotar),
     senales=("tengo", "tenemos", "tenencia", "tenencias", "cartera", "carteras",
              "portafolio", "portafolios", "portfolio", "posicion", "posiciones",
              "rotar", "rotarlo", "rotarlos", "rotacion", "rotaciones",

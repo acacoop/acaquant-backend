@@ -59,7 +59,7 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    argumento, el modelo cae en `ordenar_por` — que tiene una dirección fija y
    contesta el extremo contrario. Y cuando una punta es «lo que yo tengo», la
    pone el CÓDIGO desde el sujeto que ya tiene en la mano
-   (`opciones_para_rotar(hacia_plazo=…)`): que el modelo la copie del turno
+   (`alternativas_para_rotar(hacia_plazo=…)`): que el modelo la copie del turno
    anterior no falla, devuelve otra lista igual de convincente. Sin ancla no
    se contesta. Cuántas opciones se muestran también se declara (`cuantas`,
    default 3), no se deja en el tope técnico.

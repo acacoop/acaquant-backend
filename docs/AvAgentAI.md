@@ -47,7 +47,7 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 
 | Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |
 |---|---|---|---|---|---|
-| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar — a otro emisor, a otro tipo o a otro plazo | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
+| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar — a otro emisor, a otro tipo o a otro plazo | `tenencia_actual`, `cobros_futuros`, `alternativas_para_rotar` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
 | `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
 | `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor, tipo de emisor y ventana de vencimiento), qué es, cuándo paga | `instrumentos_de_la_curva`, `ficha_bono` | ticker |
@@ -248,7 +248,7 @@ una nueva:
   `ordenar_por="vencimiento"` empieza por el más corto y contesta el extremo
   contrario al que se pidió. Cuando una de las dos puntas es «lo que yo tengo»,
   esa punta **la pone el código** desde el sujeto que ya tiene en la mano
-  (`opciones_para_rotar(hacia_plazo=…)`), no el modelo desde el texto anterior.
+  (`alternativas_para_rotar(hacia_plazo=…)`), no el modelo desde el texto anterior.
 - Toda respuesta dice de cuándo son sus datos (`fecha`, `tenencia_del`,
   `ventana`), y la instrucción común obliga a decirlo.
 
@@ -333,7 +333,7 @@ dominios es un `import`, no una conversación entre modelos: ningún proveedor v
 datos del otro agente y no hay una segunda llamada.
 
 La herramienta de cruce vive en el agente del dato **más sensible** (por eso
-`opciones_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
+`alternativas_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
 cuenta, y solo los agentes con sujeto cuenta pasan por `permitido.FILTRO_SQL`).
 
 **La tabla es consecuencia del payload, así que lo que dibuja se pide.** Si el
@@ -347,7 +347,7 @@ algo que solo sirve cuando vas a filtrar por uno.
 
 **Lo que el usuario nombra, la herramienta lo tiene que poder recibir.** Si no,
 el modelo lo fuerza donde puede y la respuesta sale mal sin fallar. Dos casos
-medidos en el LAB, los dos en `opciones_para_rotar`: «rotar **mi YFCOO**» no
+medidos en el LAB, los dos en `alternativas_para_rotar`: «rotar **mi YFCOO**» no
 tenía `ticker`, así que la herramienta elegía por su cuenta el que menos rinde
 (salió YM38O); y «a un **corporativo**» no tenía `hacia_tipo`, así que el modelo
 mandó `hacia_emisor="corporativo HD"` —que no es un emisor—, la llamada falló y
@@ -375,7 +375,7 @@ mitad de las veces es la contraria.** Por eso `instrumentos_de_la_curva` toma
 partida era el vencimiento del bono que el usuario tenía, que existía solo
 como texto del turno anterior —el foco aprende de los ARGUMENTOS de la llamada,
 no del resultado (§8)—. **Esa punta la pone el CÓDIGO, no el modelo**: en
-`opciones_para_rotar` el usuario nombra la dirección (`hacia_plazo`) y como
+`alternativas_para_rotar` el usuario nombra la dirección (`hacia_plazo`) y como
 mucho una fecha (`hacia_vencimiento`); la otra punta sale de la referencia,
 que la función ya tiene en la mano. Si el modelo tuviera que copiar esa fecha
 del turno anterior, copiarla mal no fallaría: devolvería otra lista, igual de
@@ -398,14 +398,14 @@ ESQUEMA, así que esas tres cosas son la interfaz real y se auditan como código
   `StructuredTool`, así que pydantic no valida nada en runtime — el esquema es
   para que el modelo no se equivoque, y el que valida sigue siendo el código.
 
-**Un dato que la herramienta puede deducir no se pregunta.** `opciones_para_rotar`
+**Un dato que la herramienta puede deducir no se pregunta.** `alternativas_para_rotar`
 pedía «¿qué título sale?» porque el usuario había dicho «venderlo» en vez de
 nombrarlo — pero la cuenta tenía UN solo bono. Con uno solo no hay ambigüedad y
 el código lo resuelve; con dos o más se pregunta, porque ahí elegir por él sería
 inventar. Preguntar lo que ya se sabe le quema un turno al operador.
 
 **Cuántas opciones se presentan es una decisión, no un tope técnico.**
-`opciones_para_rotar` muestra **3** (`mostrar`, hasta 20 si piden más).
+`alternativas_para_rotar` muestra **3** (`mostrar`, hasta 20 si piden más).
 Devolver 45 alternativas a «¿hay alguno?» no es ser más completo: es no haber
 contestado. Y por eso `truncado` es true **solo si pidieron un número y había
 más**: mostrar las 3 mejores de 4 cuando nadie pidió un número ES la respuesta,

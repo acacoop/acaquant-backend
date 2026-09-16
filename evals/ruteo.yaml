@@ -69,7 +69,7 @@
 
 - q: "necesito rotar mis bonos de YPF a bonos de Vista"
   agentes: [cartera]
-  nota: "cartera lo resuelve entero con opciones_para_rotar; renta_fija sobra."
+  nota: "cartera lo resuelve entero con alternativas_para_rotar; renta_fija sobra."
 
 - q: "que opciones tengo para rotar el bono HD que menos me rinde"
   agentes: [cartera]
@@ -143,4 +143,4 @@
 - q: "quiero venderlo y comprar uno con vencimiento más lejano, ejemplo 2029"
   agentes: [cartera]
   nota: "rotar por PLAZO, pregunta real del LAB. La contesta entera
-    `opciones_para_rotar`, que vive en cartera porque necesita la cuenta."
+    `alternativas_para_rotar`, que vive en cartera porque necesita la cuenta."

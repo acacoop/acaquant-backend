@@ -197,7 +197,7 @@ def instrumentos_de_la_curva(curva: Curva, ordenar_por: OrdenCurva = "tea",
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
     Es el MERCADO, no una cuenta: «qué tengo» es `tenencia_actual`, y rotar un
-    título de una cuenta es `opciones_para_rotar` — que ya trae sus alternativas
+    título de una cuenta es `alternativas_para_rotar` — que ya trae sus alternativas
     comparadas, así que NO la completes con ésta: sería otra tabla de lo mismo.
 
     `cer` ajusta por inflación · `tasa_fija` = LECAP/BONCAP y «letras» ·

@@ -235,6 +235,24 @@ def _tenencia(cuenta="805", **kw):
         return MC.tenencia_actual(cuenta, **kw)
 
 
+def test_los_nombres_de_cartera_no_se_escriben_dos_veces():
+    """`TIPOS` no tipea los nombres: los importa de donde ya están declarados.
+    Con una segunda copia, agregar una cartera de bonos en `core/cartera.py`
+    dejaría a «qué bonos tengo» perdiendo títulos sin que falle nada."""
+    from asistente.agentes.cartera import TIPOS
+    from core.cartera import ARS, DL, HD
+    from core.clase_activo import CARTERA_DERIVADOS, RENTA_VARIABLE
+
+    assert TIPOS["bonos"] == (HD, ARS, DL), "las tres salen de core/cartera.py"
+    assert TIPOS["acciones"] == (RENTA_VARIABLE,)
+    assert TIPOS["derivados"] == (CARTERA_DERIVADOS,)
+    fuente = (RAIZ / "asistente" / "agentes" / "cartera.py").read_text(encoding="utf-8")
+    bloque = fuente[fuente.index("TIPOS: dict"):fuente.index("Tipo = Literal")]
+    for escrito in ('"HD"', '"ARS"', '"DL"', '"RENTA VARIABLE"', '"DERIVADOS"'):
+        assert escrito not in bloque, (
+            f"{escrito} está tipeado en `TIPOS`: importalo de core, no lo copies")
+
+
 def test_preguntar_por_bonos_no_devuelve_la_cuenta_entera(permiso):
     """«Qué bonos tengo» traía los 8 renglones, con los saldos de caja adentro y
     el total de toda la cuenta abajo. Un saldo en USD no es un bono."""

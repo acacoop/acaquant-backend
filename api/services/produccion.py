@@ -47,11 +47,13 @@ from datetime import date
 
 from api.services.comercial import _arancel_expr
 from api.services.comercial_sql import _arancel_where, _f, _q
+from api.services.comisiones_fci import INICIO_HISTORICO
 
 # id de cada fuente. El del arancel de mercado se usa además como clave de
 # compatibilidad: era el ÚNICO número que existía antes de este módulo.
 MERCADO = "mercado"
 MESA = "mesa"
+FCI = "fci_tenencia"
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,25 @@ def _mesa(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
     return {r["op"]: _f(r["usd"] if usd else r["ars"]) for r in rows if r["op"]}
 
 
+def _fci(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
+         op_de: dict[str, str], ids: list[str] | None) -> dict[str, float]:
+    """Comision por stock FCI, atribuida por cuenta al operador comercial."""
+    from api.services.comercial_sql import _fci_por_cuenta
+
+    scope = "id_cuenta = ANY(%(ids)s)" if ids is not None else None
+    p = {"ids": ids} if ids is not None else {}
+    mes_ini = hasta.replace(day=1).isoformat()
+    por_cuenta = _fci_por_cuenta(
+        desde=desde.isoformat(), hasta=hasta.isoformat(), mes_ini=mes_ini,
+        moneda=moneda, scope=scope, p=p)
+    out: dict[str, float] = {}
+    for idc, row in por_cuenta.items():
+        op = op_de.get(idc)
+        if op:
+            out[op] = out.get(op, 0.0) + row["fci_total"]
+    return out
+
+
 FUENTES: tuple[Fuente, ...] = (
     Fuente(
         id=MERCADO,
@@ -156,6 +177,13 @@ FUENTES: tuple[Fuente, ...] = (
         atribucion="mesa_dinero.observacion_email → clientes.operadores.email",
         tabla="operaciones.mesa_dinero",
         fn=_mesa),
+    Fuente(
+        id=FCI,
+        etiqueta="FCI (TENENCIA)",
+        concepto="arancel por stock de fondos, no por boleto",
+        atribucion="foto de tenencia → id_cuenta → comitentes.operador_email",
+        tabla="portafolio.tenencia + portafolio.assets",
+        fn=_fci),
 )
 
 # Fuentes que NO cuelgan de una cuenta comitente: un filtro por segmento/nivel de
@@ -171,6 +199,12 @@ _COBERTURA_SQL: dict[str, str] = {
            "FROM operaciones.mesa_dinero o "
            "LEFT JOIN operaciones.mesa_dinero_tc t ON t.fecha = o.fecha "
            "WHERE o.observacion_email IS NOT NULL"),
+            FCI: (f"SELECT min(t.fecha) AS d, max(t.fecha) AS h, 0 AS sin_tc "
+            "FROM portafolio.tenencia t "
+            "JOIN portafolio.assets a ON a.unidad = t.unidad "
+                f"WHERE t.fecha >= DATE '{INICIO_HISTORICO.isoformat()}' "
+            "AND upper(btrim(coalesce(t.cartera, ''))) IN ('FCI', 'CARTERA FCI') "
+            "AND a.fee_admin IS NOT NULL"),
 }
 
 
@@ -318,6 +352,6 @@ def mesa_ventanas(*, desde: str | None, hasta: str | None, mes_ini: str,
 SEGMENTO_INTERMEDIACION = "INTERMEDIACIÓN (MESA)"
 
 
-__all__ = ["FUENTES", "MERCADO", "MESA", "SEGMENTO_INTERMEDIACION", "SIN_CUENTA",
+__all__ = ["FUENTES", "MERCADO", "MESA", "FCI", "SEGMENTO_INTERMEDIACION", "SIN_CUENTA",
            "Fuente", "catalogo", "cobertura", "comisiones_por_operador",
            "mesa_ventanas", "vacio"]

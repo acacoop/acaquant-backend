@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services._sql import _q
+from api.services.comisiones_fci import INICIO_HISTORICO
 from api.services.comercial import (
     _CATS_OPERACIONES,
     _CATS_VOLUMEN,
@@ -95,6 +96,66 @@ def _arancel_where(alias: str = "") -> str:
 
 def _f(x) -> float:
     return float(x or 0)
+
+
+def _fci_por_cuenta(*, desde: str | None, hasta: str | None, mes_ini: str,
+                    moneda: str, scope: str | None, p: dict) -> dict[str, dict]:
+    """Devengamiento FCI por cuenta para el mismo período del informe comercial.
+
+    La cuenta es la unidad de atribución: después el caller la resuelve a operador
+    y segmento, igual que el arancel de operaciones. Las fotos de tenencia cubren
+    hasta la siguiente foto; el período oficial comienza el 2026-05-01.
+    """
+    corte = date.fromisoformat(hasta) if hasta else _hoy_art()
+    if corte < INICIO_HISTORICO:
+        return {}
+    total_ini = max(date.fromisoformat(desde), INICIO_HISTORICO) if desde else INICIO_HISTORICO
+    mes_inicio = max(date.fromisoformat(mes_ini), INICIO_HISTORICO)
+    scan_ini = min(total_ini, mes_inicio)
+    scope_fci = scope.replace("id_cuenta", "t.id_cuenta", 1) if scope else "TRUE"
+    params = {**p, "fci_inicio": INICIO_HISTORICO, "fci_scan_ini": scan_ini,
+              "fci_ini": total_ini,
+              "fci_mes": mes_inicio,
+              "fci_fin": corte, "fci_moneda": (moneda or "ARS").upper(),
+              "fci_carteras": ["FCI", "CARTERA FCI"]}
+    sql = f"""
+    WITH anclas AS (
+        SELECT fecha, LEAD(fecha) OVER (ORDER BY fecha) AS sig
+        FROM (
+            SELECT DISTINCT t.fecha
+            FROM portafolio.tenencia t
+                        WHERE t.fecha >= %(fci_inicio)s AND t.fecha <= %(fci_fin)s
+                            AND (t.fecha >= %(fci_scan_ini)s OR t.fecha = (
+                                    SELECT max(a0.fecha) FROM portafolio.tenencia a0
+                                    WHERE a0.fecha >= %(fci_inicio)s AND a0.fecha <= %(fci_scan_ini)s
+                                        AND upper(btrim(coalesce(a0.cartera, ''))) = ANY(%(fci_carteras)s)
+                            ))
+              AND upper(btrim(coalesce(t.cartera, ''))) = ANY(%(fci_carteras)s)
+        ) d
+    ), tramos AS (
+        SELECT fecha,
+               GREATEST(0, LEAST(coalesce(sig - 1, %(fci_fin)s), %(fci_fin)s)
+                   - GREATEST(fecha, %(fci_ini)s) + 1) AS dias_total,
+               GREATEST(0, LEAST(coalesce(sig - 1, %(fci_fin)s), %(fci_fin)s)
+                   - GREATEST(fecha, %(fci_mes)s) + 1) AS dias_mes
+        FROM anclas
+    )
+    SELECT t.id_cuenta,
+           SUM(t.valuacion * a.fee_admin * 0.5 / 365 * tr.dias_total) AS fci_total,
+           SUM(t.valuacion * a.fee_admin * 0.5 / 365 * tr.dias_mes) AS fci_mes
+    FROM portafolio.tenencia t
+    JOIN tramos tr ON tr.fecha = t.fecha
+    LEFT JOIN portafolio.assets a ON a.unidad = t.unidad
+    WHERE tr.dias_total > 0
+      AND a.fee_admin IS NOT NULL
+            AND upper(btrim(coalesce(t.cartera, ''))) = ANY(%(fci_carteras)s)
+      AND upper(coalesce(t.moneda, 'ARS')) = %(fci_moneda)s
+      AND {scope_fci}
+    GROUP BY t.id_cuenta
+    """
+    return {r["id_cuenta"]: {"fci_total": _f(r["fci_total"]),
+                              "fci_mes": _f(r["fci_mes"])}
+            for r in _q(sql, params) if r["id_cuenta"]}
 
 
 def _iso(d):
@@ -823,7 +884,8 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
 
 def _rollup_por_cuenta(scope: str | None, p: dict,
                        desde: str | None = None,
-                       hasta: str | None = None) -> dict[str, dict]:
+                       hasta: str | None = None,
+                       moneda: str = "ARS") -> dict[str, dict]:
     """{id_cuenta: {vol_total, vol_mes, n_ops, ar_total, ar_mes, opero_mes}} en vivo.
     vol/n_ops de negocio_movimientos (cats), arancel de operaciones.
     TOTAL (vol_total/ar_total/n_ops) = período elegido [desde, hasta]: sin `desde` no hay
@@ -883,6 +945,19 @@ def _rollup_por_cuenta(scope: str | None, p: dict,
         f"  COALESCE(a.ar_total,0) AS ar_total, COALESCE(a.ar_mes,0) AS ar_mes "
         f"FROM vol v FULL OUTER JOIN ar a ON v.id_cuenta = a.id_cuenta", p)
     out = {r["id_cuenta"]: r for r in rows if r["id_cuenta"]}
+
+    vacio = {"vol_total": 0, "vol_mes": 0, "n_ops": 0,
+             "ar_total": 0, "ar_mes": 0}
+    fci = _fci_por_cuenta(desde=desde, hasta=hasta, mes_ini=mes_ini,
+                          moneda=moneda, scope=scope, p=p)
+    for idc in set(out) | set(fci):
+        fila = out.setdefault(idc, {"id_cuenta": idc, **vacio})
+        fila["ar_operaciones_total"] = _f(fila.get("ar_total"))
+        fila["ar_operaciones_mes"] = _f(fila.get("ar_mes"))
+        fila["ar_fci_total"] = fci.get(idc, {}).get("fci_total", 0.0)
+        fila["ar_fci_mes"] = fci.get(idc, {}).get("fci_mes", 0.0)
+        fila["ar_total"] = fila["ar_operaciones_total"] + fila["ar_fci_total"]
+        fila["ar_mes"] = fila["ar_operaciones_mes"] + fila["ar_fci_mes"]
 
     # ── QUIÉN OPERÓ EN EL MES (= CTAS OPS) ────────────────────────────────────
     #
@@ -979,6 +1054,8 @@ def _agregar_fila_intermediacion(segmentos: list[dict],
     segmentos.append({
         "segmento": produccion.SEGMENTO_INTERMEDIACION,
         "ar_total": round(tot, 2), "ar_mes": round(mes, 2),
+        "ar_operaciones_total": 0.0, "ar_operaciones_mes": 0.0,
+        "ar_fci_total": 0.0, "ar_fci_mes": 0.0,
         "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0, "ticket_promedio": 0.0,
         # Marca para que el front pueda distinguirla: no es un segmento de clientes.
         "es_intermediacion": True,
@@ -1000,7 +1077,8 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
     if _madre_activa(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division):
         scope = _scope_cuentas(operador, p_scope, nivel_1, nivel_3, referido,
                                nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
-    por_cuenta = _rollup_por_cuenta(scope, p_scope, desde=desde, hasta=fecha)
+    por_cuenta = _rollup_por_cuenta(scope, p_scope, desde=desde, hasta=fecha,
+                                    moneda=moneda)
     # Mismo criterio de MES que `_rollup_por_cuenta`: día 1 del mes del corte. Se
     # recalcula acá (y no se devuelve de allá) porque la intermediación no pasa por
     # el rollup por cuenta — pero la definición de "mes" tiene que ser la misma.
@@ -1029,10 +1107,15 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
                 "operador_nombre": (info.get("operador_nombre") or info.get("operador_email")
                                     or "(sin operador)"),
                 "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0,
+                "ar_operaciones_total": 0.0, "ar_operaciones_mes": 0.0,
+                "ar_fci_total": 0.0, "ar_fci_mes": 0.0,
                 "n_ops": 0, "ctas_ops": 0,
             }
         for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
             o[k] += _f(agg[k])
+        for k in ("ar_operaciones_total", "ar_operaciones_mes",
+                  "ar_fci_total", "ar_fci_mes"):
+            o[k] += _f(agg.get(k))
         o["n_ops"] += int(agg["n_ops"] or 0)
         # Ctas Ops = cuentas DISTINTAS que operaron en el mes del corte (≥1 boleto en
         # la ventana [día 1 del mes, corte]). Cada cuenta cuenta como 1, opere 1 vez
@@ -1046,16 +1129,24 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
         s = segs.get(seg)
         if s is None:
             s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
+                             "ar_operaciones_total": 0.0, "ar_operaciones_mes": 0.0,
+                             "ar_fci_total": 0.0, "ar_fci_mes": 0.0,
                              "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
         s["ar_total"] += _f(agg["ar_total"])
         s["ar_mes"] += _f(agg["ar_mes"])
+        s["ar_operaciones_total"] += _f(agg.get("ar_operaciones_total"))
+        s["ar_operaciones_mes"] += _f(agg.get("ar_operaciones_mes"))
+        s["ar_fci_total"] += _f(agg.get("ar_fci_total"))
+        s["ar_fci_mes"] += _f(agg.get("ar_fci_mes"))
         s["vol_total"] += _f(agg["vol_total"])
         s["n_ops"] += int(agg["n_ops"] or 0)
         if _f(agg["ar_total"]) > 0:
             s["n_cuentas"] += 1
 
     for o in ops.values():
-        for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
+        for k in ("vol_total", "vol_mes", "ar_total", "ar_mes",
+                  "ar_operaciones_total", "ar_operaciones_mes",
+                  "ar_fci_total", "ar_fci_mes"):
             o[k] = _cv(o[k], factor)
 
     # ── INTERMEDIACIÓN (MESA DE DINERO) ──────────────────────────────────────
@@ -1073,6 +1164,8 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
             o = ops[email] = {
                 "operador_email": email, "operador_nombre": _nombre_op(email),
                 "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0,
+                "ar_operaciones_total": 0.0, "ar_operaciones_mes": 0.0,
+                "ar_fci_total": 0.0, "ar_fci_mes": 0.0,
                 "n_ops": 0, "ctas_ops": 0,
             }
         o["ar_total"] += v["total"]
@@ -1086,7 +1179,8 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
         o["rank"] = i
         o["ticket_promedio"] = _ticket(o["vol_total"], o["n_ops"])
     for s in segs.values():
-        for k in ("ar_total", "ar_mes", "vol_total"):
+        for k in ("ar_total", "ar_mes", "ar_operaciones_total", "ar_operaciones_mes",
+                  "ar_fci_total", "ar_fci_mes", "vol_total"):
             s[k] = _cv(s[k], factor)
     segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     # La intermediación NO pertenece a ningún segmento (no cuelga de una cuenta, y
@@ -1208,23 +1302,31 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
     if not cuentas:
         return {"operador": operador, "aranceles_segmento": []}
     scope = "id_cuenta = ANY(%(ids)s)"
-    por_cuenta = _rollup_por_cuenta(scope, {"ids": list(cuentas)}, desde=desde, hasta=fecha)
+    por_cuenta = _rollup_por_cuenta(scope, {"ids": list(cuentas)}, desde=desde,
+                                    hasta=fecha, moneda=moneda)
     segs: dict[str, dict] = {}
     for idc, agg in por_cuenta.items():
         seg = cuentas.get(idc, "(sin segmentar)")
         s = segs.get(seg)
         if s is None:
             s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
+                             "ar_operaciones_total": 0.0, "ar_operaciones_mes": 0.0,
+                             "ar_fci_total": 0.0, "ar_fci_mes": 0.0,
                              "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
         s["vol_total"] += _f(agg["vol_total"])
         s["n_ops"] += int(agg["n_ops"] or 0)
         s["ar_total"] += _f(agg["ar_total"])
         s["ar_mes"] += _f(agg["ar_mes"])
+        s["ar_operaciones_total"] += _f(agg.get("ar_operaciones_total"))
+        s["ar_operaciones_mes"] += _f(agg.get("ar_operaciones_mes"))
+        s["ar_fci_total"] += _f(agg.get("ar_fci_total"))
+        s["ar_fci_mes"] += _f(agg.get("ar_fci_mes"))
         if _f(agg["ar_total"]) > 0:
             s["n_cuentas"] += 1
     out = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     for s in out:
-        for k in ("ar_total", "ar_mes", "vol_total"):
+        for k in ("ar_total", "ar_mes", "ar_operaciones_total", "ar_operaciones_mes",
+                  "ar_fci_total", "ar_fci_mes", "vol_total"):
             s[k] = _cv(s[k], factor)
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
     # Fila INTERMEDIACIÓN del comercial: acotada a ESTE operador. Los niveles se

@@ -4,10 +4,19 @@ archivo. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal, get_args
+from typing import Annotated, Literal, get_args
+
+from pydantic import Field
 
 from asistente import pantalla
 from asistente.agente import COMUN, Agente
+
+# Una fecha, DECLARADA como tal en el esquema que ve el modelo (`format: date`)
+# en vez de un string libre. El tipo en runtime sigue siendo `str` —el grafo
+# llama a la función cruda, sin pasar por pydantic—, así que el que valida de
+# verdad es `fecha_o_error`. Lo que cambia es que el modelo ya no tiene que
+# adivinar el formato: mandó «2029» una vez y la llamada se perdió.
+Fecha = Annotated[str, Field(json_schema_extra={"format": "date"})]
 
 MAX_INSTRUMENTOS = 50
 MAX_FLUJOS = 24
@@ -168,7 +177,7 @@ def es_del_emisor(fila: dict, buscado: str) -> bool:
 
 def metricas_por_ticker() -> dict[str, dict]:
     """Lo que el mercado dice hoy de cada bono del master de curvas, por ticker
-    corto: la misma foto que `curva`. Es un helper de DATOS, no una herramienta:
+    corto: la misma foto que `instrumentos_de_la_curva`. Es un helper de DATOS, no
     lo usa el agente cartera para decir cuánto rinde lo que una cuenta tiene, sin
     que ningún modelo cruce nada. Levanta si la vista no contesta."""
     from api.services import curvas_vista as CV
@@ -178,13 +187,18 @@ def metricas_por_ticker() -> dict[str, dict]:
             for b in CV.get_curvas_vista().get("bonos") or [] if b.get("ticker_corto")}
 
 
-def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
-          emisor: str | None = None, emisor_tipo: EmisorTipo | None = None,
-          vence_desde: str | None = None, vence_hasta: str | None = None,
-          con_emisores: bool = False) -> dict:
+def instrumentos_de_la_curva(curva: Curva, ordenar_por: OrdenCurva = "tea",
+                             limit: Annotated[int, Field(ge=1, le=MAX_INSTRUMENTOS)] = 15,
+                             emisor: str | None = None,
+                             emisor_tipo: EmisorTipo | None = None,
+                             vence_desde: Fecha | None = None,
+                             vence_hasta: Fecha | None = None,
+                             con_emisores: bool = False) -> dict:
     """Qué instrumentos hay HOY en una curva de renta fija y cuánto rinden.
 
-    Es el MERCADO, no una cuenta: «qué tengo» es `tenencia_actual`.
+    Es el MERCADO, no una cuenta: «qué tengo» es `tenencia_actual`, y rotar un
+    título de una cuenta es `alternativas_para_rotar` — que ya trae sus alternativas
+    comparadas, así que NO la completes con ésta: sería otra tabla de lo mismo.
 
     `cer` ajusta por inflación · `tasa_fija` = LECAP/BONCAP y «letras» ·
     `hard_dolar` = los que pagan en dólares (AL, GD, ONs), «soberanos» y «hard
@@ -197,24 +211,22 @@ def curva(curva: Curva, ordenar_por: OrdenCurva = "tea", limit: int = 15,
         la pantalla muestre una — no la derives, usá `tea_pct`.
       · `resumen` — los agregados de TODO lo pedido, no de lo que entró acá:
         `tea_pct` y `duration` (min/max/promedio/mediana), `rinde_mas`,
-        `vence_primero`, `vence_ultimo`, ya resueltos.
+        `vence_primero`, `vence_ultimo`.
       · `emisores` SOLO con `con_emisores` (son ~47 y pesan).
       · `truncado` true = esto es una MUESTRA y los extremos salen de
         `resumen`. Es cocina: contestá con el dato, no con cómo lo conseguiste.
 
     Args:
-        ordenar_por: con `tea` los que más rinden primero. Default `tea`.
-        limit: 1 a 50; si no dijo, 15. Si pidió UNO, pedí pocos.
+        ordenar_por: con `tea` los que más rinden primero.
+        limit: si no dijo, 15. Si pidió UNO, pedí pocos.
         emisor: por nombre y por pedazo («YPF» encuentra «YPF S.A.»).
-        emisor_tipo: soberano · provincial · corporativo · bcra. **Usalo
-            cuando lo pidan**, no filtres leyendo lo que te volvió.
-        vence_desde: fecha `YYYY-MM-DD`; de ahí en adelante, ese día incluido.
-        vence_hasta: fecha `YYYY-MM-DD`; hasta ahí, ese día incluido. Con
-            `vence_desde` son la VENTANA: «hasta 2029» es
-            `vence_hasta="2029-12-31"`; «más largo que el AL30» es pedir su
-            ficha y poner su vencimiento en `vence_desde`. ⚠️ ORDENAR NO ES
-            FILTRAR: `ordenar_por="vencimiento"` arranca por el más CORTO, así
-            que para un plazo pedido va la ventana, nunca el orden.
+        emisor_tipo: **usalo cuando lo pidan**, no filtres leyendo lo que volvió.
+        vence_desde: de ahí en adelante, ese día incluido.
+        vence_hasta: hasta ahí, incluido. Con `vence_desde` son la VENTANA:
+            «hasta 2029» es `vence_hasta="2029-12-31"`; «más largo que el
+            AL30» es pedir su ficha y poner su vencimiento en `vence_desde`.
+            ⚠️ ORDENAR NO ES FILTRAR: `ordenar_por="vencimiento"` arranca por
+            el más CORTO; para un plazo pedido va la ventana, nunca el orden.
         con_emisores: true si vas a filtrar por uno y no sabés cómo se escribe.
     """
     from api.services import curvas_vista as CV
@@ -412,7 +424,7 @@ AGENTE = Agente(
     describe="bonos, letras y ONs: qué hay en una curva, cuánto rinde, qué es un bono, cuándo "
              "vence y qué paga, cómo cotiza hoy.",
     instruccion=_instruccion,
-    herramientas=(curva, ficha_bono),
+    herramientas=(instrumentos_de_la_curva, ficha_bono),
     familia="mercado",
     foco=("ticker",),
     senales=("curva", "curvas", "tea", "tir", "bono", "bonos", "paridad", "duration", "ficha",

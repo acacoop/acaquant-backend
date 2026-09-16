@@ -101,7 +101,7 @@ def test_el_esquema_sale_de_la_firma_con_enum_y_tipos_reales():
     from asistente.agentes import renta_fija as MM
     from core import curvas_ejes as ce
 
-    props = H.ficha(MM.curva)["function"]["parameters"]["properties"]
+    props = H.ficha(MM.instrumentos_de_la_curva)["function"]["parameters"]["properties"]
     assert props["curva"]["enum"] == list(MM.Curva.__args__)
     assert props["ordenar_por"]["enum"] == list(MM.OrdenCurva.__args__)
     assert props["limit"]["type"] == "integer"
@@ -166,6 +166,11 @@ def test_lo_que_empieza_con_guion_bajo_no_viaja_al_modelo_pero_el_aviso_si():
     visto = H.para_el_modelo(r)
     assert set(visto) == {"total", "posiciones", "se_muestra"}, "_tabla no, se_muestra sí"
     assert "Tenencia de la 805" in visto["se_muestra"] and "1 fila" in visto["se_muestra"]
+    # y es PREVENTIVO: además de «no la repitas», frena la SEGUNDA herramienta.
+    # Dibujar una tabla no es una acción del modelo —es un efecto de un payload
+    # que no ve—, así que llamar dos con tabla le sale gratis y al usuario le
+    # aparecen dos tablas pegadas de lo mismo (pasó con rotar + curva).
+    assert "otra herramienta" in visto["se_muestra"], "tiene que frenar la segunda tabla"
     assert H.para_el_modelo("texto") == "texto"
     # sin tabla, o con una tabla sin filas, no se le anuncia nada
     assert H.para_el_modelo({"total": 1}) == {"total": 1}
@@ -348,7 +353,7 @@ def test_rotar_compara_contra_el_que_menos_rinde_y_resta_el_codigo(permiso):
     with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2),
                                                                          ("YMCHO", 9.6, 3.1))), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
+        r = MC.alternativas_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
     assert r["referencia"]["ticker"] == "YMCXO", "el que menos rinde de los míos"
     assert r["curva"] == "hard_dolar" and [t["ticker"] for t in r["tenes"]] == ["YMCXO", "YMCHO"]
     alt = {a["ticker"]: a for a in r["alternativas"]}
@@ -372,10 +377,10 @@ def test_rotar_dice_que_falta_en_vez_de_devolver_una_tabla_vacia(permiso):
     with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2))), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
         # no tengo nada de ese emisor → los que sí tengo
-        sin_mio = MC.opciones_para_rotar("805", desde_emisor="TENARIS", hacia_emisor="Vista")
+        sin_mio = MC.alternativas_para_rotar("805", desde_emisor="TENARIS", hacia_emisor="Vista")
         assert "error" in sin_mio and sin_mio["emisores_en_la_cuenta"] == ["YPF SA"]
         # el destino no tiene nada en esa curva → los emisores que sí hay ahí
-        sin_destino = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="TENARIS")
+        sin_destino = MC.alternativas_para_rotar("805", desde_emisor="YPF", hacia_emisor="TENARIS")
         assert "error" in sin_destino and "hard_dolar" in sin_destino["error"]
         assert "VISTA ENERGY" in sin_destino["emisores_en_esa_curva"]
         assert sin_destino["referencia"] == "YMCXO"
@@ -385,7 +390,7 @@ def test_rotar_dice_que_falta_en_vez_de_devolver_una_tabla_vacia(permiso):
                       return_value={"posiciones": [{"ticker": "YMCXO", "emisor": "YPF SA",
                                                     "tea_pct": None, "duration": None}]}), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
+        r = MC.alternativas_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
     assert "error" in r and "tasa comparable" in r["error"] and r["tenes"]
 
 
@@ -398,7 +403,7 @@ def test_rotar_saca_EL_TITULO_QUE_NOMBRO_EL_USUARIO(permiso):
     with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2),
                                                                          ("YMCHO", 9.6, 3.1))), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", ticker="YMCHO", hacia_emisor="Vista")
+        r = MC.alternativas_para_rotar("805", ticker="YMCHO", hacia_emisor="Vista")
     assert r["referencia"]["ticker"] == "YMCHO", "el que nombró, no el que menos rinde"
     assert r["referencia"]["por_que"] == "lo nombró el usuario"
     assert r["sale"] == "YMCHO"
@@ -419,19 +424,18 @@ def test_rotar_acepta_un_TIPO_de_emisor_como_destino(permiso):
                        "tasa_ruido": False}
     with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2))), \
          patch.object(MC, "metricas_por_ticker", return_value=mercado):
-        r = MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="corporativo")
+        r = MC.alternativas_para_rotar("805", ticker="YMCXO", hacia_tipo="corporativo")
         assert "GD30" not in [a["ticker"] for a in r["alternativas"]], "un soberano no entra"
         assert r["hacia"] == "corporativo" and r["referencia"]["ticker"] == "YMCXO"
         assert "YMCXO" not in [a["ticker"] for a in r["alternativas"]], "no se sugiere a sí mismo"
-        sob = MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="soberano")
+        sob = MC.alternativas_para_rotar("805", ticker="YMCXO", hacia_tipo="soberano")
         assert [a["ticker"] for a in sob["alternativas"]] == ["GD30"]
         # las combinaciones que no se pueden resolver se dicen, no se adivinan
-        assert "error" in MC.opciones_para_rotar("805", hacia_emisor="Vista")
-        assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO")
-        assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO",
+        assert "error" in MC.alternativas_para_rotar("805", ticker="YMCXO")
+        assert "error" in MC.alternativas_para_rotar("805", ticker="YMCXO",
                                                  hacia_emisor="Vista", hacia_tipo="soberano")
-        assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="cooperativa")
-        falta = MC.opciones_para_rotar("805", ticker="NOTENGO", hacia_tipo="corporativo")
+        assert "error" in MC.alternativas_para_rotar("805", ticker="YMCXO", hacia_tipo="cooperativa")
+        falta = MC.alternativas_para_rotar("805", ticker="NOTENGO", hacia_tipo="corporativo")
         assert "error" in falta and "YMCXO" in falta["tickers_en_la_cuenta"]
 
 
@@ -466,7 +470,7 @@ def test_rotar_a_MAS_LARGO_ancla_el_punto_de_partida_en_el_bono_que_sale(permiso
 
     with patch.object(MC, "tenencia_actual", return_value=_tengo_AO28()), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
-        r = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+        r = MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
                                    hacia_vencimiento="2029-12-31")
         # el desde lo puso el CÓDIGO, desde la referencia
         assert r["ventana"] == {"desde": "2028-10-31", "hasta": "2029-12-31"}
@@ -480,36 +484,81 @@ def test_rotar_a_MAS_LARGO_ancla_el_punto_de_partida_en_el_bono_que_sale(permiso
         assert "vence 2028-10-31 → 2029-12-31" in r["_tabla"]["titulo"]
 
         # sin fecha nombrada, «más largo» es de mi bono en adelante, sin techo
-        abierta = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
+        abierta = MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
         assert abierta["ventana"] == {"desde": "2028-10-31", "hasta": None}
         assert "GD46" in [a["ticker"] for a in abierta["alternativas"]]
-        # se muestran TRES si no pidió un número, aunque haya más
-        assert len(abierta["alternativas"]) == 3 and abierta["truncado"] is True
-        assert len(MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
-                                          cuantas=5)["alternativas"]) == 5
+        # se muestran TRES si no pidió un número, aunque haya más — y eso NO es
+        # una truncación: decirle que se está perdiendo algo lo manda a buscar
+        # el resto con otra herramienta, y aparece una segunda tabla
+        assert len(abierta["alternativas"]) == 3 and abierta["cuantas"] > 3
+        assert abierta["truncado"] is False, "3 de 4 sin pedir número ES la respuesta"
+        cinco = MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                       mostrar=5)
+        assert len(cinco["alternativas"]) == 5
+        # si SÍ pidió un número y hay más, ahí sí se avisa
+        una = MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+                                     mostrar=1)
+        assert len(una["alternativas"]) == 1 and una["truncado"] is True
 
         # el otro lado: más corto es de hoy hasta MI vencimiento
-        corto = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_corto")
+        corto = MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_corto")
         assert corto["ventana"]["hasta"] == "2028-10-31"
         assert [a["ticker"] for a in corto["alternativas"]] == ["AE27", "AL26"]
         assert "GEMELO" not in [a["ticker"] for a in corto["alternativas"]]
 
         # el plazo se combina con el emisor/tipo: son ejes distintos
-        con_tipo = MC.opciones_para_rotar("805", ticker="AO28", hacia_tipo="soberano",
+        con_tipo = MC.alternativas_para_rotar("805", ticker="AO28", hacia_tipo="soberano",
                                           hacia_plazo="mas_largo",
                                           hacia_vencimiento="2029-12-31")
         assert [a["ticker"] for a in con_tipo["alternativas"]] == ["YM29", "GD29", "AL29"]
 
         # una fecha suelta no dice de qué lado buscar: se pide la dirección
-        assert "error" in MC.opciones_para_rotar("805", ticker="AO28",
+        assert "error" in MC.alternativas_para_rotar("805", ticker="AO28",
                                                  hacia_vencimiento="2029-12-31")
-        assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_lejos")
-        assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+        assert "error" in MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_lejos")
+        assert "error" in MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
                                                  hacia_vencimiento="2029")
         # más largo hasta una fecha ANTERIOR a mi vencimiento no tiene
         # respuesta: se dice, no se devuelve vacío
-        assert "error" in MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
+        assert "error" in MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo",
                                                  hacia_vencimiento="2027-01-01")
+
+
+def test_rotar_con_UN_SOLO_titulo_no_pregunta_cual_sale(permiso):
+    """«Quiero venderlo» es señalar con el dedo, y con un solo bono en la cuenta
+    el dedo no tiene a dónde más apuntar. La herramienta pedía `ticker` o
+    `desde_emisor` porque el usuario no lo había NOMBRADO, y le quemaba un turno
+    al operador preguntando algo que el código sabe. Con dos o más sí se
+    pregunta: ahí la respuesta depende de cuál, y elegir por él sería inventar."""
+    from asistente.agentes import cartera as MC
+
+    uno = {"posiciones": [{"ticker": "AO28", "emisor": "REPUBLICA ARGENTINA", "tea_pct": 8.0,
+                           "duration": 3.0, "paridad_pct": 95.0,
+                           "vencimiento": "2028-10-31", "tasa_ruido": False}]}
+    with patch.object(MC, "tenencia_actual", return_value=uno), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        r = MC.alternativas_para_rotar("805", hacia_plazo="mas_largo",
+                                   hacia_vencimiento="2029-12-31")
+        assert r["sale"] == "AO28"
+        assert r["referencia"]["por_que"] == "es el único título comparable de la cuenta"
+        assert [a["ticker"] for a in r["alternativas"]] == ["YM29", "GD29", "AL29"]
+
+    # una acción y un FCI no son títulos comparables: no vuelven ambigua la cuenta
+    con_ruido = {"posiciones": uno["posiciones"] + [
+        {"ticker": "GGAL", "emisor": "GRUPO GALICIA", "tea_pct": None, "duration": None,
+         "paridad_pct": None, "vencimiento": None, "tasa_ruido": False}]}
+    with patch.object(MC, "tenencia_actual", return_value=con_ruido), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        assert MC.alternativas_para_rotar("805", hacia_plazo="mas_largo")["sale"] == "AO28"
+
+    # con DOS bonos comparables sí hay que preguntar, y se dice cuáles son
+    dos = {"posiciones": uno["posiciones"] + [
+        {"ticker": "GD35", "emisor": "REPUBLICA ARGENTINA", "tea_pct": 10.0, "duration": 5.0,
+         "paridad_pct": 95.0, "vencimiento": "2035-07-09", "tasa_ruido": False}]}
+    with patch.object(MC, "tenencia_actual", return_value=dos), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
+        r = MC.alternativas_para_rotar("805", hacia_plazo="mas_largo")
+    assert "error" in r and sorted(r["titulos_comparables"]) == ["AO28", "GD35"]
 
 
 def test_rotar_por_plazo_sin_saber_cuando_vence_el_mio_no_contesta(permiso):
@@ -520,7 +569,7 @@ def test_rotar_por_plazo_sin_saber_cuando_vence_el_mio_no_contesta(permiso):
 
     with patch.object(MC, "tenencia_actual", return_value=_tengo_AO28(vencimiento=None)), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_plazos()):
-        r = MC.opciones_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
+        r = MC.alternativas_para_rotar("805", ticker="AO28", hacia_plazo="mas_largo")
     assert "error" in r and "AO28" in r["error"] and "alternativas" not in r
 
 
@@ -535,7 +584,7 @@ def test_rotar_encuentra_el_titulo_aunque_el_emisor_se_escriba_distinto(permiso)
                                 "duration": 4.2, "tasa_ruido": False}]}
     with patch.object(MC, "tenencia_actual", return_value=tenencia), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
+        r = MC.alternativas_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
     assert r["referencia"]["ticker"] == "YMCXO", "lo encontró por el emisor del master"
 
 
@@ -596,24 +645,24 @@ def test_la_curva_filtra_por_emisor_por_pedazo_y_nunca_devuelve_vacio_en_silenci
     from asistente.agentes import renta_fija as RF
 
     with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
-        r = RF.curva("hard_dolar", emisor="YPF")
+        r = RF.instrumentos_de_la_curva("hard_dolar", emisor="YPF")
         assert [i["ticker"] for i in r["instrumentos"]] == ["YMCXO", "YMCHO"], "por pedazo"
         assert r["emisor"] == "YPF" and r["cuantos"] == 2
         assert {i["emisor"] for i in r["instrumentos"]} == {"YPF S.A."}
         assert all(i["emisor_tipo"] == "corporativo" for i in r["instrumentos"])
         # minúsculas y espacios de más no cambian nada
-        assert len(RF.curva("hard_dolar", emisor="  ypf  ")["instrumentos"]) == 2
+        assert len(RF.instrumentos_de_la_curva("hard_dolar", emisor="  ypf  ")["instrumentos"]) == 2
         # la lista de emisores viaja SIEMPRE, ordenada por cantidad
-        assert "emisores" not in RF.curva("hard_dolar"), "son ~47 y solo sirven para filtrar"
-        assert RF.curva("hard_dolar", con_emisores=True)["emisores"] == [
+        assert "emisores" not in RF.instrumentos_de_la_curva("hard_dolar"), "son ~47 y solo sirven para filtrar"
+        assert RF.instrumentos_de_la_curva("hard_dolar", con_emisores=True)["emisores"] == [
             {"emisor": "YPF S.A.", "bonos": 2},
             {"emisor": "PAN AMERICAN ENERGY", "bonos": 1},
             {"emisor": "REPUBLICA ARGENTINA", "bonos": 1}]
         # un emisor que no está: error CON la salida, no una lista vacía
-        fallo = RF.curva("hard_dolar", emisor="TENARIS")
+        fallo = RF.instrumentos_de_la_curva("hard_dolar", emisor="TENARIS")
         assert "error" in fallo and "TENARIS" in fallo["error"]
         assert [e["emisor"] for e in fallo["emisores"]] and "instrumentos" not in fallo
-        assert "error" in RF.curva("hard_dolar", emisor="   ")
+        assert "error" in RF.instrumentos_de_la_curva("hard_dolar", emisor="   ")
 
 
 def _vista_plazos():
@@ -647,10 +696,10 @@ def test_la_curva_busca_en_una_VENTANA_de_vencimiento_y_no_en_un_orden():
 
     with patch.object(CV, "get_curvas_vista", return_value=_vista_plazos()):
         # la trampa, documentada: ordenar por vencimiento empieza por el corto
-        assert RF.curva("hard_dolar", ordenar_por="vencimiento")[
+        assert RF.instrumentos_de_la_curva("hard_dolar", ordenar_por="vencimiento")[
             "instrumentos"][0]["ticker"] == "AL26"
         # la ventana: del bono que sale (2028-10-31) hasta fin de 2029
-        r = RF.curva("hard_dolar", vence_desde="2028-10-31", vence_hasta="2029-12-31")
+        r = RF.instrumentos_de_la_curva("hard_dolar", vence_desde="2028-10-31", vence_hasta="2029-12-31")
         assert [i["ticker"] for i in r["instrumentos"]] == ["YM29", "GD29", "AL29", "AO28"], (
             "solo los del lapso, y ordenados por TEA que es el default")
         assert r["ventana"] == {"desde": "2028-10-31", "hasta": "2029-12-31"}
@@ -662,24 +711,24 @@ def test_la_curva_busca_en_una_VENTANA_de_vencimiento_y_no_en_un_orden():
         assert "SINVTO" not in [i["ticker"] for i in r["instrumentos"]], (
             "sin fecha no se puede probar que esté adentro: queda afuera")
         # los bordes entran, y la ventana se combina con los otros filtros
-        assert [i["ticker"] for i in RF.curva(
+        assert [i["ticker"] for i in RF.instrumentos_de_la_curva(
             "hard_dolar", vence_hasta="2026-10-03")["instrumentos"]] == ["AL26"]
-        assert [i["ticker"] for i in RF.curva(
+        assert [i["ticker"] for i in RF.instrumentos_de_la_curva(
             "hard_dolar", emisor_tipo="corporativo",
             vence_hasta="2029-12-31")["instrumentos"]] == ["YM29"]
         # el título de la tabla dice el lapso: dos tablas pegadas no se pisan
         assert "vence 2028-10-31 → 2029-12-31" in r["_tabla"]["titulo"]
         # vacía: error CON los extremos de lo que sí hay, no una lista vacía
-        nada = RF.curva("hard_dolar", vence_desde="2036-01-01", vence_hasta="2040-01-01")
+        nada = RF.instrumentos_de_la_curva("hard_dolar", vence_desde="2036-01-01", vence_hasta="2040-01-01")
         assert "error" in nada and nada["vence_ultimo"]["ticker"] == "GD46"
         assert nada["vence_primero"]["ticker"] == "AL26"
         # y si además se filtró por emisor, los extremos son los DE ESE EMISOR
-        solo_ypf = RF.curva("hard_dolar", emisor="YPF", vence_desde="2040-01-01")
+        solo_ypf = RF.instrumentos_de_la_curva("hard_dolar", emisor="YPF", vence_desde="2040-01-01")
         assert solo_ypf["vence_ultimo"]["ticker"] == "YM29"
         # una ventana al revés, o una fecha que no es fecha, se dicen
-        assert "error" in RF.curva("hard_dolar", vence_desde="2030-01-01",
+        assert "error" in RF.instrumentos_de_la_curva("hard_dolar", vence_desde="2030-01-01",
                                    vence_hasta="2029-01-01")
-        assert "error" in RF.curva("hard_dolar", vence_hasta="fin de 2029")
+        assert "error" in RF.instrumentos_de_la_curva("hard_dolar", vence_hasta="fin de 2029")
 
 
 def test_la_tna_es_la_que_publico_el_backend_y_nunca_se_deriva_acá():
@@ -699,9 +748,9 @@ def test_la_tna_es_la_que_publico_el_backend_y_nunca_se_deriva_acá():
     # un hard dollar al que 1816 SÍ le publica TNA: viaja tal cual, sin tocarla
     vista["bonos"][0]["metrics"]["TNA"] = 0.0812
     with patch.object(CV, "get_curvas_vista", return_value=vista):
-        letra = RF.curva("tasa_fija")["instrumentos"][0]
+        letra = RF.instrumentos_de_la_curva("tasa_fija")["instrumentos"][0]
         assert letra["tna_pct"] == 34.12 and letra["tea_pct"] == 40.0
-        hd = {i["ticker"]: i for i in RF.curva("hard_dolar")["instrumentos"]}
+        hd = {i["ticker"]: i for i in RF.instrumentos_de_la_curva("hard_dolar")["instrumentos"]}
     assert hd["YMCXO"]["tna_pct"] == 8.12, "hard dollar CON TNA de 1816: se respeta"
     assert hd["GD30"]["tna_pct"] is None, "sin TNA publicada NO se inventa una"
     assert hd["GD30"]["tea_pct"] == 12.0, "la TEA está siempre: es la comparable"
@@ -739,9 +788,9 @@ def test_la_curva_filtra_por_tipo_de_emisor_ANTES_de_recortar():
                        b("AL3", "soberano", 0.10), b("CP1", "corporativo", 0.09),
                        b("CP2", "corporativo", 0.08)]}
     with patch.object(CV, "get_curvas_vista", return_value=vista):
-        sin_filtro = RF.curva("hard_dolar", limit=3)
+        sin_filtro = RF.instrumentos_de_la_curva("hard_dolar", limit=3)
         assert [i["ticker"] for i in sin_filtro["instrumentos"]] == ["AL1", "AL2", "AL3"]
-        con_filtro = RF.curva("hard_dolar", limit=3, emisor_tipo="corporativo")
+        con_filtro = RF.instrumentos_de_la_curva("hard_dolar", limit=3, emisor_tipo="corporativo")
         assert [i["ticker"] for i in con_filtro["instrumentos"]] == ["CP1", "CP2"], (
             "los corporativos salen de TODOS los corporativos, no de los 3 primeros")
         # y el resumen también es de lo filtrado, no de la curva entera
@@ -749,9 +798,9 @@ def test_la_curva_filtra_por_tipo_de_emisor_ANTES_de_recortar():
         assert con_filtro["resumen"]["rinde_mas"]["ticker"] == "CP1"
         assert con_filtro["cuantos"] == 2 and not con_filtro["truncado"]
         # un tipo que no existe en esa curva se dice, con los emisores que hay
-        vacio = RF.curva("hard_dolar", emisor_tipo="bcra")
+        vacio = RF.instrumentos_de_la_curva("hard_dolar", emisor_tipo="bcra")
         assert "error" in vacio and "bcra" in vacio["error"] and vacio["emisores"]
-        assert "error" in RF.curva("hard_dolar", emisor_tipo="cooperativa")
+        assert "error" in RF.instrumentos_de_la_curva("hard_dolar", emisor_tipo="cooperativa")
 
 
 def test_la_curva_no_le_manda_al_modelo_notas_para_que_las_repita():
@@ -766,11 +815,11 @@ def test_la_curva_no_le_manda_al_modelo_notas_para_que_las_repita():
     from asistente.agentes import renta_fija as RF
 
     with patch.object(CV, "get_curvas_vista", return_value=_vista_emisores()):
-        r = RF.curva("hard_dolar", limit=2)
+        r = RF.instrumentos_de_la_curva("hard_dolar", limit=2)
     assert r["truncado"] is True and r["cuantos"] == 4, "el dato, estructurado"
     frases = [v for v in r.values() if isinstance(v, str) and len(v) > 60]
     assert not frases, f"hay prosa en el resultado y el modelo la va a repetir: {frases}"
-    assert "truncado" in inspect.getdoc(RF.curva), "la instrucción va en el docstring"
+    assert "truncado" in inspect.getdoc(RF.instrumentos_de_la_curva), "la instrucción va en el docstring"
 
 
 def test_los_tres_dolares_se_distinguen_y_las_brechas_las_calcula_el_codigo():
@@ -824,7 +873,7 @@ def test_la_curva_lee_la_vista_de_curvas_y_ordena_de_verdad():
     with patch.object(CV, "get_curvas_vista", return_value=vista), \
          patch("asistente.agentes.renta_fija.date", wraps=date) as d:
         d.today.return_value = date(2026, 1, 1)
-        r = MM.curva("cer", ordenar_por="tea", limit=10)
+        r = MM.instrumentos_de_la_curva("cer", ordenar_por="tea", limit=10)
         i0 = r["instrumentos"][0]
         assert r["cuantos"] == 62 and r["truncado"] and len(r["instrumentos"]) == 10
         assert i0["ticker"] == "T59" and i0["tea_pct"] == 69.0, "el que más rinde primero"
@@ -832,14 +881,14 @@ def test_la_curva_lee_la_vista_de_curvas_y_ordena_de_verdad():
         assert i0["meses_al_vencimiento"] == 12.0
         assert all(t["ticker"] != "T97" for t in r["instrumentos"])
         with patch.object(MM, "MAX_INSTRUMENTOS", 100):
-            todo = MM.curva("cer", limit=100)["instrumentos"]
+            todo = MM.instrumentos_de_la_curva("cer", limit=100)["instrumentos"]
         assert [t["ticker"] for t in todo[-2:]] == ["T99", "T98"], "ruido y sin tasa van últimas"
-        assert MM.curva("cer", ordenar_por="volumen_dia", limit=1)["instrumentos"][0]["ticker"] == "T99"
-        assert MM.curva("cer", ordenar_por="duration", limit=1)["instrumentos"][0]["ticker"] == "T0"
-        assert len(MM.curva("cer", limit=10_000)["instrumentos"]) == MM.MAX_INSTRUMENTOS
+        assert MM.instrumentos_de_la_curva("cer", ordenar_por="volumen_dia", limit=1)["instrumentos"][0]["ticker"] == "T99"
+        assert MM.instrumentos_de_la_curva("cer", ordenar_por="duration", limit=1)["instrumentos"][0]["ticker"] == "T0"
+        assert len(MM.instrumentos_de_la_curva("cer", limit=10_000)["instrumentos"]) == MM.MAX_INSTRUMENTOS
         for c in r["_tabla"]["columnas"]:
             assert c in i0
-    assert "error" in MM.curva("bonos")
+    assert "error" in MM.instrumentos_de_la_curva("bonos")
 
 
 def test_la_ficha_de_un_bono_no_adivina_otro_ticker_y_usa_la_pata_principal():
@@ -1179,7 +1228,8 @@ def _proveedor(ruteo: str, pide: str | None = None):
 _TOOLS = {
     "cobros_futuros": lambda **a: {"total": {"USD": 3926.8}},
     "tenencia_actual": lambda **a: {"total": 3926.8, "posiciones": [], "_tabla": {"campo": "posiciones"}},
-    "curva": lambda **a: {"instrumentos": [{"ticker": "TX28", "tea_pct": 11.0}], "cuantos": 1},
+    "instrumentos_de_la_curva": lambda **a: {
+        "instrumentos": [{"ticker": "TX28", "tea_pct": 11.0}], "cuantos": 1},
     "ficha_bono": lambda **a: {"ticker": "AL30"},
     "ficha_cliente": lambda **a: {"cuenta": a["cuenta"], "titular": {"denominacion": "NOMBRE 805"}},
     "tipos_de_cambio": lambda **a: {"dolares": [{"nombre": "mep", "valor": 1531.0}]},
@@ -1300,7 +1350,8 @@ def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
             if self.tarea == "asistente_ruteo":
                 return AIMessage(content="renta_fija")
             return AIMessage(content="", tool_calls=[
-                {"name": "curva", "args": {"curva": "cer"}, "id": f"c{len(mensajes)}", "type": "tool_call"}])
+                {"name": "instrumentos_de_la_curva", "args": {"curva": "cer"},
+                 "id": f"c{len(mensajes)}", "type": "tool_call"}])
 
     with patch.object(modelos, "modelo", lambda tarea, **kw: Insistente("mercado", tarea, None)), \
          patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):

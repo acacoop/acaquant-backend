@@ -47,10 +47,10 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 
 | Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |
 |---|---|---|---|---|---|
-| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar — a otro emisor, a otro tipo o a otro plazo | `tenencia_actual`, `cobros_futuros`, `opciones_para_rotar` | cuenta |
+| `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar — a otro emisor, a otro tipo o a otro plazo | `tenencia_actual`, `cobros_futuros`, `alternativas_para_rotar` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
 | `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
-| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor, tipo de emisor y ventana de vencimiento), qué es, cuándo paga | `curva`, `ficha_bono` | ticker |
+| `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor, tipo de emisor y ventana de vencimiento), qué es, cuándo paga | `instrumentos_de_la_curva`, `ficha_bono` | ticker |
 | `renta_variable` | una acción o un CEDEAR | mercado | cómo cotiza, cuánto varió, qué panel | ninguna todavía | ticker |
 | `fondos` | un FCI | mercado | qué es, cuánto rinde, qué tiene, cuánto tarda el rescate | ninguna todavía | ticker |
 | `derivados` | un futuro o una opción | mercado | dónde cotiza, tasa implícita, cadena de opciones | ninguna todavía | ticker |
@@ -108,7 +108,7 @@ Fuera del paquete: `core/modelos.py` (proveedores, `TAREAS`, `modelo(tarea)`),
    (renta_fija): van los dos, sin llamar a ningún modelo. Evento
    `ruteo · regla: señales (…)`.
 3. En paralelo: `cartera` pide `tenencia_actual(805)` y redacta; `renta_fija`
-   pide `curva("cer")` y redacta. Cada uno con sus fichas, no las de todos.
+   pide `instrumentos_de_la_curva("cer")` y redacta. Cada uno con sus fichas, no las de todos.
 4. `junta` recibe las dos respuestas con sus datos y escribe una sola.
 5. `finalizar`: historial = anterior + pregunta (marcada con sus agentes) + lo
    nuevo de cada agente + la junta. El control busca cada número de la
@@ -182,7 +182,7 @@ una sola tasa por bono, la TEA. La TNA aparece en `metrics.TNA` por dos
 caminos de `curvas_vista`: `_tna_de` la calcula para `tasa_fija` (convención
 de 1816 plazo-remanente, medida contra su API con error 0,00 pp), y la rama
 `manda_1816` la copia del proveedor para **cualquier** curva cuando 1816 manda
-(pata secundaria, o tamar no corporativo). Donde ninguna aplica, `curva`
+(pata secundaria, o tamar no corporativo). Donde ninguna aplica, `instrumentos_de_la_curva`
 devuelve `tna_pct: null` — **aunque la pantalla CURVAS ahí muestre un número**,
 porque `bonos-table.tsx` la deriva con TEM×12 y esa convención **no está
 medida** para bonos que amortizan. ⚠️ PENDIENTE: medirla contra 1816 (mismo
@@ -244,11 +244,11 @@ una nueva:
   fechas; el código resuelve el período contra hoy. `cobros_futuros` ya lo
   hace con `dias` y `hasta`.
 - Lo que se busca **en un lapso** toma una VENTANA de dos fechas
-  (`curva(vence_desde=…, vence_hasta=…)`). Nunca se sustituye por un orden:
+  (`instrumentos_de_la_curva(vence_desde=…, vence_hasta=…)`). Nunca se sustituye por un orden:
   `ordenar_por="vencimiento"` empieza por el más corto y contesta el extremo
   contrario al que se pidió. Cuando una de las dos puntas es «lo que yo tengo»,
   esa punta **la pone el código** desde el sujeto que ya tiene en la mano
-  (`opciones_para_rotar(hacia_plazo=…)`), no el modelo desde el texto anterior.
+  (`alternativas_para_rotar(hacia_plazo=…)`), no el modelo desde el texto anterior.
 - Toda respuesta dice de cuándo son sus datos (`fecha`, `tenencia_del`,
   `ventana`), y la instrucción común obliga a decirlo.
 
@@ -287,7 +287,7 @@ es la única garantía dura de que no se invente un valor).
 - devuelve un dict; errores como `{"error": ...}`, nunca excepción.
 - topes declarados y `truncado` cuando recorta; totales calculados en SQL.
 - **todo agregado va calculado**: si la pregunta puede ser «el promedio», «el
-  que más», «el que vence último», eso es un campo de la respuesta (`curva`
+  que más», «el que vence último», eso es un campo de la respuesta (`instrumentos_de_la_curva`
   tiene `resumen`), calculado sobre TODAS las filas antes del tope. El modelo
   no calcula, y lo que ve es una muestra: sin el campo, contesta a ojo sobre
   una parte y el número parece bien.
@@ -333,7 +333,7 @@ dominios es un `import`, no una conversación entre modelos: ningún proveedor v
 datos del otro agente y no hay una segunda llamada.
 
 La herramienta de cruce vive en el agente del dato **más sensible** (por eso
-`opciones_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
+`alternativas_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
 cuenta, y solo los agentes con sujeto cuenta pasan por `permitido.FILTRO_SQL`).
 
 **La tabla es consecuencia del payload, así que lo que dibuja se pide.** Si el
@@ -342,16 +342,16 @@ campo no viene, `pantalla` no dibuja nada y el modelo tampoco recibe
 genera tabla, o que es una lista larga, va bajo un argumento y no de arriba:
 `ficha_bono(con_pagos=…)` —se veían los flujos del YFCOO en una pregunta sobre
 rotar, porque la ficha se pidió para saber el emisor y vino todo— y
-`curva(con_emisores=…)`, que son ~47 entradas y 2.585 chars por llamada para
+`instrumentos_de_la_curva(con_emisores=…)`, que son ~47 entradas y 2.585 chars por llamada para
 algo que solo sirve cuando vas a filtrar por uno.
 
 **Lo que el usuario nombra, la herramienta lo tiene que poder recibir.** Si no,
 el modelo lo fuerza donde puede y la respuesta sale mal sin fallar. Dos casos
-medidos en el LAB, los dos en `opciones_para_rotar`: «rotar **mi YFCOO**» no
+medidos en el LAB, los dos en `alternativas_para_rotar`: «rotar **mi YFCOO**» no
 tenía `ticker`, así que la herramienta elegía por su cuenta el que menos rinde
 (salió YM38O); y «a un **corporativo**» no tenía `hacia_tipo`, así que el modelo
 mandó `hacia_emisor="corporativo HD"` —que no es un emisor—, la llamada falló y
-el otro agente improvisó el cruce a mano con `curva`.
+el otro agente improvisó el cruce a mano con `instrumentos_de_la_curva`.
 
 **Los filtros van ANTES del recorte.** Si la herramienta ordena todo, corta en
 `limit` y el criterio del usuario se aplica después —leyendo—, la selección sale
@@ -369,22 +369,48 @@ entrar y el modelo cayó en `ordenar_por="vencimiento"` — que ordena
 ASCENDENTE, o sea arranca por el más CORTO: se pidió lo más largo y salieron
 45 bonos desde 2026. **Cuando la herramienta no puede recibir el filtro, el
 modelo usa el orden como sustituto, y el orden tiene una dirección fija que la
-mitad de las veces es la contraria.** Por eso `curva` toma `vence_desde` /
+mitad de las veces es la contraria.** Por eso `instrumentos_de_la_curva` toma
+`vence_desde` /
 `vence_hasta` (§9), filtrados antes del recorte. Y el ancla: el punto de
 partida era el vencimiento del bono que el usuario tenía, que existía solo
 como texto del turno anterior —el foco aprende de los ARGUMENTOS de la llamada,
 no del resultado (§8)—. **Esa punta la pone el CÓDIGO, no el modelo**: en
-`opciones_para_rotar` el usuario nombra la dirección (`hacia_plazo`) y como
+`alternativas_para_rotar` el usuario nombra la dirección (`hacia_plazo`) y como
 mucho una fecha (`hacia_vencimiento`); la otra punta sale de la referencia,
 que la función ya tiene en la mano. Si el modelo tuviera que copiar esa fecha
 del turno anterior, copiarla mal no fallaría: devolvería otra lista, igual de
 convincente (REGLA #9). Y si no se conoce el vencimiento de la referencia, no
 se contesta: «más largo» que nada no quiere decir nada.
 
+**El modelo elige la herramienta por lo que ella dice de sí misma, no por lo
+que hace: el código es invisible.** Lo único que ve es NOMBRE + DESCRIPCIÓN +
+ESQUEMA, así que esas tres cosas son la interfaz real y se auditan como código:
+
+- **Nombre**: dice qué devuelve. Uno genérico atrae llamadas que no le tocan.
+- **Descripción**: dice cuándo usarla **y cuándo NO**, nombrando a la que sí
+  corresponde. Dos herramientas que se pisan sin decirlo terminan llamadas las
+  dos — y si las dos dibujan tabla, salen dos tablas de lo mismo.
+- **Esquema**: tipos, enums, formatos y rangos. Lo que el esquema declara NO se
+  repite en la prosa (los valores de un `Literal`, `format: date`, el
+  `minimum`/`maximum` de un entero): repetirlo gasta contexto y, si alguna vez
+  difieren, el modelo tiene dos verdades sobre el mismo argumento. Ojo: el
+  grafo llama a la función CRUDA (`grafo._ejecutar` hace `fn(**args)`), no al
+  `StructuredTool`, así que pydantic no valida nada en runtime — el esquema es
+  para que el modelo no se equivoque, y el que valida sigue siendo el código.
+
+**Un dato que la herramienta puede deducir no se pregunta.** `alternativas_para_rotar`
+pedía «¿qué título sale?» porque el usuario había dicho «venderlo» en vez de
+nombrarlo — pero la cuenta tenía UN solo bono. Con uno solo no hay ambigüedad y
+el código lo resuelve; con dos o más se pregunta, porque ahí elegir por él sería
+inventar. Preguntar lo que ya se sabe le quema un turno al operador.
+
 **Cuántas opciones se presentan es una decisión, no un tope técnico.**
-`opciones_para_rotar` muestra **3** (`cuantas`, hasta 20 si piden más).
+`alternativas_para_rotar` muestra **3** (`mostrar`, hasta 20 si piden más).
 Devolver 45 alternativas a «¿hay alguno?» no es ser más completo: es no haber
-contestado.
+contestado. Y por eso `truncado` es true **solo si pidieron un número y había
+más**: mostrar las 3 mejores de 4 cuando nadie pidió un número ES la respuesta,
+y avisarle al modelo que «hay más» lo manda a completar con otra herramienta —
+así salió la segunda tabla medida en el LAB.
 
 **En el resultado viajan DATOS, no instrucciones.** El modelo no distingue una
 cosa de la otra: un `aviso` en prosa escrito para él («hay 125 y estás viendo

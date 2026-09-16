@@ -14,7 +14,8 @@ from asistente.agentes import AGENTES
 # Techo del esquema que viaja al modelo por herramienta (chars de JSON). Es un
 # tope de cordura, NO el presupuesto: lo que llega al proveedor es la SUMA de
 # las herramientas de ese agente (cartera ya son ~6.200 chars entre sus tres).
-# Subió de 2.300 a 3.000 cuando `curva` sumó la ventana de vencimiento: con el
+# Subió de 2.300 a 3.000 cuando `instrumentos_de_la_curva` sumó la ventana de
+# vencimiento: con el
 # tope viejo, agregar un filtro obligaba a borrar la explicación de otro, y la
 # explicación es lo único que evita que el modelo llame mal la herramienta —
 # que es el error caro. El techo frena la verborragia, no la capacidad.

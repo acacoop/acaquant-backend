@@ -55,14 +55,24 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    dict a mano.
 2e. **Comparativa = ANCLA + VENTANA, y ordenar NUNCA sustituye a filtrar.**
    «Más largo», «hasta 2029» son lapsos: van como dos fechas
-   (`curva(vence_desde/vence_hasta)`), filtradas antes del recorte. Si no hay
+   (`instrumentos_de_la_curva(vence_desde/vence_hasta)`), filtradas antes del recorte. Si no hay
    argumento, el modelo cae en `ordenar_por` — que tiene una dirección fija y
    contesta el extremo contrario. Y cuando una punta es «lo que yo tengo», la
    pone el CÓDIGO desde el sujeto que ya tiene en la mano
-   (`opciones_para_rotar(hacia_plazo=…)`): que el modelo la copie del turno
+   (`alternativas_para_rotar(hacia_plazo=…)`): que el modelo la copie del turno
    anterior no falla, devuelve otra lista igual de convincente. Sin ancla no
    se contesta. Cuántas opciones se muestran también se declara (`cuantas`,
    default 3), no se deja en el tope técnico.
+2f. **La ficha ES la interfaz: nombre + descripción + esquema.** El modelo no
+   ve el código. El nombre dice qué devuelve; la descripción dice cuándo NO
+   usarla y a quién le toca; el esquema lleva tipos, enums, `format: date` y
+   rangos — y lo que el esquema declara NO se repite en la prosa. `_ejecutar`
+   llama a la función cruda, así que pydantic no valida: el esquema evita el
+   misfire, el código sigue validando. Dos herramientas que se pisan sin
+   decirlo se llaman las dos, y si las dos dibujan tabla salen dos tablas de lo
+   mismo (`pantalla.aviso` es preventivo por eso). Y lo que la herramienta
+   puede deducir no se pregunta: con UN solo título comparable, «venderlo» no
+   necesita un `ticker`.
 2. **Todo dato sale de una herramienta.** El docstring ES el prompt de la
    herramienta (viaja como `description`), la firma es el esquema. La ficha
    dice QUÉ hay; el CÓMO va en `COMUN` una sola vez (test). Todo agregado

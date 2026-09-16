@@ -86,6 +86,13 @@
 - q: "Que ONs de YPF hay en hard dolar?"
   agentes: [renta_fija]
 
+- q: "me sugeris un bono corporativo HD para rotar mi YFCOO? cuenta 805"
+  agentes: [cartera, renta_fija]
+  nota: "dos criterios que hay que poder expresar: QUÉ sale (ticker=YFCOO, no el
+    que menos rinde) y hacia dónde (hacia_tipo=corporativo, que no es un emisor).
+    Sin ellos el modelo metió «corporativo HD» en `hacia_emisor`, la herramienta
+    falló y renta_fija improvisó con `curva` a mano."
+
 - q: "me sugeris un bono corporativo HD para rotar mi YFCOO?"
   agentes: [cartera, renta_fija]
   nota: "el filtro va ANTES del recorte: `curva(emisor_tipo=\"corporativo\")`.

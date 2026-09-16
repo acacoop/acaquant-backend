@@ -330,6 +330,14 @@ La herramienta de cruce vive en el agente del dato **más sensible** (por eso
 `opciones_para_rotar` está en `cartera` y no en `renta_fija`: necesita la
 cuenta, y solo los agentes con sujeto cuenta pasan por `permitido.FILTRO_SQL`).
 
+**Lo que el usuario nombra, la herramienta lo tiene que poder recibir.** Si no,
+el modelo lo fuerza donde puede y la respuesta sale mal sin fallar. Dos casos
+medidos en el LAB, los dos en `opciones_para_rotar`: «rotar **mi YFCOO**» no
+tenía `ticker`, así que la herramienta elegía por su cuenta el que menos rinde
+(salió YM38O); y «a un **corporativo**» no tenía `hacia_tipo`, así que el modelo
+mandó `hacia_emisor="corporativo HD"` —que no es un emisor—, la llamada falló y
+el otro agente improvisó el cruce a mano con `curva`.
+
 **Los filtros van ANTES del recorte.** Si la herramienta ordena todo, corta en
 `limit` y el criterio del usuario se aplica después —leyendo—, la selección sale
 sesgada y la respuesta suena igual de fundamentada. Medido en el LAB: «un

@@ -321,10 +321,10 @@ def _mercado_rotar():
     tres de Vista en hard dollar, más una de Vista en CER que NO tiene que
     aparecer (comparar la TEA de un CER con la de un hard dollar no es
     comparar), y una de Vista que vence en días (`tasa_ruido`)."""
-    def b(tk, emisor, tea, dur, curva="hard_dolar", ruido=False):
-        return {"ticker": tk, "emisor": emisor, "curva": curva, "tea_pct": tea,
-                "duration": dur, "paridad_pct": 95.0, "vencimiento": "2031-01-01",
-                "tasa_ruido": ruido}
+    def b(tk, emisor, tea, dur, curva="hard_dolar", ruido=False, tipo="corporativo"):
+        return {"ticker": tk, "emisor": emisor, "emisor_tipo": tipo, "curva": curva,
+                "tea_pct": tea, "duration": dur, "paridad_pct": 95.0,
+                "vencimiento": "2031-01-01", "tasa_ruido": ruido}
     return {m["ticker"]: m for m in [
         b("YMCXO", "YPF S.A.", 8.9, 4.2), b("YMCHO", "YPF S.A.", 9.6, 3.1),
         b("VSCPO", "VISTA ENERGY", 10.7, 3.8), b("VSCAO", "VISTA ENERGY", 9.2, 2.0),
@@ -348,7 +348,7 @@ def test_rotar_compara_contra_el_que_menos_rinde_y_resta_el_codigo(permiso):
     with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2),
                                                                          ("YMCHO", 9.6, 3.1))), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", "YPF", "Vista")
+        r = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
     assert r["referencia"]["ticker"] == "YMCXO", "el que menos rinde de los míos"
     assert r["curva"] == "hard_dolar" and [t["ticker"] for t in r["tenes"]] == ["YMCXO", "YMCHO"]
     alt = {a["ticker"]: a for a in r["alternativas"]}
@@ -372,10 +372,10 @@ def test_rotar_dice_que_falta_en_vez_de_devolver_una_tabla_vacia(permiso):
     with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2))), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
         # no tengo nada de ese emisor → los que sí tengo
-        sin_mio = MC.opciones_para_rotar("805", "TENARIS", "Vista")
+        sin_mio = MC.opciones_para_rotar("805", desde_emisor="TENARIS", hacia_emisor="Vista")
         assert "error" in sin_mio and sin_mio["emisores_en_la_cuenta"] == ["YPF SA"]
         # el destino no tiene nada en esa curva → los emisores que sí hay ahí
-        sin_destino = MC.opciones_para_rotar("805", "YPF", "TENARIS")
+        sin_destino = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="TENARIS")
         assert "error" in sin_destino and "hard_dolar" in sin_destino["error"]
         assert "VISTA ENERGY" in sin_destino["emisores_en_esa_curva"]
         assert sin_destino["referencia"] == "YMCXO"
@@ -385,8 +385,54 @@ def test_rotar_dice_que_falta_en_vez_de_devolver_una_tabla_vacia(permiso):
                       return_value={"posiciones": [{"ticker": "YMCXO", "emisor": "YPF SA",
                                                     "tea_pct": None, "duration": None}]}), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", "YPF", "Vista")
+        r = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
     assert "error" in r and "tasa comparable" in r["error"] and r["tenes"]
+
+
+def test_rotar_saca_EL_TITULO_QUE_NOMBRO_EL_USUARIO(permiso):
+    """«rotar mi YFCOO» tiene que sacar el YFCOO. Sin `ticker`, la herramienta
+    elegía por su cuenta el que menos rinde del emisor: en el LAB el usuario
+    pidió rotar YFCOO y la referencia salió YM38O."""
+    from asistente.agentes import cartera as MC
+
+    with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2),
+                                                                         ("YMCHO", 9.6, 3.1))), \
+         patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
+        r = MC.opciones_para_rotar("805", ticker="YMCHO", hacia_emisor="Vista")
+    assert r["referencia"]["ticker"] == "YMCHO", "el que nombró, no el que menos rinde"
+    assert r["referencia"]["por_que"] == "lo nombró el usuario"
+    assert r["sale"] == "YMCHO"
+    # los deltas son contra ÉSE (TEA 9.6): VSCZO 11.4 → +1.8
+    assert {a["ticker"]: a["delta_tea_pp"] for a in r["alternativas"]}["VSCZO"] == 1.8
+
+
+def test_rotar_acepta_un_TIPO_de_emisor_como_destino(permiso):
+    """«rotar a un corporativo» no es un emisor. Sin este argumento el modelo
+    metía «corporativo HD» en `hacia_emisor` y la herramienta fallaba — pasó
+    en el LAB, y el agente terminó improvisando con `curva` a mano."""
+    from asistente.agentes import cartera as MC
+
+    mercado = _mercado_rotar()
+    mercado["GD30"] = {"ticker": "GD30", "emisor": "REPUBLICA ARGENTINA",
+                       "emisor_tipo": "soberano", "curva": "hard_dolar", "tea_pct": 12.0,
+                       "duration": 3.0, "paridad_pct": 95.0, "vencimiento": "2030-01-01",
+                       "tasa_ruido": False}
+    with patch.object(MC, "tenencia_actual", return_value=_tenencia_rotar(("YMCXO", 8.9, 4.2))), \
+         patch.object(MC, "metricas_por_ticker", return_value=mercado):
+        r = MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="corporativo")
+        assert "GD30" not in [a["ticker"] for a in r["alternativas"]], "un soberano no entra"
+        assert r["hacia"] == "corporativo" and r["referencia"]["ticker"] == "YMCXO"
+        assert "YMCXO" not in [a["ticker"] for a in r["alternativas"]], "no se sugiere a sí mismo"
+        sob = MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="soberano")
+        assert [a["ticker"] for a in sob["alternativas"]] == ["GD30"]
+        # las combinaciones que no se pueden resolver se dicen, no se adivinan
+        assert "error" in MC.opciones_para_rotar("805", hacia_emisor="Vista")
+        assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO")
+        assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO",
+                                                 hacia_emisor="Vista", hacia_tipo="soberano")
+        assert "error" in MC.opciones_para_rotar("805", ticker="YMCXO", hacia_tipo="cooperativa")
+        falta = MC.opciones_para_rotar("805", ticker="NOTENGO", hacia_tipo="corporativo")
+        assert "error" in falta and "YMCXO" in falta["tickers_en_la_cuenta"]
 
 
 def test_rotar_encuentra_el_titulo_aunque_el_emisor_se_escriba_distinto(permiso):
@@ -400,7 +446,7 @@ def test_rotar_encuentra_el_titulo_aunque_el_emisor_se_escriba_distinto(permiso)
                                 "duration": 4.2, "tasa_ruido": False}]}
     with patch.object(MC, "tenencia_actual", return_value=tenencia), \
          patch.object(MC, "metricas_por_ticker", return_value=_mercado_rotar()):
-        r = MC.opciones_para_rotar("805", "YPF", "Vista")
+        r = MC.opciones_para_rotar("805", desde_emisor="YPF", hacia_emisor="Vista")
     assert r["referencia"]["ticker"] == "YMCXO", "lo encontró por el emisor del master"
 
 

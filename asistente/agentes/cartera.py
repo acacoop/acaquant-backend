@@ -4,12 +4,17 @@ y su agente, en un solo archivo. Doc: docs/AvAgentAI.md."""
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Literal
+from typing import Literal, get_args
 
 from asistente import estado as EST
 from asistente import pantalla, permitido
 from asistente.agente import COMUN, Agente
-from asistente.agentes.renta_fija import clave_emisor, es_del_emisor, metricas_por_ticker
+from asistente.agentes.renta_fija import (
+    EmisorTipo,
+    clave_emisor,
+    es_del_emisor,
+    metricas_por_ticker,
+)
 from core import cartera as CART
 from core.postgres import get_pool
 
@@ -391,32 +396,35 @@ def _delta(a, b, dec: int = 2):
     return None if a is None or b is None else round(a - b, dec)
 
 
-def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> dict:
-    """Qué opciones hay para cambiar los títulos de un emisor por los de otro.
+def opciones_para_rotar(cuenta: str, ticker: str | None = None,
+                        desde_emisor: str | None = None, hacia_emisor: str | None = None,
+                        hacia_tipo: EmisorTipo | None = None) -> dict:
+    """Qué opciones hay para cambiar un título de la cuenta por otro.
 
-    Compara RENDIMIENTOS, no plata: acá no hay nominales, ni valuación, ni
-    cuántos entran. Contesta «qué alternativas tengo para rotar de YPF a
-    Vista», «qué hay de Vista mejor que lo que tengo de YPF».
+    Compara RENDIMIENTOS, no plata: acá no hay nominales ni valuación. «Rotar
+    mi YFCOO a un corporativo», «qué hay de Vista mejor que mis YPF».
 
-    Las alternativas se buscan en la MISMA CURVA que el título de referencia:
-    la TEA de un CER y la de un hard dollar no son el mismo número.
+    Las alternativas salen de la MISMA CURVA que el título que sale: la TEA de
+    un CER y la de un hard dollar no son el mismo número.
 
     QUÉ DEVUELVE:
-      · `tenes` — tus títulos de `desde_emisor`: ticker, curva, `tea_pct`,
-        `duration`, `paridad_pct`, `vencimiento`.
-      · `referencia` — contra qué título tuyo se calcularon los deltas: el que
-        MENOS rinde, que es el candidato natural a salir. Decí cuál es.
-      · `alternativas` — los de `hacia_emisor` en esa curva, de mejor a peor
-        por `delta_tea_pp` (cuánto MÁS rinde que la referencia, en puntos) y
-        con `delta_duration` (positivo = estirás el plazo). Ya restados.
-      · `sin_tasa` — tuyos de ese emisor que no se pudieron comparar.
+      · `referencia` — el título tuyo que SALE, con su tasa y duration.
+      · `alternativas` — las candidatas, de mejor a peor por `delta_tea_pp`
+        (cuánto MÁS rinde que la referencia, en puntos) y con
+        `delta_duration` (positivo = estirás el plazo). Ya restados.
+      · `tenes` — tus títulos que entraron en el criterio; `sin_tasa`, los que
+        no se pudieron comparar.
       · Un delta positivo NO es una recomendación: mirá también la duration.
 
     Args:
         cuenta: el `id_cuenta` a mirar.
-        desde_emisor: de qué emisor son los títulos que se querrían dejar.
-        hacia_emisor: de qué emisor se buscan alternativas. Va por pedazo del
+        ticker: QUÉ título sale, si el usuario lo nombró («rotar mi YFCOO»).
+        desde_emisor: si no nombró un título sino un emisor («mis bonos de
+            YPF»); sale el que MENOS rinde de ésos. Hace falta uno de los dos.
+        hacia_emisor: buscar alternativas de este emisor, por pedazo del
             nombre («YPF» encuentra «YPF S.A.»).
+        hacia_tipo: o de este tipo — soberano · provincial · corporativo ·
+            bcra. Uno de los dos, no los dos.
     """
     try:
         permitido.parametros()
@@ -426,8 +434,18 @@ def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> di
     if err:
         return err
     desde, hacia = clave_emisor(desde_emisor), clave_emisor(hacia_emisor)
-    if not desde or not hacia:
-        return {"error": "hacen falta los dos emisores: de cuál salir y hacia cuál mirar"}
+    tk = (str(ticker or "").strip().upper()) or None
+    tipo = (str(hacia_tipo or "").strip().lower()) or None
+    if not tk and not desde:
+        return {"error": "hace falta decir QUÉ sale: `ticker` (el título que el usuario "
+                         "nombró) o `desde_emisor`"}
+    if not hacia and not tipo:
+        return {"error": "hace falta decir hacia dónde: `hacia_emisor` o `hacia_tipo`"}
+    if hacia and tipo:
+        return {"error": "`hacia_emisor` y `hacia_tipo` son excluyentes: mandá uno"}
+    if tipo and tipo not in get_args(EmisorTipo):
+        return {"error": f"`hacia_tipo` tiene que ser uno de {list(get_args(EmisorTipo))}, "
+                         f"llegó {hacia_tipo!r}"}
 
     tenencia = tenencia_actual(pedida)
     if "error" in tenencia:
@@ -440,14 +458,21 @@ def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> di
     # Del lado de la cuenta el emisor puede venir escrito distinto que en el
     # master de curvas. Se acepta cualquiera de los dos: perder un título por
     # una diferencia de string sería contestar que no tenés algo que tenés.
-    mios = [p for p in tenencia.get("posiciones") or []
-            if es_del_emisor(p, desde) or es_del_emisor(mercado.get(p["ticker"]) or {}, desde)]
-    if not mios:
-        hay = sorted({e for p in tenencia.get("posiciones") or []
-                      if (e := clave_emisor(p.get("emisor")))})
-        return {"error": f"la cuenta {pedida} no tiene títulos de un emisor que contenga "
-                         f"{desde_emisor!r}",
-                "emisores_en_la_cuenta": hay}
+    posiciones = tenencia.get("posiciones") or []
+    if tk:
+        # El usuario nombró el título: ese sale, y no se elige por él.
+        mios = [p for p in posiciones if (p.get("ticker") or "").upper() == tk]
+        if not mios:
+            return {"error": f"la cuenta {pedida} no tiene {ticker!r}",
+                    "tickers_en_la_cuenta": sorted(p["ticker"] for p in posiciones if p.get("ticker"))}
+    else:
+        mios = [p for p in posiciones
+                if es_del_emisor(p, desde) or es_del_emisor(mercado.get(p["ticker"]) or {}, desde)]
+        if not mios:
+            hay = sorted({e for p in posiciones if (e := clave_emisor(p.get("emisor")))})
+            return {"error": f"la cuenta {pedida} no tiene títulos de un emisor que contenga "
+                             f"{desde_emisor!r}",
+                    "emisores_en_la_cuenta": hay}
 
     tenes = [{"ticker": p["ticker"], "curva": (mercado.get(p["ticker"]) or {}).get("curva"),
               "tea_pct": p.get("tea_pct"), "duration": p.get("duration"),
@@ -455,20 +480,25 @@ def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> di
               "tasa_ruido": p.get("tasa_ruido", False)} for p in mios]
     comparables = [f for f in tenes if _mirable(f) and f["curva"]]
     if not comparables:
-        return {"error": f"tenés títulos de {desde_emisor} pero ninguno con tasa comparable hoy",
+        return {"error": f"tenés {ticker or desde_emisor} pero sin tasa comparable hoy",
                 "tenes": tenes,
                 "que_hacer": "Decilo así: no es que no haya alternativas, es que no hay con "
                              "qué compararlas."}
 
     # El que menos rinde es el candidato natural a salir, y es contra ése que
     # los deltas significan algo. Se nombra: el modelo no lo tiene que deducir.
-    ref = min(comparables, key=lambda f: f["tea_pct"])
-    otros = [m for m in mercado.values()
-             if es_del_emisor(m, hacia) and m.get("curva") == ref["curva"] and _mirable(m)]
+    ref = comparables[0] if tk else min(comparables, key=lambda f: f["tea_pct"])
+
+    def _va(m: dict) -> bool:
+        if m.get("curva") != ref["curva"] or not _mirable(m) or m["ticker"] == ref["ticker"]:
+            return False
+        return (m.get("emisor_tipo") or "").strip().lower() == tipo if tipo else es_del_emisor(m, hacia)
+
+    otros = [m for m in mercado.values() if _va(m)]
     if not otros:
         en_curva = sorted({e for m in mercado.values()
                            if m.get("curva") == ref["curva"] and (e := clave_emisor(m.get("emisor")))})
-        return {"error": f"no hay títulos de {hacia_emisor!r} con tasa en la curva "
+        return {"error": f"no hay títulos {tipo or repr(hacia_emisor)} con tasa en la curva "
                          f"{ref['curva']}, que es donde está {ref['ticker']}",
                 "tenes": tenes, "referencia": ref["ticker"], "emisores_en_esa_curva": en_curva}
 
@@ -481,13 +511,14 @@ def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> di
         key=lambda f: -(f["delta_tea_pp"] or 0))
     return {
         "cuenta": pedida,
-        "desde_emisor": desde_emisor,
-        "hacia_emisor": hacia_emisor,
+        "sale": ref["ticker"],
+        "hacia": hacia_emisor or tipo,
         "curva": ref["curva"],
         "tenes": tenes,
         "referencia": {"ticker": ref["ticker"], "tea_pct": ref["tea_pct"],
                        "duration": ref["duration"],
-                       "por_que": "es el que menos rinde de los tuyos de ese emisor"},
+                       "por_que": ("lo nombró el usuario" if tk
+                                   else "es el que menos rinde de los tuyos de ese emisor")},
         "alternativas": alternativas[:MAX_ALTERNATIVAS],
         "cuantas": len(alternativas),
         "truncado": len(alternativas) > MAX_ALTERNATIVAS,
@@ -495,7 +526,7 @@ def opciones_para_rotar(cuenta: str, desde_emisor: str, hacia_emisor: str) -> di
         "_tabla": pantalla.tabla(
             "alternativas",
             ["ticker", "vencimiento", "tea_pct", "delta_tea_pp", "duration", "delta_duration"],
-            f"Alternativas de {hacia_emisor} para el {ref['ticker']}"),
+            f"Alternativas ({hacia_emisor or tipo}) para el {ref['ticker']}"),
     }
 
 

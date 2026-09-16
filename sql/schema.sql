@@ -778,6 +778,29 @@ CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero (
 );
 CREATE INDEX IF NOT EXISTS ix_mesa_dinero_fecha ON operaciones.mesa_dinero (fecha);
 
+-- ── QUIÉN COBRA la intermediación (2026-09-16) — REGLA #9 ────────────────────
+--
+-- `observacion` guarda el NOMBRE del operador. Sirve para MOSTRAR, no para
+-- ATRIBUIR PLATA: `clientes.operadores.nombre` no tiene UNIQUE y se puede editar,
+-- mientras que todo el resto del sistema imputa por `operador_email`. Unir esas
+-- dos cosas por string es el modo de falla de la REGLA #9 — si dos operadores
+-- comparten nombre o alguien corrige uno, **la plata se imputa mal y el total
+-- sigue dando bien**: nadie se entera.
+--
+-- Por eso la fila guarda el EMAIL, que es la PK del operador. `observacion` queda
+-- como snapshot de lo que se eligió (histórico legible aunque el nombre cambie).
+-- El email es el ÁRBITRO: quien reparta plata lee `observacion_email`, nunca el
+-- nombre. Medido antes de migrar (scripts/diag_produccion_operador, 2026-09-16):
+-- 92 filas con operador, las 92 resolvían a un único email — el backfill es exacto.
+--
+-- NULL = la fila es de la Mesa (`observacion = 'Mesa'`), no de un operador. Ese
+-- NULL es información, no un dato faltante: el índice parcial lo excluye porque
+-- quien suma producción de operadores no lo mira nunca.
+ALTER TABLE operaciones.mesa_dinero ADD COLUMN IF NOT EXISTS observacion_email text;
+CREATE INDEX IF NOT EXISTS ix_mesa_dinero_obs_email
+    ON operaciones.mesa_dinero (observacion_email, fecha)
+    WHERE observacion_email IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS operaciones.mesa_dinero_tc (
     fecha           date PRIMARY KEY,
     tc              numeric NOT NULL,        -- carga manual (decisión 2026-07-29: NO auto-MEP)

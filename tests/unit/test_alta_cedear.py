@@ -154,7 +154,7 @@ def test_el_arreglo_entra_por_la_puerta_unica_y_el_script_tambien():
     """`mercado.cedears` tiene UN alta: `core.cedears_sql.alta`. El agente y el
     script la usan; ninguno lleva su propio INSERT del CEDEAR con pata."""
     assert "cedears_sql.alta(" in inspect.getsource(alta_cedear.aplicar)
-    script = (RAIZ / "scripts" / "add_cedear.py").read_text()
+    script = (RAIZ / "scripts" / "add_cedear.py").read_text(encoding="utf-8")
     assert "cedears_sql.alta(" in script
     a = arreglos.ARREGLOS["alta_cedear"]
     assert a.pide_datos and a.donde == "mercado.cedears" and not a.inmediato
@@ -164,10 +164,10 @@ def test_el_motor_relee_el_master_y_no_pide_reinicio():
     """Hasta el 2026-09-04 el alta terminaba con «⚠️ reiniciá el motor», que
     en rueda es cortarle el feed a la mesa. El motor suma lo nuevo solo, y el
     alta promete «en ≤ N s» con el MISMO número que usa el motor."""
-    src = (RAIZ / "engines" / "motor_cedears.py").read_text()
+    src = (RAIZ / "engines" / "motor_cedears.py").read_text(encoding="utf-8")
     assert "def _master_watcher" in src and "agregar_suscripciones" in src
     assert "lanzar_hilo_vital(_master_watcher" in src
     assert "relee_master=True" in src
     from engines import motor_cedears
     assert motor_cedears.RELECTURA_MASTER_S == alta_cedear.RELECTURA_MOTOR_S
-    assert "reiniciá motor_cedears" not in (RAIZ / "scripts" / "add_cedear.py").read_text()
+    assert "reiniciá motor_cedears" not in (RAIZ / "scripts" / "add_cedear.py").read_text(encoding="utf-8")

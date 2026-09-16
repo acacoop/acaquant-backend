@@ -10,6 +10,8 @@ mirando una pantalla.
 """
 from __future__ import annotations
 
+import re
+
 from agente.detectores import datos as det
 from core import duplicados as D
 
@@ -154,12 +156,32 @@ def test_el_arreglo_usa_el_MISMO_WHERE_que_la_deteccion():
 
 def test_el_arreglo_le_escribe_a_la_copia_B_y_no_al_ARBITRO():
     """El árbitro es la fuente de verdad: si el arreglo lo pisara, estaríamos
-    sincronizando hacia el lado equivocado."""
+    sincronizando hacia el lado equivocado.
+
+    Antes esto se chequeaba pidiendo `jsonb_set`, porque los dos únicos arreglos
+    mecánicos que existían escribían un blob JSON. Era un proxy, no la regla: el
+    día que un duplicado se arregló escribiendo una COLUMNA de texto
+    (`mesa_observacion_nombre_vs_email`, 2026-09-16) el test lo rechazó aunque
+    estaba sincronizando bien. Ahora se verifica lo que el nombre del test dice:
+    la columna que el UPDATE escribe pertenece a la copia PERDEDORA.
+    """
     for d in D.DUPLICADOS:
-        if d.arreglo_sql:
-            # Los dos mecánicos de hoy escriben el blob desde la columna.
-            assert "jsonb_set" in d.arreglo_sql, (
-                f"{d.id}: revisá que el arreglo escriba la copia B, no el árbitro")
+        if not d.arreglo_sql:
+            continue
+        m = re.search(r"\bSET\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", d.arreglo_sql)
+        assert m, f"{d.id}: no se pudo leer qué columna escribe el arreglo"
+        col = m.group(1)
+        assert d.gana in ("a", "b"), f"{d.id}: `gana` tiene que decir cuál copia manda"
+        gana_desc, pierde_desc = ((d.a, d.b) if d.gana == "a" else (d.b, d.a))
+        # \b para que `observacion` NO matchee `observacion_email`: justamente el
+        # par donde una copia es prefijo de la otra es donde un `in` se equivoca.
+        patron = rf"\b{re.escape(col)}\b"
+        assert re.search(patron, pierde_desc), (
+            f"{d.id}: el arreglo escribe `{col}`, que no figura en la copia "
+            f"perdedora ({pierde_desc!r})")
+        assert not re.search(patron, gana_desc), (
+            f"{d.id}: el arreglo escribe `{col}`, que es del ÁRBITRO "
+            f"({gana_desc!r}) — está sincronizando para el lado equivocado")
 
 
 def test_ninguno_arregla_lo_que_necesita_REINICIAR_UN_MOTOR():

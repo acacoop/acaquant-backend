@@ -37,7 +37,7 @@ def test_toda_linea_de_cron_es_valida():
     """Cinco campos de tiempo y un comando. Un renglón mal formado también hace
     que `crontab` rechace el archivo completo, no solo esa línea."""
     malas = []
-    for n, linea in enumerate(CRONTAB.read_text().splitlines(), 1):
+    for n, linea in enumerate(CRONTAB.read_text(encoding="utf-8").splitlines(), 1):
         s = linea.strip()
         if not s or s.startswith("#") or re.match(r"^[A-Z_]+=", s):
             continue                      # vacía, comentario o variable
@@ -60,7 +60,7 @@ def test_los_jobs_del_crontab_existen():
     """
     raiz = CRONTAB.resolve().parents[1]
     faltan = []
-    for n, linea in enumerate(CRONTAB.read_text().splitlines(), 1):
+    for n, linea in enumerate(CRONTAB.read_text(encoding="utf-8").splitlines(), 1):
         if linea.strip().startswith("#"):
             continue
         for m in re.finditer(r"-m\s+(jobs\.[\w.]+)", linea):

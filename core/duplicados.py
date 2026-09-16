@@ -89,6 +89,54 @@ class Duplicado:
 # no cuatro días.
 DUPLICADOS: tuple[Duplicado, ...] = (
     Duplicado(
+        id="mesa_observacion_nombre_vs_email",
+        que="a QUÉ OPERADOR se le imputa el resultado de intermediación de una "
+            "op de Mesa de Dinero",
+        a="operaciones.mesa_dinero.observacion_email (el email del operador)",
+        b="operaciones.mesa_dinero.observacion (el nombre con el que se cargó)",
+        arbitro="el EMAIL — es la PK de `clientes.operadores`. El nombre no tiene "
+                "UNIQUE y se puede editar: sirve para mostrar, no para repartir "
+                "plata (REGLA #9 · ver sql/schema.sql → mesa_dinero)",
+        rompe="ese email es el que decide de quién es el 50% del resultado cuando "
+              "la vista OPERADORES arma la producción del comercial (ARS 45,4M "
+              "medidos el 2026-09-16, +21,8% sobre el arancel). Si el nombre se "
+              "corrige y el email queda viejo, **la plata le sigue sumando al "
+              "operador anterior y el total de la mesa da exactamente igual**: no "
+              "falla nada, solo está en la persona equivocada",
+        # Filas donde el email guardado NO es el del operador que hoy se llama así.
+        # Las que tienen email NULL no entran: «todavía sin imputar» es un estado
+        # legítimo (ambiguos del backfill), no una divergencia.
+        sql="""
+            SELECT o.id::text,
+                   coalesce(o.observacion_email, ''),
+                   coalesce(o.observacion, '')
+            FROM operaciones.mesa_dinero o
+            WHERE o.observacion_email IS NOT NULL
+              AND o.observacion IS NOT NULL
+              AND btrim(o.observacion) <> 'Mesa'
+              AND NOT EXISTS (
+                    SELECT 1 FROM clientes.operadores c
+                     WHERE c.email = o.observacion_email
+                       AND upper(btrim(c.nombre)) = upper(btrim(o.observacion)))
+            ORDER BY o.id
+        """,
+        # Se re-sincroniza el NOMBRE desde el email (gana el email): la fila sigue
+        # imputándole a quien se eligió, y el texto pasa a decir cómo se llama hoy.
+        # Scopeado a las filas que difieren y solo cuando el email es un operador
+        # real — si no lo fuera, el UPDATE no tiene de dónde sacar el nombre.
+        arreglo_sql="""
+            UPDATE operaciones.mesa_dinero o
+            SET observacion = c.nombre
+            FROM clientes.operadores c
+            WHERE c.email = o.observacion_email
+              AND o.observacion_email IS NOT NULL
+              AND o.observacion IS NOT NULL
+              AND btrim(o.observacion) <> 'Mesa'
+              AND c.nombre IS NOT NULL
+              AND upper(btrim(c.nombre)) <> upper(btrim(o.observacion))
+        """,
+        gana="a"),
+    Duplicado(
         id="simbolo_columna_vs_blob",
         que="el símbolo de mercado del bono (con el que se pide el precio)",
         a="mercado.curvas.instrumento (columna)",

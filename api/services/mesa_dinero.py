@@ -239,10 +239,49 @@ def _clientes_usados() -> list[str]:
 
 
 def _observaciones_validas() -> list[str]:
-    """"Mesa" + operadores comerciales (clientes.operadores)."""
-    ops = [r["nombre"] for r in _q(
-        "SELECT nombre FROM clientes.operadores WHERE nombre IS NOT NULL ORDER BY nombre")]
-    return [OBSERVACION_MESA, *ops]
+    """"Mesa" + operadores comerciales (clientes.operadores). Solo NOMBRES: es lo que
+    el trader elige y lo que se muestra. La atribución de plata NO usa esta lista —
+    usa `_email_de_observacion`."""
+    return [OBSERVACION_MESA, *_operadores_por_nombre()]
+
+
+def _operadores_por_nombre() -> dict[str, str]:
+    """{nombre → email} de `clientes.operadores`.
+
+    Sale del CATÁLOGO DE OPERADORES y no de la allowlist de Manager → MESA
+    (`mesa_dinero_lectores_resultados`). Medido el 2026-09-16
+    (`scripts/diag_produccion_operador` §5): los 9 emails de esa allowlist son
+    operadores, **pero hay un operador con plata ya cargada que no está en ella**.
+    Si el selector saliera de ahí, un comercial real dejaría de ser elegible sin que
+    nadie lo note. La allowlist decide QUIÉN VE la vista; el catálogo decide A QUIÉN
+    SE LE IMPUTA. Son dos preguntas distintas y mezclarlas pierde plata.
+
+    Los nombres repetidos se descartan: si dos emails comparten nombre no hay forma
+    de saber cuál eligió el trader, y quedarse con uno «por defecto» imputaría la
+    plata a la persona equivocada con un total que igual cierra (REGLA #9). Medido:
+    hoy no hay ninguno, pero `nombre` no tiene UNIQUE — esto es la red, no la regla.
+    """
+    vistos: dict[str, str] = {}
+    duplicados: set[str] = set()
+    for r in _q("SELECT email, nombre FROM clientes.operadores "
+                "WHERE nombre IS NOT NULL AND btrim(nombre) <> '' ORDER BY nombre"):
+        nom = r["nombre"].strip()
+        if nom in vistos:
+            duplicados.add(nom)
+        vistos[nom] = r["email"]
+    for d in duplicados:
+        vistos.pop(d, None)
+    return vistos
+
+
+def _email_de_observacion(obs: str | None) -> str | None:
+    """Email del operador de una observación. None si es "Mesa", está vacía, o el
+    nombre no resuelve a UN operador — en esos casos la fila no le suma a nadie, que
+    es lo correcto: inventar un dueño es peor que no tenerlo."""
+    nom = (obs or "").strip()
+    if not nom or nom == OBSERVACION_MESA:
+        return None
+    return _operadores_por_nombre().get(nom)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -261,6 +300,9 @@ def _fila_op(r: dict) -> dict:
         "monto_venta": _f(r["monto_venta"]),
         "resultado": _f(r["resultado"]), "pct": _f(r["pct"]),
         "cliente": r["cliente"], "observacion": r["observacion"],
+        # El email es quien COBRA (lo usa api/services/produccion.py); `observacion`
+        # es el nombre con el que se cargó y queda como snapshot legible.
+        "observacion_email": r.get("observacion_email"),
         "creado_por": r["creado_por"], "actualizado_por": r["actualizado_por"],
     }
 
@@ -337,6 +379,7 @@ def crear_op(payload: dict, actor: str) -> dict:
         "vn_venta": _num(p.get("vn_venta")), "px_venta": _num(p.get("px_venta")),
         "cliente": (p.get("cliente") or "").strip() or None,
         "observacion": (p.get("observacion") or "").strip() or None,
+        "observacion_email": _email_de_observacion(p.get("observacion")),
         **d,
         "por": (actor or "").lower() or None, "at": datetime.now(UTC),
     }
@@ -345,11 +388,11 @@ def crear_op(payload: dict, actor: str) -> dict:
             "INSERT INTO operaciones.mesa_dinero "
             "(fecha, trader, activo, vn_compra, px_compra, monto_compra, "
             " vn_venta, px_venta, monto_venta, resultado, pct, cliente, observacion, "
-            " creado_por, creado_at, actualizado_por, actualizado_at) "
+            " observacion_email, creado_por, creado_at, actualizado_por, actualizado_at) "
             "VALUES (%(fecha)s, %(trader)s, %(activo)s, %(vn_compra)s, %(px_compra)s, "
             " %(monto_compra)s, %(vn_venta)s, %(px_venta)s, %(monto_venta)s, "
             " %(resultado)s, %(pct)s, %(cliente)s, %(observacion)s, "
-            " %(por)s, %(at)s, %(por)s, %(at)s) RETURNING id",
+            " %(observacion_email)s, %(por)s, %(at)s, %(por)s, %(at)s) RETURNING id",
             row,
         )
         op_id = cur.fetchone()[0]
@@ -379,6 +422,7 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
         "vn_venta": _num(p.get("vn_venta")), "px_venta": _num(p.get("px_venta")),
         "cliente": (p.get("cliente") or "").strip() or None,
         "observacion": (p.get("observacion") or "").strip() or None,
+        "observacion_email": _email_de_observacion(p.get("observacion")),
         **d,
         "por": (actor or "").lower() or None, "at": datetime.now(UTC),
     }
@@ -388,6 +432,7 @@ def editar_op(op_id: int, payload: dict, actor: str) -> dict:
         "monto_compra=%(monto_compra)s, vn_venta=%(vn_venta)s, px_venta=%(px_venta)s, "
         "monto_venta=%(monto_venta)s, resultado=%(resultado)s, pct=%(pct)s, "
         "cliente=%(cliente)s, observacion=%(observacion)s, "
+        "observacion_email=%(observacion_email)s, "
         "actualizado_por=%(por)s, actualizado_at=%(at)s WHERE id=%(id)s",
         row,
     )

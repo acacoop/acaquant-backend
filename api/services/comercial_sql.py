@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services._sql import _q
 from api.services.comercial import (
@@ -24,6 +25,7 @@ from api.services.comercial import (
     _cv,
     _factor_usd,
     _hoy_art,
+    _valores,
     estado_comercial,
 )
 from config import CUPO_BASE_FECHA
@@ -917,6 +919,72 @@ def _ticket(vol: float, n: int) -> float:
     return round(vol / n, 2) if n else 0.0
 
 
+# ── INTERMEDIACIÓN (MESA DE DINERO) en el INFORME ────────────────────────────
+# Entra a ARANC. TOTAL / ARANC. MES y como fila propia en ARANCELES POR SEGMENTO.
+# El cálculo vive en `api/services/produccion.py` (catálogo de fuentes); acá está
+# solo el pegamento con las ventanas y los filtros del informe.
+#
+# ⚠️ El import va DENTRO de las funciones: `produccion` importa `_arancel_where` de
+# este módulo (es la única definición de qué boleto suma arancel), así que hacerlo
+# arriba sería un ciclo. Mismo patrón que `control_comercial_sql._scope`.
+
+def _intermediacion(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5,
+                    referido, division, *, desde: str | None, hasta: str | None,
+                    mes_ini: str, moneda: str) -> dict[str, dict[str, float]]:
+    """`{operador_email: {'total', 'mes'}}`, ya en la moneda destino.
+
+    ⚠️ **Un filtro por CUENTA la apaga entera.** `nivel_1..5`, `referido` y
+    `division` son atributos del COMITENTE, y esta plata no cuelga de ninguno: no
+    hay forma de recortarla por segmento. Las opciones eran sumarla completa
+    —inflando cualquier vista filtrada— o dejarla afuera. Se deja afuera: un número
+    que no se puede filtrar bien no se filtra a medias en silencio.
+
+    Filtrar por OPERADOR sí es compatible (la fuente ya está atribuida por
+    operador), así que ese filtro no la apaga: la acota.
+    """
+    from api.services import produccion
+    if _madre_activa(None, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5,
+                     referido, division):
+        return {}
+    ops = _valores(operador) if operador is not None else []
+    return produccion.mesa_ventanas(
+        desde=desde, hasta=hasta, mes_ini=mes_ini, moneda=moneda,
+        operadores=ops or None)
+
+
+@cached(ttl=300)
+def _nombres_op_map() -> dict[str, str]:
+    """{email→nombre} de operadores. Para nombrar a un comercial que tiene
+    intermediación pero ninguna cuenta con movimiento en el período."""
+    return {(r["email"] or "").lower(): r["nombre"] for r in _q(
+        "SELECT email, nombre FROM operadores WHERE email IS NOT NULL")}
+
+
+def _nombre_op(email: str) -> str:
+    return _nombres_op_map().get((email or "").lower()) or email or "(sin operador)"
+
+
+def _agregar_fila_intermediacion(segmentos: list[dict],
+                                 inter: dict[str, dict[str, float]]) -> None:
+    """Agrega la fila INTERMEDIACIÓN a una tabla de ARANCELES POR SEGMENTO.
+
+    Solo si hay plata: una fila en cero permanente enseña a ignorar la fila. Sin
+    `vol_total` ni `n_ops` —no hay boletos detrás— así que su TICKET PROM. queda en
+    0: inventarle un ticket sería inventar operaciones que no existen."""
+    from api.services import produccion
+    tot = sum(v["total"] for v in inter.values())
+    mes = sum(v["mes"] for v in inter.values())
+    if not tot and not mes:
+        return
+    segmentos.append({
+        "segmento": produccion.SEGMENTO_INTERMEDIACION,
+        "ar_total": round(tot, 2), "ar_mes": round(mes, 2),
+        "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0, "ticket_promedio": 0.0,
+        # Marca para que el front pueda distinguirla: no es un segmento de clientes.
+        "es_intermediacion": True,
+    })
+
+
 def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
                       desde: str | None = None, operador=None, nivel_1=None,
                       nivel_2=None, nivel_3=None, nivel_4=None, nivel_5=None,
@@ -933,6 +1001,11 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
         scope = _scope_cuentas(operador, p_scope, nivel_1, nivel_3, referido,
                                nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
     por_cuenta = _rollup_por_cuenta(scope, p_scope, desde=desde, hasta=fecha)
+    # Mismo criterio de MES que `_rollup_por_cuenta`: día 1 del mes del corte. Se
+    # recalcula acá (y no se devuelve de allá) porque la intermediación no pasa por
+    # el rollup por cuenta — pero la definición de "mes" tiene que ser la misma.
+    _corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    mes_ini = _corte.replace(day=1).isoformat()
 
     detalle = {r["id_cuenta"]: r for r in _q(
         "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
@@ -984,6 +1057,30 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
     for o in ops.values():
         for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
             o[k] = _cv(o[k], factor)
+
+    # ── INTERMEDIACIÓN (MESA DE DINERO) ──────────────────────────────────────
+    # Se suma DESPUÉS del `_cv` porque `mesa_ventanas` ya devuelve en la moneda
+    # destino: el USD de Mesa sale de su TC manual, no del MEP (ver produccion.py).
+    # Aplicarle el factor acá lo convertiría dos veces.
+    inter = _intermediacion(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5,
+                            referido, division, desde=desde, hasta=fecha,
+                            mes_ini=mes_ini, moneda=moneda)
+    for email, v in inter.items():
+        o = ops.get(email)
+        if o is None:
+            # Operador con intermediación y sin una sola cuenta con movimiento en el
+            # período: entra igual. Omitirlo diría "no produjo" de alguien que sí.
+            o = ops[email] = {
+                "operador_email": email, "operador_nombre": _nombre_op(email),
+                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0,
+                "n_ops": 0, "ctas_ops": 0,
+            }
+        o["ar_total"] += v["total"]
+        o["ar_mes"] += v["mes"]
+        # El desglose viaja para que la columna sea explicable sin abrir la fila.
+        o["intermediacion_total"] = v["total"]
+        o["intermediacion_mes"] = v["mes"]
+
     comerciales = sorted(ops.values(), key=lambda x: x["vol_total"], reverse=True)
     for i, o in enumerate(comerciales, 1):
         o["rank"] = i
@@ -992,6 +1089,10 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
         for k in ("ar_total", "ar_mes", "vol_total"):
             s[k] = _cv(s[k], factor)
     segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
+    # La intermediación NO pertenece a ningún segmento (no cuelga de una cuenta, y
+    # `nivel_1` es un atributo de la cuenta): va como fila propia al final. Así la
+    # suma de la tabla sigue dando el ARANC. TOTAL de la fila del comercial.
+    _agregar_fila_intermediacion(segmentos, inter)
     for s in segmentos:
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
@@ -1126,6 +1227,14 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
         for k in ("ar_total", "ar_mes", "vol_total"):
             s[k] = _cv(s[k], factor)
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
+    # Fila INTERMEDIACIÓN del comercial: acotada a ESTE operador. Los niveles se
+    # pasan igual que arriba — si el usuario filtró por segmento, `_intermediacion`
+    # devuelve vacío y la fila no aparece (no se puede recortar por cuenta).
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    inter = _intermediacion(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5,
+                            referido, division, desde=desde, hasta=fecha,
+                            mes_ini=corte.replace(day=1).isoformat(), moneda=moneda)
+    _agregar_fila_intermediacion(out, inter)
     return {"operador": operador, "aranceles_segmento": out}
 
 

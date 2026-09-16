@@ -56,10 +56,15 @@ from __future__ import annotations
 import re
 import unicodedata
 
+# Los NOMBRES de cartera se declaran en `core/cartera.py` y se importan: acá
+# estaban tipeados de nuevo, que es la misma verdad en dos lugares (REGLA #9).
+from core.cartera import ARS as CARTERA_ARS
+from core.cartera import DERIVADOS as CARTERA_DERIVADOS
+from core.cartera import RENTA_VARIABLE
+
 CALL, PUT = "CALL OPCIONES", "PUT OPCIONES"
 MM = {"ARS": "MM ARS", "USD": "MM USD"}
 T1 = {"ARS": "ARS T1", "USD": "HD T1"}
-RENTA_VARIABLE = "RENTA VARIABLE"
 
 # El PRODUCTO por el prefijo del contrato (`de_futuro`), pedido por el user
 # 2026-09-08. El dólar (`DLR`) solo se propone bajo OTC — no se pidió un
@@ -93,8 +98,7 @@ DUAL = "DUAL"
 # ⚠️ PÚBLICAS: `agente/clase.py` las lee para explicar por qué una fila no
 # recibió propuesta. Con dos literales «DERIVADOS» sueltos, el día que la
 # mesa renombre la cartera la regla y su explicación dirían cosas distintas.
-CARTERA_DERIVADOS = "DERIVADOS"
-CARTERA_ARS = "ARS"
+# (`CARTERA_DERIVADOS` y `CARTERA_ARS` se importan arriba de `core/cartera.py`.)
 
 # El punto ES parte del contrato (`SOJ.ROS`, `MAI.ROS`), igual que en
 # `jobs/assets_autofill._PREFIJOS_AGRO`: no es un separador cualquiera. La

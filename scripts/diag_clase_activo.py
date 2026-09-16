@@ -98,7 +98,7 @@ def main() -> int:
     # bloque mide cuánto aporta cada uno — si el link cubre todo, el respaldo
     # por nombre se puede discutir.
     fci_filas = [f for f in propuestas
-                 if (f.get("cartera") or "").strip().upper() in clase._CARTERAS_FCI]
+                 if (f.get("cartera") or "").strip().upper() in clase.CARTERAS_FCI]
     if fci_filas and fci is not None:
         _titulo("FCI — el LINK vs. el NOMBRE")
         linkeados = sum(1 for f in fci_filas if f["unidad"] in fci)

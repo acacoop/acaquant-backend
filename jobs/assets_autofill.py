@@ -104,6 +104,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from core.cafci import es_fci_unidad, extract_cafci, nombre_fci
+from core.cartera import DERIVADOS as CARTERA_DERIVADOS
 from core.clase_activo import PREFIJOS_AGRO
 from core.job_runs import JobRunLogger
 from core.postgres import get_pool
@@ -499,7 +500,9 @@ class Regla:
 # `api/services/sin_operador`. Escribir una segunda lista sería exactamente la
 # REGLA #9: dos criterios para la misma pregunta, coherentes cada uno consigo
 # mismo.
-CARTERA_DERIVADOS = "DERIVADOS"
+# (`CARTERA_DERIVADOS` se importa arriba de `core/cartera.py`: el nombre de la
+# cartera se declara UNA vez, como dice el párrafo de acá arriba.)
+
 # El balde de emisor que ya usa la mesa para lo que no tiene emisor propio.
 #
 # ⚠️ Se llamaba `EMISOR_DERIVADOS` y lo usaba una sola regla. Hoy lo usan DOS

@@ -10,8 +10,7 @@ from asistente import estado as EST
 from asistente import pantalla, permitido
 from asistente.agente import COMUN, Agente
 from asistente.agentes.renta_fija import clave_emisor, es_del_emisor, metricas_por_ticker
-from core.cartera import ARS, DL, HD
-from core.clase_activo import CARTERA_DERIVADOS, RENTA_VARIABLE
+from core import cartera as CART
 from core.postgres import get_pool
 
 MAX_DIAS = 730
@@ -25,19 +24,16 @@ MAX_POSICIONES = 200
 # comparar `cartera` contra la palabra que dijo el usuario. El resto sí es
 # directo. Fijado con el user: estas categorías agarran todo lo que hay.
 #
-# ⚠️ Los nombres de cartera NO se escriben acá: se IMPORTAN de donde ya están
-# declarados. Tipearlos de nuevo sería una segunda copia de la misma verdad, y
-# el día que se agregue una cartera de bonos esta lista no se enteraría —
-# «qué bonos tengo» perdería títulos sin que falle nada (REGLA #9).
-CARTERAS_FCI = ("FCI", "CARTERA FCI")   # TODO: sin constante propia; la otra
-# copia vive en `agente/clase.py::_CARTERAS_FCI`. Unificar al tercer uso.
-CARTERA_MONEDAS = "MONEDAS"             # idem: no hay constante en `core/`.
+# ⚠️ Ni un nombre de cartera se escribe acá: TODOS salen de `core/cartera.py`,
+# que es donde se declaran una sola vez. Tipearlos sería una segunda copia de la
+# misma verdad, y el día que se agregue una cartera de bonos esta lista no se
+# enteraría — «qué bonos tengo» perdería títulos sin que falle nada (REGLA #9).
 TIPOS: dict[str, tuple[str, ...]] = {
-    "bonos": (HD, ARS, DL),
-    "acciones": (RENTA_VARIABLE,),
-    "fondos": CARTERAS_FCI,
-    "derivados": (CARTERA_DERIVADOS,),
-    "caja": (CARTERA_MONEDAS,),
+    "bonos": CART.BONOS,
+    "acciones": (CART.RENTA_VARIABLE,),
+    "fondos": CART.FCI,
+    "derivados": (CART.DERIVADOS,),
+    "caja": (CART.MONEDAS,),
 }
 Tipo = Literal["bonos", "acciones", "fondos", "derivados", "caja"]
 MAX_ALTERNATIVAS = 20

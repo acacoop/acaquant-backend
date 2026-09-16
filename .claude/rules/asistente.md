@@ -36,6 +36,10 @@ piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
    tiene señales (lo compartido va en `agente.py`, no en un helper ahí). Puede
    no tener herramientas todavía: entonces contesta que no puede consultarlo,
    sin modelo. Sumar un agente NO toca `grafo.py`.
+2a. **Los nombres de cartera salen de `core/cartera.py`**, nunca se tipean:
+   `BONOS` (HD · ARS · DL), `RENTA_VARIABLE`, `DERIVADOS`, `FCI`, `MONEDAS`.
+   Es lo que contesta «qué bonos tengo» (`cartera.TIPOS`) y lo mismo que leen
+   el AV AGENT y los jobs. Un test falla si alguien vuelve a escribir uno.
 2b. **Una tabla tiene sujeto, y el modelo sabe que existe.** Se declara con
    `pantalla.tabla(campo, columnas, titulo)` —el título va por firma— y el
    modelo recibe `se_muestra` en vez de los datos de dibujo: sin eso enumera

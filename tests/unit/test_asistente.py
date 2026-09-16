@@ -235,22 +235,34 @@ def _tenencia(cuenta="805", **kw):
         return MC.tenencia_actual(cuenta, **kw)
 
 
-def test_los_nombres_de_cartera_no_se_escriben_dos_veces():
-    """`TIPOS` no tipea los nombres: los importa de donde ya están declarados.
-    Con una segunda copia, agregar una cartera de bonos en `core/cartera.py`
-    dejaría a «qué bonos tengo» perdiendo títulos sin que falle nada."""
+def test_el_nombre_de_una_cartera_se_escribe_en_UN_solo_lugar():
+    """`core/cartera.py` es la fuente. Estaban en cuatro archivos: ahí, en
+    `core/clase_activo.py`, en `agente/clase.py` y en `jobs/assets_autofill.py`
+    — cuatro copias sin árbitro, que es el modo de falla que no falla: el día
+    que se agregue una cartera de bonos, una mitad se entera y la otra no."""
+    from agente import clase
     from asistente.agentes.cartera import TIPOS
-    from core.cartera import ARS, DL, HD
-    from core.clase_activo import CARTERA_DERIVADOS, RENTA_VARIABLE
+    from core import cartera as CART
+    from core import clase_activo as CA
 
-    assert TIPOS["bonos"] == (HD, ARS, DL), "las tres salen de core/cartera.py"
-    assert TIPOS["acciones"] == (RENTA_VARIABLE,)
-    assert TIPOS["derivados"] == (CARTERA_DERIVADOS,)
-    fuente = (RAIZ / "asistente" / "agentes" / "cartera.py").read_text(encoding="utf-8")
-    bloque = fuente[fuente.index("TIPOS: dict"):fuente.index("Tipo = Literal")]
-    for escrito in ('"HD"', '"ARS"', '"DL"', '"RENTA VARIABLE"', '"DERIVADOS"'):
-        assert escrito not in bloque, (
-            f"{escrito} está tipeado en `TIPOS`: importalo de core, no lo copies")
+    assert CART.BONOS == (CART.HD, CART.ARS, CART.DL)
+    # todos los consumidores apuntan al MISMO objeto, no a un string igual
+    assert TIPOS["bonos"] is CART.BONOS and TIPOS["fondos"] is CART.FCI
+    assert CA.CARTERA_DERIVADOS is CART.DERIVADOS and CA.CARTERA_ARS is CART.ARS
+    assert CA.RENTA_VARIABLE is CART.RENTA_VARIABLE
+    assert clase.CARTERAS_FCI is CART.FCI
+    # y nadie vuelve a DECLARAR uno. Se busca la asignación (`= "HD"`) y la
+    # tupla (`("HD"`), no la comparación: `core/clase_activo.py` compara el
+    # SUBYACENTE de Primary contra «RENTA VARIABLE» y eso NO es la cartera —
+    # se escriben igual y son dos cosas distintas, que es la REGLA #9 al revés.
+    literales = ('"HD"', '"DL"', '"RENTA VARIABLE"', '"DERIVADOS"', '"CARTERA FCI"')
+    for rel in ("asistente/agentes/cartera.py", "core/clase_activo.py",
+                "agente/clase.py", "jobs/assets_autofill.py"):
+        codigo = "\n".join(l for l in (RAIZ / rel).read_text(encoding="utf-8").splitlines()
+                           if not l.lstrip().startswith("#"))
+        for lit in literales:
+            declara = re.search(rf"(?<![=!<>]) = {re.escape(lit)}|\({re.escape(lit)}", codigo)
+            assert not declara, f"{rel} declara {lit}: importalo de `core/cartera.py`"
 
 
 def test_preguntar_por_bonos_no_devuelve_la_cuenta_entera(permiso):

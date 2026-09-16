@@ -32,6 +32,18 @@ base, nunca la de la regla.
 """
 from __future__ import annotations
 
+# ⚠️⚠️ **EL NORMALIZADOR DE NOMBRES DE FONDO ES EL DEL DOMINIO FCI, NO OTRO.**
+#
+# `normalizar_nombre` (upper + sin acentos + espacios) sigue valiendo para la
+# LISTA CERRADA, que compara valores de un vocabulario corto. Para emparejar
+# FONDOS no alcanza, y no es una cuestión de grado: `core/fci_match.py` existe
+# porque **un fondo llega con TRES grafías del mismo nombre** y su `normalizar`
+# saca «FCI»/«F.C.I.», el `[1047]` de Aunesa, el código `CAFCI643-1024` y la
+# puntuación. Medido el 2026-09-11: de 84 FCI sin clase, **73 «no matchearon»**
+# con el normalizador corto — `FCI IAM Ahorro Pesos - Clase B` contra
+# ` IAM Ahorro Pesos - Clase B`. Dos normalizadores para la misma pregunta es la
+# REGLA #9, y el que se desincroniza no falla: deja la columna vacía.
+from core.cartera import FCI as CARTERAS_FCI_CORE
 from core.clase_activo import (
     CARTERA_ARS,
     CARTERA_DERIVADOS,
@@ -46,23 +58,13 @@ from core.clase_activo import (
     en_lista_cerrada,
     es_opcion,
 )
-
-# ⚠️⚠️ **EL NORMALIZADOR DE NOMBRES DE FONDO ES EL DEL DOMINIO FCI, NO OTRO.**
-#
-# `normalizar_nombre` (upper + sin acentos + espacios) sigue valiendo para la
-# LISTA CERRADA, que compara valores de un vocabulario corto. Para emparejar
-# FONDOS no alcanza, y no es una cuestión de grado: `core/fci_match.py` existe
-# porque **un fondo llega con TRES grafías del mismo nombre** y su `normalizar`
-# saca «FCI»/«F.C.I.», el `[1047]` de Aunesa, el código `CAFCI643-1024` y la
-# puntuación. Medido el 2026-09-11: de 84 FCI sin clase, **73 «no matchearon»**
-# con el normalizador corto — `FCI IAM Ahorro Pesos - Clase B` contra
-# ` IAM Ahorro Pesos - Clase B`. Dos normalizadores para la misma pregunta es la
-# REGLA #9, y el que se desincroniza no falla: deja la columna vacía.
 from core.fci_match import normalizar as normalizar_fondo
 
 REGLA, PRIMARY, CURVA, FCI = "regla", "primary", "curva", "fci"
 
-_CARTERAS_FCI = {"FCI", "CARTERA FCI"}
+# Las dos grafías con las que el FCI está cargado. Se importan: son las mismas
+# que lee el asistente para contestar «qué fondos tengo» (REGLA #9).
+CARTERAS_FCI = CARTERAS_FCI_CORE
 
 
 def _indice_primary(fichas: list[dict]) -> dict[str, dict]:
@@ -149,7 +151,7 @@ def proponer(filas: list[dict], fichas_primary: list[dict] | None,
         elif cartera == CARTERA_DERIVADOS:
             fila["nota"] = _nota_derivado(unidad, ticker)
 
-        elif cartera in _CARTERAS_FCI:
+        elif cartera in CARTERAS_FCI:
             fila["propuesto"], fila["fuente"], fila["nota"] = _fci(
                 f, indice, indice_fci, fichas_primary is not None)
 

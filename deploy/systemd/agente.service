@@ -2,7 +2,7 @@
 # los tres crons del agente viejo: la agenda vive en el catálogo, no en el
 # crontab, así que sumar una habilidad no toca este archivo.
 [Unit]
-Description=AV Agent — el agente de TradingAV
+Description=AV Agent — el agente de AcaQuant
 After=network-online.target
 Wants=network-online.target
 

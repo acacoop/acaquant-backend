@@ -1,4 +1,4 @@
-# AvAgentAI — el asistente de TradingAV
+# AvAgentAI — el asistente de AcaQuant
 
 Documento oficial de la IA conversacional. Todo lo que hace el asistente está
 acá; el código está en `asistente/`. Doc [VIVO]: se actualiza en el mismo commit
@@ -196,8 +196,8 @@ proveedor lo soporta. Un agente con herramientas no: OpenAI, con
 DeepSeek no acepta esquema. Esos contestan en prosa y marcan lo que no pudieron
 con un último renglón `Falta: …` que `esquema.leer` entiende.
 
-`IA_PERMITE_PROVEEDOR_QUE_ENTRENA` afloja `negocio`, nunca `personal` (ver
-`docs/SECURITY.md`). Sin la clave del proveedor, la llamada no sale y el error
+`IA_PERMITE_PROVEEDOR_QUE_ENTRENA` afloja `negocio`, nunca `personal`.
+Sin la clave del proveedor, la llamada no sale y el error
 vuelve como dato.
 
 ## 8. Memoria, foco y conversaciones

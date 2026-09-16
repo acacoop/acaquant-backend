@@ -6,22 +6,26 @@ paths:
 ---
 # Plano del sistema y deploy
 
-## Plano del sistema — `deploy/SISTEMA.md`
+## El doc oficial — `docs/ACAQUANT.md`
 
-Fuente de verdad de TODO lo que corre: servicios systemd, motores, crons y
-cómo se conectan. **Si agregás / quitás / modificás un servicio systemd o un
-cron** (tocás `deploy/systemd/*.service` o `deploy/crontab.txt`), en el MISMO
-cambio regenerá el plano:
+**Es el único documento que tiene la posta de cómo funciona todo** (qué es, dónde
+corre, procesos y horarios, datos, seguridad, IA, deploy, incidentes). Privado, sin
+credenciales, en palabras simples. Si contradice al código, es un bug de uno de los
+dos. **Si agregás / quitás / modificás un servicio systemd, un cron o un schema**
+(tocás `deploy/systemd/*.service`, `deploy/crontab.txt` o `sql/schema.sql`), en el
+MISMO cambio regenerá el doc:
 
 ```bash
-python -m scripts.gen_sistema          # regenera las tablas (no editar a mano entre marcadores AUTOGEN)
-python -m scripts.gen_sistema --check  # falla si SISTEMA.md quedó desincronizado
+python -m scripts.gen_sistema          # regenera las tablas ⚙️ + la línea "Última actualización"
+python -m scripts.gen_sistema --check  # falla si las tablas quedaron viejas o el doc se editó sin re-estampar
 ```
 
-El inventario (servicios/motores/crons) es auto-generado desde la fuente
-real → no puede mentir. La narrativa (topología, flujo de datos, bases) se
-mantiene a mano. Si cambió cómo se conectan los servicios, actualizá esa
-parte también. Skill: `/sistema`.
+Las tablas ⚙️ (servicios, motores, crons, schemas) salen de la fuente real → no
+pueden mentir. La primera línea lleva fecha, hora y una huella del contenido: el CI
+compara la huella, así «siempre tiene fecha» es un test y no un deseo. La narrativa
+se mantiene a mano y tiene que caber en una pantalla: el detalle va al manual del
+dominio. Un schema nuevo necesita su fila en `gen_sistema._SCHEMAS` (qué guarda,
+quién escribe) o aparece marcado. Skill: `/sistema`.
 
 
 ## Deploy

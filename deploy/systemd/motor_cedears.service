@@ -1,5 +1,5 @@
 [Unit]
-Description=Motor CEDEARs - TradingAV
+Description=Motor CEDEARs - AcaQuant
 After=network.target
 
 [Service]

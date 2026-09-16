@@ -12,7 +12,7 @@ hooks y hacía fallar el bloque entero.
 
 Degradación prolija:
   - El comando no es un `git push`         → allow silencioso.
-  - No es el repo TradingAV (sin api/main) → allow silencioso.
+  - No es el repo AcaQuant (sin api/main) → allow silencioso.
   - El venv no tiene las deps              → allow + aviso (instalar deps).
 """
 from __future__ import annotations

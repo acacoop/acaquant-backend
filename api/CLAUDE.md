@@ -11,9 +11,9 @@ se eliminaron el 2026-06-03; el MCP server que lo reemplazó (`api/mcp/`, con su
 provider OAuth) se borró el 2026-08-28. No documentar ni referenciar ninguno de
 los dos: si ves un dir vacío o una mención suelta, es residual.
 
-> **Postura de seguridad de la API consolidada: `docs/SECURITY.md`** —
-> capas (CF Access → API_KEY → JWT → RBAC → rate limit), secretos, y el
-> checklist al tocar la API.
+> **Postura de seguridad de la API: `docs/ACAQUANT.md` §7** — las capas
+> (CF Access → API_KEY → JWT → RBAC → rate limit). El checklist al tocar la API
+> es la skill `seguridad-acaquant`.
 
 ## ⚠️ REGLA #1 — VALIDAR IMPORTS antes de pushear router/service
 

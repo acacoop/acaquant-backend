@@ -1,23 +1,33 @@
-"""gen_sistema.py — genera/actualiza deploy/SISTEMA.md desde la fuente real.
+"""gen_sistema.py — mantiene docs/ACAQUANT.md, EL documento oficial de cómo funciona todo.
 
-Herramienta: infra · Regenera deploy/SISTEMA.md (plano de servicios/crons) desde systemd + crontab.
+Herramienta: infra · Regenera los inventarios de docs/ACAQUANT.md (procesos, crons, schemas) y su estampa.
 
-El plano del sistema (`deploy/SISTEMA.md`) tiene dos partes:
-  - NARRATIVA (topología, flujo de datos, bases) → escrita a mano.
-  - INVENTARIO (servicios, motores, crons) → AUTO-GENERADO desde
-    `deploy/systemd/*.service` + `deploy/crontab.txt`, entre marcadores
-    <!-- AUTOGEN:x --> ... <!-- /AUTOGEN:x -->. Así NO puede desincronizarse:
-    el inventario sale de la fuente real, no de la memoria.
+El doc tiene dos clases de contenido:
+  - NARRATIVA (qué es, dónde corre, cómo se conecta, cómo se protege, qué hacer
+    si se rompe) → escrita a mano, corta, en palabras simples.
+  - INVENTARIOS (servicios, motores, crons, schemas) → AUTO-GENERADOS desde la
+    fuente real (`deploy/systemd/*.service`, `deploy/crontab.txt`,
+    `sql/schema.sql`), entre marcadores <!-- AUTOGEN:x --> … <!-- /AUTOGEN:x -->.
+    Así no pueden desincronizarse: salen de lo que corre, no de la memoria.
+
+La ESTAMPA. La segunda línea del doc dice cuándo se actualizó por última vez y
+lleva una HUELLA (hash corto del contenido sin esa línea). Este script la
+reescribe en cada escritura. `--check` recalcula la huella: si alguien editó el
+doc a mano y no regeneró, la huella no coincide y el check falla. El arreglo es
+UNA línea: `python -m scripts.gen_sistema`. Sin esto, «siempre tiene fecha» es
+un deseo; con esto, es un test.
 
 Uso:
-    python -m scripts.gen_sistema          # regenera las tablas en SISTEMA.md
-    python -m scripts.gen_sistema --check  # falla (exit 1) si está desincronizado
+    python -m scripts.gen_sistema          # regenera inventarios + estampa
+    python -m scripts.gen_sistema --check  # exit 1 si quedó desincronizado o sin re-estampar
 
-Cuándo correrlo: cada vez que agregás/quitás/modificás un servicio systemd
-o un cron. Lo recuerda la regla en CLAUDE.md y el skill /sistema.
+Cuándo correrlo: al tocar un service/cron/schema, y al editar el doc a mano.
+El hook `sistema_drift.sh` lo corre solo cuando Claude edita el doc.
 """
 from __future__ import annotations
 
+import datetime as _dt
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -25,9 +35,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SYSTEMD_DIR = ROOT / "deploy" / "systemd"
 CRONTAB = ROOT / "deploy" / "crontab.txt"
-SISTEMA = ROOT / "deploy" / "SISTEMA.md"
+SCHEMA = ROOT / "sql" / "schema.sql"
+DOC = ROOT / "docs" / "ACAQUANT.md"
 
-_DOW = {"*": "diario", "1-5": "L-V", "2-6": "Mar-Sáb", "0": "Dom", "6": "Sáb"}
+_DOW = {"*": "diario", "1-5": "L-V", "1-6": "L-Sáb", "2-6": "Mar-Sáb", "0": "Dom", "6": "Sáb"}
+
+# Qué guarda cada schema y quién escribe. Es la única parte «a mano» del bloque
+# de schemas: la lista de schemas y el conteo de tablas salen de schema.sql. Un
+# schema nuevo sin fila acá aparece igual, marcado, para que no quede mudo.
+_SCHEMAS = {
+    "clientes": ("Cuentas, comitentes, operadores, contrapartes, accionistas", "jobs de Aunesa + Manager"),
+    "operaciones": ("Boletos, movimientos, órdenes, tipos de operación", "`operaciones_informes`, `negocio_movimientos`, `motor_ordenes`"),
+    "portafolio": ("Tenencias (AuM) y ficha de cada activo", "`portafolio_backfill`, `tenencia_live`, AV AGENT"),
+    "valuaciones": ("PnL, dólar (oficial live, MEP/CCL), último precio por tenencia", "motores de dólar y snapshot, `mae_forex.py`"),
+    "mercado": ("Todo lo que producen los motores: curvas, snapshots, opciones, agro, FCI, cierres", "`engines.*` y jobs de mercado"),
+    "macro": ("Series BCRA, UVA, REM, dólar A3500", "`jobs.bcra`, `jobs.argentina_datos`"),
+    "manager": ("Usuarios, roles, grupos, corridas de jobs, diagnóstico", "la vista Manager y `JobRunLogger`"),
+    "home": ("Cotizaciones, calendario y noticias de la portada", "`jobs.market_quotes`, news"),
+    "research": ("Datos de 1816, BCRA y FRED para la vista Research", "jobs de research"),
+    "ia": ("Briefing diario y conversaciones del ASISTENTE", "`asistente/`, briefing"),
+    "agente": ("Hallazgos, sujetos y corridas del AV AGENT", "SOLO `agente/registro.py`"),
+    "aca": ("Resumen ejecutivo de inversiones (vista ACA), carga manual", "la vista ACA"),
+    "bancos": ("Movimientos bancarios, gastos, conciliación (Interbanking y Tesorería)", "jobs de Interbanking + carga manual"),
+    "ap5": ("Posiciones y diferencias contra A3/ACyRSA (Postrade)", "jobs de Postrade"),
+    "ext": ("API externa para accionistas (claves, cuentas, auditoría)", "`api/ext`"),
+    "partner": ("Reservado (sin tablas hoy)", "—"),
+}
 
 
 # ── Parsing de la fuente real ────────────────────────────────────────────────
@@ -38,7 +71,7 @@ def _grab(text: str, pattern: str) -> str:
 
 
 def _target_from_exec(exec_: str) -> str:
-    m = re.search(r"-m\s+(\S+)", exec_)
+    m = re.search(r"-m\s+([\w.]+)", exec_)
     if m:
         return f"`{m.group(1)}`"
     m = re.search(r"uvicorn\s+(\S+)", exec_)
@@ -67,10 +100,11 @@ def parse_services() -> dict[str, dict]:
 
 def _clean_cmd(cmd: str) -> str:
     """Limpia un comando de cron para mostrar: saca el `cd ... &&`, la
-    redirección de logs y el prefijo absoluto del repo."""
-    cmd = re.sub(r"^cd\s+\S+\s+&&\s+", "", cmd)
+    redirección de logs, las comillas del wrapper y el prefijo del repo."""
+    cmd = cmd.replace("'", "")
+    cmd = re.sub(r"cd\s+\S+\s+&&\s+", "", cmd)
     cmd = re.sub(r"\s*>>?\s*\S+\s*2>&1\s*$", "", cmd)
-    cmd = cmd.replace("/root/TradingAV/", "")
+    cmd = cmd.replace("/root/TradingAV/", "").replace("venv/bin/python", "python")
     return cmd.strip()
 
 
@@ -78,9 +112,11 @@ def parse_crontab() -> tuple[dict[str, dict], list[dict], list[dict]]:
     """Devuelve (windows, jobs, otros).
 
     windows: {service: {start, stop}} — servicios prendidos/apagados por cron.
+             `systemctl restart` cuenta como arranque: es lo que usa el crontab
+             para prender los motores (antes solo se leía `start` y el plano
+             decía «?» en la hora de arranque de TODOS los motores).
     jobs:    [{schedule, modules}]     — invocaciones `python -m jobs/engines`.
-    otros:   [{schedule, cmd}]         — CUALQUIER otra línea de cron (scripts
-             shell, etc.) — para no perder nada que no sea systemctl ni python.
+    otros:   [{schedule, cmd}]         — cualquier otra línea (scripts, shell).
     """
     starts: dict[str, str] = {}
     stops: dict[str, str] = {}
@@ -95,11 +131,13 @@ def parse_crontab() -> tuple[dict[str, dict], list[dict], list[dict]]:
             continue
         sched = " ".join(parts[:5])
         cmd = parts[5]
-        m = re.search(r"systemctl\s+(start|stop)\s+(\S+)\.service", cmd)
+        m = re.search(r"systemctl\s+(start|restart|stop)\s+(\S+)\.service", cmd)
         if m:
-            (starts if m.group(1) == "start" else stops)[m.group(2)] = sched
+            (stops if m.group(1) == "stop" else starts)[m.group(2)] = sched
             continue
-        mods = re.findall(r"-m\s+(jobs\.\S+|engines\.\S+)", cmd)
+        # `[\w.]+` y no `\S+`: el comando viene entre comillas por run_job.sh y
+        # `\S+` se llevaba la comilla de cierre (`jobs.market_quotes'`).
+        mods = re.findall(r"-m\s+(jobs\.[\w.]+|engines\.[\w.]+)", cmd)
         if mods:
             jobs.append({"schedule": sched, "modules": mods})
         else:
@@ -109,6 +147,23 @@ def parse_crontab() -> tuple[dict[str, dict], list[dict], list[dict]]:
         for svc in set(starts) | set(stops)
     }
     return windows, jobs, otros
+
+
+_TABLE = re.compile(
+    r"^\s*CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_0-9]+)\.([a-z_0-9]+)",
+    re.I | re.M,
+)
+_SCHEMA_DECL = re.compile(r"^\s*CREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_0-9]+)", re.I | re.M)
+
+
+def parse_schema() -> dict[str, int]:
+    """{schema: cantidad de tablas} desde sql/schema.sql. Un schema declarado
+    sin tablas aparece con 0: mejor verlo que no saber que existe."""
+    text = SCHEMA.read_text(encoding="utf-8")
+    counts: dict[str, int] = {s.lower(): 0 for s in _SCHEMA_DECL.findall(text)}
+    for schema, _table in _TABLE.findall(text):
+        counts[schema.lower()] = counts.get(schema.lower(), 0) + 1
+    return counts
 
 
 # ── Humanización de expresiones cron ─────────────────────────────────────────
@@ -129,14 +184,30 @@ def _humano(expr: str) -> str:
     if mn.startswith("*/"):
         return f"cada {mn[2:]}min · {hr}h · {d}"
     if "," in mn:
-        # Minutos explícitos (ej. "15,45": cada 30min pero desfasado, para no
-        # pegarle a un proveedor en el mismo instante que otro job). Sin esta
-        # rama caía en la de abajo y el plano decía "cada hora" — la MITAD de
-        # las corridas reales, en el doc que existe para no tener que adivinar.
+        # Minutos explícitos (ej. "15,45"): dos corridas por hora, desfasadas.
         return f"min {mn} · {hr}h · {d}"
     if "-" in hr:
         return f"cada hora · {hr}h · {d}"
+    if "," in hr:
+        # Horas explícitas (ej. "12,16,20,23"): varias corridas al día.
+        return f"a las {hr.replace(',', ', ')}h · {d}"
     return f"{_hhmm(expr)} · {d}"
+
+
+def _orden(expr: str) -> tuple:
+    """Para listar los crons en orden de lectura: primero los recurrentes (cada
+    N min / cada hora), después los puntuales por hora del día."""
+    mn, hr = expr.split()[:2]
+    recurrente = mn.startswith("*/") or "-" in hr or "," in hr or "," in mn
+    try:
+        h = int(hr.split("-")[0].split(",")[0])
+    except ValueError:
+        h = 99
+    try:
+        m = int(mn.split(",")[0])
+    except ValueError:
+        m = 0
+    return (0 if recurrente else 1, h, m, expr)
 
 
 def _ventana(w: dict) -> str:
@@ -151,8 +222,7 @@ def build_blocks() -> dict[str, str]:
     windows, jobs, otros = parse_crontab()
     cron_services = set(windows)
 
-    # 1) Always-on (no los toca el cron)
-    rows = ["| Servicio | Puerto | Target | Qué hace |", "|---|---|---|---|"]
+    rows = ["| Servicio | Puerto | Módulo | Qué hace |", "|---|---|---|---|"]
     for name in sorted(services):
         if name in cron_services:
             continue
@@ -160,35 +230,39 @@ def build_blocks() -> dict[str, str]:
         rows.append(f"| `{name}` | {s['port']} | {s['target']} | {s['desc']} |")
     always_on = "\n".join(rows)
 
-    # 2) Motores de mercado (cron start/stop)
-    rows = ["| Servicio | Horario | Target | Qué hace |", "|---|---|---|---|"]
+    rows = ["| Servicio | Horario (UTC) | Módulo | Qué hace |", "|---|---|---|---|"]
     for name in sorted(cron_services):
         s = services.get(name, {"target": "`?`", "desc": "(sin unit)"})
         rows.append(f"| `{name}` | {_ventana(windows[name])} | {s['target']} | {s['desc']} |")
     motores = "\n".join(rows)
 
-    # 3) Jobs / crons (python -m jobs|engines)
-    rows = ["| Horario | Módulo(s) |", "|---|---|"]
-    for j in sorted(jobs, key=lambda x: x["schedule"]):
+    rows = ["| Horario (UTC) | Módulo(s) |", "|---|---|"]
+    for j in sorted(jobs, key=lambda x: _orden(x["schedule"])):
         mods = " + ".join(f"`{m}`" for m in j["modules"])
         rows.append(f"| {_humano(j['schedule'])} | {mods} |")
     crons = "\n".join(rows)
 
-    # 4) Otros crons (scripts shell, etc.) — todo lo que NO es python ni systemctl
-    rows = ["| Horario | Comando |", "|---|---|"]
-    for o in sorted(otros, key=lambda x: x["schedule"]):
+    rows = ["| Horario (UTC) | Comando |", "|---|---|"]
+    for o in sorted(otros, key=lambda x: _orden(x["schedule"])):
         rows.append(f"| {_humano(o['schedule'])} | `{o['cmd']}` |")
     otros_tbl = "\n".join(rows)
+
+    rows = ["| Schema | Tablas | Qué guarda | Quién escribe |", "|---|---|---|---|"]
+    for schema, n in sorted(parse_schema().items()):
+        que, quien = _SCHEMAS.get(schema, ("⚠️ sin descripción — agregar en `gen_sistema._SCHEMAS`", "?"))
+        rows.append(f"| `{schema}` | {n} | {que} | {quien} |")
+    schemas = "\n".join(rows)
 
     return {
         "servicios": always_on,
         "motores": motores,
         "crons": crons,
         "otros": otros_tbl,
+        "schemas": schemas,
     }
 
 
-# ── Inyección entre marcadores ────────────────────────────────────────────────
+# ── Inyección entre marcadores + estampa ─────────────────────────────────────
 
 def _inject(text: str, blocks: dict[str, str]) -> str:
     for key, content in blocks.items():
@@ -196,122 +270,73 @@ def _inject(text: str, blocks: dict[str, str]) -> str:
             rf"(<!-- AUTOGEN:{key} -->).*?(<!-- /AUTOGEN:{key} -->)",
             re.DOTALL,
         )
-        text = pat.sub(rf"\1\n{content}\n\2", text)
+        text = pat.sub(lambda m, c=content: f"{m.group(1)}\n{c}\n{m.group(2)}", text)
     return text
 
 
-def _template(blocks: dict[str, str]) -> str:
-    """Doc completo (narrativa + bloques) — solo se usa si SISTEMA.md no existe."""
-    return f"""# SISTEMA — plano único de TradingAV
+_STAMP = re.compile(r"^\*\*Última actualización:\*\* .*?· huella `([0-9a-f]{8})`\s*$", re.M)
 
-> **Fuente de verdad del sistema corriendo.** Las tablas de inventario se
-> AUTO-GENERAN desde `deploy/systemd/*.service` + `deploy/crontab.txt` con
-> `python -m scripts.gen_sistema` (no editar a mano entre los marcadores
-> AUTOGEN). La narrativa (topología, flujo, bases) se mantiene a mano.
 
-## Topología — cómo se conecta todo
+def _ahora_ba() -> str:
+    try:
+        from zoneinfo import ZoneInfo
 
-```
-   mae_forex.py              pyRofex (broker ROFEX/MAE)
-   ⚠️ MANUAL ────┐            │ WS market data    ▲ envío/cancel órdenes
-   (dólar MAE)   │            ▼                   │
-                 │  ┌──── motores de mercado ───┐ │
-                 │  │ rofex, options, curvas, … │ │   (motor_ordenes escucha
-                 ▼  │  (L-V 13–20 UTC → SQL)    │ │    order_report → ordenes_live)
-              Postgres / Supabase ◄── crons (portafolio, bcra, negocio, …)
-                 ▲  ▲                            │
-            lee  │  └────────────────────────────┘
-   api.service (:8000) ──────────────────────────┘
-        ▲  nginx → Cloudflare Access (gate de identidad)
-        │ HTTPS
-   acaquant-web (Vercel) ── trading.acaquant.com
-```
+        tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    except Exception:  # sin tzdata (Windows pelado): Argentina no tiene horario de verano
+        tz = _dt.timezone(_dt.timedelta(hours=-3))
+    return _dt.datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
-## Servicios always-on
-<!-- AUTOGEN:servicios -->
-{blocks['servicios']}
-<!-- /AUTOGEN:servicios -->
 
-## Motores de mercado (cron start/stop L-V)
-<!-- AUTOGEN:motores -->
-{blocks['motores']}
-<!-- /AUTOGEN:motores -->
+def _huella(text: str) -> str:
+    """Hash corto del doc SIN la línea de estampa (si no, cambiaría siempre)."""
+    cuerpo = _STAMP.sub("", text)
+    return hashlib.sha256(cuerpo.encode("utf-8")).hexdigest()[:8]
 
-## Jobs / crons (batch)
-<!-- AUTOGEN:crons -->
-{blocks['crons']}
-<!-- /AUTOGEN:crons -->
 
-## Otros crons (scripts / shell)
-<!-- AUTOGEN:otros -->
-{blocks['otros']}
-<!-- /AUTOGEN:otros -->
+def _estampar(text: str) -> str:
+    linea = f"**Última actualización:** {_ahora_ba()} (hora Buenos Aires) · huella `{_huella(text)}`"
+    if _STAMP.search(text):
+        return _STAMP.sub(linea, text, count=1)
+    # Sin estampa: va después del título (primera línea), con su línea en blanco.
+    titulo, _, resto = text.partition("\n")
+    return f"{titulo}\n\n{linea}\n\n{resto.lstrip()}"
 
-> Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs
-> manuales / on-demand (backfills, archival: `jobs.*backfill*`,
-> etc.) se corren a mano y NO aparecen. Helpers
-> (`jobs._*`, `aunesa_client`, `dias_habiles`) son librerías, no procesos.
 
-## Componentes que NO están en systemd/cron
-- **`mae_forex.py` — ⚠️ MANUAL (alguien le tiene que dar play):** feed live del
-  dólar mayorista MAE (UST$T plazo 000) → escribe `Valuaciones.DolarOficialLive`.
-  **No está automatizado** (ni systemd ni cron). Si nadie lo arranca, el TC
-  dólar-linked (`motor_curvas`, `futuros_dlr`, `/argy`, `macro`) se queda con el
-  dólar viejo. Es el único proceso del sistema que depende de que un humano lo prenda.
-- **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
-- **Postgres / Supabase**: la base única (decomiso Mongo 2026-06-29), acceso vía `core.postgres.get_pool`.
-- **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000.
+def _estampa_vigente(text: str) -> bool:
+    m = _STAMP.search(text)
+    return bool(m) and m.group(1) == _huella(text)
 
-## Integraciones externas (fuentes de datos)
-- **pyRofex** (ROFEX/MAE) — market data WS + envío de órdenes.
-- **Aunesa** — movimientos/posiciones (`jobs.cashflow`, `negocio_movimientos`, `descubrir_cuentas`).
-- **BYMA Primarias** (licitaciones) · **MAE** (repos/cauciones) · **Finnhub** (data externa) · **BCRA / argentina_datos** (macro).
 
-## Bases de datos (quién escribe qué)
-- **`Trading`** — motores de mercado (MarketSnapshot, Curvas, TimeSales, OrderBookL2, DOLAR, SnapshotsCierre, CedearsSnapshot, PreciosAcciones).
-- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive (PC oficina).
-- **`CashFlow`** — `jobs.cashflow`, `jobs.negocio_movimientos`.
-- **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
-- **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
-- **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).
-
-## Cómo se opera
-- Servicios: `systemctl {{start|stop|restart|status}} <servicio>`; logs `journalctl -u <servicio>`.
-- Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK: pausa de Atlas).
-- Deploy backend: `git pull` + `systemctl restart api.service`. Frontend: push → Vercel.
-
-> Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECURITY.md`.
-"""
-
+# ── main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
     check = "--check" in sys.argv
-    blocks = build_blocks()
+    rel = DOC.relative_to(ROOT).as_posix()
 
-    if not SISTEMA.exists():
-        if check:
-            print("deploy/SISTEMA.md no existe — corré `python -m scripts.gen_sistema`.")
-            return 1
-        SISTEMA.write_text(_template(blocks), encoding="utf-8")
-        print(f"Creado {SISTEMA.relative_to(ROOT)} (plano inicial).")
-        return 0
+    if not DOC.exists():
+        print(f"{rel} no existe. Es el doc oficial: no se crea solo, se restaura desde git.")
+        return 1
 
-    actual = SISTEMA.read_text(encoding="utf-8")
-    nuevo = _inject(actual, blocks)
+    actual = DOC.read_text(encoding="utf-8")
+    con_bloques = _inject(actual, build_blocks())
+    bloques_ok = con_bloques == actual
 
     if check:
-        if nuevo != actual:
-            print("DESINCRONIZADO: deploy/SISTEMA.md no refleja los systemd/crontab actuales.")
+        if not bloques_ok:
+            print(f"DESINCRONIZADO: {rel} no refleja systemd/crontab/schema.sql actuales.")
+        if not _estampa_vigente(actual):
+            print(f"SIN RE-ESTAMPAR: {rel} se editó y la huella no coincide con el contenido.")
+        if not bloques_ok or not _estampa_vigente(actual):
             print("Corré `python -m scripts.gen_sistema` y commiteá.")
             return 1
-        print("OK: el plano está sincronizado con systemd + crontab.")
+        print(f"OK: {rel} sincronizado y estampado.")
         return 0
 
-    if nuevo == actual:
-        print("Sin cambios: el plano ya estaba sincronizado.")
-    else:
-        SISTEMA.write_text(nuevo, encoding="utf-8")
-        print(f"Actualizado {SISTEMA.relative_to(ROOT)} (tablas regeneradas).")
+    if bloques_ok and _estampa_vigente(actual):
+        print(f"Sin cambios: {rel} ya estaba sincronizado y estampado.")
+        return 0
+    DOC.write_text(_estampar(con_bloques), encoding="utf-8")
+    print(f"Actualizado {rel} ({'inventarios regenerados' if not bloques_ok else 'contenido'} + estampa).")
     return 0
 
 

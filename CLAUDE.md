@@ -17,10 +17,10 @@ regla.
 
 ## Qué es
 
-TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI
+AcaQuant — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI
 (`api.acaquant.com`, Droplet DO nyc1, `/root/TradingAV`) → `acaquant-web` Next.js en Vercel
 (`trading.acaquant.com`; sus rutas `src/app/api` son PROXY al backend). **100% SQL: Mongo no existe
-más.** Doc madre: `docs/ARQUITECTURA.md`.
+más.** **Doc oficial: `docs/ACAQUANT.md`** — la posta de cómo funciona todo; si contradice al código, es un bug de uno de los dos.
 
 ## Contexto que se carga solo (no hace falta leerlo de antemano)
 
@@ -29,7 +29,7 @@ más.** Doc madre: `docs/ARQUITECTURA.md`.
 | `api/`, `engines/`, `jobs/`, `scripts/` | el `CLAUDE.md` de esa carpeta (REGLA #1 vive en `api/CLAUDE.md`) |
 | `agente/` · `asistente/`, `core/modelos.py` | `rules/agente.md` — el AV AGENT · `rules/asistente.md` — EL ASISTENTE (un agente = un archivo) |
 | `api/**`, `gen_mapa_app` | `rules/api-superficie.md` — `MAPA_APP.md` y la trampa de `app.routes` |
-| `deploy/**` | `rules/sistema-deploy.md` — `SISTEMA.md`, el deploy NO reinicia motores |
+| `deploy/**` | `rules/sistema-deploy.md` — `ACAQUANT.md` (doc oficial), el deploy NO reinicia motores |
 | operaciones / comercial | `rules/operaciones.md` — HOT/COLD, arancel vs bruto, tablero |
 | curvas / renta fija | `rules/curvas.md` — shape de flujos, símbolo vs blob, breakevens, forwards |
 | PnL / tenencias / assets | `rules/valuacion.md` — divisor por cartera, join chain de AuM |
@@ -152,12 +152,13 @@ sql/ schema.sql   deploy/ systemd + crontab   tests/ unit   evals/ ruteo esperad
 
 ## Mapa de docs — cuál leer ANTES de tocar cada dominio
 
-Un dominio = un doc. `docs/ARQUITECTURA.md` es el doc madre. Los **[VIVO]** tienen changelog
-obligatorio en el mismo commit.
+**`docs/ACAQUANT.md` es EL doc oficial**: infra, procesos, datos, seguridad, IA, deploy, incidentes.
+Sin credenciales, privado. Lo demás es el detalle de un dominio: un dominio = un doc. Los **[VIVO]**
+tienen changelog obligatorio en el mismo commit.
 
 | Dominio | Doc |
 |---|---|
-| Arquitectura, datos, roadmap | `ARQUITECTURA.md` |
+| **Cómo funciona todo** (tablas ⚙️ generadas + estampa; `gen_sistema --check` en CI) | **`ACAQUANT.md`** |
 | Vistas / tabs / endpoints / permisos (superficie completa) | `MAPA_APP.md` **[VIVO]** — §0 autogenerado y verificado por CI |
 | EL AV AGENT · EL ASISTENTE (LangGraph) | `AGENT.md` **[VIVO]** (parte B es diario) · `AvAgentAI.md` **[VIVO]** |
 | Modelo SQL · API HTTP (payloads) | `SQL.md` + `sql/schema.sql` · `API.md` |
@@ -169,9 +170,8 @@ obligatorio en el mismo commit.
 | Vista `/aca` | `ACA.md` **[VIVO]** |
 | Interbanking | `INTERBANKING.md` **[VIVO]** |
 | Postrade A3/ACyRSA (⚠️ PUEDE OPERAR: escritura default-deny, doble llave) | `POSTRADE.md` **[VIVO]** |
-| Operación e incidentes · Seguridad y credenciales | `RUNBOOK.md` · `SECURITY.md` |
 
-Auto-generados (no editar a mano): `HERRAMIENTAS.md`, `deploy/SISTEMA.md`, `MAPA_APP.md` §0.
+Auto-generados (no editar a mano): las tablas ⚙️ de `ACAQUANT.md`, `MAPA_APP.md` §0.
 
 ## Comandos
 

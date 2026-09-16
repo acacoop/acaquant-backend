@@ -1,6 +1,6 @@
 """core/pareo.py — EMPAREJAR POR FICHA. La identidad no es el nombre.
 
-Doc madre: `docs/ARQUITECTURA.md` · `docs/AGENT.md` §0.y.
+Doc oficial: `docs/ACAQUANT.md` · `docs/AGENT.md` §0.y.
 
 EL PATRÓN, Y POR QUÉ ES GENERAL
 ================================

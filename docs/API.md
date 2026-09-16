@@ -1,4 +1,4 @@
-# TradingAV API
+# AcaQuant API
 
 **Version:** 0.3.0
 **Base URL (prod):** `https://api.acaquant.com`
@@ -10,7 +10,7 @@
 
 ## 1. Overview
 
-The TradingAV API is a FastAPI service that exposes the quantitative data and trading layer of TradingAV — microstructure for fixed income and options on Argentine markets (MERVAL/ROFEX), portfolio analytics, MEP execution, account risk, news / macro context and assistant tooling.
+The AcaQuant API is a FastAPI service that exposes the quantitative data and trading layer of AcaQuant — microstructure for fixed income and options on Argentine markets (MERVAL/ROFEX), portfolio analytics, MEP execution, account risk, news / macro context and assistant tooling.
 
 It is the only consumption boundary of the platform: the production frontend (**acaquant-web**, Next.js on Vercel) proxies every read and write through it. There is no conversational assistant and no MCP server — both were removed (see the changelog).
 

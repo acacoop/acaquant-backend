@@ -19,7 +19,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `agente` | EL AV AGENT: las 4 tablas del modelo + 5 de infra, los 12 invariantes, las 3 pantallas, REGLA #10 completa. Carga al tocar `agente/`, `jobs/agente.py`, `docs/AGENT.md`. |
 | `asistente` | EL ASISTENTE (LangGraph): las palabras (agente, sujeto, familia), el mapa (un nodo = un módulo, un agente = un archivo) y las 8 invariantes con test. Carga al tocar `asistente/`, `core/modelos.py`, `docs/AvAgentAI.md`. |
 | `api-superficie` | `MAPA_APP.md` (§0 autogenerado) y la trampa de `app.routes` / `api/superficie.py`. Carga al tocar `api/**`. |
-| `sistema-deploy` | `deploy/SISTEMA.md` (`gen_sistema`) y el deploy que NO reinicia motores. Carga al tocar `deploy/**`. |
+| `sistema-deploy` | `docs/ACAQUANT.md` (el doc oficial; `gen_sistema` lo estampa y regenera sus tablas) y el deploy que NO reinicia motores. Carga al tocar `deploy/**`. |
 | `operaciones` | Tablero comercial + `operaciones.operaciones`: HOT/COLD, arancel vs bruto, `es_cierre`. Carga al tocar los services/jobs de operaciones. |
 | `curvas` | `mercado.curvas`: shape CER/tasa fija/soberanos, columna vs blob invertido, breakevens, forwards, TC breakeven, CER T-10. Carga al tocar curvas/renta fija. |
 | `valuacion` | AuM/tenencias: el divisor lo decide la CARTERA, join chain de AuM. Carga al tocar PnL, tenencias, assets. |
@@ -38,7 +38,7 @@ regla figura en esta tabla. Los techos solo bajan.
 | `/perf` | `scripts.perf_scan --strict` + resumen de findings por código PERF001…4. |
 | `/motor-status` | Estado systemd + última actividad en Postgres de los motores. |
 | `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. |
-| `/sistema` | Regenera + muestra el plano único del sistema (`deploy/SISTEMA.md`) desde systemd + crontab. |
+| `/sistema` | Regenera + estampa `docs/ACAQUANT.md` (procesos, crons, schemas) desde systemd + crontab + schema.sql. |
 
 ## Skills (procedimientos — Claude los aplica cuando la tarea matchea)
 
@@ -75,7 +75,7 @@ también es Sonnet (`settings.json` → `env.CLAUDE_CODE_SUBAGENT_MODEL`).
 | PreToolUse · `git push` | `check_contexto.py` — corre `test_contexto_claude.py` y **BLOQUEA** el push si el CLAUDE.md raíz superó su techo, tiene fechas, o una regla apunta a un archivo que no existe. |
 | PreToolUse · `git push` | `check_agente.py` — si el push toca `agente/`, `docs/AGENT.md`, el registro de diagnóstico o el crontab, corre los tests del agente y **BLOQUEA** si están rojos (REGLA #10). |
 | PostToolUse · `Write\|Edit` | `ruff_check.sh` — `ruff check` sobre el `.py` editado, informativo (no bloquea). |
-| PostToolUse · `Write\|Edit` | `sistema_drift.sh` — drift de docs autogenerados: `deploy/systemd/*`/`crontab.txt` → `SISTEMA.md`; `scripts/*.py` → `docs/HERRAMIENTAS.md`. Avisa si quedaron desincronizados (no bloquea). |
+| PostToolUse · `Write\|Edit` | `sistema_drift.sh` — si se editó `docs/ACAQUANT.md`, lo re-estampa solo; si se tocó `deploy/systemd/*`, `crontab.txt` o `schema.sql`, avisa que hay que regenerarlo (no bloquea). |
 
 ## settings
 

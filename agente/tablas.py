@@ -22,7 +22,7 @@ por dos razones distintas:**
 1. **Nadie mantiene 200 contratos.** La lista quedaría vieja el primer mes — y una
    lista vieja es PEOR que no tener ninguna, porque afirma cosas falsas con la
    misma cara que las verdaderas. Este proyecto ya lo pagó y por eso `MAPA_APP.md`
-   §0, `SISTEMA.md` y el catálogo de SKILLS se autogeneran.
+   §0, `ACAQUANT.md` §4 y el catálogo de SKILLS se autogeneran.
 2. **Depender de un `git pull` para que el agente sepa qué existe es exactamente
    lo contrario de un agente.** Una tabla creada el martes tiene que estar en su
    cabeza el martes, no cuando alguien se acuerde de anotarla.

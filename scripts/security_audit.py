@@ -109,7 +109,7 @@ def check_config() -> list[str]:
 
 def _emit() -> None:
     print("=" * 70)
-    print("AUDITORÍA DE SEGURIDAD — TradingAV")
+    print("AUDITORÍA DE SEGURIDAD — AcaQuant")
     print("=" * 70)
 
     # 1. Secretos — distinguir archivos VERSIONABLES (leak real) de IGNORADOS (.env, OK).
@@ -178,7 +178,7 @@ def main() -> None:
     import sys
     from contextlib import redirect_stdout
 
-    ap = argparse.ArgumentParser(description="Auditoría de seguridad TradingAV")
+    ap = argparse.ArgumentParser(description="Auditoría de seguridad AcaQuant")
     ap.add_argument("--out", default="security_audit_report.txt",
                     help="archivo de salida (default: security_audit_report.txt)")
     ap.add_argument("--stdout", action="store_true",

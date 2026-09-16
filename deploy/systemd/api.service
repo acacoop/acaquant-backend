@@ -1,5 +1,5 @@
 [Unit]
-Description=TradingAV API (FastAPI + uvicorn)
+Description=AcaQuant API (FastAPI + uvicorn)
 After=network.target
 
 [Service]

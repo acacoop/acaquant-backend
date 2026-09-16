@@ -1,5 +1,5 @@
 [Unit]
-Description=Motor Opciones GGAL - TradingAV
+Description=Motor Opciones GGAL - AcaQuant
 After=network.target
 
 [Service]

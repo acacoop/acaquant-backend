@@ -1,7 +1,7 @@
 # BYMA CUSTODIA (CVSA) — **[VIVO]**
 
-Lo que la **Caja de Valores** tiene registrado a nombre nuestro. Doc madre:
-`docs/ARQUITECTURA.md`. Cliente: `core/byma_custodia.py`. Vista: `/back-office`
+Lo que la **Caja de Valores** tiene registrado a nombre nuestro. Doc oficial:
+`docs/ACAQUANT.md`. Cliente: `core/byma_custodia.py`. Vista: `/back-office`
 → tab **CUSTODIA**.
 
 > **Todo lo de acá está MEDIDO contra producción, no leído del OpenAPI.** El
@@ -378,7 +378,7 @@ PC con Okta ──AppGate──> BYMA /holdings
 
 Mismo patrón que **MAE** (dólar oficial) y **Eikon/Refinitiv**: la oficina tiene
 el acceso, el servidor tiene la lógica, y el puente es un POST con token
-dedicado. Ver `docs/SECURITY.md`.
+dedicado. Ver `docs/ACAQUANT.md` §7.
 
 - **En la PC**: `scripts/byma_feed.py` (+ `byma_feed.bat`). Standalone —solo
   stdlib— para no copiar el repo. **No interpreta nada**: pega y reenvía crudo.

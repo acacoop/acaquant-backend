@@ -367,7 +367,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
    - Persistir como serie UVA en SQL (TBD shape exacto).
 4. **Fase 4 — Motor de segmentación**.
    - `jobs/segmentar_patrimonial.py`. Idempotente.
-   - Cron en `deploy/crontab.txt` + regenerar `deploy/SISTEMA.md`
+   - Cron en `deploy/crontab.txt` + regenerar `docs/ACAQUANT.md`
      (`python -m scripts.gen_sistema`).
 5. **Fase 5 — Vista de segmentación en `/comercial`**.
    - Service + endpoint manager-only en `api/services/comercial.py` /

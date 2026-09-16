@@ -3,8 +3,8 @@ name: seguridad-acaquant
 description: >
   Usar ANTES de exponer/pushear un endpoint nuevo, un cambio de RBAC, un router,
   o algo que toque auth, secretos, MCP o CF Access. Checklist de seguridad a
-  medida de TradingAV (plata real + auth en capas). Complementa pre-deploy-check
-  (que valida imports/ruff/tests, no seguridad). Doc canónico: docs/SECURITY.md.
+  medida de AcaQuant (plata real + auth en capas). Complementa pre-deploy-check
+  (que valida imports/ruff/tests, no seguridad). Doc oficial: docs/ACAQUANT.md §7.
 ---
 
 # security-review — superficie de plata + auth en capas

@@ -1,4 +1,4 @@
-"""TradingAV API — FastAPI entrypoint.
+"""AcaQuant API — FastAPI entrypoint.
 
 Uso:
     uvicorn api.main:app --reload --port 8000
@@ -154,7 +154,7 @@ async def lifespan(_app: FastAPI):
 _DOCS_ABIERTOS = ENV != "prod"
 
 app = FastAPI(
-    title="TradingAV API",
+    title="AcaQuant API",
     version="0.1.0",
     lifespan=lifespan,
     # orjson es 2-3x más rápido que el stdlib json en payloads grandes

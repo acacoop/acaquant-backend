@@ -1,6 +1,6 @@
 """core/duplicados.py — DÓNDE VIVE EL MISMO DATO DOS VECES, Y QUIÉN MANDA.
 
-Doc madre: `docs/ARQUITECTURA.md` · `docs/AGENT.md` §0.aa.
+Doc oficial: `docs/ACAQUANT.md` · `docs/AGENT.md` §0.aa.
 
 LA LECCIÓN, PAGADA TRES VECES EN CUATRO DÍAS
 =============================================

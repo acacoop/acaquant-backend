@@ -120,7 +120,7 @@ del producto — la mesa lee a 1816 todas las mañanas.
 - **Cliente:** `core/mercado_1816.py` cachea el token en memoria del proceso y lo
   **renueva solo** ante `401` (patrón: 1 reintento tras re-auth). Nunca guarda el
   token en DB (efímero, por proceso — mismo criterio que otros feeds).
-- **Env vars (van al `.env` del Droplet — REGLA #6, ver `docs/SECURITY.md`):**
+- **Env vars (van al `.env` del Droplet — REGLA #6):**
   - `MERCADO_1816_API_KEY` — la API Key (se genera en la webapp de 1816).
   - `MERCADO_1816_BASE_URL` — opcional, default la base productiva de 1816.
   - Sin la key, el cliente queda apagado (el pilar A muestra lo persistido; nunca
@@ -1374,7 +1374,7 @@ requests/día** — irrelevante. El **backfill inicial** (~48 series, algunas di
 con 30+ años) se corre una vez, throttled, **fuera de rueda** (REGLA #4) — con
 `--desde 2010-01-01` alcanza para casi todo el valor de mesa y baja el peso.
 
-**Regenerar `deploy/SISTEMA.md`** (`python -m scripts.gen_sistema`) y registrar el
+**Regenerar `docs/ACAQUANT.md`** (`python -m scripts.gen_sistema`) y registrar el
 cron en el test del Diagnóstico, en el mismo commit (igual que BCRA).
 
 #### C.6.6 API interna + route handler Next

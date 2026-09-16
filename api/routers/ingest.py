@@ -2,7 +2,7 @@
 
 `POST /api/ingest/dolar-oficial` — la PC de oficina (mae_forex) pollea MAE y manda
 el/los instrumento(s) acá; la API los persiste en SQL `valuaciones.dolar_oficial_live`.
-Así la oficina NO necesita acceso directo a la base. Ver docs/SECURITY.md.
+Así la oficina NO necesita acceso directo a la base. Ver docs/ACAQUANT.md §7.
 
 `POST /api/ingest/custodia/holdings` — la tenencia de la CAJA DE VALORES. Mismo
 patrón, por el MISMO motivo que MAE y Eikon: las APIs de BYMA están publicadas

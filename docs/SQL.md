@@ -9,7 +9,7 @@
 
 # PARTE A — Inventario y notas por dominio
 
-Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase** (Postgres managed).
+Subdoc de `docs/ACAQUANT.md` §5. Proveedor: **Supabase** (Postgres managed).
 
 > **2026-06-29 — DECOMISO COMPLETO DE MONGO.** Postgres/Supabase es la **ÚNICA**
 > base de datos del sistema. Ya NO hay dual-run, ni flags de engine, ni "espejo
@@ -252,7 +252,7 @@ Sutilezas del modelo que importan al escribir/leer (heredadas del diseño origin
 
 Agregar un instrumento de renta fija: doc en `mercado.curvas` (PK `ticker`) +
 fila en `portafolio.assets` con el MISMO `ticker` (sin el segundo no aparece en
-AuM/Portfolios — ver `docs/ARQUITECTURA.md` y la sección de fórmulas no inferibles en
+AuM/Portfolios — ver `docs/ACAQUANT.md` §5 y la sección de fórmulas no inferibles en
 el `CLAUDE.md` raíz).
 
 ---

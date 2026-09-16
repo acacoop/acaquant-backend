@@ -1,4 +1,4 @@
-# Crontab de producción — TradingAV
+# Crontab de producción — AcaQuant
 # Fuente de verdad. Aplicar con:   crontab /root/TradingAV/deploy/crontab.txt
 #
 # Todos los jobs Python se invocan vía deploy/run_job.sh <nombre> <timeout> '<cmd>'

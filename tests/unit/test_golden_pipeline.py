@@ -1,6 +1,6 @@
 """Golden/characterization tests del pipeline de datos crítico.
 
-Doc: docs/RUNBOOK.md (commit 3). Red de regresión sobre el camino
+Red de regresión sobre el camino
 que produce los números que ve la mesa: ingesta/normalización de operaciones,
 categorización del negocio y las "fórmulas no inferibles" del AuM/PnL.
 

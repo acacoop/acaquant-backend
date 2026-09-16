@@ -7,7 +7,7 @@
 # BLOQUEA si no importa.
 #
 # Degradación prolija:
-#   - No es el repo TradingAV (sin api/main.py) → allow silencioso.
+#   - No es el repo AcaQuant (sin api/main.py) → allow silencioso.
 #   - El venv no tiene las deps (ni fastapi importa) → no se puede validar
 #     → allow + aviso (instalar deps).
 set -uo pipefail

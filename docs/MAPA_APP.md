@@ -2886,75 +2886,72 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
    `core/grupos.py:53-75` (scope de cuentas ante error de DB → **ve TODO**), `api/deps.py` (sin `API_KEY`
    pasa todo; mitigado por `_validar_postura_auth` en prod), `api/auth.py:218-223` (con
    `CF_TRUSTED_SERVICE_TOKENS` vacío se acepta el email forwardeado de cualquier service token válido).
-10. **`docs/SECURITY.md` está desactualizado**: lista `_ASISTENTE | chat` (router eliminado), da `_OPERAR`
-    a "admin, trader, (sales)" cuando el default es admin-only, **no menciona** `back-office`, `research`,
-    `ia`, `trading`, `agro`, `asistente` ni los 6 sub-módulos de manager, y dice "32 tools del MCP" contra
-    las 13 del `CLAUDE.md`.
-11. **`GET /api/operaciones/flujo` y `/flujo/resumen` (Contrapartes) NO reciben `scope` de grupos**, a
+
+10. **`GET /api/operaciones/flujo` y `/flujo/resumen` (Contrapartes) NO reciben `scope` de grupos**, a
     diferencia de `/flujos`. **SIN VERIFICAR** si es consciente (las contrapartes son entidades de
     mercado) o un hueco.
-12. **El invitado puede leer los GET de la tab DATOS de Agro**: el filtro que la esconde es
+11. **El invitado puede leer los GET de la tab DATOS de Agro**: el filtro que la esconde es
     **solo del frontend**; el backend los sirve porque están bajo `/api/derivados`, permitido en
     `GUEST_PATH_PREFIXES`. Las escrituras sí están cortadas por `require_no_invitado`.
-13. **El proxy de Next no gatea todas las páginas**: `/trading` (admin-only), `/agro`, `/derivados`,
+12. **El proxy de Next no gatea todas las páginas**: `/trading` (admin-only), `/agro`, `/derivados`,
     `/ons`, `/sinteticos`, `/retorno` y `/` se sirven a cualquiera con URL directa (los datos igual dan
     403 donde hay gate). Decisión explícita ("las rutas públicas no pagan el fetch"), pero `/trading`
     queda del lado permisivo.
 
 ### 7.2 Riesgos operativos verificados (plata real)
 
-14. **Mismatch de namespace de cuenta en OPERAR**: el scope de grupos guarda el `id_cuenta` crudo, pero
+13. **Mismatch de namespace de cuenta en OPERAR**: el scope de grupos guarda el `id_cuenta` crudo, pero
     `ordenes_live` persiste el `account` ya resuelto por `resolver_cuenta_rofex` (`100` → `0100`). En
     `DELETE /ordenes/{id}` y `GET /ordenes/{id}` el scope se verifica contra el resuelto → **un usuario
     scopeado podría recibir 403 al cancelar su propia orden**. **SIN VERIFICAR** cuántas cuentas de prod
     resuelven distinto.
-15. **`create_bracket` persiste `account` CRUDO** mientras la entrada se mandó con la cuenta resuelta →
+14. **`create_bracket` persiste `account` CRUDO** mientras la entrada se mandó con la cuenta resuelta →
     si esa cuenta necesitaba `zfill`, **la salida automática puede ser rechazada quedando la posición
     abierta** (`EXIT_REJECTED`, "para intervención manual"). **SIN VERIFICAR** si ocurre en prod.
-16. **`send_fci_order` NO llama a `resolver_cuenta_rofex`** (a diferencia de `send_order`) →
+15. **`send_fci_order` NO llama a `resolver_cuenta_rofex`** (a diferencia de `send_order`) →
     inconsistencia verificada: una cuenta con nº ROFEX distinto funcionaría para títulos y fallaría para
     FCI.
-17. **No hay ningún límite de tamaño/notional/fat-finger en el backend de órdenes.** Las únicas
+16. **No hay ningún límite de tamaño/notional/fat-finger en el backend de órdenes.** Las únicas
     validaciones son `size>0`, LIMIT requiere `price`, `comision_pct ∈ [0,5]`, `monto>0`, `nominales>0`.
     El único control cuantitativo es el rate limit; el `confirm()` del navegador existe **solo en MEP**,
     no en títulos ni FCI.
-18. **La idempotencia degrada hacia "mandar"**: ante cualquier error de infra `reservar()` devuelve
+17. **La idempotencia degrada hacia "mandar"**: ante cualquier error de infra `reservar()` devuelve
     `True` y la orden se manda. Es defensa contra duplicados accidentales, no contra tragar una orden.
-19. **Los docstrings de `risk.py` prometen un cache que NO existe** ("Cache 3s/5s", "pegale todo lo que
+18. **Los docstrings de `risk.py` prometen un cache que NO existe** ("Cache 3s/5s", "pegale todo lo que
     quieras, no satura al broker"): **no hay `@cached`**. Cada usuario con la vista abierta hace 2 hits a
     `get_account_report` cada 8s.
-20. **`editar_cuenta` de Tesorería (renombrar banco) NO arrastra `tesoreria_banco_a_banco` ni
+19. **`editar_cuenta` de Tesorería (renombrar banco) NO arrastra `tesoreria_banco_a_banco` ni
     `tesoreria_registros`** (sí arrastra saldos, cheques y mercados). Esas dos tablas también referencian
     el banco por nombre → renombrar dejaría filas huérfanas. **SIN VERIFICAR** si ya pasó en prod.
-21. **`POST /api/manager/operaciones/backfill` pisa directo sin preview**, siendo la única excepción al
+20. **`POST /api/manager/operaciones/backfill` pisa directo sin preview**, siendo la única excepción al
     patrón preview→commit del panel.
-22. **`POST /api/back-office/tenencia-hd/precio` y las 3 de alquiler NO tienen allowlist**: cualquier rol
+21. **`POST /api/back-office/tenencia-hd/precio` y las 3 de alquiler NO tienen allowlist**: cualquier rol
     con el módulo `back-office` (que incluye `sales` en el default) puede **editar a mano el PRECIO de una
     unidad** y recalcular la valuación de las 3 cuentas propias.
-24. **`PATCH /api/cotizaciones/opciones/tasa` cambia la tasa risk-free GLOBAL** de toda la mesa (afecta
+23. **`PATCH /api/cotizaciones/opciones/tasa` cambia la tasa risk-free GLOBAL** de toda la mesa (afecta
     los Greeks de todos). Está admin-only y el proxy es GET-only, así que hoy **solo se puede llamar por
     fuera del front**.
 
 ### 7.3 Funcionalidad construida que NO está expuesta en la UI
 
-25. ~~**Toda la vista de la ESTRATEGIA QUANT**~~ — **RESUELTO por borrado (2026-09-01).** Era el hueco
+24. ~~**Toda la vista de la ESTRATEGIA QUANT**~~ — **RESUELTO por borrado (2026-09-01).** Era el hueco
     más grande del sistema: un motor, un resolver, 4 tablas, config y 4 endpoints con hit rate,
     expectativa, MFE/MAE, curva de equity y ledger auditable, y del otro lado UNA tab que consumía
     solo `/contexto`. Se borró TODO (`engines/estrategia.py`, `jobs/estrategia_resolver.py`,
     `quant/estrategia.py`, `core/estrategia_sql.py`, `api/{routers,services}/estrategia.py`, la unit
     del schema, el `.service`, los 2 crons y `docs/ESTRATEGIA_QUANT.md`). El `DROP SCHEMA estrategia
     CASCADE` vive en `sql/schema.sql` y lo aplica el deploy.
-26. **Trade Lab / scalping**: `GET /api/scanner/day-trading` (ranking intradía con vueltas zigzag,
+25. **Trade Lab / scalping**: `GET /api/scanner/day-trading` (ranking intradía con vueltas zigzag,
     momentum, flujo comprador, `idea{lado,motivo}`) y `/companeros/{ticker}` (correlación) son admin-only
     y **no tienen consumidor**: la vista `/trade-lab` que los alimentaba **no existe en el repo**.
-27. **Triage de incidentes con IA**: `jobs/triage.py` corre cada 10 min, diagnostica jobs fallidos con
+26. **Triage de incidentes con IA**: `jobs/triage.py` corre cada 10 min, diagnostica jobs fallidos con
     LLM y persiste `{causa, hecho, hipotesis, recomendacion, confianza}` en `ia.triage_incidentes`.
     **No hay endpoint ni tab**: la lectura hoy es SQL directo. Está declarado como pendiente.
-28. **Control de calidad de conversaciones de IA**: `ia.calidad_flags` se llena todas las noches y
+27. **Control de calidad de conversaciones de IA**: `ia.calidad_flags` se llena todas las noches y
     **tampoco tiene vista**.
-29. **Tablero de brackets**: `GET /api/operar/brackets/dia` existe pero no hay pantalla; los brackets se
+28. **Tablero de brackets**: `GET /api/operar/brackets/dia` existe pero no hay pantalla; los brackets se
     crean y después solo se ven las órdenes sueltas.
-30. **Endpoints huérfanos sin consumidor en el front** — ⚠️ **relevado de nuevo el 2026-08-31
+29. **Endpoints huérfanos sin consumidor en el front** — ⚠️ **relevado de nuevo el 2026-08-31
     contra la app montada**, porque la lista anterior tenía ocho entradas que YA NO EXISTEN
     (una lista de huérfanos que envejece se convierte en la propia basura que denuncia).
     - **Se dieron de baja desde aquel relevamiento** (ya no hay nada que borrar):
@@ -2964,86 +2961,86 @@ Ordenados por qué tan accionables son. Lo que dice **SIN VERIFICAR** no se pudo
     - **Siguen vivos y siguen sin consumidor**: `/api/risk/account/positions`,
       `/api/titulos/assets`, `/api/valuaciones/{id}/posiciones` (legacy, con proxy y todo),
       `/api/manager/status`.
-31. **`PATCH /api/derivados/agro/pizarra/{commodity}` es huérfano en la práctica**: funciona en el
+30. **`PATCH /api/derivados/agro/pizarra/{commodity}` es huérfano en la práctica**: funciona en el
     backend, **no hay proxy Next**, y `PizarraRow` es read-only con tooltip "Editable en la tab Datos".
     El parámetro `canEdit` se pasa hasta el componente y no se usa.
-32. ~~`PATCH /api/manager/ons/sector`~~ — **resuelto por borrado**: el router `ons.py` entero se
+31. ~~`PATCH /api/manager/ons/sector`~~ — **resuelto por borrado**: el router `ons.py` entero se
     eliminó con el sub-tab BONOS. El costo es que reclasificar el sector de una ON dejó de tener
     pantalla (ver §4.2).
-33. **`valuacion_mensual_debug`** existe en el service (audita `flujos_detalle` + el cashflow exacto del
+32. **`valuacion_mensual_debug`** existe en el service (audita `flujos_detalle` + el cashflow exacto del
     XIRR, reproducible con TIR.NO.PER) y **no está expuesto** por ningún router.
-34. **El dato del CANJE** sigue vivo en `/api/analitica/canje` pero **el recuadro se quitó de la HOME** el
+33. **El dato del CANJE** sigue vivo en `/api/analitica/canje` pero **el recuadro se quitó de la HOME** el
     2026-07-24 — hoy no tiene UI.
-35. **`GET /senebis/ops` acepta `especie` (ILIKE contiene)** y **no hay control en la UI** que lo emita.
-36. **`GET /api/manager/latencia` acepta `top` (1–200)** y la UI no lo expone.
-37. **`GET /api/news` soporta `desde`/`hasta`/`fuente`/`keyword`/`skip`** y el panel de HOME **no expone
+34. **`GET /senebis/ops` acepta `especie` (ILIKE contiene)** y **no hay control en la UI** que lo emita.
+35. **`GET /api/manager/latencia` acepta `top` (1–200)** y la UI no lo expone.
+36. **`GET /api/news` soporta `desde`/`hasta`/`fuente`/`keyword`/`skip`** y el panel de HOME **no expone
     ninguno** (solo categoría; el filtro de fuente es client-side sobre las 150 que ya bajaron).
-38. **`jobs/snapshot_sinteticos` materializa `mercado.snapshots_sinteticos` todos los días** y **la vista
+37. **`jobs/snapshot_sinteticos` materializa `mercado.snapshots_sinteticos` todos los días** y **la vista
     `/sinteticos` no lee ese histórico**, solo el live.
 
 ### 7.4 Inconsistencias de cálculo / semántica (pueden confundir al usuario)
 
-39. **"PNL TOTAL" significa dos cosas distintas dentro de la MISMA vista `/valuaciones`**: en PNL TÍTULOS
+38. **"PNL TOTAL" significa dos cosas distintas dentro de la MISMA vista `/valuaciones`**: en PNL TÍTULOS
     la UI calcula `no_realizado + pasivo` y **excluye el realizado** a propósito; en TOTALES suma
     `no_realizado + pasivo + realizado_dia`.
-40. **Bonos Off Shore: `argy.py` sí ancla contra `mercado.eikon_cierres` pero `briefing.py` manda
+39. **Bonos Off Shore: `argy.py` sí ancla contra `mercado.eikon_cierres` pero `briefing.py` manda
     `ret_wtd`/`ret_mtd` hardcodeados a `None`** → el mismo dato existe en una superficie y no en la otra.
-41. **El front usa `30/90` como fallback de los umbrales de estado comercial, cuando el default real del
+40. **El front usa `30/90` como fallback de los umbrales de estado comercial, cuando el default real del
     backend es `45/90`.** En la práctica el backend siempre los devuelve, pero la constante está mal.
-42. **`sensibilidad-retorno` y `simular-inversion` devuelven `{"error": …}` con HTTP 200** ante input
+41. **`sensibilidad-retorno` y `simular-inversion` devuelven `{"error": …}` con HTTP 200** ante input
     inválido; el front chequea `j.error` a mano en vez de confiar en el status.
-43. **Los pivots se calculan dos veces** (backend en `/pivots`, frontend en `calcPivots` al editar
+42. **Los pivots se calculan dos veces** (backend en `/pivots`, frontend en `calcPivots` al editar
     máx/mín/cierre). Si las fórmulas divergieran, el chart mostraría líneas distintas a las cards.
-44. **Breakevens filtra a 2026 hardcodeado en el frontend** (el backend devuelve todos): cambiar de año
+43. **Breakevens filtra a 2026 hardcodeado en el frontend** (el backend devuelve todos): cambiar de año
     exige tocar el componente.
-45. **El front hardcodea `curva=soberanos`** en RESEARCH → ANÁLISIS SENSIBILIDAD aunque el endpoint
+44. **El front hardcodea `curva=soberanos`** en RESEARCH → ANÁLISIS SENSIBILIDAD aunque el endpoint
     acepta el parámetro.
-46. **La barra de DÓLAR MEP dice "refresca cada 2s"** y los intervalos reales son 5s y 60s.
-47. **La fila `dispo` del Pase Agro devuelve `#N/A` en las 4 columnas numéricas** por hardcodeo del
+45. **La barra de DÓLAR MEP dice "refresca cada 2s"** y los intervalos reales son 5s y 60s.
+46. **La fila `dispo` del Pase Agro devuelve `#N/A` en las 4 columnas numéricas** por hardcodeo del
     frontend — no es un problema de datos.
-48. **Dos de los tres "Dólares de Referencia" de Agro son automáticos** pero el PATCH acepta los tres:
+47. **Dos de los tres "Dólares de Referencia" de Agro son automáticos** pero el PATCH acepta los tres:
     escribir `dolar_matba` o `bna_comprador_t1` queda tapado en la próxima lectura.
-49. **`snapshot-live` pierde los timestamps individuales** de sus 3 bloques: la UI muestra un solo
+48. **`snapshot-live` pierde los timestamps individuales** de sus 3 bloques: la UI muestra un solo
     "actualizado a las HH:MM:SS" aunque forwards y breakevens vengan de un cache de 30s.
-50. **`/ons` solo muestra ONs con volumen operado HOY**: una ON del maestro sin trades del día desaparece
+49. **`/ons` solo muestra ONs con volumen operado HOY**: una ON del maestro sin trades del día desaparece
     de la tabla y del scatter (aunque puede seguir en el CALENDARIO).
-51. **El scatter de ONs esconde outliers** (mediana ± 5·MAD) — se avisa al pie, pero un dato roto queda
+50. **El scatter de ONs esconde outliers** (mediana ± 5·MAD) — se avisa al pie, pero un dato roto queda
     invisible en el gráfico.
-52. **El proxy de Contrapartes baja 2 años fijos** y los inputs Desde/Hasta filtran **client-side** dentro
+51. **El proxy de Contrapartes baja 2 años fijos** y los inputs Desde/Hasta filtran **client-side** dentro
     de lo que ya bajó: no hay control real del usuario sobre la ventana.
-53. **`Directo` y `DEVA` de FUTUROS ROFEX se calculan en el cliente**, y `DEVA` compara contra la fila
+52. **`Directo` y `DEVA` de FUTUROS ROFEX se calculan en el cliente**, y `DEVA` compara contra la fila
     anterior de la tabla ya ordenada → la primera fila siempre da `—`.
-54. **El grupo "Monedas" de la watchlist es código muerto**: el mapeo existe pero `SUBGRUPOS_GLOBALES` no
+53. **El grupo "Monedas" de la watchlist es código muerto**: el mapeo existe pero `SUBGRUPOS_GLOBALES` no
     lo incluye.
 
 ### 7.5 Deuda / residuos
 
-55. **`operaciones.triggers_mep` es una tabla huérfana** y `docs/API.md` documenta 3 endpoints y un
+54. **`operaciones.triggers_mep` es una tabla huérfana** y `docs/API.md` documenta 3 endpoints y un
     scanner asyncio que **no existen** en el código.
-56. **`api/services/_cuentas_filter.py` sigue devolviendo sub-docs `$match` de Mongo** y su docstring
+55. **`api/services/_cuentas_filter.py` sigue devolviendo sub-docs `$match` de Mongo** y su docstring
     habla de `Cuentas.AccionistasAPI`; ninguna vista de operaciones lo usa.
-57. **`import_tenencia.py` conserva `_Row`/`_ImportReq` sin usar** (residuo del endpoint que escribía la
+56. **`import_tenencia.py` conserva `_Row`/`_ImportReq` sin usar** (residuo del endpoint que escribía la
     colección Mongo `Valuaciones.AuM`).
-58. **`operaciones.accounts_descubiertas`** es vestigial (el job que la llenaba fue eliminado).
-59. **Residuos de Mongo** en comentarios/código: `market_sql._fix_tz`, el docstring "flag NEWS_SQL",
+57. **`operaciones.accounts_descubiertas`** es vestigial (el job que la llenaba fue eliminado).
+58. **Residuos de Mongo** en comentarios/código: `market_sql._fix_tz`, el docstring "flag NEWS_SQL",
     `valuaciones.py:151` ("Mongo stores fechas como strings"), y los selectores `_motor()`/`_engine` y
     flags `*_SQL` del Tablero Comercial.
-60. **`mercado.breakevens_overrides` se crea con `CREATE TABLE IF NOT EXISTS` en runtime** desde el
+59. **`mercado.breakevens_overrides` se crea con `CREATE TABLE IF NOT EXISTS` en runtime** desde el
     service: no depende de `sql/schema.sql`.
-61. ~~**`PATCH /api/manager/assets/{unidad}` está marcado DEPRECATED**~~ — **ya no existe**
+60. ~~**`PATCH /api/manager/assets/{unidad}` está marcado DEPRECATED**~~ — **ya no existe**
     (verificado 2026-08-31): quedó solo `PATCH /api/manager/assets`, que era el que delegaba.
     Rompía con caracteres especiales URL-encoded.
-62. **Los docstrings de los routers de Research dicen "JAMÁS invitado"** cuando
+61. **Los docstrings de los routers de Research dicen "JAMÁS invitado"** cuando
     `DEFAULT_MATRIX["invitado"]` **sí** incluye `research` desde el 2026-07-21. (Son 4:
     `research1816`, `research_bcra`, `research_fred`, `research_docs`.)
-63. **`trading-view.tsx:672` sigue consumiendo `/api/research1816/reuters`** desde la vista Trading, así
+62. **`trading-view.tsx:672` sigue consumiendo `/api/research1816/reuters`** desde la vista Trading, así
     que un usuario con `trading` y sin `research` ve esos KPIs vacíos.
-64. **El estado de `POST /jobs/run` vive en un dict in-process** → se pierde al reiniciar `api.service`.
-65. **`/back-office` abre en la 2ª tab**: la barra pinta `Senebis` primero pero el default persistido es
+63. **El estado de `POST /jobs/run` vive en un dict in-process** → se pierde al reiniciar `api.service`.
+64. **`/back-office` abre en la 2ª tab**: la barra pinta `Senebis` primero pero el default persistido es
     `tenencia`.
-66. **Los dropdowns del nav son 100 % CSS** (`group-hover`, sin estado React) → sin cierre con Esc ni
+65. **Los dropdowns del nav son 100 % CSS** (`group-hover`, sin estado React) → sin cierre con Esc ni
     navegación por teclado.
-67. **`/trade-lab` se menciona en comentarios del código como "vista propia admin-only"** y **no existe en
+66. **`/trade-lab` se menciona en comentarios del código como "vista propia admin-only"** y **no existe en
     el repo**.
 
 ### 7.6 Contradicciones entre relevadores (declaradas, no resueltas)

@@ -1,4 +1,4 @@
--- TradingAV — esquema relacional (Postgres / Supabase) — v2 organizado por dominio.
+-- AcaQuant — esquema relacional (Postgres / Supabase) — v2 organizado por dominio.
 --
 -- Propósito: espejo RELACIONAL del núcleo de negocio (clientes, operaciones,
 -- portafolio, valuaciones) Y de la capa de mercado (Trading.*). Para el núcleo de

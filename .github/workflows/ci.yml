@@ -67,3 +67,10 @@ jobs:
       # `requirements.txt`**, que es lo que corre en el Droplet. AGENT.md §0.en.
       - name: Mapa de la app sincronizado
         run: python -m scripts.gen_mapa_app --check
+
+      # docs/ACAQUANT.md es EL doc oficial. Sus tablas salen de systemd/crontab/
+      # schema.sql y su primera línea lleva fecha + huella del contenido: si alguien
+      # lo editó a mano sin regenerar, la huella no coincide y esto lo frena.
+      # El arreglo es una línea (`python -m scripts.gen_sistema`).
+      - name: Doc oficial sincronizado y estampado
+        run: python -m scripts.gen_sistema --check

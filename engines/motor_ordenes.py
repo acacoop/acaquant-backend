@@ -713,12 +713,26 @@ def main() -> None:
     # suscripciones sobre esta MISMA sesión WS, no una nueva). En thread propio
     # porque puede tardar (una llamada REST por cuenta, paceada) y no debe
     # demorar el arranque del heartbeat ni el procesamiento de ER de la master.
-    _purgar_ordenes_dia()
-    threading.Thread(
-        target=_sincronizar_ordenes_dia,
-        args=(account,),
-        daemon=True,
-    ).start()
+    #
+    # ⚠️ APAGADO POR DEFECTO desde el incidente 2026-09-17: `resolver_cuenta_rofex`
+    # (REST `get_account_report`) contra una cuenta que el broker no reconoce
+    # tira abajo el WS de la master (1839) — no solo `order_report_subscription`.
+    # El filtro por `clientes.comitentes` (tipo/estado) y el guard de
+    # `cuenta_rofex_confirmada` (no suscribir sin confirmar) NO ALCANZAN: el
+    # daño ya ocurre en el PROBING, antes de decidir si se suscribe. Falta
+    # rediseñar esto para resolver las cuentas OFFLINE (fuera de rueda, cache
+    # persistente) en vez de probar contra el broker con la sesión en vivo.
+    # Prender con ORDENES_DIA_SYNC=1 en el .env solo cuando eso esté resuelto.
+    if os.getenv("ORDENES_DIA_SYNC", "").strip() == "1":
+        _purgar_ordenes_dia()
+        threading.Thread(
+            target=_sincronizar_ordenes_dia,
+            args=(account,),
+            daemon=True,
+        ).start()
+    else:
+        logger.info("Órdenes del día: sync de la ALyC DESACTIVADO "
+                     "(ORDENES_DIA_SYNC≠1) — ver nota en main().")
 
     # Heartbeat para monitoreo desde /manager → DIAG.
     threading.Thread(

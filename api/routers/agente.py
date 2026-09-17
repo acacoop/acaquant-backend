@@ -15,10 +15,14 @@ partir de dos de ellos con frescuras distintas.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+import json
+import time
 
-from api.auth import get_user_email, require_admin
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from starlette.responses import StreamingResponse
+
+from api.auth import get_user_email, is_guest_portal, require_admin
 
 router = APIRouter(prefix="/api/agente", tags=["agente"],
                    dependencies=[Depends(require_admin)])
@@ -238,14 +242,96 @@ def correr(body: Correr):
 
 # ── EL LABORATORIO — el asistente (asistente/, docs/AvAgentAI.md) ──────────
 #
-# Síncrono: una pregunta con herramientas tarda segundos y el peor caso queda
-# por debajo del proxy de Vercel.
+# Cada pregunta se encola como run durable; SSE muestra el ciclo sin hacer que
+# la conexión HTTP sea dueña de la ejecución.
 
 class Preguntar(BaseModel):
     pregunta: str = Field(..., min_length=1, max_length=2000)
     # La conversación a la que pertenece. Vacía = empieza una nueva. La memoria
     # y el foco viven en `ia.conversaciones`, no en el navegador.
     sesion: str = Field("", max_length=64)
+
+
+@router.post("/lab/runs")
+def lab_run_crear(body: Preguntar, request: Request,
+                  email: str = Depends(get_user_email)):
+    """Encola una pregunta durable. El resultado llega por SSE o por GET."""
+    from asistente import ejecuciones
+    from core.roles import get_user_role
+
+    return ejecuciones.crear(
+        body.pregunta, usuario=email, rol=get_user_role(email),
+        portal="guest" if is_guest_portal(request) else "trading",
+        sesion=body.sesion or None)
+
+
+@router.get("/lab/runs/{run_id}")
+def lab_run(run_id: str, email: str = Depends(get_user_email)):
+    from asistente import ejecuciones
+
+    run = ejecuciones.obtener(run_id, email)
+    if not run:
+        raise HTTPException(404, "esa ejecución no existe o no es tuya")
+    return run
+
+
+@router.get("/lab/runs/{run_id}/events")
+def lab_run_eventos(run_id: str, request: Request,
+                    email: str = Depends(get_user_email)):
+    """SSE recuperable. Cierra a los 20 s; EventSource reconecta con Last-Event-ID."""
+    from asistente import ejecuciones
+
+    if not ejecuciones.obtener(run_id, email):
+        raise HTTPException(404, "esa ejecución no existe o no es tuya")
+    ultimo_header = request.headers.get("last-event-id", "0")
+    try:
+        ultimo = max(0, int(ultimo_header))
+    except ValueError:
+        ultimo = 0
+
+    def stream():
+        cursor = ultimo
+        inicio = time.monotonic()
+        ultimo_ping = inicio
+        yield "retry: 1000\n\n"
+        while time.monotonic() - inicio < 20:
+            eventos = ejecuciones.eventos_desde(run_id, email, cursor)
+            for evento in eventos:
+                cursor = evento["id"]
+                data = json.dumps(evento, ensure_ascii=False, default=str)
+                yield f"id: {cursor}\ndata: {data}\n\n"
+            run = ejecuciones.obtener(run_id, email)
+            if run and run["estado"] in ejecuciones.TERMINALES:
+                if not eventos:
+                    data = json.dumps({"tipo": "snapshot", "run": run}, ensure_ascii=False,
+                                      default=str)
+                    yield f"data: {data}\n\n"
+                return
+            if time.monotonic() - ultimo_ping >= 5:
+                yield ": ping\n\n"
+                ultimo_ping = time.monotonic()
+            time.sleep(0.5)
+
+    return StreamingResponse(
+        stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
+
+
+@router.post("/lab/runs/{run_id}/cancelar")
+def lab_run_cancelar(run_id: str, email: str = Depends(get_user_email)):
+    from asistente import ejecuciones
+
+    run = ejecuciones.cancelar(run_id, email)
+    if not run:
+        raise HTTPException(404, "esa ejecución no existe o no es tuya")
+    return run
+
+
+@router.get("/lab/metricas/runs")
+def lab_run_metricas(dias: int = 30):
+    from asistente import ejecuciones
+
+    return ejecuciones.metricas(dias)
 
 
 @router.post("/lab/preguntar")

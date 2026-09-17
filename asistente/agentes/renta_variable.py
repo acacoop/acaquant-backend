@@ -92,7 +92,7 @@ qué panel, qué subyacente. Sin importar quién las tenga.
 
 
 def _instruccion(foco: dict) -> str:
-  return COMUN + _INSTRUCCION + EST.como_texto(foco)
+  return COMUN + _INSTRUCCION + EST.como_texto(foco, ("ticker",))
 
 
 AGENTE = Agente(

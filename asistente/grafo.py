@@ -17,11 +17,13 @@ from langgraph.types import Send
 
 from asistente import agente as AGT
 from asistente import control as CTL
+from asistente import ejecutor as EXE
 from asistente import esquema as ESQ
 from asistente import estado as EST
+from asistente import eventos as EV
 from asistente import herramientas as H
 from asistente import junta as JU
-from asistente import memoria, puerta
+from asistente import memoria
 from asistente import ruteo as RUT
 from asistente.agente import Agente
 from asistente.agentes import AGENTES
@@ -48,6 +50,10 @@ class EstadoAgente(TypedDict, total=False):
     foco: dict[str, str]
     pregunta: str
     usuario: str
+    rol: str
+    portal: str
+    run_id: str
+    cuentas: tuple[str, ...]
     sesion: str
     vueltas: Annotated[int, operator.add]
     tokens_in: Annotated[int, operator.add]
@@ -55,6 +61,7 @@ class EstadoAgente(TypedDict, total=False):
     llamadas: Annotated[list[int], operator.add]
     eventos: Annotated[list[dict], operator.add]
     datos: Annotated[list[dict], operator.add]
+    evidencias: Annotated[list[dict], operator.add]
     error: str | None
     respuesta: str | None
     falta: str | None
@@ -62,7 +69,7 @@ class EstadoAgente(TypedDict, total=False):
 
 
 def _evento(agente: Agente, tipo: str, **datos) -> dict:
-    return {"tipo": tipo, "agente": agente.nombre, **datos}
+    return EV.emitir({"tipo": tipo, "agente": agente.nombre, **datos})
 
 
 NO_SALE = (KeyError, modelos.SinClave, modelos.RuteoInseguro)
@@ -78,6 +85,7 @@ def _traza(tarea: str, s: dict) -> Traza:
     """La traza de una llamada de esta tarea. Dato personal: sin extracto de texto."""
     t = modelos.resolver(tarea)
     return Traza(t.nombre, t.modelo, usuario=s.get("usuario"), sesion=s.get("sesion"),
+                 run_id=s.get("run_id"),
                  guardar_texto=not t.datos_personales)
 
 
@@ -124,13 +132,23 @@ def subgrafo(agente: Agente):
     def herramientas(s: EstadoAgente) -> dict:
         ultimo = s["mensajes"][-1]
         foco = dict(s.get("foco") or {})
-        eventos, datos, nuevos = [], [], []
+        eventos, datos, nuevos, evidencias = [], [], [], []
         pedidos = [(tc["id"], tc["name"], tc["args"]) for tc in ultimo.tool_calls]
         pedidos += [(tc["id"], tc["name"], None) for tc in ultimo.invalid_tool_calls]
         for cid, nombre, args in pedidos:
             eventos.append(_evento(agente, "pide", herramienta=nombre, argumentos=args))
-            resultado = _ejecutar(agente, nombre, args)
-            eventos.append(_evento(agente, "resultado", herramienta=nombre, resultado=resultado))
+            contexto = EXE.RunContext(
+                run_id=s.get("run_id") or s["sesion"], usuario=s.get("usuario") or "",
+                rol=s.get("rol") or "admin", portal=s.get("portal") or "trading",
+                cuentas=tuple(s.get("cuentas") or ()),
+            )
+            ejecucion = _ejecutar_detalle(agente, nombre, args, contexto)
+            resultado = ejecucion.resultado
+            evidencias.extend(ejecucion.evidencias)
+            eventos.append(_evento(
+                agente, "resultado", herramienta=nombre, resultado=resultado,
+                acceso=ejecucion.acceso.value if ejecucion.acceso else None,
+                duracion_ms=ejecucion.duracion_ms))
             if agente.foco:
                 nuevo = EST.aprender(foco, args, resultado, claves=agente.foco)
                 if nuevo != foco:
@@ -141,7 +159,8 @@ def subgrafo(agente: Agente):
             nuevos.append(ToolMessage(
                 tool_call_id=cid or "",
                 content=json.dumps(limpio, ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]))
-        return {"mensajes": nuevos, "foco": foco, "eventos": eventos, "datos": datos}
+        return {"mensajes": nuevos, "foco": foco, "eventos": eventos, "datos": datos,
+            "evidencias": evidencias}
 
     def siguiente(s: EstadoAgente) -> str:
         if s.get("error"):
@@ -178,24 +197,16 @@ def subgrafo(agente: Agente):
     return g.compile()
 
 
-def _ejecutar(agente: Agente, nombre: str, args: dict | None) -> dict:
+def _ejecutar_detalle(agente: Agente, nombre: str, args: dict | None,
+                      contexto: EXE.RunContext) -> EXE.ResultadoTool:
+    return EXE.ejecutar(agente, nombre, args, contexto)
+
+
+def _ejecutar(agente: Agente, nombre: str, args: dict | None,
+              contexto: EXE.RunContext | None = None) -> dict:
     """Corre una herramienta del agente. Todo lo que sale mal vuelve como dato."""
-    fn = agente.por_nombre.get(nombre or "")
-    if fn is None:
-        return {"error": f"no existe una herramienta llamada {nombre!r}",
-                "disponibles": sorted(agente.por_nombre)}
-    if args is None:
-        return {"error": "no pude leer tus argumentos: no son un JSON válido",
-                "que_hacer": "Volvé a pedir la herramienta con los argumentos bien armados."}
-    if (corte := puerta.revisar(nombre, args)) is not None:
-        return corte
-    try:
-        return fn(**args)
-    except TypeError as e:
-        return {"error": f"los argumentos no coinciden con la herramienta: {e}"}
-    except Exception as e:
-        logger.warning("asistente: %s reventó (%s)", nombre, e)
-        return {"error": f"la herramienta falló: {type(e).__name__}: {e}"}
+    contexto = contexto or EXE.RunContext.actual(usuario="interno@acaquant")
+    return _ejecutar_detalle(agente, nombre, args, contexto).resultado
 
 
 # ── el grafo principal: ruteo → agentes → junta ──────────────────────────────
@@ -204,6 +215,10 @@ def _ejecutar(agente: Agente, nombre: str, args: dict | None) -> dict:
 class Estado(TypedDict, total=False):
     pregunta: str
     usuario: str
+    rol: str
+    portal: str
+    run_id: str
+    cuentas: tuple[str, ...]
     sesion: str
     historial: list[dict]
     foco: Annotated[dict[str, str], _unir]
@@ -214,6 +229,7 @@ class Estado(TypedDict, total=False):
     tokens_in: Annotated[int, operator.add]
     tokens_out: Annotated[int, operator.add]
     llamadas: Annotated[list[int], operator.add]
+    evidencias: Annotated[list[dict], operator.add]
     mensajes: list[dict]
     respuesta: str | None
     falta: str | None
@@ -227,12 +243,12 @@ _SUBGRAFOS = {n: subgrafo(a) for n, a in AGENTES.items()}
 def preparar(s: Estado) -> dict:
     historial, turnos, msgs = memoria.podar(s.get("historial") or [])
     historial, ahorro = memoria.achicar(historial)
-    eventos = [{"tipo": "pregunta", "texto": s["pregunta"], "sesion": s["sesion"],
-                "herramientas": sorted(H.POR_NOMBRE)}]
+    eventos = [EV.emitir({"tipo": "pregunta", "texto": s["pregunta"], "sesion": s["sesion"],
+                          "herramientas": sorted(H.POR_NOMBRE)})]
     if turnos:
-        eventos.append({"tipo": "podado", "turnos": turnos, "mensajes": msgs})
+        eventos.append(EV.emitir({"tipo": "podado", "turnos": turnos, "mensajes": msgs}))
     if ahorro:
-        eventos.append({"tipo": "achicado", "chars": ahorro})
+        eventos.append(EV.emitir({"tipo": "achicado", "chars": ahorro}))
     return {"historial": historial, "eventos": eventos}
 
 
@@ -271,7 +287,8 @@ def ruteo(s: Estado) -> dict:
 def _ev_ruteo(elegidos, motivo: str) -> dict:
     """El evento del ruteo: a quiénes les tocó y por qué. Siempre dice quién
     decidió (una regla, el modelo, o que no se entendió)."""
-    return {"tipo": "ruteo", "agente": "ruteo", "elegidos": list(elegidos), "motivo": motivo}
+    return EV.emitir({"tipo": "ruteo", "agente": "ruteo", "elegidos": list(elegidos),
+                      "motivo": motivo})
 
 
 def a_agentes(s: Estado) -> list[Send] | str:
@@ -301,7 +318,10 @@ def nodo_agente(nombre: str):
             "mensajes": memoria.desde_dicts(propio) + [HumanMessage(content=s["pregunta"])],
             "foco": dict(s.get("foco") or {}),
             "pregunta": s["pregunta"], "usuario": s["usuario"], "sesion": s["sesion"],
+            "rol": s.get("rol") or "admin", "portal": s.get("portal") or "trading",
+            "run_id": s.get("run_id") or s["sesion"], "cuentas": tuple(s.get("cuentas") or ()),
             "vueltas": 0, "tokens_in": 0, "tokens_out": 0, "llamadas": [], "eventos": [], "datos": [],
+            "evidencias": [],
         })
         # Lo nuevo de este agente, sin la pregunta (la agrega `finalizar`, una vez).
         nuevos = memoria.a_dicts(list(r["mensajes"])[len(propio) + 1:])
@@ -321,6 +341,7 @@ def nodo_agente(nombre: str):
             "vueltas": r.get("vueltas", 0),
             "tokens_in": r.get("tokens_in", 0), "tokens_out": r.get("tokens_out", 0),
             "llamadas": r.get("llamadas") or [],
+            "evidencias": r.get("evidencias") or [],
         }
 
     return correr
@@ -356,8 +377,8 @@ def junta(s: Estado) -> dict:
     return {"respuesta": leido["respuesta"], "falta": leido["falta"], "error": None,
             "vueltas": 1, "tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
             "llamadas": list(tr.ids),
-            "eventos": [{"tipo": "junta", "agente": "junta", "agentes": orden},
-                        {"tipo": "texto", "agente": "junta", "texto": leido["respuesta"]}],
+            "eventos": [EV.emitir({"tipo": "junta", "agente": "junta", "agentes": orden}),
+                        EV.emitir({"tipo": "texto", "agente": "junta", "texto": leido["respuesta"]})],
             # Al historial va solo la respuesta de la junta: su entrada (los
             # datos de todos los agentes) no es un turno de la conversación.
             "salidas": {"junta": {"mensajes": memoria.a_dicts([msg]),
@@ -385,11 +406,12 @@ def finalizar(s: Estado) -> dict:
     contexto = memoria.contexto(mensajes)
     for c in crudos:
         contexto = contexto.replace(c, "")
-    control = CTL.revisar(s.get("respuesta"), contexto=contexto, pregunta=s["pregunta"])
+    control = CTL.revisar(s.get("respuesta"), contexto=contexto, pregunta=s["pregunta"],
+                          evidencias=s.get("evidencias") or [])
     return {"mensajes": mensajes, "control": control}
 
 
-def _armar():
+def _armar(checkpointer=None):
     g = StateGraph(Estado)
     g.add_node("preparar", preparar)
     g.add_node("ruteo", ruteo)
@@ -404,7 +426,7 @@ def _armar():
         g.add_edge(nombre, "junta")
     g.add_edge("junta", "finalizar")
     g.add_edge("finalizar", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
 
 
 GRAFO = _armar()
@@ -416,16 +438,30 @@ def sesion_valida(pedida: str | None) -> str:
 
 
 def preguntar(pregunta: str, *, usuario: str, historial: list[dict] | None = None,
-              estado: dict | None = None, sesion: str | None = None) -> dict[str, Any]:
+              estado: dict | None = None, sesion: str | None = None,
+              rol: str = "admin", portal: str = "trading", run_id: str | None = None,
+              grafo_compilado=None) -> dict[str, Any]:
     """Una pregunta de punta a punta. Nunca levanta: los errores vuelven en `error`."""
+    run = run_id or uuid.uuid4().hex
     entrada: Estado = {
         "pregunta": pregunta, "usuario": usuario, "sesion": sesion_valida(sesion),
+        "rol": rol, "portal": portal, "run_id": run,
+        "cuentas": tuple(EXE.RunContext.actual(run_id=run, usuario=usuario, rol=rol,
+                                                portal=portal).cuentas),
         "historial": list(historial or []), "foco": EST.sanear(estado),
         "agentes": [], "salidas": {}, "eventos": [], "vueltas": 0,
-        "tokens_in": 0, "tokens_out": 0, "llamadas": [],
+        "tokens_in": 0, "tokens_out": 0, "llamadas": [], "evidencias": [],
     }
     try:
-        r = GRAFO.invoke(entrada)
+        ejecutable = grafo_compilado or GRAFO
+        config = {"configurable": {"thread_id": run}}
+        snapshot = ejecutable.get_state(config) if grafo_compilado is not None else None
+        if snapshot and snapshot.values and not snapshot.next:
+            r = snapshot.values
+        else:
+            r = ejecutable.invoke(None if snapshot and snapshot.next else entrada, config=config)
+    except EV.CancelacionSolicitada:
+        raise
     except Exception as e:
         logger.exception("asistente: el grafo reventó")
         return {**_salida(entrada), "error": f"El asistente falló: {type(e).__name__}: {e}",
@@ -448,4 +484,6 @@ def _salida(r: dict) -> dict:
         "sesion": r.get("sesion"),
         "agentes": list(r.get("agentes") or []),
         "eventos": list(r.get("eventos") or []),
+        "evidencias": list(r.get("evidencias") or []),
+        "run_id": r.get("run_id"),
     }

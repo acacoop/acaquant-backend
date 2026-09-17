@@ -14,7 +14,7 @@
 #      y no toca datos del negocio: los DROP que hay son de vistas que se rehacen
 #      abajo y de columnas/tablas que el código dejó de usar, declarados en el
 #      mismo archivo. Se puede saltear con --sin-schema.
-#   3. restart api.service + agente.service. Los MOTORES no se tocan.
+#   3. restart api.service + agente.service + asistente-worker.service. Los MOTORES no se tocan.
 #   4. Smoke — pega a /api/health local y muestra el estado del service.
 #
 # ⚠️ **LOS MOTORES NO SE REINICIAN** (regla del user, 2026-08-18: «no puedo estar
@@ -105,6 +105,15 @@ else
     git log --oneline "$ANTES..$DESPUES" | sed 's/^/     /'
 fi
 
+# Dependencia directa nueva del worker durable. No se corre `pip install` en
+# cada deploy: solo cuando el import falta, y en ese caso se instala el lock
+# completo para que pip respete el conjunto conocido del repositorio.
+if ! "$PY" -c "from langgraph.checkpoint.postgres import PostgresSaver" >/dev/null 2>&1; then
+    echo "   instalando dependencias del lock (falta checkpointer PostgreSQL)"
+    "$PY" -m pip install -r requirements.txt \
+        || morir "instalar requirements.txt — los servicios NO se reiniciaron"
+fi
+
 # ── 2. Schema ───────────────────────────────────────────────────────────────
 echo
 if [ "$CON_SCHEMA" = "1" ]; then
@@ -139,16 +148,32 @@ reiniciar_agente() {
     fi
 }
 
+reiniciar_asistente_worker() {
+    local unit_src="$REPO/deploy/systemd/asistente-worker.service"
+    local unit_dst="/etc/systemd/system/asistente-worker.service"
+    if [ ! -f "$unit_dst" ] || ! cmp -s "$unit_src" "$unit_dst"; then
+        install -m 644 "$unit_src" "$unit_dst" \
+            || morir "instalar asistente-worker.service"
+        systemctl daemon-reload || morir "systemctl daemon-reload"
+        systemctl enable asistente-worker.service \
+            || morir "habilitar asistente-worker.service"
+    fi
+    systemctl restart asistente-worker.service \
+        || morir "reiniciar asistente-worker.service — mirá 'journalctl -u asistente-worker.service -n 50'"
+}
+
 # ── 3. Servicios ────────────────────────────────────────────────────────────
 echo
 if [ "$CON_MOTORES" = "1" ]; then
     echo "▶ 3/4  restart api.service + MOTORES ACTIVOS (--con-motores)"
     bash deploy/restart_all.sh || morir "restart_all.sh — mirá 'journalctl -u api.service -n 50'"
     reiniciar_agente
+    reiniciar_asistente_worker
 else
-    echo "▶ 3/4  restart api.service + agente.service (los motores NO se tocan)"
+    echo "▶ 3/4  restart api.service + agente.service + asistente-worker.service (los motores NO se tocan)"
     systemctl restart api.service || morir "systemctl restart api.service — mirá 'journalctl -u api.service -n 50'"
     reiniciar_agente
+    reiniciar_asistente_worker
 
     # ¿El código nuevo toca a los motores? Se AVISA, no se actúa. Un motor
     # reiniciado en rueda corta el feed de la mesa, y esa es una decisión de

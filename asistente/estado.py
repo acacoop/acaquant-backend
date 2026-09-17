@@ -49,10 +49,11 @@ def aprender(estado: dict[str, str], args: dict | None, resultado,
     return {**estado, **delta}
 
 
-def como_texto(estado: dict[str, str]) -> str:
+def como_texto(estado: dict[str, str], claves: tuple[str, ...] | None = None) -> str:
     """El renglón que va al final de la instrucción. Solo el dato; la regla de
     qué hacer con él vive en la instrucción."""
-    if not estado:
+    visible = estado if claves is None else {k: estado[k] for k in claves if k in estado}
+    if not visible:
         return ""
-    pares = ", ".join(f"{k} = {v}" for k, v in estado.items())
+    pares = ", ".join(f"{k} = {v}" for k, v in visible.items())
     return f"En foco por las preguntas anteriores: {pares}.\n"

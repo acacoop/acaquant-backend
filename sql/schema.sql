@@ -3599,11 +3599,13 @@ ALTER TABLE ia.llamadas DROP COLUMN IF EXISTS feedback;
 -- `asistente/panel.conversacion()`, que la tab LAB muestra en cada respuesta
 -- (docs/AGENT.md §0.fl). Solo el asistente lo escribe; el resto queda NULL.
 ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS sesion text;
+ALTER TABLE ia.llamadas ADD COLUMN IF NOT EXISTS run_id text;
 -- CONCURRENTLY: no bloquea las escrituras de la tabla mientras se construye
 -- (apply_schema corre cada statement con autocommit, que es lo que exige).
 -- Nadie midió el tamaño de `ia.llamadas` antes de este deploy, y así no hace
 -- falta: cuesta lo mismo sobre una tabla chica y no muerde sobre una grande.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ia_llamadas_sesion_ts ON ia.llamadas (sesion, ts) WHERE sesion IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ia_llamadas_run_ts ON ia.llamadas (run_id, ts) WHERE run_id IS NOT NULL;
 
 -- LAS CONVERSACIONES DEL ASISTENTE (asistente/sesiones.py). Una fila por
 -- conversación, con dueño. `memoria` es lo que ve el modelo (podado a 8
@@ -3623,6 +3625,59 @@ CREATE TABLE IF NOT EXISTS ia.conversaciones (
     actualizada_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_ia_conversaciones_usuario ON ia.conversaciones (usuario, actualizada_at DESC);
+
+-- UNA PREGUNTA EN EJECUCIÓN. No reemplaza la conversación ni el checkpoint:
+-- es el contrato estable que consulta el producto para estado, cancelación,
+-- resultado y métricas. Las tablas internas `checkpoints*` las crea y migra
+-- `langgraph-checkpoint-postgres` dentro de `ia`; no se consultan desde la app.
+CREATE TABLE IF NOT EXISTS ia.ejecuciones (
+    run_id               text PRIMARY KEY,
+    sesion               text NOT NULL,
+    usuario              text NOT NULL,
+    rol                  text NOT NULL,
+    portal               text NOT NULL,
+    pregunta             text NOT NULL,
+    estado               text NOT NULL DEFAULT 'queued'
+                         CHECK (estado IN ('queued', 'running', 'waiting_approval',
+                                           'succeeded', 'failed', 'cancel_requested',
+                                           'cancelled', 'timed_out')),
+    resultado            jsonb,
+    error                text,
+    intentos             integer NOT NULL DEFAULT 0,
+    creada_at            timestamptz NOT NULL DEFAULT now(),
+    iniciada_at          timestamptz,
+    finalizada_at        timestamptz,
+    actualizada_at       timestamptz NOT NULL DEFAULT now(),
+    cancel_solicitada_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_usuario ON ia.ejecuciones (usuario, creada_at DESC);
+CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_estado ON ia.ejecuciones (estado, creada_at);
+CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_sesion ON ia.ejecuciones (sesion, creada_at);
+
+-- Append-only. `id` es también el Last-Event-ID de SSE: basta pedir `id > N`
+-- para reconectar sin duplicar eventos, aun con agentes paralelos.
+CREATE TABLE IF NOT EXISTS ia.eventos_ejecucion (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    run_id     text NOT NULL REFERENCES ia.ejecuciones(run_id) ON DELETE CASCADE,
+    ts         timestamptz NOT NULL DEFAULT now(),
+    tipo       text NOT NULL,
+    agente     text,
+    payload    jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_ia_eventos_run_id ON ia.eventos_ejecucion (run_id, id);
+
+CREATE TABLE IF NOT EXISTS ia.evidencias (
+    run_id      text NOT NULL REFERENCES ia.ejecuciones(run_id) ON DELETE CASCADE,
+    ref         text NOT NULL,
+    herramienta text NOT NULL,
+    acceso      text NOT NULL,
+    sujeto      text NOT NULL,
+    fecha       text,
+    ruta        text NOT NULL,
+    campos      jsonb NOT NULL,
+    creada_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (run_id, ref)
+);
 
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_ts         ON ia.llamadas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_llamadas_tarea_ts   ON ia.llamadas (tarea, ts);

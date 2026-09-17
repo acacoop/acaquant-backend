@@ -12,6 +12,7 @@ TOLERANCIA_MINIMA = 0.51
 MAX_A_MOSTRAR = 8
 
 _RE_NUMERO = re.compile(r"-?\d[\d.,]*\d|-?\d")
+_RE_EVIDENCIA = re.compile(r"\[E:([0-9a-f]{12}):([A-Za-z0-9_.]+)\]")
 
 
 def _lecturas(token: str) -> set[float]:
@@ -69,7 +70,52 @@ def numeros_fundados(respuesta: str, contexto: str, pregunta: str) -> list[dict]
 CONTROLES = (numeros_fundados,)
 
 
-def revisar(respuesta: str | None, *, contexto: str, pregunta: str) -> dict:
+def evidencia_fundada(respuesta: str, evidencias: list[dict]) -> list[dict]:
+    """Las citas tienen que existir y corresponder al sujeto y campo nombrados."""
+    if not evidencias:
+        return []
+    por_ref = {e.get("ref"): e for e in evidencias if isinstance(e, dict) and e.get("ref")}
+    citas = list(_RE_EVIDENCIA.finditer(respuesta or ""))
+    hallazgos: list[dict] = []
+    sin_citas = _RE_EVIDENCIA.sub("", respuesta or "")
+    numeros_importantes = [token for token, valores in numeros(sin_citas)
+                           if not all(abs(v) <= ENTEROS_LIBRES and float(v).is_integer()
+                                      for v in valores)]
+    if numeros_importantes and not citas:
+        hallazgos.append({
+            "control": "evidencia_fundada",
+            "que_paso": "la respuesta usa números importantes sin citar su evidencia",
+            "detalle": numeros_importantes[:MAX_A_MOSTRAR],
+            "cuantos": len(numeros_importantes),
+        })
+        return hallazgos
+    invalidas: list[str] = []
+    atribuciones: list[str] = []
+    for cita in citas:
+        ref, campo = cita.groups()
+        evidencia = por_ref.get(ref)
+        if evidencia is None or campo not in (evidencia.get("campos") or {}):
+            invalidas.append(cita.group(0))
+            continue
+        sujeto = str(evidencia.get("sujeto") or "general")
+        contexto_cita = respuesta[max(0, cita.start() - 180):cita.start()].casefold()
+        if sujeto != "general" and sujeto.casefold() not in contexto_cita:
+            atribuciones.append(f"{cita.group(0)} esperaba sujeto {sujeto}")
+    if invalidas:
+        hallazgos.append({
+            "control": "evidencia_fundada", "que_paso": "hay referencias que no existen o no tienen ese campo",
+            "detalle": invalidas[:MAX_A_MOSTRAR], "cuantos": len(invalidas),
+        })
+    if atribuciones:
+        hallazgos.append({
+            "control": "evidencia_fundada", "que_paso": "la evidencia no coincide con el sujeto atribuido",
+            "detalle": atribuciones[:MAX_A_MOSTRAR], "cuantos": len(atribuciones),
+        })
+    return hallazgos
+
+
+def revisar(respuesta: str | None, *, contexto: str, pregunta: str,
+            evidencias: list[dict] | None = None) -> dict:
     """Pasa la respuesta por todos los controles. Nunca levanta."""
     if not respuesta:
         return {"ok": True, "hallazgos": []}
@@ -83,4 +129,12 @@ def revisar(respuesta: str | None, *, contexto: str, pregunta: str) -> dict:
                 "que_paso": f"el control falló: {type(e).__name__}: {e}",
                 "detalle": [], "cuantos": 0,
             })
+    try:
+        hallazgos += evidencia_fundada(respuesta, evidencias or [])
+    except Exception as e:
+        hallazgos.append({
+            "control": "evidencia_fundada",
+            "que_paso": f"el control falló: {type(e).__name__}: {e}",
+            "detalle": [], "cuantos": 0,
+        })
     return {"ok": not hallazgos, "hallazgos": hallazgos}

@@ -100,7 +100,7 @@ tienen, qué vencimientos hay. Sin importar quién los tenga.
 
 
 def _instruccion(foco: dict) -> str:
-  return COMUN + _INSTRUCCION + EST.como_texto(foco)
+  return COMUN + _INSTRUCCION + EST.como_texto(foco, ("ticker",))
 
 
 AGENTE = Agente(

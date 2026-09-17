@@ -58,12 +58,15 @@ def test_solo_el_agente_cuenta_ve_datos_del_negocio_y_aprende_el_foco():
 
 
 def test_el_agente_de_cada_herramienta_se_declara_y_los_dos_se_excluyen():
+    from asistente import ejecutor as EXE
     from asistente import herramientas as H
     from asistente.agentes import AGENTES
 
     assert set(H.TODAS) == {f for a in AGENTES.values() for f in a.herramientas}
     assert not set(AGENTES["cartera"].herramientas) & set(AGENTES["renta_fija"].herramientas)
     assert len(H.POR_NOMBRE) == len(H.TODAS), "dos herramientas con el mismo nombre"
+    assert set(EXE.ACCESO_POR_TOOL) == set(H.POR_NOMBRE), (
+        "cada tool tiene que declarar exactamente una clase de acceso")
     for fn in AGENTES["cartera"].herramientas:
         p = inspect.signature(fn).parameters.get("cuenta")
         assert p is not None and p.default is inspect._empty, f"`{fn.__name__}`: cuenta obligatoria"
@@ -350,6 +353,57 @@ def test_financiamiento_filtra_plazo_y_oculta_serie_si_no_se_pide():
     assert [f["plazo_dias"] for f in caucion["cauciones"]] == [7]
     assert tasa["actual"] == 30.0 and tasa["puntos_serie"] == 1
     assert "serie" not in tasa
+
+
+def test_el_ejecutor_valida_y_autoriza_antes_de_invocar(permiso):
+    from asistente import ejecutor as EXE
+    from asistente.agentes import AGENTES
+
+    admin = EXE.RunContext.actual(usuario="admin@acaquant", rol="admin")
+    guest = EXE.RunContext.actual(usuario="guest:x@acaquant", rol="invitado", portal="guest")
+    with patch("api.services.scanner_sql.get_cedears_scanner") as servicio:
+        invalido = EXE.ejecutar(AGENTES["renta_variable"], "panel_cedears", {"top": "muchos"}, admin)
+        bloqueado = EXE.ejecutar(AGENTES["renta_variable"], "panel_cedears", {}, guest)
+    assert "schema" in invalido.resultado["error"]
+    assert "portal" in bloqueado.resultado["error"]
+    servicio.assert_not_called()
+
+
+def test_una_cuenta_opcional_omitida_no_se_interpreta_como_cuenta_prohibida(permiso):
+    from asistente import ejecutor as EXE
+    from asistente.agentes import AGENTES
+
+    contexto = EXE.RunContext.actual(usuario="admin@acaquant", rol="admin")
+    respuesta = {"filas": [], "total": 0, "desde": "2026-09-01", "hasta": "2026-09-16"}
+    with patch("api.services.operaciones_sql.ops_consolidado", return_value=respuesta) as servicio:
+        ejecutada = EXE.ejecutar(AGENTES["operaciones"], "resumen_operaciones", {}, contexto)
+    assert "error" not in ejecutada.resultado
+    servicio.assert_called_once()
+
+
+def test_el_ejecutor_genera_evidencia_por_sujeto_y_campo(permiso):
+    from asistente import ejecutor as EXE
+    from asistente.agentes import AGENTES
+
+    filas = [{"ticker_corto": "AL30", "last": 123.4, "updated_at": "2026-09-16T15:00:00Z"}]
+    contexto = EXE.RunContext.actual(usuario="admin@acaquant", rol="admin")
+    with patch("api.services.scanner_sql.get_cedears_scanner", return_value=filas):
+        ejecutada = EXE.ejecutar(
+            AGENTES["renta_variable"], "panel_cedears", {"ticker": "AL30"}, contexto)
+    evidencia = next(e for e in ejecutada.evidencias if e["sujeto"] == "AL30")
+    assert evidencia["campos"]["last"] == 123.4
+    assert evidencia["fecha"] == "2026-09-16T15:00:00Z"
+
+
+def test_el_control_detecta_una_evidencia_atribuida_a_otro_instrumento():
+    from asistente import control
+
+    evidencia = {"ref": "a1b2c3d4e5f6", "sujeto": "GD30",
+                 "campos": {"tea_pct": 10.2}}
+    r = control.revisar(
+        "AL30 tiene una TEA de 10,2% [E:a1b2c3d4e5f6:tea_pct]",
+        contexto="AL30 GD30 10,2", pregunta="¿qué TEA tiene AL30?", evidencias=[evidencia])
+    assert any("sujeto" in h["que_paso"] for h in r["hallazgos"])
 
 
 def _posiciones_805():
@@ -1307,7 +1361,8 @@ def test_la_traza_escribe_una_fila_por_llamada_con_sesion_y_cache():
         tr.on_llm_error(RuntimeError("500"), run_id=uuid4())
     assert tr.ids == [42, 42]
     fila = cur.execute.call_args_list[0].args[1]
-    assert fila[0:3] == ("asistente_cartera", "gpt-x", "u") and fila[-1] == "s1"
+    assert fila[0:3] == ("asistente_cartera", "gpt-x", "u")
+    assert fila[-2:] == ("s1", None)
     assert (fila[3], fila[4], fila[6]) == (100, 5, True) and fila[8] == "qué hay"
     assert (fila[10], fila[11]) == (80, 20), "caché: leído y no leído"
     error = cur.execute.call_args_list[1].args[1]
@@ -1378,9 +1433,17 @@ def _correr(pregunta, ruteo="renta_fija", pide=None, **kw):
     from core import modelos
 
     with patch.object(modelos, "modelo", _proveedor(ruteo, pide)), \
-         patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a) if n in ag.por_nombre
-                      else {"error": "no existe"}):
+         patch.object(grafo, "_ejecutar_detalle", _ejecucion_falsa):
         return grafo.preguntar(pregunta, usuario="t", **kw)
+
+
+def _ejecucion_falsa(agente, nombre, args, contexto):
+    from asistente import ejecutor as EXE
+
+    resultado = (_TOOLS[nombre](**args) if nombre in _TOOLS
+                 else {"ok": 1} if nombre in agente.por_nombre
+                 else {"error": "no existe"})
+    return EXE.ResultadoTool(resultado, args, EXE.acceso_de(nombre), 0)
 
 
 def test_una_pregunta_de_un_agente_corre_solo_ese_agente(permiso):
@@ -1450,7 +1513,7 @@ def test_cada_agente_ve_del_historial_solo_lo_suyo(permiso):
         return m
 
     with patch.object(modelos, "modelo", espia), \
-         patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):
+         patch.object(grafo, "_ejecutar_detalle", _ejecucion_falsa):
         grafo.preguntar("¿y qué bono CER rinde más que lo que tengo a 12 meses?", usuario="t",
                         historial=r["mensajes"], estado=r["estado"], sesion=r["sesion"])
     primera_mercado = visto["asistente_renta_fija"][0]
@@ -1491,7 +1554,7 @@ def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
                  "id": f"c{len(mensajes)}", "type": "tool_call"}])
 
     with patch.object(modelos, "modelo", lambda tarea, **kw: Insistente("mercado", tarea, None)), \
-         patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):
+         patch.object(grafo, "_ejecutar_detalle", _ejecucion_falsa):
         r = grafo.preguntar("¿qué hay?", usuario="t")
     assert r["error"] and "vueltas" in r["error"]
     pedidos = {tc["id"] for m in r["mensajes"] for tc in m.get("tool_calls") or []}
@@ -1501,6 +1564,7 @@ def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
 
 
 def test_una_herramienta_desconocida_o_un_error_vuelven_como_dato(permiso):
+    from asistente import ejecutor as EXE
     from asistente import grafo
     from asistente.agente import Agente
     from asistente.agentes import AGENTES
@@ -1514,7 +1578,9 @@ def test_una_herramienta_desconocida_o_un_error_vuelven_como_dato(permiso):
 
     roto = Agente(nombre="x", tarea=AGENTES["renta_fija"].tarea, describe="", instruccion=lambda f: "",
                      herramientas=(rota,))
-    assert "ZeroDivisionError" in grafo._ejecutar(roto, "rota", {"curva": "cer"})["error"]
+    assert "clase de acceso" in grafo._ejecutar(roto, "rota", {"curva": "cer"})["error"]
+    with patch.dict(EXE.ACCESO_POR_TOOL, {"rota": EXE.Acceso.READ_PUBLIC}):
+        assert "ZeroDivisionError" in grafo._ejecutar(roto, "rota", {"curva": "cer"})["error"]
 
 
 def test_sin_clave_no_rompe_y_deja_la_sesion(permiso):
@@ -1535,6 +1601,24 @@ def test_la_sesion_se_valida_por_forma():
     assert grafo._SESION_RE.fullmatch(nuevo) and grafo.sesion_valida(nuevo.upper()) == nuevo
     for raro in ("abc", "805; DROP TABLE", nuevo + "x"):
         assert grafo.sesion_valida(raro) != raro
+
+
+def test_un_checkpoint_terminado_se_reutiliza_sin_invocar_el_grafo():
+    from types import SimpleNamespace
+
+    from asistente import grafo
+
+    valores = {
+        "run_id": "c" * 32, "sesion": "s" * 32, "respuesta": "ya terminó",
+        "falta": None, "error": None, "mensajes": [], "agentes": ["renta_fija"],
+        "foco": {}, "eventos": [], "evidencias": [],
+    }
+    compilado = MagicMock()
+    compilado.get_state.return_value = SimpleNamespace(values=valores, next=())
+    respuesta = grafo.preguntar(
+        "pregunta", usuario="t", run_id="c" * 32, grafo_compilado=compilado)
+    assert respuesta["respuesta"] == "ya terminó"
+    compilado.invoke.assert_not_called()
 
 
 def test_el_router_solo_recibe_pregunta_y_sesion_y_delega_en_sesiones():
@@ -1573,7 +1657,7 @@ def _conversar(base, pregunta, sesion=None, ruteo="cartera", usuario="t"):
     with patch.object(sesiones, "cargar", base.cargar), patch.object(sesiones, "guardar", base.guardar), \
          patch.object(panel, "conversacion", lambda s: {"id": s, "llamadas": 2}), \
          patch.object(modelos, "modelo", _proveedor(ruteo)), \
-         patch.object(grafo, "_ejecutar", lambda ag, n, a: _TOOLS[n](**a)):
+         patch.object(grafo, "_ejecutar_detalle", _ejecucion_falsa):
         return sesiones.preguntar(pregunta, usuario=usuario, sesion=sesion)
 
 
@@ -1598,6 +1682,53 @@ def test_una_conversacion_se_guarda_con_su_dueno_y_se_retoma_por_sesion(permiso)
     # Otro usuario con el mismo id no la ve: arranca una conversación nueva.
     r3 = _conversar(base, "hola", sesion=sid, usuario="otro")
     assert r3["sesion"]["id"] != sid and base.filas[sid]["usuario"] == "t"
+
+
+def test_reintentar_el_mismo_run_no_duplica_el_turno_guardado():
+    from asistente import grafo, panel, sesiones
+
+    base = _Base()
+    run_id = "d" * 32
+    salida = {
+        "respuesta": "ok", "falta": None, "error": None, "agentes": [],
+        "eventos": [], "mensajes": [], "estado": {}, "sesion": "e" * 32,
+    }
+    with patch.object(sesiones, "cargar", base.cargar), \
+         patch.object(sesiones, "guardar", base.guardar), \
+         patch.object(panel, "conversacion", lambda s: {"id": s}), \
+         patch.object(grafo, "preguntar", return_value=salida):
+        sesiones.preguntar("hola", usuario="t", sesion="e" * 32,
+                           run_id=run_id, forzar_sesion=True)
+        sesiones.preguntar("hola", usuario="t", sesion="e" * 32,
+                           run_id=run_id, forzar_sesion=True)
+    assert [turno["run_id"] for turno in base.filas["e" * 32]["turnos"]] == [run_id]
+
+
+def test_la_persistencia_personal_guarda_forma_pero_no_valores():
+    from asistente import ejecuciones
+
+    evento = {
+        "tipo": "resultado", "herramienta": "ficha_cliente", "acceso": "READ_PERSONAL",
+        "argumentos": {"cuenta": "805"},
+        "resultado": {"cuenta": "805", "titular": "Persona", "_evidencias": []},
+    }
+    persistible = ejecuciones._persistible(evento)
+    assert persistible["argumentos"] == {"redactado": True}
+    assert persistible["resultado"] == {
+        "redactado": True, "campos": ["cuenta", "titular"]}
+    assert ejecuciones._campos_persistibles({
+        "acceso": "READ_PERSONAL", "campos": {"cuenta": "805", "saldo": 10},
+    }) == {"cuenta": None, "saldo": None}
+
+
+def test_los_cortes_del_run_no_se_tragan_como_fallas_de_telemetria():
+    from asistente import eventos
+
+    def vencio(_evento):
+        raise eventos.TiempoAgotado("run")
+
+    with eventos.capturar(vencio), pytest.raises(eventos.TiempoAgotado):
+        eventos.emitir({"tipo": "vuelta"})
 
 
 def test_si_la_base_no_contesta_la_pregunta_igual_sale_y_lo_dice(permiso):
@@ -1975,15 +2106,10 @@ def test_el_dato_personal_nunca_sale_a_quien_entrena_y_no_deja_texto_en_la_traza
     assert escrito[8] is None and escrito[9] is None, "ni pedido ni respuesta en el libro"
 
 
-def test_un_agente_sin_herramientas_no_llama_al_modelo_y_lo_dice(permiso):
-    from asistente import grafo
-    from core import modelos
+def test_todos_los_agentes_productivos_tienen_herramientas_activas():
+    from asistente.agentes import AGENTES
 
-    with patch.object(modelos, "modelo", side_effect=AssertionError("no tenía que llamar")):
-        r = grafo.preguntar("qué se operó hoy", usuario="t")
-    assert r["agentes"] == ["operaciones"] and r["respuesta"] is None
-    assert "Todavía no puedo consultar operaciones" in r["error"]
-    assert r["mensajes"][-1]["agente"] == "operaciones" and r["tokens_in"] == 0
+    assert all(agente.herramientas for agente in AGENTES.values())
 
 
 # ── la familia mercado y el foco por ticker ─────────────────────────────────

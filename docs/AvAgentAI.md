@@ -43,6 +43,45 @@ Los agentes corren en paralelo. **Un nodo del grafo = un módulo del paquete.**
 El SYSTEM de cada agente termina con la fecha de hoy (`agente.sistema`): sin
 eso «hasta fin de año» se calcula desde una fecha inventada.
 
+### 2.1 La ejecución: una pregunta que está corriendo
+
+Una conversación y una ejecución no son lo mismo. La conversación es la
+memoria durable que ve la persona; una ejecución (`run`) es el trabajo de
+contestar UNA pregunta, desde que entra hasta que termina, falla o se cancela.
+Todas las piezas operativas comparten un `run_id`:
+
+| Pieza | Dueño | Para qué existe |
+|---|---|---|
+| `ia.conversaciones` | producto | historial, foco y turnos visibles del usuario |
+| `ia.ejecuciones` | producto | dueño, estado, tiempos y resultado de cada pregunta |
+| checkpointer PostgreSQL de LangGraph | motor | recuperar el estado interno y continuar desde un nodo |
+| `ia.eventos_ejecucion` | producto | SSE recuperable, auditoría y duración de cada paso |
+| `ia.evidencias` | producto | qué tool, sujeto, fecha y campo fundamentan una afirmación |
+| `ia.llamadas` | gateway de modelos | proveedor, tokens, caché, latencia y error de cada llamada |
+
+El checkpointer es complementario: es la fuente para **reanudar el grafo**, no
+la API de negocio para listar corridas o medirlas. Su `thread_id` es el
+`run_id`, así dos preguntas simultáneas de una conversación no mezclan estado.
+Al terminar, el turno se incorpora una sola vez a `ia.conversaciones`.
+
+Estados de una ejecución: `queued`, `running`, `waiting_approval`, `succeeded`,
+`failed`, `cancel_requested`, `cancelled` y `timed_out`. Los eventos son
+append-only y llevan una secuencia por ejecución: el stream puede reconectarse
+con `Last-Event-ID` sin repetir ni perder pasos.
+
+La cancelación y el timeout son cooperativos: se controlan entre llamadas al
+modelo y herramientas, donde cortar no deja un pedido de tool huérfano. El
+presupuesto se configura con `ASISTENTE_RUN_TIMEOUT_S` (180 s por defecto). Una
+llamada HTTP en curso termina por su timeout de proveedor; el run se corta en
+el siguiente límite seguro.
+
+Toda tool atraviesa el mismo ejecutor, en este orden: resolver su ficha,
+validar argumentos con el schema Pydantic que vio el modelo, autorizar contra
+usuario/rol/portal/cuentas, registrar inicio, ejecutar el service dueño del
+dato, extraer evidencia y registrar resultado + duración. Las clases son
+`READ_PUBLIC`, `READ_BUSINESS`, `READ_PERSONAL`, `PROPOSE` y `WRITE`;
+`PROPOSE` y `WRITE` nacen default-deny hasta tener aprobación humana.
+
 ## 3. Los agentes
 
 | Agente | Sujeto | Familia | Contesta | Herramientas hoy | Foco |

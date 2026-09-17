@@ -33,6 +33,69 @@ def _humano(s: float) -> str:
 logger = logging.getLogger(__name__)
 
 
+def asistente_operativo(u: dict) -> list[Hallazgo]:
+    """Salud de ejecución del asistente, sin puntuar ni juzgar sus respuestas."""
+    from agente import fuentes
+
+    dias = int(u.get("dias", 7))
+    atascado_min = int(u.get("atascado_min", 15))
+    metricas = fuentes.asistente_metricas(dias, atascado_min)
+    if metricas is None:
+        raise SinDatos("no pude leer las métricas del asistente")
+    estados = {fila["estado"]: int(fila["n"]) for fila in metricas.get("estados") or []}
+    total = sum(estados.values())
+    minimo = int(u.get("min_runs", 5))
+    ahora = reloj.ahora_utc()
+    out: list[Hallazgo] = []
+
+    atascadas = int(metricas.get("atascadas") or 0)
+    if atascadas:
+        out.append(Hallazgo(
+            sujeto="asistente", regla="runs_atascados", severidad="alta",
+            nombre="Asistente conversacional",
+            problema=f"{atascadas} run(s) sin avanzar hace más de {atascado_min} min · {reloj.hhmm(ahora)}",
+            detalle="Estados observados: queued, running o cancel_requested.",
+            que_hacer="Mirar `asistente-worker.service`, su log y los checkpoints del run; reanudar el worker si está caído.",
+            evidencia={"atascadas": atascadas, "umbral_min": atascado_min, "dias": dias}))
+
+    fallidas = sum(estados.get(e, 0) for e in ("failed", "timed_out"))
+    fallos_pct = 100 * fallidas / total if total else 0
+    if total >= minimo and fallos_pct >= float(u.get("fallos_pct", 20)):
+        out.append(Hallazgo(
+            sujeto="asistente", regla="runs_fallidos", severidad="alta",
+            nombre="Asistente conversacional",
+            problema=f"{fallidas} de {total} runs fallaron o vencieron ({fallos_pct:.0f}%) en {dias} d · {reloj.hhmm(ahora)}",
+            detalle=f"Por estado: {estados}",
+            que_hacer="Abrir los eventos `run_error` y las llamadas ligadas por `run_id`; separar proveedor, tool y worker antes de corregir.",
+            evidencia={"total": total, "fallidas": fallidas, "pct": round(fallos_pct, 2),
+                       "estados": estados, "dias": dias}))
+
+    p95 = max((float(fila.get("p95_ms") or 0) for fila in metricas.get("estados") or []), default=0)
+    if total >= minimo and p95 >= float(u.get("p95_ms", 30_000)):
+        out.append(Hallazgo(
+            sujeto="asistente", regla="latencia_alta", severidad="media",
+            nombre="Asistente conversacional",
+            problema=f"p95 de ejecución {p95 / 1000:.1f} s en {dias} d · {reloj.hhmm(ahora)}",
+            detalle="La latencia incluye ruteo, modelos y herramientas hasta el estado terminal.",
+            que_hacer="Ordenar herramientas por latencia media y cruzar el run lento con `ia.llamadas` para ubicar el tramo dominante.",
+            evidencia={"p95_ms": p95, "total": total, "dias": dias,
+                       "herramientas": metricas.get("herramientas") or []}))
+
+    control_fallido = int(metricas.get("sin_evidencia") or 0)
+    terminadas = int(metricas.get("terminadas") or 0)
+    control_pct = 100 * control_fallido / terminadas if terminadas else 0
+    if terminadas >= minimo and control_pct >= float(u.get("control_pct", 10)):
+        out.append(Hallazgo(
+            sujeto="asistente", regla="control_fallido", severidad="media",
+            nombre="Asistente conversacional",
+            problema=f"{control_fallido} de {terminadas} respuestas no pasaron control ({control_pct:.0f}%) en {dias} d · {reloj.hhmm(ahora)}",
+            detalle="Es un control determinístico de grounding/evidencia, no un voto sobre la respuesta.",
+            que_hacer="Abrir el `control.hallazgos` de esos runs y corregir la cita, atribución o dato fuente que se repite.",
+            evidencia={"terminadas": terminadas, "control_fallido": control_fallido,
+                       "pct": round(control_pct, 2), "dias": dias}))
+    return out
+
+
 # ⚠️ **EL ESTADO, EN CASTELLANO Y EN UNA FRASE.** `critico`/`error`/`sin_datos`
 # son etiquetas del árbol de diagnóstico, no una explicación: la tarjeta decía
 # «tenencia (snapshot SQL): error» —el nombre repetido más una palabra— y ahí

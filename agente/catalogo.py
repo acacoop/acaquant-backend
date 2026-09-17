@@ -322,6 +322,14 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         umbrales={"ventana_s": 1200, "minimo_fallos": 1}),
 
     Habilidad(
+        nombre="asistente_operativo", tipo="detector", dominio="SISTEMA",
+        que_mira="runs conversacionales fallidos, atascados, lentos o sin control determinístico",
+        cada_segundos=10 * _M, ventana="siempre",
+        correr=sistema.asistente_operativo,
+        umbrales={"dias": 7, "atascado_min": 15, "min_runs": 5,
+                  "fallos_pct": 20, "p95_ms": 30_000, "control_pct": 10}),
+
+    Habilidad(
         nombre="db_peso", tipo="detector", dominio="SISTEMA",
         que_mira=("lo que creció fuera de lo suyo, las tablas que faltan, y el "
                   "peso total de la base dos veces por día (11 y 16, hora de "

@@ -8,6 +8,7 @@ from typing import Annotated, Literal, get_args
 
 from pydantic import Field
 
+from asistente import estado as EST
 from asistente import pantalla
 from asistente.agente import COMUN, Agente
 
@@ -415,7 +416,7 @@ reemplaza por uno parecido.
 
 
 def _instruccion(foco: dict) -> str:
-    return COMUN + _INSTRUCCION + EST.como_texto(foco)
+    return COMUN + _INSTRUCCION + EST.como_texto(foco, ("ticker",))
 
 
 AGENTE = Agente(

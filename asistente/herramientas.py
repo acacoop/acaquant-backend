@@ -46,6 +46,12 @@ def para_el_modelo(resultado):
     if not isinstance(resultado, dict):
         return resultado
     limpio = {k: v for k, v in resultado.items() if not str(k).startswith("_")}
+    evidencias = resultado.get("_evidencias")
+    if isinstance(evidencias, list):
+        limpio["fuentes"] = [{
+            "ref": e.get("ref"), "sujeto": e.get("sujeto"), "fecha": e.get("fecha"),
+            "campos": sorted((e.get("campos") or {}).keys()),
+        } for e in evidencias if isinstance(e, dict)]
     if (av := pantalla.aviso(resultado)) is not None:
         limpio["se_muestra"] = av
     return limpio

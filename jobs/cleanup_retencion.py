@@ -80,6 +80,8 @@ TABLAS: tuple[Retencion, ...] = (
               "lo que reporta el navegador (pantalla ciega y TILDE) vale para el incidente del día; 30d alcanza"),
     Retencion("ia.conversaciones", "actualizada_at", 90,
               "las charlas del asistente: una que nadie retomó en 90d no se va a retomar"),
+    Retencion("ia.ejecuciones", "actualizada_at", 90,
+              "runs del asistente; eventos y evidencias se borran por ON DELETE CASCADE"),
 )
 
 _TABLAS_POR_NOMBRE = {r.tabla: r for r in TABLAS}

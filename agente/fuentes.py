@@ -31,6 +31,14 @@ def refrescar() -> None:
     _cache.clear()
 
 
+def asistente_metricas(dias: int = 7, atascado_min: int = 15) -> dict | None:
+    """Hechos operativos de los runs conversacionales; nunca texto ni usuarios."""
+    def _leer():
+        from asistente import ejecuciones
+        return ejecuciones.metricas(dias, atascado_min=atascado_min)
+    return _una_vez(f"asistente:{dias}:{atascado_min}", _leer)
+
+
 def _una_vez(clave: str, fn):
     if clave not in _cache:
         try:

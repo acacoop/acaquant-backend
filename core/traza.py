@@ -23,9 +23,10 @@ class Traza(BaseCallbackHandler):
     los ids de las filas que escribió en `ids`."""
 
     def __init__(self, tarea: str, modelo: str, *, usuario: str | None = None,
-                 sesion: str | None = None, detalle: str | None = None,
+                 sesion: str | None = None, run_id: str | None = None, detalle: str | None = None,
                  guardar_texto: bool = True) -> None:
-        self.tarea, self.modelo, self.usuario, self.sesion = tarea, modelo, usuario, sesion
+        self.tarea, self.modelo, self.usuario = tarea, modelo, usuario
+        self.sesion, self.run_id = sesion, run_id
         # Extracto del pedido para el libro. Si el que llama no lo da, se toma
         # el último mensaje del usuario. Con `guardar_texto=False` (dato
         # personal) no se guarda ni el pedido ni la respuesta: solo números.
@@ -78,13 +79,13 @@ class Traza(BaseCallbackHandler):
                 cur.execute(
                     "INSERT INTO ia.llamadas (tarea, modelo, usuario, tokens_in, tokens_out,"
                     " latencia_ms, ok, error, detalle, respuesta, cache_hit_tokens,"
-                    " cache_miss_tokens, sesion)"
-                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    " cache_miss_tokens, sesion, run_id)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                     (self.tarea, modelo, self.usuario, tokens_in, tokens_out, latencia_ms, ok,
                      error[:MAX_ERROR_CHARS] if error else None,
                      detalle[:MAX_DETALLE_CHARS] if detalle and self.guardar_texto else None,
                      respuesta[:MAX_RESPUESTA_CHARS] if respuesta and self.guardar_texto else None,
-                     cache_hit, cache_miss, self.sesion))
+                     cache_hit, cache_miss, self.sesion, self.run_id))
                 self.ids.append(cur.fetchone()[0])
         except Exception as e:
             logger.warning("traza: no pude registrar la llamada de %s (%s)", self.tarea, e)

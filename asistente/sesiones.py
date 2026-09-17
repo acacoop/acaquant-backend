@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from psycopg.types.json import Jsonb
 
+from asistente import eventos as EV
 from asistente import grafo, panel, pantalla
 from core.postgres import get_pool
 
@@ -24,19 +25,24 @@ def es_valida(sesion: str | None) -> bool:
     return bool(_SESION_RE.fullmatch(str(sesion or "")))
 
 
-def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None) -> dict:
+def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None,
+              rol: str = "admin", portal: str = "trading", run_id: str | None = None,
+              grafo_compilado=None, event_sink=None, forzar_sesion: bool = False) -> dict:
     """Una pregunta dentro de una conversación. Sin `sesion` (o con una que no
     es del usuario) empieza una nueva. Nunca levanta: si la base no contesta,
     la pregunta se responde igual, sin memoria, y `guardada` lo dice."""
     previa, aviso = (cargar(sesion, usuario) if sesion else (None, None))
-    r = grafo.preguntar(pregunta, usuario=usuario,
-                        historial=previa["memoria"] if previa else [],
-                        estado=previa["foco"] if previa else {},
-                        sesion=previa["sesion"] if previa else None)
-    turno = {"pregunta": pregunta, "respuesta": r["respuesta"], "falta": r["falta"],
+    sesion_objetivo = previa["sesion"] if previa else (sesion if forzar_sesion else None)
+    with EV.capturar(event_sink):
+        r = grafo.preguntar(
+            pregunta, usuario=usuario, historial=previa["memoria"] if previa else [],
+            estado=previa["foco"] if previa else {}, sesion=sesion_objetivo,
+            rol=rol, portal=portal, run_id=run_id, grafo_compilado=grafo_compilado)
+    turno = {"run_id": run_id, "pregunta": pregunta, "respuesta": r["respuesta"], "falta": r["falta"],
              "error": r["error"], "agentes": r["agentes"], "tablas": tablas_de(r["eventos"]),
              "at": datetime.now(UTC).isoformat(timespec="seconds")}
-    turnos = (previa["turnos"] if previa else []) + [turno]
+    anteriores = previa["turnos"] if previa else []
+    turnos = [t for t in anteriores if not run_id or t.get("run_id") != run_id] + [turno]
     titulo = previa["titulo"] if previa else _titulo(pregunta)
     guardada = guardar(r["sesion"], usuario, titulo=titulo, memoria=r["mensajes"],
                        foco=r["estado"], turnos=turnos)

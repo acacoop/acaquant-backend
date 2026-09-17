@@ -75,6 +75,28 @@ def test_toda_habilidad_declara_lo_que_hay_que_saber():
                         que_mira="algo", cada_segundos=60, correr=lambda u: [])
 
 
+def test_asistente_operativo_convierte_hechos_de_runs_en_hallazgos(monkeypatch):
+    from agente import fuentes
+    from agente.detectores import sistema
+
+    metricas = {
+        "estados": [
+            {"estado": "succeeded", "n": 6, "p95_ms": 45_000},
+            {"estado": "failed", "n": 2, "p95_ms": 20_000},
+        ],
+        "atascadas": 1, "sin_evidencia": 2, "terminadas": 6,
+        "herramientas": [{"herramienta": "ficha_bono", "latencia_media_ms": 100}],
+    }
+    monkeypatch.setattr(fuentes, "asistente_metricas", lambda *a: metricas)
+    hallazgos = sistema.asistente_operativo({
+        "dias": 7, "atascado_min": 15, "min_runs": 5,
+        "fallos_pct": 20, "p95_ms": 30_000, "control_pct": 10,
+    })
+    assert {h.regla for h in hallazgos} == {
+        "runs_atascados", "runs_fallidos", "latencia_alta", "control_fallido"}
+    assert all(h.que_hacer and h.evidencia for h in hallazgos)
+
+
 def test_todo_arreglo_declarado_existe():
     """Una habilidad no puede apuntar a un arreglo que no está. En el agente
     viejo `salud` y `falta_en_base` declaraban acción y no la tenían: sus

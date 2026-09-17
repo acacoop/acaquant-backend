@@ -13,9 +13,10 @@ scipy==1.17.1
 xlrd==2.0.2  # lectura de .xls legacy (informe ACA Valores Retorno) — scripts/import_acavalores_retorno.py
 openpyxl==3.1.5  # escritura de .xlsx — export de SENEBIS (api/services/senebis.py)
 psycopg[binary]==3.3.4  # driver Postgres (Supabase). Pineado 2026-08-22: es la version MEDIDA en el Droplet (diag_entorno) — estaba sin pin y era el unico drift real.
-psycopg-pool  # pool de conexiones para la API (core.postgres.get_pool)
+psycopg-pool==3.3.1  # pool de conexiones para la API (core.postgres.get_pool)
 python-dotenv==1.2.2
 langgraph==1.2.11  # el asistente (asistente/grafo.py, docs/AvAgentAI.md)
+langgraph-checkpoint-postgres==3.1.2  # pausa/reanudación durable de cada run del asistente
 langchain-openai==1.6.2
 langchain-deepseek==1.1.0
 langchain-core==1.6.3
@@ -77,6 +78,7 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 justext==3.0.2
 limits==5.8.0
+langgraph-checkpoint==4.2.0
 linkify-it-py==2.1.0
 lxml==6.1.0
 lxml-html-clean==0.4.4
@@ -86,6 +88,7 @@ mdit-py-plugins==0.5.0
 mdurl==0.1.2
 multitasking==0.0.12
 narwhals==2.18.0
+ormsgpack==1.12.2
 packaging==26.0
 peewee==4.0.2
 pillow==12.1.1

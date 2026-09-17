@@ -23,7 +23,7 @@ FAMILIAS: dict[str, Familia] = {
         describe="qué hay y cuánto vale en el mercado, sin importar quién lo tenga",
         senales=("rinde", "rinden", "rendimiento", "rendimientos", "cotiza", "cotizan",
                  "cotizacion", "precio", "precios", "tasa", "tasas", "vence", "vencen",
-                 "vencimiento", "vale", "valen", "ticker", "tamar", "mercado"),
+                 "vencimiento", "vale", "valen", "ticker", "mercado"),
     ),
 }
 

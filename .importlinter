@@ -7,17 +7,16 @@
 #   - quant/ es cálculo puro: puede usar core/ (lecturas SQL) pero jamás
 #     api/engines/jobs.
 #   - engines/ no importa de api/ (motores standalone: core + quant).
-#   - api/services/ es puro, sin FastAPI. UNA excepción declarada:
-#     _grupos_scope (define dependencies de FastAPI vía api.auth).
-#     (Había una segunda, `av_agent_seguridad -> api.superficie`, pero ese
-#     service ya no existe: con AGENT 2.0 se rehízo el agente entero. Una
-#     excepción que apunta a un módulo borrado NO es inocua — import-linter
-#     ABORTA con «no matches for ignored import» y el contrato deja de
-#     evaluarse, así que la regla que tenía que cuidar quedaba apagada
-#     mientras CI se veía roja por otro motivo. Si el import vuelve, vuelve
-#     la línea: superficie ES la única implementación de la enumeración de
-#     rutas y reimplementarla para esquivar el contrato sería el bug que
-#     superficie vino a matar (37/541 rutas).)
+#   - api/services/ es puro, sin FastAPI. SIN excepciones: la única que
+#     había (`_grupos_scope`, dependencies de FastAPI) se movió a api/deps.py,
+#     que es donde va lo que necesita Depends/HTTPException. Antes hubo otra
+#     (`av_agent_seguridad -> api.superficie`) y quedó apuntando a un módulo
+#     borrado: una excepción así NO es inocua — import-linter ABORTA con «no
+#     matches for ignored import» y el contrato deja de evaluarse, así que la
+#     regla quedaba apagada mientras CI se veía roja por otro motivo. Lo mismo
+#     pasó al mover _grupos_scope (lo cazó el revisor antes del merge). Si
+#     alguna vez hace falta una excepción, va con su motivo y se saca cuando
+#     el módulo se va.
 #
 # Nota honesta: jobs/ importa api/services en varios crons (reuso de lógica
 # pura) — es deuda declarada, NO se contrata hasta decidir si se promueve esa
@@ -66,6 +65,3 @@ source_modules =
     api.services
 forbidden_modules =
     fastapi
-ignore_imports =
-    api.services._grupos_scope -> api.auth
-    api.services._grupos_scope -> fastapi

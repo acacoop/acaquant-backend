@@ -22,8 +22,12 @@ def test_de_fci_segun_subyacente_y_moneda():
     assert ca.de_fci("Renta Fija", "ARS") == "ARS T1"
     assert ca.de_fci("Renta Fija", "USD") == "HD T1"
     assert ca.de_fci("Renta Variable", "ARS") == ca.RENTA_VARIABLE
-    # Renta Mixta y cualquier otro subyacente: no se propone.
-    assert ca.de_fci("Renta Mixta", "ARS") == ""
+    # Renta Mixta va a T1 como Renta Fija: manda la moneda (§0.fn).
+    assert ca.de_fci("Renta Mixta", "ARS") == "ARS T1"
+    assert ca.de_fci("Renta Mixta", "USD") == "HD T1"
+    assert ca.de_fci("Renta Mixta", "EUR") == ""
+    # Cualquier otro subyacente (Retorno Total, …): no se propone.
+    assert ca.de_fci("Retorno Total", "USD") == ""
     assert ca.de_fci("Lo que sea", "ARS") == ""
     # Moneda distinta de ARS/USD: no se propone, aunque el subyacente sea válido.
     assert ca.de_fci("Mercado de Dinero", "EUR") == ""

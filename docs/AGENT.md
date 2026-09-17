@@ -7188,3 +7188,21 @@ llegan con `RENTA VARIABLE` propuesto y su fuente, y —por estar declarada en
 dentro de la hora, sin que nadie apriete. La cartera decide el divisor de la
 valuación, así que cada CEDEAR que se completa es una tenencia que deja de caer
 en el balde «otras» del AuM y de `/aca`.
+
+### 0.fn RENTA MIXTA VA A T1 — manda la moneda, no el mix (2026-09-17)
+
+De las 77 filas sin `clase_activo` que mostraba el listado de `completar_ficha`,
+20 tenían la misma nota: *«mercado.fci dice tipo_renta «Renta Mixta» / moneda
+«ARS»: no hay clase declarada para eso — lo decide la mesa»*. La mesa lo
+decidió en una línea: **un fondo de renta mixta se sigue por su moneda**, igual
+que uno de renta fija: `ARS → ARS T1`, `USD → HD T1`. Es una línea en
+`core/clase_activo.de_fci` y las 20 filas pasan a proponerse solas, con fuente
+`FCI` o `PRIMARY` según de dónde salga el tipo de renta. `Retorno Total` (1
+fila) queda como estaba: no se pidió.
+
+**Lo que este caso enseña, y que vale más que las 20 filas.** Las diez notas
+distintas de ese listado (`agente/clase.py`) se leyeron una por una antes de
+pensar en un modelo: tres eran decisiones de la mesa que faltaba declarar (esta
+es la primera), y varias tienen su fuente ya en la base (`research.mkt_1816_instrumentos`
+para los bonos que la curva contradice). Una nota que dice «lo decide la mesa»
+es una regla esperando su criterio, no un caso para IA.

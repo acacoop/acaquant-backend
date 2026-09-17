@@ -18,8 +18,9 @@ la regla no aplica. La escritura y la lista cerrada las maneja `agente/clase.py`
 
        Mercado de Dinero + ARS → MM ARS     Mercado de Dinero + USD → MM USD
        Renta Fija        + ARS → ARS T1     Renta Fija        + USD → HD T1
+       Renta Mixta       + ARS → ARS T1     Renta Mixta       + USD → HD T1   (manda la moneda)
        Renta Variable    + (ARS|USD)        → RENTA VARIABLE
-       Renta Mixta, cualquier otro subyacente, o moneda que no sea ARS/USD → ""
+       Retorno Total, cualquier otro subyacente, o moneda que no sea ARS/USD → ""
 
 3. **Copia de la cartera.** Para las carteras que SON la clase (comparación
    upper/strip):
@@ -221,14 +222,18 @@ def normalizar_nombre(s: str) -> str:
 
 def de_fci(subyacente: str, moneda: str) -> str:
     """La clase de un FCI según su ficha de Primary, o "" si no aplica.
-    **PURA.** `Renta Mixta` y cualquier otro subyacente no se proponen; una
-    moneda distinta de ARS/USD tampoco.
+    **PURA.** `Renta Mixta` cae en T1 como `Renta Fija` (manda la moneda);
+    cualquier otro subyacente no se propone; una moneda distinta de ARS/USD
+    tampoco.
     """
     sub = (subyacente or "").strip().upper()
     m = (moneda or "").strip().upper()
     if sub == "MERCADO DE DINERO":
         return MM.get(m, "")
-    if sub == "RENTA FIJA":
+    # Renta Mixta va a T1 igual que Renta Fija: se prioriza la MONEDA, no el
+    # mix (decisión del user 2026-09-17, AGENT.md §0.fn). Antes quedaba para
+    # la mesa: 20 fondos esperando en la pantalla por una línea.
+    if sub in ("RENTA FIJA", "RENTA MIXTA"):
         return T1.get(m, "")
     if sub == "RENTA VARIABLE":
         return RENTA_VARIABLE if m in MM else ""

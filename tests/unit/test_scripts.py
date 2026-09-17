@@ -53,6 +53,8 @@ HERRAMIENTAS: dict[str, str] = {
                              "abierto y alimenta /api/ingest/eikon/*. Sin esto la tab REUTERS no tiene datos.",
     "ext_ver":               "inspector de la API externa (/ext): qué ve un accionista con SU token.",
     # contratos y auditoría (dan un veredicto, no una opinión)
+    "diag_opciones_byma":     "mide cómo cargó la mesa las opciones sobre acciones (letra C/V vs clase) "
+                              "antes de escribir la regla BYMA en core/clase_activo (REGLA #2, §0.fn).",
     "diagnosticar":           "correr o encolar EL DIAGNÓSTICO del AV AGENT sobre un hallazgo desde "
                              "la consola (asistente/diagnostico.py): es cómo se prueba contra un "
                              "aviso real sin esperar al daemon, y cómo se relee lo que concluyó.",

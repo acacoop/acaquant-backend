@@ -488,6 +488,7 @@ def comercial_dimensiones() -> dict:
 
 
 @router.get("/comercial/operador")
+@cached(ttl=300)
 def comercial_operador(
     operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     moneda: str = Query("ARS"),
@@ -509,6 +510,7 @@ def comercial_operador(
 
 
 @router.get("/comercial/serie", dependencies=[Depends(verificar_id_cuenta_opcional)])
+@cached(ttl=300)
 def comercial_serie(
     operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     metric: str = Query("volumen", description="volumen | aum"),

@@ -112,6 +112,7 @@ from api.services.comercial import _arancel_expr, _valor_expr  # noqa: E402
 from api.services.comercial_sql import (  # noqa: E402
     _CATS_VOLUMEN,
     _arancel_where,
+    _comitentes_where,
     _cv,
     _f,
     _factor_usd,
@@ -188,12 +189,15 @@ def _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, divi
 
     `ids` restringe las agregaciones a esas cuentas; `ops` es el set de comerciales de esas
     cuentas (para no mostrar operadores fuera del scope en Tablas 2 y 3). Reusa el mismo
-    resolvedor de cuentas activas que las otras vistas comerciales (`_ids_operador`)."""
+    predicado de cuentas activas que las otras vistas comerciales."""
     if not _hay_filtro(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido, division):
         return None, None
-    from api.services.comercial_sql import _ids_operador
-    ids = _ids_operador(operador, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
-                        nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2, division=division)
+    p: dict = {}
+    where = _comitentes_where(
+        operador, p, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
+        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido, division=division)
+    ids = [r["id_cuenta"] for r in _q(
+        f"SELECT id_cuenta FROM comitentes WHERE {where}", p)]
     ops = {r["operador_email"] for r in _q(
         "SELECT DISTINCT operador_email FROM comitentes WHERE estado='Activa' "
         "AND operador_email IS NOT NULL AND id_cuenta = ANY(%(ids)s)", {"ids": ids})}

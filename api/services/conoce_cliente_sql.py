@@ -58,7 +58,8 @@ from datetime import date, timedelta
 
 from api.services._sql import _q
 from api.services.comercial import _cv, _factor_usd, _hoy_art
-from api.services.comercial_sql import _arancel_where, _f, _iso
+from api.services.comercial_sql import (
+    _arancel_where, _f, _fci_por_cuenta as _fci_por_cuenta_calc, _iso)
 from api.services.profundidad_sql import _op_label, _scope
 
 # El campo que ES el segmento. `nivel_3` es el patrimonial (derivado del cupo:
@@ -195,6 +196,10 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
         f"GROUP BY o.id_cuenta, o.operacion", p2):
         por_tipo.setdefault(r["id_cuenta"], {})[r["operacion"] or ""] = _f(r["ar"])
 
+    fci_por_cuenta = _fci_por_cuenta_calc(
+        desde=ini.isoformat(), hasta=fin.isoformat(), mes_ini=ini.isoformat(),
+        moneda=moneda, scope="id_cuenta = ANY(%(ids)s)", p={"ids": ids})
+
     # ── 3) AuM PROMEDIO de la ventana + la foto de hoy ───────────────────────
     # Las fotos se resuelven PRIMERO (una fecha real por cada fin de mes, la más
     # reciente <= ese día) y después se leen. Si dos meses caen en la misma foto
@@ -223,7 +228,9 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
     items = []
     for idc, f in fichas.items():
         tipos = por_tipo.get(idc, {})
-        arancel = sum(tipos.values())
+        arancel_operaciones = sum(tipos.values())
+        arancel_fci = fci_por_cuenta.get(idc, {}).get("fci_total", 0.0)
+        arancel = arancel_operaciones + arancel_fci
         fav = max(tipos.items(), key=lambda kv: kv[1], default=(None, 0.0))
         a = aum.get(idc) or {}
         # Ausente en una foto = CERO (no tenía nada), así que el divisor es la
@@ -245,6 +252,8 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
             "operador_nombre": f["operador_nombre"],
             "nivel_1": f["nivel_1"], "segmento": f["segmento"],
             "arancel": _cv(arancel, fac),
+            "arancel_operaciones": _cv(arancel_operaciones, fac),
+            "arancel_fci": _cv(arancel_fci, fac),
             "aum": _cv(prom, fac) if prom is not None else None,
             "aum_hoy": _cv(hoy, fac),
             "roa_bps": roa,
@@ -298,8 +307,8 @@ def conoce_cliente(*, segmento: str | None = None, moneda: str = "ARS",
         "contexto": contexto,
         "foto_aum": {"ultima": _iso(ultima_foto), "n_fotos": n_fotos},
         "fuentes": {
-            "arancel": "operaciones.operaciones — arancel > 0, etapa <> solicitud, "
-                       "CIERRES INCLUIDOS (el arancel de caución vive solo en el cierre)",
+            "arancel": ("operaciones.operaciones + portafolio.tenencia FCI desde mayo 2026 — "
+                       "arancel de boletos más stock FCI; cierres incluidos"),
             "aum": f"portafolio.tenencia (aum='si') — PROMEDIO de {n_fotos} fotos "
                    f"de fin de mes; ausente en una foto cuenta como cero",
             "cupo": "clientes.comitentes.cupo_transaccional_ars — carga manual por "

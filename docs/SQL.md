@@ -45,6 +45,11 @@ Subdoc de `docs/ACAQUANT.md` §5. Proveedor: **Supabase** (Postgres managed).
 está 100% aplicado en la DB real — es el espejo del diseño; al agregar/cambiar una
 tabla, aplicar el `CREATE TABLE IF NOT EXISTS` correspondiente en Supabase.)
 
+Dos tests lo mantienen honesto en las dos direcciones: `test_schema_sin_tablas_muertas`
+(el archivo no declara lo que nadie usa) y `test_codigo_no_nombra_tablas_fantasma`
+(el código no usa lo que el archivo no declara). Ningún service crea tablas al
+vuelo: la declaración vive acá y `apply_schema` la aplica en el deploy.
+
 | Schema | Tablas |
 |---|---|
 | `mercado` | curvas, market_snapshot, snapshots_cierre, snapshots_cierre_hist, canje_cierre, timesales, dias_habiles, forwards_zscore, fit_params, fair_value_residuos, ons_ignoradas, futuros_dlr_snapshot, caucion_snapshot, options_data, options_data_hist, options_snapshot, options_metadata, options_vr, cedears, cedears_snapshot, adr_snapshot, precios_acciones, cedears_time_sales, day_trading_stats, agro_snapshot, agro_opciones_snapshot, agro_pizarra, camara_cereales, volumen_mercado_agro, snapshots_sinteticos, mercado_hist, rubros, adhoc_subscriptions, fci_gerentes, fci, fci_vcp |

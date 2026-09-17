@@ -2440,6 +2440,19 @@ CREATE TABLE IF NOT EXISTS mercado.agro_pizarra (
     data      jsonb
 );
 
+-- Audit de cada cambio de pizarra (quién, cuándo, de qué valor a cuál). Append
+-- desde api/services/derivados_agro.py::_audit_pizarra_sql. Antes la creaba el
+-- propio service con un CREATE TABLE inline: la declaración vive acá, como el
+-- resto (test_codigo_no_nombra_tablas_fantasma).
+CREATE TABLE IF NOT EXISTS mercado.agro_pizarra_audit (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    commodity  text,
+    prev       jsonb,
+    new        jsonb,
+    updated_by text,
+    updated_at timestamptz
+);
+
 -- Derivados.CamaraCereales → carga MANUAL de la mesa (5 cereales). Lo escribe el
 -- service api/services/camara_cereales.py::set_camara_cereal (dual-write incondicional,
 -- write_native). Passthrough jsonb; PK = cereal (Mongo _id).

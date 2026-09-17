@@ -274,11 +274,10 @@ def test_una_constante_que_NO_es_una_tabla_no_inventa_un_escritor():
     constante al lado: `_TABLA_CHEQUES` (una tabla) y `_COLS_CHEQUE` (una lista
     de columnas). La primera tiene que entrar; la segunda, nunca.
 
-    ⚠️ NO se prueba «toda tabla del mapa está en `schema.sql`»: sería más
-    fuerte y FALSO — `mercado.agro_pizarra_audit` la crea en runtime
-    `api/services/derivados_agro.py` con un `CREATE TABLE IF NOT EXISTS` y su
-    `INSERT` literal es perfectamente real. Eso es anterior a esto y no es lo
-    que este test vigila."""
+    «Toda tabla que el código nombra está en `schema.sql`» es OTRA regla y
+    tiene su propio test (`test_codigo_no_nombra_tablas_fantasma`); acá solo se
+    vigila que el mapa de escritores no adjudique un escritor a algo que no es
+    una tabla."""
     fuente = (RAIZ / "api" / "services" / "tesoreria.py").read_text(encoding="utf-8")
     consts = escribe._constantes(fuente)
     assert consts.get("_TABLA_CHEQUES") == "operaciones.tesoreria_cheques"

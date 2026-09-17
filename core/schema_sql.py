@@ -26,6 +26,9 @@ _RE_DROP = re.compile(
     r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
 _RE_SCHEMA = re.compile(
     r"CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z_0-9]*)", re.I)
+_RE_VISTA = re.compile(
+    r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"([a-z_][a-z_0-9]*)\.([a-z_0-9]+)", re.I)
 
 
 @lru_cache(maxsize=1)
@@ -55,6 +58,16 @@ def tablas() -> frozenset[str]:
     crea = {f"{a}.{b}".lower() for a, b in _RE_CREA.findall(txt)}
     drop = {f"{a}.{b}".lower() for a, b in _RE_DROP.findall(txt)}
     return frozenset(crea - drop)
+
+
+@lru_cache(maxsize=1)
+def vistas() -> frozenset[str]:
+    """Las `schema.vista` declaradas. Aparte de `tablas()` a propósito: una vista
+    se lee como una tabla pero no se escribe ni se dropea con `DROP TABLE`."""
+    txt = texto()
+    if not txt:
+        return frozenset()
+    return frozenset(f"{a}.{b}".lower() for a, b in _RE_VISTA.findall(txt))
 
 
 @lru_cache(maxsize=1)

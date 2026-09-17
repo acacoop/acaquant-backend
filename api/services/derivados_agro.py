@@ -260,9 +260,8 @@ def set_pizarra(
         [{"commodity": commodity, "data": pg_mirror.doc_iso(new)}],
     )
 
-    # Audit SQL-native (mercado.agro_pizarra_audit, self-create). Best-effort: un fallo del
-    # audit NO rompe la carga (ya escrita arriba). Antes iba a Mongo Derivados.AgroPizarraAudit
-    # (no migrado) → la recreaba al dropearla.
+    # Audit SQL-native (mercado.agro_pizarra_audit, declarada en sql/schema.sql). Best-effort:
+    # un fallo del audit NO rompe la carga (ya escrita arriba).
     _audit_pizarra_sql(commodity, prev, new, email, now)
     return new
 
@@ -274,10 +273,6 @@ def _audit_pizarra_sql(commodity: str, prev: dict, new: dict, email: str, ts: da
 
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "CREATE TABLE IF NOT EXISTS mercado.agro_pizarra_audit ("
-                "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, commodity text, "
-                "prev jsonb, new jsonb, updated_by text, updated_at timestamptz)")
             cur.execute(
                 "INSERT INTO mercado.agro_pizarra_audit (commodity, prev, new, updated_by, updated_at) "
                 "VALUES (%s, %s, %s, %s, %s)",

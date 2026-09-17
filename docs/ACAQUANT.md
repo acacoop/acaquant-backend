@@ -1,6 +1,6 @@
 # ACAQUANT — cómo funciona todo
 
-**Última actualización:** 2026-09-16 19:32 (hora Buenos Aires) · huella `36371a32`
+**Última actualización:** 2026-09-16 22:18 (hora Buenos Aires) · huella `0f984b3f`
 > **Este es EL documento oficial de AcaQuant.** Tiene la posta de cómo está armado y
 > cómo funciona el sistema. Si algo de acá contradice al código, es un bug de uno de
 > los dos y se arregla en el mismo commit. Es **privado**: no sale de la empresa.
@@ -195,7 +195,7 @@ Una sola base (Postgres en Supabase), un schema por dominio. El modelo completo 
 | `ia` | 4 | Briefing diario y conversaciones del ASISTENTE | `asistente/`, briefing |
 | `macro` | 3 | Series BCRA, UVA, REM, dólar A3500 | `jobs.bcra`, `jobs.argentina_datos` |
 | `manager` | 19 | Usuarios, roles, grupos, corridas de jobs, diagnóstico | la vista Manager y `JobRunLogger` |
-| `mercado` | 59 | Todo lo que producen los motores: curvas, snapshots, opciones, agro, FCI, cierres | `engines.*` y jobs de mercado |
+| `mercado` | 60 | Todo lo que producen los motores: curvas, snapshots, opciones, agro, FCI, cierres | `engines.*` y jobs de mercado |
 | `operaciones` | 49 | Boletos, movimientos, órdenes, tipos de operación | `operaciones_informes`, `negocio_movimientos`, `motor_ordenes` |
 | `partner` | 0 | Reservado (sin tablas hoy) | — |
 | `portafolio` | 11 | Tenencias (AuM) y ficha de cada activo | `portafolio_backfill`, `tenencia_live`, AV AGENT |

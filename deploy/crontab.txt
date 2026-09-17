@@ -316,6 +316,14 @@
 0 17 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
 0 21 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
 
+# ─── Resolver cuentas ROFEX (OPERAR → Órdenes del día, docs/CLAUDE.md incidente
+# 2026-09-17): 20:20 UTC, con motor_ordenes.service YA parado (para 20:05) y
+# DESPUÉS del último sync_comitentes del día (21:00 lo agarra igual la próxima
+# corrida). Abre su PROPIA sesión pyRofex — el job se niega solo si detecta
+# motor_ordenes.service activo (no puede haber dos sesiones del mismo usuario
+# ROFEX vivas). Solo resuelve altas nuevas (sin --retry-invalid/--full).
+20 20 * * 1-5 /root/TradingAV/deploy/run_job.sh resolver_cuentas_rofex 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.resolver_cuentas_rofex'
+
 # ─── (2026-08-19) Se dieron de baja DOS crons de IA: `triage` (corría cada 10
 # minutos y escribía en ia.triage_incidentes, que NO leía nadie — ni un endpoint
 # ni una pantalla) y `ia_calidad` (evaluaba conversaciones del copiloto, que se

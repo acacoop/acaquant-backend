@@ -1,6 +1,6 @@
 # ACAQUANT — cómo funciona todo
 
-**Última actualización:** 2026-09-17 14:38 (hora Buenos Aires) · huella `5f9528a5`
+**Última actualización:** 2026-09-17 15:32 (hora Buenos Aires) · huella `d2a1bf73`
 > **Este es EL documento oficial de AcaQuant.** Tiene la posta de cómo está armado y
 > cómo funciona el sistema. Si algo de acá contradice al código, es un bug de uno de
 > los dos y se arregla en el mismo commit. Es **privado**: no sale de la empresa.
@@ -150,6 +150,7 @@ Horarios en **UTC** (Buenos Aires = UTC−3). La rueda es L-V, 13:20 a 20:05 UTC
 | 20:15 · L-V | `jobs.cedears_ohlc_daily` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily` |
 | 20:20 · L-V | `jobs.cedears_bars_1m` |
+| 20:20 · L-V | `jobs.resolver_cuentas_rofex` |
 | 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value` |
 | 20:30 · L-V | `jobs.fci_vcp` |
 | 20:30 · L-V | `jobs.forwards_zscore` |

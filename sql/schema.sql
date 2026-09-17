@@ -198,6 +198,21 @@ ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS perfil_inversion text;
 ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS provincia        text;
 ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS created_at       timestamptz;
 ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS updated_at       timestamptz;
+
+-- Mapeo id_cuenta → nº de cuenta que ROFEX ACEPTA, resuelto OFFLINE (2026-09-17).
+-- `jobs/resolver_cuentas_rofex.py` es el ÚNICO escritor: prueba
+-- `get_account_report` contra el broker fuera de rueda (motor_ordenes.service
+-- parado) y persiste el resultado acá. `engines/motor_ordenes.py` (con el
+-- motor YA corriendo, WS en vivo) SOLO LEE estas columnas — nunca vuelve a
+-- probar cuentas contra ROFEX mientras la sesión en vivo está arriba, porque
+-- eso fue justo el incidente: una cuenta que el broker no reconoce, aunque
+-- sea solo para un GET de consulta, hace que cierre el WS entero (no solo el
+-- pedido que falló) — ver `AGENT.md`/commit del incidente 2026-09-17.
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS rofex_account     text;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS rofex_valida      boolean;
+ALTER TABLE clientes.comitentes ADD COLUMN IF NOT EXISTS rofex_resuelto_at timestamptz;
+CREATE INDEX IF NOT EXISTS ix_comitentes_rofex_valida ON clientes.comitentes(rofex_valida)
+    WHERE rofex_valida IS TRUE;
 -- El índice que hace barata la consulta de `contraparte_faltante`: filtra por
 -- estado + tipo_cliente sobre 1.900 filas, tres veces por hora.
 CREATE INDEX IF NOT EXISTS ix_comitentes_tipo_cliente

@@ -72,6 +72,16 @@ PISA el default — el enforcement real es lo que esté ahí, editable desde
 órdenes aplican scope de cuenta por grupo (`verificar_account`, ver
 `api/deps.py`).
 
+**Dónde vive el gate — una regla, no una costumbre.** El gate de módulo va en
+`api/main.py`, en el `dependencies=` del `include_router`. Va en el router
+SOLO cuando necesita más grano que el prefijo: un módulo por sub-router
+(`manager/__init__.py`) o por endpoint (el PATCH de derivados agro), y en ese
+caso el comentario del montaje en `main.py` lo declara («gate módulo X en el
+router»). Un router montado como `_PUBLIC` sin ese comentario ES público.
+`test_rbac_superficie` congela el resultado (qué gate tiene cada ruta); el
+lugar lo fija esta regla, para que no haya que leer dos archivos para saber
+quién ve qué.
+
 `renta-variable` (Scanner CEDEARs sobre `mercado.cedears_snapshot` +
 `mercado.precios_acciones`) está abierto a los 3 roles desde 2026-05-13.
 Agregar módulo nuevo: (1) sumar el string a `MODULES`, (2) actualizar

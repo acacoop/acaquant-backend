@@ -289,3 +289,73 @@ def test_correr_junta_las_cinco_etapas_y_guarda(permiso=None):
 @pytest.mark.parametrize("texto", ["hola", "diagnosticar hallazgo #x"])
 def test_una_pregunta_que_no_es_un_pedido_de_diagnostico_no_corre(texto):
     assert "error" in DG.correr_run({"run_id": "r", "pregunta": texto})
+
+
+# ── verlo desde el LAB: la traza y el pedido a mano ─────────────────────────
+
+
+def _pool_con(cur):
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
+    return pool
+
+
+def test_pedir_a_mano_usa_la_misma_puerta_y_no_encola_dos_veces():
+    from asistente import ejecuciones
+
+    cur = MagicMock()
+    # existe, no ignorado, y NO hay uno activo → encola.
+    cur.fetchone.side_effect = [{"estado": "nuevo"}, None]
+    with patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)), \
+         patch.object(ejecuciones, "crear", return_value={"run_id": "nuevo1"}) as c:
+        r = DG.pedir(42)
+    assert r == {"ok": True, "run_id": "nuevo1", "ya_estaba": False}
+    assert c.call_args.args == ("diagnosticar hallazgo #42",) and c.call_args.kwargs["tipo"] == "diagnostico"
+    # ya hay uno en cola → devuelve ese, sin crear.
+    cur.fetchone.side_effect = [{"estado": "nuevo"}, {"run_id": "viejo1"}]
+    with patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)), \
+         patch.object(ejecuciones, "crear", side_effect=AssertionError("no tenía que crear")):
+        assert DG.pedir(42) == {"ok": True, "run_id": "viejo1", "ya_estaba": True}
+    # ignorado o inexistente → no.
+    cur.fetchone.side_effect = [{"estado": "ignorado"}]
+    with patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)):
+        assert DG.pedir(42)["ok"] is False
+    cur.fetchone.side_effect = [None]
+    with patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)):
+        assert "no existe" in DG.pedir(42)["error"]
+
+
+def test_la_traza_muestra_el_ultimo_run_o_el_pedido_con_sus_eventos():
+    from asistente import ejecuciones
+
+    runs = [{"run_id": "b", "estado": "running"}, {"run_id": "a", "estado": "succeeded"}]
+    with patch.object(ejecuciones, "runs_de", return_value=runs) as rd, \
+         patch.object(ejecuciones, "eventos_de", side_effect=lambda rid: [{"tipo": "vuelta", "run": rid}]):
+        t = DG.traza(42)
+        assert rd.call_args.args == ("diagnosticar hallazgo #42",)
+        assert t["run"]["run_id"] == "b" and t["eventos"] == [{"tipo": "vuelta", "run": "b"}]
+        assert DG.traza(42, run_id="a")["run"]["run_id"] == "a"
+        assert DG.traza(42, run_id="zzz")["run"] is None, "un run que no es de este hallazgo no se muestra"
+    with patch.object(ejecuciones, "runs_de", return_value=[]), \
+         patch.object(ejecuciones, "eventos_de", side_effect=AssertionError("sin run no hay eventos")):
+        assert DG.traza(42) == {"hallazgo_id": 42, "runs": [], "run": None, "eventos": []}
+
+
+def test_concluir_deja_su_rastro_en_el_ciclo():
+    """La etapa 3 emite qué devolvió y cuánto costó, parseara o no."""
+    from asistente import eventos as EV
+
+    msg = MagicMock(content='{"causa": "transitorio", "accion": "nada_porque"}',
+                    usage_metadata={"input_tokens": 5, "output_tokens": 2})
+    m = MagicMock()
+    m.invoke.return_value = msg
+    vistos = []
+    with patch.object(DG.modelos, "resolver", return_value=MagicMock(nombre="t", modelo="m", traza_sin_texto=False)), \
+         patch.object(DG.modelos, "modelo", return_value=m), \
+         patch.object(DG, "Traza", return_value=MagicMock(ids=[9])), \
+         EV.capturar(vistos.append):
+        con = DG.concluir(DOSIER, {"notas": "", "evidencias": []}, run_id="r", usuario="u")
+    assert con["conclusion"] == {"causa": "transitorio", "accion": "nada_porque"} and con["llamadas"] == [9]
+    assert vistos == [{"tipo": "diagnostico_concluir", "agente": DG.AGENTE_NOMBRE,
+                       "texto": '{"causa": "transitorio", "accion": "nada_porque"}', "parseo": True,
+                       "tokens_in": 5, "tokens_out": 2}]

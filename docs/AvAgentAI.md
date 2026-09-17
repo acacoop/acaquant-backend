@@ -638,3 +638,22 @@ historial de diagnósticos muestre que las conclusiones se sostienen. Un
 qué no hacer, las afirmaciones con su marca de verificado o hipótesis, y qué
 ajustó el validador. Un diagnóstico con `sin_verificar` se muestra como tal:
 una hipótesis marcada vale más que una certeza inventada.
+
+**Y el ciclo que la produjo, en el LAB.** La conclusión sola no alcanza para
+confiar en ella: el primer diagnóstico real gastó 100k tokens en seis vueltas y
+terminó en `sin_verificar` sin que nadie pudiera ver qué había mirado ni qué
+había dicho. Desde AHORA, «ver cómo lo pensó → LAB» (o «diagnosticar → LAB» si
+todavía no corrió) abre `GET /api/agente/diagnostico/{id}`
+(`diagnostico.traza`): los runs de ese hallazgo y el ciclo entero de uno, tal
+cual quedó en `ia.eventos_ejecucion`. Para que el ciclo cuente la historia
+completa, el bucle de cualquier agente emite ahora un evento `modelo` por vuelta
+(`grafo.py`): qué DIJO el modelo —el texto que acompaña a un pedido de
+herramienta es su razonamiento en voz alta—, cuántos tokens entraron y
+salieron en esa vuelta, y qué pidió; y la etapa 3 emite `diagnostico_concluir`
+con el texto crudo y si parseó. Una vuelta con texto vacío se marca: es lo que
+pasó con DeepSeek y antes no se veía. Los runs son del agente (`av-agent`), por
+eso esta lectura no pasa por `/lab/runs` (que filtra por dueño) y vive bajo el
+router admin-only del agente. «Diagnosticar de nuevo» /
+`POST /api/agente/diagnostico/{id}/pedir` encola por la misma puerta que el
+disparo automático, sin topes (los topes acotan al daemon, no a quien mira) y
+sin duplicar uno en cola. El front no suma ni resume: dibuja los eventos.

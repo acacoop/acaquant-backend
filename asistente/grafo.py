@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 MAX_VUELTAS = 6
 MAX_RESULTADO_CHARS = 20_000
+MAX_TEXTO_EVENTO = 2000  # lo que dijo el modelo en una vuelta, para el ciclo
 
 _SESION_RE = re.compile(r"[0-9a-f]{32}")
 
@@ -123,6 +124,14 @@ def subgrafo(agente: Agente):
             "tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
             "llamadas": list(tr.ids),
         }
+        # Lo que el modelo DIJO en esta vuelta, con lo que costó: el texto que
+        # acompaña a un pedido de herramienta es su razonamiento en voz alta, y
+        # sin este evento el ciclo mostraba qué pidió pero no por qué, ni
+        # cuánto se llevó cada vuelta (§15: «gastó 100k tokens y no dijo nada»).
+        eventos.append(_evento(
+            agente, "modelo", n=vuelta, texto=memoria.texto(msg.content)[:MAX_TEXTO_EVENTO],
+            tokens_in=salida["tokens_in"], tokens_out=salida["tokens_out"],
+            pide=[tc["name"] for tc in msg.tool_calls]))
         if not msg.tool_calls and not msg.invalid_tool_calls:
             leido = ESQ.leer(memoria.texto(msg.content))
             salida.update({"respuesta": leido["respuesta"], "falta": leido["falta"],

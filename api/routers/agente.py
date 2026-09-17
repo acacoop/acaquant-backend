@@ -240,6 +240,27 @@ def correr(body: Correr):
 
 
 
+# ── EL DIAGNÓSTICO de un hallazgo (asistente/diagnostico.py, AvAgentAI.md §15) ──
+#
+# Lo que AHORA muestra es la conclusión; esto es el CICLO que la produjo, para
+# verlo en el LAB: cada vuelta, qué dijo el modelo, qué pidió, qué le volvió.
+# Los runs son del agente, no del que mira: por eso no van por `/lab/runs`.
+
+@router.get("/diagnostico/{hallazgo_id}")
+def diagnostico_traza(hallazgo_id: int, run_id: str | None = None):
+    from asistente import diagnostico
+    return diagnostico.traza(hallazgo_id, run_id)
+
+
+@router.post("/diagnostico/{hallazgo_id}/pedir")
+def diagnostico_pedir(hallazgo_id: int):
+    """Encola el diagnóstico de UN hallazgo ahora, por la misma puerta que el
+    disparo automático (invariante 14 de AGENT.md §8). Sin topes: los topes son
+    del daemon. Si ya hay uno en cola, devuelve ese."""
+    from asistente import diagnostico
+    return diagnostico.pedir(hallazgo_id)
+
+
 # ── EL LABORATORIO — el asistente (asistente/, docs/AvAgentAI.md) ──────────
 #
 # Cada pregunta se encola como run durable; SSE muestra el ciclo sin hacer que

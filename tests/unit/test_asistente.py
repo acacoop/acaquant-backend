@@ -1425,9 +1425,10 @@ def test_una_pregunta_de_un_agente_corre_solo_ese_agente(permiso):
     assert r["agentes"] == ["renta_fija"] and r["error"] is None
     assert r["respuesta"].startswith("[asistente_renta_fija]")
     tipos = [(e["tipo"], e.get("agente")) for e in r["eventos"]]
+    # Cada vuelta deja `modelo`: qué dijo y cuánto costó, antes de qué pidió.
     assert tipos == [("pregunta", None), ("ruteo", "ruteo"), ("vuelta", "renta_fija"),
-                     ("pide", "renta_fija"), ("resultado", "renta_fija"), ("vuelta", "renta_fija"),
-                     ("texto", "renta_fija")]
+                     ("modelo", "renta_fija"), ("pide", "renta_fija"), ("resultado", "renta_fija"),
+                     ("vuelta", "renta_fija"), ("modelo", "renta_fija"), ("texto", "renta_fija")]
     ruteo = next(e for e in r["eventos"] if e["tipo"] == "ruteo")
     assert ruteo["elegidos"] == ["renta_fija"] and ruteo["motivo"]
     assert [m["role"] for m in r["mensajes"]] == ["user", "assistant", "tool", "assistant"]

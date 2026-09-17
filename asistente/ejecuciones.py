@@ -119,6 +119,29 @@ def eventos_desde(run_id: str, usuario: str, despues_de: int = 0) -> list[dict]:
                 for row in cur.fetchall()]
 
 
+def eventos_de(run_id: str, limite: int = 500) -> list[dict]:
+    """El ciclo entero de un run SIN filtro de dueño: para los runs del agente
+    (`av-agent`), que una persona mira desde el LAB. La ruta que lo sirve es
+    admin-only; no usar desde nada que un usuario alcance con su propio id."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT id, ts, payload FROM ia.eventos_ejecucion WHERE run_id = %s"
+            " ORDER BY id LIMIT %s", (run_id, max(1, min(int(limite), 2000))))
+        return [{"id": int(row["id"]), "ts": row["ts"].isoformat(), **dict(row["payload"] or {})}
+                for row in cur.fetchall()]
+
+
+def runs_de(pregunta: str, limite: int = 20) -> list[dict]:
+    """Los runs con esa pregunta exacta, el más nuevo primero (un diagnóstico
+    se identifica por su pregunta `diagnosticar hallazgo #N`)."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT run_id, tipo, estado, error, creada_at, iniciada_at, finalizada_at, intentos"
+            " FROM ia.ejecuciones WHERE pregunta = %s ORDER BY creada_at DESC LIMIT %s",
+            (pregunta, max(1, min(int(limite), 100))))
+        return [_publica(row) for row in cur.fetchall()]
+
+
 def terminar(run_id: str, estado: str, *, resultado: dict | None = None,
              error: str | None = None) -> None:
     if estado not in TERMINALES:

@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **534 endpoints** montados en `api.main.app`, en **35 routers**.
-- **198 escriben** (POST/PUT/PATCH/DELETE); 336 son de solo lectura.
+- **536 endpoints** montados en `api.main.app`, en **35 routers**.
+- **199 escriben** (POST/PUT/PATCH/DELETE); 337 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 27 | 14 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 29 | 15 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
@@ -2239,7 +2239,9 @@ Lo que corre solo con un modelo es UNA cosa: EL DIAGNÓSTICO del AV AGENT
 (`asistente/diagnostico.py`, `AvAgentAI.md` §15), que investiga por qué apareció
 cada hallazgo abierto y recomienda sin ejecutar nada; se apaga con
 `DIAGNOSTICO_AUTOMATICO=0`. Todo lo demás es a pedido de una persona (la tab
-LAB). El **núcleo del gateway**:
+LAB). **Su ciclo se ve en el LAB**: `GET /api/agente/diagnostico/{id}` (los runs del hallazgo y los eventos de uno, sin filtro de dueño porque son del agente) y `POST /api/agente/diagnostico/{id}/pedir` (encola uno a mano, misma puerta que el automático, sin topes). Desde AHORA, «ver cómo lo pensó → LAB» / «diagnosticar → LAB».
+
+El **núcleo del gateway**:
 
 | Pieza | Qué es | Estado |
 |---|---|---|

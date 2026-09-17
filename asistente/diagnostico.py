@@ -256,7 +256,13 @@ def concluir(dosier_: dict, investigacion: dict, *, run_id: str, usuario: str) -
                 "tokens_in": 0, "tokens_out": 0, "llamadas": []}
     crudo = memoria.texto(msg.content)
     uso = msg.usage_metadata or {}
-    return {"conclusion": leer_conclusion(crudo), "crudo": crudo, "error": None,
+    conclusion = leer_conclusion(crudo)
+    # La etapa 3 también deja rastro en el ciclo: qué devolvió y cuánto costó.
+    # Sin esto «no parseó» se leía sin poder ver el texto que no parseó.
+    EV.emitir({"tipo": "diagnostico_concluir", "agente": AGENTE_NOMBRE, "texto": crudo[:2000],
+               "parseo": conclusion is not None,
+               "tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0)})
+    return {"conclusion": conclusion, "crudo": crudo, "error": None,
             "tokens_in": uso.get("input_tokens", 0), "tokens_out": uso.get("output_tokens", 0),
             "llamadas": list(tr.ids)}
 
@@ -471,6 +477,53 @@ def _elegir(abiertos: list[dict], en_cola: set[int], hoy: int, ahora: datetime, 
     return [int(h["id"]) for h in candidatos[:cupo]]
 
 
+def pedir(hallazgo_id: int) -> dict:
+    """Una persona pide el diagnóstico de UN hallazgo desde AHORA. Misma puerta
+    que el disparo automático (un run `tipo = diagnostico`), sin los topes:
+    los topes acotan al daemon, no a quien mira la pantalla. No encola dos
+    veces el mismo mientras hay uno en cola, y no diagnostica lo ignorado."""
+    from asistente import ejecuciones
+
+    hid = int(hallazgo_id)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT estado FROM agente.hallazgos WHERE id = %s", (hid,))
+        fila = cur.fetchone()
+        if not fila:
+            return {"ok": False, "error": f"no existe el hallazgo {hid}"}
+        if fila["estado"] == T.IGNORADO:
+            return {"ok": False, "error": "una persona lo marcó «no me interesa»: no se diagnostica"}
+        cur.execute(
+            "SELECT run_id FROM ia.ejecuciones WHERE tipo = 'diagnostico' AND pregunta = %s"
+            " AND estado = ANY(%s) ORDER BY creada_at DESC LIMIT 1",
+            (_pregunta(hid), list(ejecuciones.ACTIVOS)))
+        activo = cur.fetchone()
+    if activo:
+        return {"ok": True, "run_id": activo["run_id"], "ya_estaba": True}
+    run = ejecuciones.crear(_pregunta(hid), usuario=T.ACTOR_AGENTE, rol="admin",
+                            portal="trading", tipo="diagnostico")
+    return {"ok": True, "run_id": run.get("run_id"), "ya_estaba": False}
+
+
+def traza(hallazgo_id: int, run_id: str | None = None) -> dict:
+    """Lo que hizo EL DIAGNÓSTICO de un hallazgo, para verlo en el LAB: sus runs
+    (el último primero) y el ciclo entero de uno (por defecto el último): cada
+    vuelta, qué dijo el modelo y qué le costó, qué pidió, qué le volvió, y la
+    conclusión cruda. Lo mismo que ya quedó en `ia.eventos_ejecucion`; acá no se
+    resume nada. Los runs son del agente (`av-agent`), por eso no pasan por el
+    filtro de dueño del LAB."""
+    from asistente import ejecuciones
+
+    hid = int(hallazgo_id)
+    runs = ejecuciones.runs_de(_pregunta(hid))
+    elegido = next((r for r in runs if r["run_id"] == run_id), None) if run_id else (runs[0] if runs else None)
+    eventos = ejecuciones.eventos_de(elegido["run_id"]) if elegido else []
+    return {"hallazgo_id": hid, "runs": runs, "run": elegido, "eventos": eventos}
+
+
+def _pregunta(hallazgo_id: int) -> str:
+    return f"diagnosticar hallazgo #{int(hallazgo_id)}"
+
+
 def encolar_pendientes() -> dict:
     """Encola un run por hallazgo que toque, con los topes de `config.py`."""
     from asistente import ejecuciones
@@ -494,7 +547,7 @@ def encolar_pendientes() -> dict:
                   tope_dia=DIAGNOSTICO_TOPE_DIA, refresco_h=DIAGNOSTICO_REFRESCO_H)
     encolados = []
     for hid in ids:
-        run = ejecuciones.crear(f"diagnosticar hallazgo #{hid}", usuario=T.ACTOR_AGENTE, rol="admin",
+        run = ejecuciones.crear(_pregunta(hid), usuario=T.ACTOR_AGENTE, rol="admin",
                                 portal="trading", tipo="diagnostico")
         encolados.append({"hallazgo_id": hid, "run_id": run.get("run_id")})
     return {"encolados": encolados, "hoy": hoy + len(encolados), "abiertos": len(abiertos),

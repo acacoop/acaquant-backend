@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from api.deps import verificar_id_cuenta
+from api.deps import scope_cuentas, verificar_id_cuenta
 from api.services import acreencias as svc_acr
 from api.services import comisiones_fci as svc_fci
 from api.services import contabilidad_sql as svc_conta
@@ -20,6 +20,25 @@ from api.services import titulos_negativos as svc_negativos
 from api.services.back_office_titulos import get_titulos_mercado
 
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])
+
+
+def scope_comisiones_fci(
+    operador: str | None = Query(None, description="Operador: restringe a sus cuentas"),
+    nivel_1: list[str] | None = Query(None, description="Nivel 1: multi, repetir el parámetro"),
+    nivel_2: list[str] | None = Query(None, description="Nivel 2: multi, repetir el parámetro"),
+    nivel_3: list[str] | None = Query(None, description="Nivel 3: multi, repetir el parámetro"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+) -> tuple[str, ...] | None:
+    """Scope autorizado intersectado con los filtros madre de COMISIONES FCI."""
+    if not operador and not any((nivel_1, nivel_2, nivel_3)):
+        return scope
+    from api.services.comercial import TODOS, _cuentas_de_operador
+    seleccionadas = _cuentas_de_operador(
+        operador or TODOS, nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
+    )
+    if scope is None:
+        return seleccionadas
+    return tuple(sorted(set(scope) & set(seleccionadas)))
 
 
 # Escritura de Tesorería (saldo inicial + cheques): allowlist
@@ -1016,6 +1035,8 @@ def contabilidad_detalle(
 @router.get("/comisiones-fci")
 def comisiones_fci_mes(
     mes: str = Query(..., pattern=_RE_MES, description="YYYY-MM"),
+    gerente: str | None = Query(None, max_length=256, description="Sociedad gerente seleccionada"),
+    scope: tuple[str, ...] | None = Depends(scope_comisiones_fci),
     _email: str = Depends(get_user_email),
 ):
     """Tabla por fondo + acumulado por sociedad gerente + totales ARS/USD del mes.
@@ -1027,26 +1048,41 @@ def comisiones_fci_mes(
     Los fondos SIN `fee_admin` cargado vienen con `sin_fee: true` y NO suman a los
     totales ? ah? el arancel no es cero, es desconocido, y el bloque `sin_fee` dice
     cu?ntos son y cu?nta valuaci?n qued? sin poder devengar."""
-    return svc_fci.resumen_mes(mes)
+    return svc_fci.resumen_mes(mes=mes, scope=scope, gerente=gerente)
 
 
 @router.get("/comisiones-fci/detalle")
 def comisiones_fci_detalle(
     mes: str = Query(..., pattern=_RE_MES, description="YYYY-MM"),
     unidad: str = Query(..., min_length=1, max_length=256, description="Fondo"),
+    gerente: str | None = Query(None, max_length=256, description="Sociedad gerente seleccionada"),
+    scope: tuple[str, ...] | None = Depends(scope_comisiones_fci),
     _email: str = Depends(get_user_email),
 ):
     """Las CUENTAS que tuvieron ese fondo en el mes ? trazabilidad de la fila.
 
     Usa el MISMO c?lculo y los mismos tramos que la tabla, as? el detalle no puede
     contradecir al n?mero que lo abri?."""
-    return svc_fci.detalle_fondo(mes, unidad)
+    return svc_fci.detalle_fondo(mes=mes, unidad=unidad, scope=scope, gerente=gerente)
 
 
 @router.get("/comisiones-fci/serie")
-def comisiones_fci_serie(_email: str = Depends(get_user_email)):
+def comisiones_fci_serie(
+    gerente: str | None = Query(None, max_length=256, description="Sociedad gerente seleccionada"),
+    scope: tuple[str, ...] | None = Depends(scope_comisiones_fci),
+    _email: str = Depends(get_user_email),
+):
     """Acumulado MENSUAL hist?rico por moneda (gr?fico de barras)."""
-    return svc_fci.serie_mensual()
+    return svc_fci.serie_mensual(scope=scope, gerente=gerente)
+
+
+@router.get("/comisiones-fci/filtros")
+def comisiones_fci_filtros(
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _email: str = Depends(get_user_email),
+):
+    """Combinaciones reales de Operador y Niveles 1/2/3 visibles para filtrar."""
+    return svc_fci.filtros(scope=scope)
 
 
 @router.get("/comisiones-fci/meses")

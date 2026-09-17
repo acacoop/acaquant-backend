@@ -128,6 +128,19 @@ def test_el_join_a_assets_es_left():
     assert "LEFT JOIN portafolio.assets" in sql
 
 
+def test_el_scope_de_cuentas_se_aplica_en_la_query():
+    """Un scope vacío es ninguna cuenta, nunca todas las cuentas."""
+    where, params = s._scope_where(())
+    assert where == " AND t.id_cuenta = ANY(%(scope)s)"
+    assert params == {"scope": []}
+
+
+def test_la_serie_admite_el_mismo_scope_que_el_resumen():
+    """El histórico no puede escapar al contexto de cuentas de la tabla."""
+    assert "WHERE" in s._SQL_SERIE
+    assert "portafolio.assets a" in s._SQL_SERIE
+
+
 def test_la_serie_historica_si_exige_fee():
     """El gráfico histórico es de PLATA DEVENGADA: una barra no puede mezclar
     "no generó" con "no sabemos". Ahí el join sí filtra por fee cargado."""

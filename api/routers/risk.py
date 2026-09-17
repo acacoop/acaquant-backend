@@ -16,7 +16,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import get_user_email
-from api.services._grupos_scope import scope_cuentas, verificar_account
+from api.deps import scope_cuentas, verificar_account
 from api.services.risk import (
     account_detailed_position,
     account_positions,

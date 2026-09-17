@@ -64,7 +64,7 @@ def test_el_mes_se_cierra_en_su_ultimo_dia(mes, ini, fin):
 
 
 def test_el_historico_comienza_el_primero_de_mayo_de_2026():
-    assert s.INICIO_HISTORICO == date(2026, 5, 1)
+    assert date(2026, 5, 1) == s.INICIO_HISTORICO
 
 
 # ── Tramos: el fin de semana no es un agujero ────────────────────────────────

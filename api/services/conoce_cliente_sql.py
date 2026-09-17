@@ -58,8 +58,8 @@ from datetime import date, timedelta
 
 from api.services._sql import _q
 from api.services.comercial import _cv, _factor_usd, _hoy_art
-from api.services.comercial_sql import (
-    _arancel_where, _f, _fci_por_cuenta as _fci_por_cuenta_calc, _iso)
+from api.services.comercial_sql import _arancel_where, _f, _iso
+from api.services.comercial_sql import _fci_por_cuenta as _fci_por_cuenta_calc
 from api.services.profundidad_sql import _op_label, _scope
 
 # El campo que ES el segmento. `nivel_3` es el patrimonial (derivado del cupo:

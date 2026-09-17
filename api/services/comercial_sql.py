@@ -19,7 +19,6 @@ from datetime import date, timedelta
 from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services._sql import _q
-from api.services.comisiones_fci import INICIO_HISTORICO
 from api.services.comercial import (
     _CATS_OPERACIONES,
     _CATS_VOLUMEN,
@@ -29,6 +28,7 @@ from api.services.comercial import (
     _valores,
     estado_comercial,
 )
+from api.services.comisiones_fci import INICIO_HISTORICO
 from config import CUPO_BASE_FECHA
 
 # Ficha embebida en cada cliente (= _FICHA_FIELDS de comercial.py). denominacion sale de

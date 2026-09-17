@@ -24,7 +24,7 @@ portfolio/cuentas/operaciones de clientes reales.
 - Módulo nuevo: sumar a `MODULES`, actualizar `ENDPOINT_MODULE_PREFIXES` en
   `api/auth.py`, y la matriz en `Manager.RoleMatrix` (la DB pisa el DEFAULT_MATRIX).
 - ¿El rol correcto? `operar` (órdenes) es admin-only. Scope de cuenta por grupo
-  (`verificar_account`, `_grupos_scope.py`) en endpoints de órdenes/operaciones.
+  (`verificar_account`, `api/deps.py`) en endpoints de órdenes/operaciones.
 
 ### Secretos
 - Cero secretos en código o commits (POSTGRES_URI/`.env` SQL, AUNESA_*, MCP_*, JWT

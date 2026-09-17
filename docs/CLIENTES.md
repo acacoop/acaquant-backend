@@ -59,7 +59,7 @@ deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
 
 - **Fase 2 (HECHA)** — enforcement backend para el namespace `id_cuenta`
   (valuaciones + portfolio/AuM + PnL).
-  - `api/services/_grupos_scope.py`: dependencies `scope_cuentas`
+  - `api/deps.py`: dependencies `scope_cuentas`
     (inyecta `tuple[str,...] | None`) y `verificar_id_cuenta` (403).
   - Los services de `portfolio.py`, `pnl.py` y `valuaciones.py` aceptan
     `scope` y lo aplican al filtro SQL (`WHERE id_cuenta IN ...`) / de filas.
@@ -69,9 +69,10 @@ deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
 
 - **Fase 2b (HECHA)** — enforcement del namespace `cuenta`
   (string "[<id>] NOMBRE") que usan `FlujosAPI` y `NegocioMovimientos`
-  (no tienen `id_cuenta` directo). Helpers `scope_cuenta_match` /
-  `aplicar_scope_cuenta` (regex sobre el id bracketed, vía `$and`) +
-  `verificar_cuenta_str` + `filtrar_cuentas_str` en `_grupos_scope.py`.
+  (no tienen `id_cuenta` directo). `verificar_cuenta_str` en `api/deps.py`
+  (regex sobre el id bracketed); el filtro SQL equivalente vive en cada
+  service (`cashflow_sql`). Los helpers Mongo (`scope_cuenta_match` /
+  `aplicar_scope_cuenta`) se borraron con el decomiso de Mongo.
   Aplicado en `/flujos` y `/negocio/{serie,cuentas,cuentas-matrix,
   boletos,cuentas-list}`. `operar` sigue admin-only.
 

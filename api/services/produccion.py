@@ -352,6 +352,17 @@ def mesa_ventanas(*, desde: str | None, hasta: str | None, mes_ini: str,
 SEGMENTO_INTERMEDIACION = "INTERMEDIACIÓN (MESA)"
 
 
-__all__ = ["FUENTES", "MERCADO", "MESA", "FCI", "SEGMENTO_INTERMEDIACION", "SIN_CUENTA",
-           "Fuente", "catalogo", "cobertura", "comisiones_por_operador",
-           "mesa_ventanas", "vacio"]
+__all__ = [
+    "FCI",
+    "FUENTES",
+    "MERCADO",
+    "MESA",
+    "SEGMENTO_INTERMEDIACION",
+    "SIN_CUENTA",
+    "Fuente",
+    "catalogo",
+    "cobertura",
+    "comisiones_por_operador",
+    "mesa_ventanas",
+    "vacio",
+]

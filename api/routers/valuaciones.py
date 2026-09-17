@@ -14,8 +14,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from api.deps import scope_cuentas, verificar_id_cuenta
 from api.services import valuaciones as svc
-from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
 
 logger = logging.getLogger("api.valuaciones")
 

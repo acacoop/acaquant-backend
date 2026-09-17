@@ -27,8 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.deps import scope_cuentas, verificar_account
 from api.ratelimit import limiter
-from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.ordenes import (
     cancel_order,
     get_fci_quote,

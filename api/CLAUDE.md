@@ -70,7 +70,7 @@ sacó de la matriz viva el 2026-05-23. **OJO**: `manager.role_matrix` (SQL)
 PISA el default — el enforcement real es lo que esté ahí, editable desde
 `/manager → ROLES Y PERMISOS`. Además del gate de módulo, los endpoints de
 órdenes aplican scope de cuenta por grupo (`verificar_account`, ver
-`api/services/_grupos_scope.py`).
+`api/deps.py`).
 
 `renta-variable` (Scanner CEDEARs sobre `mercado.cedears_snapshot` +
 `mercado.precios_acciones`) está abierto a los 3 roles desde 2026-05-13.

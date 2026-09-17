@@ -65,7 +65,7 @@ def test_core_no_sabe_que_existe_el_resto():
 
 # ── EL TRINQUETE ────────────────────────────────────────────────────────────
 #
-# Las dos listas de abajo son deuda que YA EXISTÍA cuando se escribió este
+# Las listas de abajo son deuda que YA EXISTÍA cuando se escribió este
 # archivo. Se declaran en vez de arreglarse acá por una razón: el trabajo de
 # este test es **frenar lo nuevo**, y una regla que exige limpiar todo antes de
 # empezar a regir es una regla que no se activa nunca.
@@ -102,36 +102,23 @@ def test_quant_es_calculo_puro():
         f"RECIBE — es lo que ya hacen `black_scholes` y `curve_fit`.")
 
 
-# ⚠️ La ÚNICA excepción viva, declarada y con su motivo. Si mañana aparece otra,
-# este test la canta y hay que decidir a conciencia — que es justo el punto.
-_SERVICES_CON_FASTAPI = {
-    "api/services/_grupos_scope.py":
-        "levanta HTTPException para el scope de cuentas por grupo",
-}
-
-
 def test_los_services_no_saben_de_HTTP():
     """Un service es lógica: lo tiene que poder llamar un cron, un motor y un
     endpoint. El que levanta `HTTPException` solo sirve desde la web — y ahí la
-    misma regla necesita una segunda implementación para el job."""
+    misma regla necesita una segunda implementación para el job.
+
+    Lista de excepciones: NINGUNA (se vació al mover el scope de grupos a
+    `api/deps.py`). Si un service nuevo necesita FastAPI, este test lo canta y
+    la respuesta es moverlo, no sumar una lista."""
     malos = {}
     for f in _modulos("api/services"):
         rel = f.relative_to(RAIZ).as_posix()
-        if rel in _SERVICES_CON_FASTAPI:
-            continue
         if _importa_de(ast.parse(f.read_text(encoding="utf-8")), ("fastapi",)):
             malos[rel] = "importa fastapi"
     assert not malos, (
-        f"services que se ataron a HTTP: {malos}. Si es a propósito, sumalo a "
-        f"`_SERVICES_CON_FASTAPI` con el motivo — la excepción declarada es "
-        f"distinta de la que se coló.")
-
-
-def test_la_excepcion_declarada_SIGUE_existiendo():
-    """Una lista de excepciones que nombra archivos borrados es cómo una regla
-    se afloja sin que nadie lo decida."""
-    for rel in _SERVICES_CON_FASTAPI:
-        assert (RAIZ / rel).exists(), f"«{rel}» ya no existe: sacalo de la lista"
+        f"services que se ataron a HTTP: {malos}. Sin excepciones: lo que "
+        f"necesita `Depends`/`HTTPException` es una dependency y vive en "
+        f"`api/deps.py` (es lo que pasó con el scope de grupos).")
 
 
 # Los ocho que ya tenían SQL adentro cuando nació este test. Casi todos son

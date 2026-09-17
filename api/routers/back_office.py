@@ -10,13 +10,13 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.deps import verificar_id_cuenta
 from api.services import acreencias as svc_acr
 from api.services import comisiones_fci as svc_fci
 from api.services import contabilidad_sql as svc_conta
 from api.services import tenencia_hd as svc_ten
 from api.services import tesoreria as svc_tes
 from api.services import titulos_negativos as svc_negativos
-from api.services._grupos_scope import verificar_id_cuenta
 from api.services.back_office_titulos import get_titulos_mercado
 
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])

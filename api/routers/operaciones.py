@@ -7,6 +7,12 @@ from pydantic import BaseModel
 
 from api.auth import get_user_email, require_control_comercial, require_no_invitado
 from api.cache import cached
+from api.deps import (
+    scope_cuentas,
+    verificar_cuenta_str,
+    verificar_id_cuenta,
+    verificar_id_cuenta_opcional,
+)
 from api.services import aranceles_export as _ar_export
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
@@ -19,12 +25,6 @@ from api.services import financiamiento_calc as _fin_calc
 from api.services import operaciones_sql as _ops_sql
 from api.services import perfil_cliente_sql as _perfil
 from api.services import profundidad_sql as _prof
-from api.services._grupos_scope import (
-    scope_cuentas,
-    verificar_cuenta_str,
-    verificar_id_cuenta,
-    verificar_id_cuenta_opcional,
-)
 from api.services.operaciones_view import (
     OPS_MONEDAS as _OPS_MONEDAS,
 )

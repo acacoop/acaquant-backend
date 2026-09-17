@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from api.services._grupos_scope import scope_cuentas, verificar_account
+from api.deps import scope_cuentas, verificar_account
 from api.services._idempotencia import ejecutar_idempotente
 from api.services.ordenes import send_order, ticker_existe
 from api.services.order_book import get_order_book

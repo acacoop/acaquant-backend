@@ -11,9 +11,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.deps import scope_cuentas, verificar_id_cuenta
 from api.services import pnl_ajustes_sql, pnl_sql
 from api.services import portfolio_sql as svc_sql
-from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 

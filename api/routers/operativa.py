@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from api.services._grupos_scope import scope_cuentas, verificar_account
+from api.deps import scope_cuentas, verificar_account
 from api.services._idempotencia import ejecutar_idempotente
 from api.services.operativa_mep import (
     crear_operativa,

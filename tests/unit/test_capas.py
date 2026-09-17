@@ -121,22 +121,6 @@ def test_los_services_no_saben_de_HTTP():
         f"`api/deps.py` (es lo que pasó con el scope de grupos).")
 
 
-# Los ocho que ya tenían SQL adentro cuando nació este test. Casi todos son
-# `SELECT DISTINCT` para llenar un combo — baratos de mover a su service, y por
-# eso vale la pena que la lista esté a la vista y se vaya vaciando sola cuando
-# alguien toque cada archivo por otra razón.
-_ROUTERS_CON_SQL = {
-    "api/routers/carteras.py",
-    "api/routers/cuentas.py",
-    "api/routers/operaciones.py",
-    "api/routers/manager/checks.py",
-    "api/routers/manager/instrumentos.py",
-    "api/routers/manager/operaciones.py",
-    "api/routers/manager/renta_variable.py",
-    "api/routers/manager/status.py",
-}
-
-
 def _abre_la_base(f: Path) -> bool:
     txt = "\n".join(x for x in f.read_text(encoding="utf-8").splitlines()
                      if not x.lstrip().startswith("#"))
@@ -147,11 +131,12 @@ def test_los_routers_no_hablan_SQL():
     """El router es plomería HTTP. SQL adentro de un router es lógica que ningún
     job va a poder reusar, y que solo se puede probar levantando la app."""
     malos = [f.relative_to(RAIZ).as_posix() for f in _modulos("api/routers")
-             if f.relative_to(RAIZ).as_posix() not in _ROUTERS_CON_SQL
-             and _abre_la_base(f)]
+             if _abre_la_base(f)]
     assert not malos, (
-        f"routers nuevos con SQL adentro: {malos}. La query va al service; el "
-        f"router llama y devuelve.")
+        f"routers con SQL adentro: {malos}. La query va al service; el router "
+        f"llama y devuelve. Sin lista de excepciones: los ocho que la tenían se "
+        f"vaciaron (cuentas_sql, pyrofex_discovery_sql, renta_variable_admin_sql, "
+        f"y funciones nuevas en portfolio_sql / operaciones_sql / manager_infra_sql).")
 
 
 def test_el_trinquete_SOLO_puede_achicarse():
@@ -162,15 +147,6 @@ def test_el_trinquete_SOLO_puede_achicarse():
 
     Es el mismo criterio que `SIN_ACCION`: la excepción declarada tiene que
     seguir siendo cierta."""
-    ya_limpios = [rel for rel in sorted(_ROUTERS_CON_SQL)
-                  if (RAIZ / rel).exists() and not _abre_la_base(RAIZ / rel)]
-    assert not ya_limpios, (
-        f"estos routers YA no tocan la base — sacalos de `_ROUTERS_CON_SQL`: "
-        f"{ya_limpios}")
-    fantasmas = [rel for rel in sorted(_ROUTERS_CON_SQL)
-                 if not (RAIZ / rel).exists()]
-    assert not fantasmas, f"la lista nombra archivos que no existen: {fantasmas}"
-
     for rel, motivo in _QUANT_CON_INFRA.items():
         assert (RAIZ / rel).exists(), f"«{rel}» ya no existe: sacalo de la lista"
         assert motivo.strip(), f"«{rel}» sin motivo: la excusa hay que escribirla"

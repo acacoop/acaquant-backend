@@ -12,6 +12,7 @@ from datetime import UTC, datetime, time
 from fastapi import APIRouter
 
 from api.routers.manager._common import _AR_TZ
+from api.services import manager_infra_sql
 
 router = APIRouter()
 
@@ -25,20 +26,7 @@ def _fmt_delta(s: float) -> str:
     return f"{s // 86400}d {(s % 86400) // 3600}h"
 
 
-def _fetch_last_sql(tabla: str, ts_expr: str, where: str | None = None):
-    """Frescura desde Postgres: max(ts_expr::timestamptz) de la tabla. Para los
-    snapshots jsonb el updated_at fresco vive en data->>'updated_at' (la columna
-    queda con el now() del primer insert). Devuelve datetime aware (UTC) o None.
-    Best-effort: si SQL falla, None → la entrada sale 'sin_datos'."""
-    from core.postgres import get_pool
-    clause = f" WHERE {where}" if where else ""
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(f"SELECT max(({ts_expr})::timestamptz) FROM {tabla}{clause}")
-            row = cur.fetchone()
-        return row[0] if row else None
-    except Exception:
-        return None
+_fetch_last_sql = manager_infra_sql.ultimo_ts_sql   # frescura por tabla (best-effort)
 
 
 _APERTURA_DEFAULT = time(10, 0)

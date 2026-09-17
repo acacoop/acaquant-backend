@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from api.services import anulados as svc_anul
 from api.services import operaciones_informes as svc
-from core.postgres import get_pool
+from api.services import operaciones_sql as _ops_sql
 
 logger = logging.getLogger("api.manager.operaciones")
 
@@ -92,14 +92,7 @@ def operaciones_fechas(req: _FaltantesReq):
 def operaciones_stats():
     """Estado actual de operaciones.operaciones (SQL) para mostrar en la UI."""
     try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT count(*) AS n, count(DISTINCT id_cuenta) AS n_cuentas, "
-                "min(concertacion)::text AS min_c, max(concertacion)::text AS max_c "
-                "FROM operaciones")
-            n, n_cuentas, min_c, max_c = cur.fetchone()
-        return {"n": n, "n_cuentas": n_cuentas,
-                "min_concertacion": min_c, "max_concertacion": max_c}
+        return _ops_sql.ops_stats()
     except Exception as e:
         logger.exception("operaciones_stats failed")
         raise HTTPException(status_code=500, detail=str(e)) from e

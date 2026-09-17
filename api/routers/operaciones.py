@@ -28,7 +28,6 @@ from api.services import profundidad_sql as _prof
 from api.services.operaciones_view import (
     OPS_MONEDAS as _OPS_MONEDAS,
 )
-from core.postgres import get_pool
 
 logger = logging.getLogger("api.operaciones")
 
@@ -469,11 +468,7 @@ def ops_niveles3():
 @cached(ttl=600)
 def ops_niveles5():
     """Valores distintos de nivel_5 (clientes.comitentes SQL), para el filtro AGRO."""
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT nivel_5 FROM comitentes "
-                    "WHERE nivel_5 IS NOT NULL AND nivel_5 <> ''")
-        vals = [r[0] for r in cur.fetchall()]
-    return {"niveles5": sorted(str(v) for v in vals if v)}
+    return _ops_sql.ops_niveles5()
 
 
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────

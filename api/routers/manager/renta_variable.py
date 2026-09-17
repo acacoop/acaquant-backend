@@ -4,41 +4,35 @@ Editor del catálogo de clasificación de CEDEARs (rubro de negocio + flag ecosi
 + RIC Refinitiv del subyacente). Análogo a la segmentación de clientes: el `rubro` NO se
 escribe libre — se elige del catálogo `mercado.rubros` o se crea con POST /rubro. El `ric`
 sí es texto libre (ej. 'AAPL.O'); lo usan RESEARCH (fundamentals) y el feed live de Eikon
-(`scripts/eikon_feed_simple.py`). Todo SQL-native. Gate `manager_titulos`.
+(`scripts/eikon_feed_simple.py`). Lógica en `api/services/renta_variable_admin_sql.py`.
+Gate `manager_titulos`.
 
-  GET   /api/manager/renta-variable          → grid de CEDEARs (ticker, nombre, rubro, es_ia, ric)
-  GET   /api/manager/renta-variable/rubros   → catálogo de rubros (dropdown)
-  POST  /api/manager/renta-variable/rubro    → crear un rubro nuevo
-  PATCH /api/manager/renta-variable          → setear rubro/es_ia/ric de un CEDEAR (ticker en body)
+  GET    /api/manager/renta-variable          → grid de CEDEARs (ticker, nombre, rubro, es_ia, ric)
+  GET    /api/manager/renta-variable/rubros   → catálogo de rubros (dropdown)
+  POST   /api/manager/renta-variable/rubro    → crear un rubro nuevo
+  PATCH  /api/manager/renta-variable          → setear rubro/es_ia/ric de un CEDEAR (ticker en body)
+  DELETE /api/manager/renta-variable?ticker=  → sacar un CEDEAR del universo
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Body, HTTPException, Query
-from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from core.postgres import get_pool
+from api.services import renta_variable_admin_sql as svc
 
 router = APIRouter()
 
 
 @router.get("/renta-variable")
 def listar_renta_variable() -> list[dict]:
-    """Todos los CEDEARs con su clasificación. `nombre` sale del data jsonb del master."""
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            "SELECT ticker, ticker_corto, underlying, activo, rubro, es_ia, ric, ratio, "
-            "  data->>'nombre' AS nombre "
-            "FROM mercado.cedears ORDER BY ticker_corto")
-        return cur.fetchall()
+    """Todos los CEDEARs con su clasificación."""
+    return svc.listar_cedears()
 
 
 @router.get("/renta-variable/rubros")
 def listar_rubros() -> list[dict]:
     """Catálogo controlado de rubros (para el dropdown del editor)."""
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT rubro, es_ia_def FROM mercado.rubros ORDER BY rubro")
-        return cur.fetchall()
+    return svc.listar_rubros()
 
 
 class _RubroNuevo(BaseModel):
@@ -52,11 +46,7 @@ def crear_rubro(req: _RubroNuevo = Body(...)) -> dict:
     rub = req.rubro.strip()
     if not rub:
         raise HTTPException(400, "rubro vacío")
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO mercado.rubros (rubro, es_ia_def) VALUES (%s, %s) "
-            "ON CONFLICT (rubro) DO NOTHING", (rub, req.es_ia_def))
-        conn.commit()
+    svc.crear_rubro(rub, req.es_ia_def)
     return {"ok": True, "rubro": rub}
 
 
@@ -79,12 +69,9 @@ def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
     sets: dict = {}
     if "rubro" in req.model_fields_set:
         rub = (req.rubro or "").strip() or None
-        if rub is not None:
-            with get_pool().connection() as conn, conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM mercado.rubros WHERE rubro = %s", (rub,))
-                if cur.fetchone() is None:
-                    raise HTTPException(
-                        400, f"rubro inexistente: {rub!r} — crealo primero con POST /rubro")
+        if rub is not None and not svc.rubro_existe(rub):
+            raise HTTPException(
+                400, f"rubro inexistente: {rub!r} — crealo primero con POST /rubro")
         sets["rubro"] = rub
     if "es_ia" in req.model_fields_set:
         sets["es_ia"] = req.es_ia
@@ -96,13 +83,7 @@ def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
         sets["activo"] = req.activo
     if not sets:
         raise HTTPException(400, "body sin campos editables (rubro / es_ia / ric / ratio / activo)")
-    cols = ", ".join(f"{k} = %({k})s" for k in sets)
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(f"UPDATE mercado.cedears SET {cols} WHERE ticker = %(ticker)s",
-                    {**sets, "ticker": req.ticker})
-        matched = cur.rowcount
-        conn.commit()
-    if matched == 0:
+    if svc.actualizar_cedear(req.ticker, sets) == 0:
         raise HTTPException(404, f"ticker no encontrado: {req.ticker!r}")
     return {"ok": True, "ticker": req.ticker, **sets}
 
@@ -114,13 +95,7 @@ def borrar_cedear(ticker: str = Query(..., description="ticker BYMA completo (PK
     deja de trackearlo en el próximo restart; `precios_acciones_daily`/`adr_live` dejan
     de pedir su underlying.
     Reversible solo re-dándolo de alta (scripts/add_cedear)."""
-    # SQL-native (decomiso 2026-06-29): el master es mercado.cedears (SQL). Trading.Cedears
-    # (Mongo) se eliminó del circuito — el motor y el scanner leen SQL.
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM mercado.cedears WHERE ticker = %s", (ticker,))
-        sql_del = cur.rowcount
-        cur.execute("DELETE FROM mercado.cedears_snapshot WHERE ticker = %s", (ticker,))
-        conn.commit()
+    sql_del = svc.borrar_cedear(ticker)
     if not sql_del:
         raise HTTPException(404, f"ticker no encontrado: {ticker!r}")
     return {"ok": True, "ticker": ticker, "sql_borrado": sql_del}

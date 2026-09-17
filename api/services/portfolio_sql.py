@@ -303,6 +303,39 @@ def total_snapshot(fecha: str | None = None, cuenta_filter: str = "todas", moned
             "mep_missing": mep_missing, "fecha": fecha}
 
 
+def niveles_aum() -> dict:
+    """Combos (operador_email, nivel_1, nivel_2, nivel_3, nivel_5) de las comitentes
+    ACTIVAS con id_cuenta — pueblan y CRUZAN los filtros madre de la vista AUM.
+    A diferencia de `comercial_sql.dimensiones_comercial` NO exige operador
+    asignado: una cuenta sin operador igual tiene niveles y su AuM se suma."""
+    rows = _q(
+        "SELECT operador_email, nivel_1, nivel_2, nivel_3, nivel_5, count(*) AS n "
+        "FROM clientes.comitentes "
+        "WHERE estado = 'Activa' AND id_cuenta IS NOT NULL "
+        "GROUP BY operador_email, nivel_1, nivel_2, nivel_3, nivel_5"
+    )
+    return {"combos": [
+        {"operador_email": r["operador_email"], "nivel_1": r["nivel_1"],
+         "nivel_2": r["nivel_2"], "nivel_3": r["nivel_3"], "nivel_5": r["nivel_5"],
+         "n_cuentas": r["n"]}
+        for r in rows
+    ]}
+
+
+def unidades_con_posicion() -> tuple[object | None, set[str]]:
+    """(fecha de la última foto del AuM, unidades con valuación ≠ 0 ese día).
+    Lo usa el check de tasa fija de Manager para saber qué instrumento tiene
+    posición real. `(None, set())` si no hay foto."""
+    r = _q(f"SELECT max(fecha) AS f FROM {_SRC} WHERE aum = 'si'")
+    f_max = r[0]["f"] if r else None
+    if f_max is None:
+        return None, set()
+    rows = _q(f"SELECT unidad FROM {_SRC} "
+              "WHERE fecha = %(f)s AND aum = 'si' AND COALESCE(valuacion, 0) <> 0",
+              {"f": f_max})
+    return f_max, {x["unidad"] for x in rows}
+
+
 def carteras_aum(scope: tuple[str, ...] | None = None) -> dict:
     """Carteras que EXISTEN en el AuM de la última foto — opciones del filtro CARTERA.
 

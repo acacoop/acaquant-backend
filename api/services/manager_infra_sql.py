@@ -104,6 +104,22 @@ def jobs_history_stats_sql(desde: datetime) -> list[dict]:
 
 
 # ── JobRuns → frescura por tipo (diagnostico._leer_frescura) ─────────────────
+def ultimo_ts_sql(tabla: str, ts_expr: str, where: str | None = None) -> datetime | None:
+    """Frescura de una tabla: max((ts_expr)::timestamptz). Para los snapshots
+    jsonb el updated_at fresco vive en data->>'updated_at' (la columna queda con
+    el now() del primer insert). Devuelve datetime aware (UTC) o None.
+    Best-effort: si SQL falla, None → el semáforo muestra 'sin_datos'.
+
+    `tabla` / `ts_expr` / `where` se interpolan: vienen SOLO de las tuplas
+    constantes de `routers/manager/status.py`, nunca del request."""
+    clause = f" WHERE {where}" if where else ""
+    try:
+        rows = _q(f"SELECT max(({ts_expr})::timestamptz) AS ts FROM {tabla}{clause}")
+        return rows[0]["ts"] if rows else None
+    except Exception:
+        return None
+
+
 def jobrun_ultimo_sql(run_tipo: str) -> tuple[datetime | None, str | None]:
     """Último run de `run_tipo` por finished_at desc → (finished_at aware, status).
     (None, None) si no hay. Espeja el find_one de diagnostico._leer_frescura."""

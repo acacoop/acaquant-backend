@@ -92,19 +92,7 @@ def niveles() -> dict:
     operador asignado igual tiene niveles, y esconderla haría que el filtro tape
     parte del AuM que la vista sí está sumando.
     """
-    from core.postgres import get_pool
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT operador_email, nivel_1, nivel_2, nivel_3, nivel_5, count(*) AS n "
-            "FROM clientes.comitentes "
-            "WHERE estado = 'Activa' AND id_cuenta IS NOT NULL "
-            "GROUP BY operador_email, nivel_1, nivel_2, nivel_3, nivel_5"
-        )
-        return {"combos": [
-            {"operador_email": r[0], "nivel_1": r[1], "nivel_2": r[2],
-             "nivel_3": r[3], "nivel_5": r[4], "n_cuentas": r[5]}
-            for r in cur.fetchall()
-        ]}
+    return svc_sql.niveles_aum()
 
 
 @router.get("/carteras")

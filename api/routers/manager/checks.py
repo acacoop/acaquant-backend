@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api.services import portfolio_sql
 from api.services.assets_sql import assets_rows
 from core import curvas_sql
-from core.postgres import get_pool
 
 router = APIRouter()
 
@@ -21,14 +21,7 @@ def check_tasa_fija():
     for a in assets_rows(["TICKER"]):   # SQL portafolio.assets
         t2u.setdefault(a["TICKER"], []).append(a["unidad"])
 
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
-        fm = cur.fetchone()[0]
-        con_pos: set = set()
-        if fm:
-            cur.execute("SELECT unidad FROM portafolio.tenencia "
-                        "WHERE fecha = %s AND aum = 'si' AND COALESCE(valuacion, 0) <> 0", (fm,))
-            con_pos = {r[0] for r in cur.fetchall()}
+    fm, con_pos = portfolio_sql.unidades_con_posicion()   # última foto del AuM
 
     rows = []
     for c in sorted(curvas_tf, key=lambda x: x.get("ticker_corto", "")):

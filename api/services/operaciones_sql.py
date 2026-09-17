@@ -322,6 +322,23 @@ def ops_niveles3() -> dict:
     return {"niveles3": [r["nivel_3"] for r in rows]}
 
 
+def ops_niveles5() -> dict:
+    """Valores distintos de nivel_5 (clientes.comitentes), para el filtro AGRO."""
+    rows = _q("SELECT DISTINCT nivel_5 FROM comitentes "
+              "WHERE nivel_5 IS NOT NULL AND nivel_5 <> ''")
+    return {"niveles5": sorted(str(r["nivel_5"]) for r in rows if r["nivel_5"])}
+
+
+def ops_stats() -> dict:
+    """Estado de `operaciones.operaciones` (para la tab OPERACIONES de Manager):
+    cantidad de boletos, cuentas distintas y rango de concertación."""
+    r = _q("SELECT count(*) AS n, count(DISTINCT id_cuenta) AS n_cuentas, "
+           "min(concertacion)::text AS min_c, max(concertacion)::text AS max_c "
+           "FROM operaciones")[0]
+    return {"n": r["n"], "n_cuentas": r["n_cuentas"],
+            "min_concertacion": r["min_c"], "max_concertacion": r["max_c"]}
+
+
 def ops_carteras() -> dict:
     """Carteras (portafolio.assets.cartera) que REALMENTE aparecen en los
     boletos — catálogo del filtro nuevo de Operaciones. Se listan solo las que

@@ -246,6 +246,20 @@ def correr(body: Correr):
 # verlo en el LAB: cada vuelta, qué dijo el modelo, qué pidió, qué le volvió.
 # Los runs son del agente, no del que mira: por eso no van por `/lab/runs`.
 
+@router.get("/diagnostico")
+def diagnostico_listado(limite: int = 50):
+    """Una fila por corrida: es la cola y el historial del diagnóstico, a la
+    vista. Reemplaza al contador de atascados como forma de entender qué hay."""
+    from asistente import diagnostico
+    return diagnostico.listado(limite)
+
+
+@router.post("/diagnostico/runs/{run_id}/cancelar")
+def diagnostico_cancelar(run_id: str):
+    from asistente import diagnostico
+    return diagnostico.cancelar(run_id)
+
+
 @router.get("/diagnostico/{hallazgo_id}")
 def diagnostico_traza(hallazgo_id: int, run_id: str | None = None):
     from asistente import diagnostico

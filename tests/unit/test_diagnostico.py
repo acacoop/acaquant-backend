@@ -359,3 +359,43 @@ def test_concluir_deja_su_rastro_en_el_ciclo():
     assert vistos == [{"tipo": "diagnostico_concluir", "agente": DG.AGENTE_NOMBRE,
                        "texto": '{"causa": "transitorio", "accion": "nada_porque"}', "parseo": True,
                        "tokens_in": 5, "tokens_out": 2}]
+
+
+def test_el_listado_es_una_fila_por_corrida_con_su_hallazgo_y_su_conclusion():
+    from asistente import ejecuciones
+
+    runs = [
+        {"run_id": "r2", "estado": "queued", "pregunta": "diagnosticar hallazgo #7", "resultado": None,
+         "creada_at": "2026-09-17T18:50:00+00:00", "error": None},
+        {"run_id": "r1", "estado": "succeeded", "pregunta": "diagnosticar hallazgo #7",
+         "resultado": {"diagnostico": {"causa": "bug_codigo", "accion": "cambiar_codigo", "resumen": "x"},
+                       "vueltas": 3, "tokens_in": 100, "tokens_out": 10},
+         "creada_at": "2026-09-17T18:00:00+00:00", "error": None},
+        {"run_id": "r0", "estado": "failed", "pregunta": "hola", "resultado": None,
+         "creada_at": "2026-09-17T17:00:00+00:00", "error": "boom"},
+    ]
+    cur = MagicMock()
+    cur.fetchall.return_value = [{"id": 7, "habilidad": "latidos", "sujeto": "asistente-worker",
+                                  "severidad": "alta", "estado": "nuevo", "problema": "no late"}]
+    with patch.object(ejecuciones, "runs_de_tipo", return_value=runs) as rt, \
+         patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)):
+        out = DG.listado(10)
+    assert rt.call_args.args == ("diagnostico", 10)
+    assert out["activos"] == 1 and [f["run_id"] for f in out["diagnosticos"]] == ["r2", "r1", "r0"]
+    f1 = out["diagnosticos"][1]
+    assert f1["hallazgo_id"] == 7 and f1["habilidad"] == "latidos" and f1["causa"] == "bug_codigo"
+    assert f1["tokens_in"] == 100 and f1["vueltas"] == 3
+    assert out["diagnosticos"][0]["causa"] is None, "en cola: sin conclusión todavía"
+    assert out["diagnosticos"][2]["hallazgo_id"] is None and out["diagnosticos"][2]["error"] == "boom"
+
+
+def test_cancelar_solo_runs_de_diagnostico_del_agente():
+    from asistente import ejecuciones
+
+    with patch.object(ejecuciones, "obtener", return_value={"tipo": "pregunta"}), \
+         patch.object(ejecuciones, "cancelar", side_effect=AssertionError("no tenía que cancelar")):
+        assert DG.cancelar("r")["ok"] is False
+    with patch.object(ejecuciones, "obtener", return_value={"tipo": "diagnostico", "estado": "queued"}) as o, \
+         patch.object(ejecuciones, "cancelar", return_value={"estado": "cancelled"}) as c:
+        assert DG.cancelar("r") == {"ok": True, "run_id": "r", "estado": "cancelled"}
+    assert o.call_args.args == ("r", "av-agent") and c.call_args.args == ("r", "av-agent")

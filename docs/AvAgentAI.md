@@ -657,3 +657,18 @@ router admin-only del agente. «Diagnosticar de nuevo» /
 `POST /api/agente/diagnostico/{id}/pedir` encola por la misma puerta que el
 disparo automático, sin topes (los topes acotan al daemon, no a quien mira) y
 sin duplicar uno en cola. El front no suma ni resume: dibuja los eventos.
+
+**Cada corrida es una «conversación» del agente, a la vista en el LAB.** La
+lista «diagnósticos» (`GET /api/agente/diagnostico`, `diagnostico.listado`)
+muestra una fila por run de tipo `diagnostico`, creada sola al encolarse: hora,
+estado (en cola / corriendo / ok / falló), el hallazgo (habilidad, sujeto), y si
+terminó, causa → acción, vueltas y tokens. Abrirla muestra su ciclo. No es una
+copia en `ia.conversaciones` (REGLA #9: sería el mismo dato en dos lugares): la
+fuente es `ia.ejecuciones`, leída como lista. Nació de una tarde en que el
+panel decía «7 atascados» y no había forma de saber qué eran: eran runs en cola
+que un solo worker, de a uno y el más viejo primero, no había llegado a tomar.
+`POST /api/agente/diagnostico/runs/{run_id}/cancelar` (`diagnostico.cancelar`)
+corta uno: en cola muere ya, corriendo el worker corta en el próximo paso. Solo
+runs de este tipo y del agente. Y el diagnóstico automático quedó **apagado a
+pedido del user** (`DIAGNOSTICO_AUTOMATICO=0` en el `.env` del Droplet) hasta
+que la traza demuestre que una corrida vale lo que cuesta.

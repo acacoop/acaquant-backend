@@ -520,6 +520,59 @@ def traza(hallazgo_id: int, run_id: str | None = None) -> dict:
     return {"hallazgo_id": hid, "runs": runs, "run": elegido, "eventos": eventos}
 
 
+def listado(limite: int = 50) -> dict:
+    """Los diagnósticos como lista, para el LAB: una fila por corrida, la más
+    nueva primero, con su hallazgo (habilidad, sujeto, problema), su estado, y
+    si terminó, causa → acción, resumen y lo que costó en tokens. La fuente es
+    `ia.ejecuciones` (`tipo = diagnostico`): no hay una copia en conversaciones.
+    Es lo que reemplaza al contador de «atascados» como forma de ver la cola."""
+    from asistente import ejecuciones
+
+    runs = ejecuciones.runs_de_tipo("diagnostico", limite)
+    por_run = {}
+    for r in runs:
+        m = _RE_PREGUNTA.search(r.get("pregunta") or "")
+        por_run[r["run_id"]] = int(m.group(1)) if m else None
+    ids = sorted({h for h in por_run.values() if h is not None})
+    hallazgos = {}
+    if ids:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT id, habilidad, sujeto, severidad, estado, problema FROM agente.hallazgos"
+                        " WHERE id = ANY(%s)", (ids,))
+            hallazgos = {int(f["id"]): dict(f) for f in cur.fetchall()}
+    filas = []
+    for r in runs:
+        hid = por_run[r["run_id"]]
+        h = hallazgos.get(hid) or {}
+        res = r.get("resultado") if isinstance(r.get("resultado"), dict) else {}
+        d = res.get("diagnostico") if isinstance(res.get("diagnostico"), dict) else {}
+        filas.append({
+            "run_id": r["run_id"], "estado": r["estado"], "error": r.get("error"),
+            "creada_at": r.get("creada_at"), "iniciada_at": r.get("iniciada_at"),
+            "finalizada_at": r.get("finalizada_at"),
+            "hallazgo_id": hid, "habilidad": h.get("habilidad"), "sujeto": h.get("sujeto"),
+            "severidad": h.get("severidad"), "estado_hallazgo": h.get("estado"),
+            "problema": h.get("problema"),
+            "causa": d.get("causa"), "accion": d.get("accion"), "resumen": d.get("resumen"),
+            "vueltas": res.get("vueltas"), "tokens_in": res.get("tokens_in"),
+            "tokens_out": res.get("tokens_out"),
+        })
+    activos = sum(1 for f in filas if f["estado"] in ejecuciones.ACTIVOS)
+    return {"diagnosticos": filas, "activos": activos}
+
+
+def cancelar(run_id: str) -> dict:
+    """Cancela un run de diagnóstico (en cola: muere ya; corriendo: el worker
+    corta en el próximo paso). Solo runs del agente y solo de este tipo."""
+    from asistente import ejecuciones
+
+    run = ejecuciones.obtener(run_id, T.ACTOR_AGENTE)
+    if not run or run.get("tipo") != "diagnostico":
+        return {"ok": False, "error": "ese run no es un diagnóstico"}
+    r = ejecuciones.cancelar(run_id, T.ACTOR_AGENTE) or run
+    return {"ok": True, "run_id": run_id, "estado": r.get("estado")}
+
+
 def _pregunta(hallazgo_id: int) -> str:
     return f"diagnosticar hallazgo #{int(hallazgo_id)}"
 

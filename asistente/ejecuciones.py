@@ -142,6 +142,18 @@ def runs_de(pregunta: str, limite: int = 20) -> list[dict]:
         return [_publica(row) for row in cur.fetchall()]
 
 
+def runs_de_tipo(tipo: str, limite: int = 50) -> list[dict]:
+    """Los runs de un tipo (`diagnostico`), el más nuevo primero, con su
+    resultado. Sin filtro de dueño: es para los runs del agente, servidos por
+    una ruta admin-only."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT run_id, tipo, estado, error, pregunta, resultado, creada_at, iniciada_at,"
+            " finalizada_at, intentos FROM ia.ejecuciones WHERE tipo = %s"
+            " ORDER BY creada_at DESC LIMIT %s", (tipo, max(1, min(int(limite), 200))))
+        return [_publica(row) for row in cur.fetchall()]
+
+
 def terminar(run_id: str, estado: str, *, resultado: dict | None = None,
              error: str | None = None) -> None:
     if estado not in TERMINALES:

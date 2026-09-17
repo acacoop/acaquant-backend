@@ -67,7 +67,7 @@ TAREAS: dict[str, dict] = {
                                          "para_que": "el diagnóstico, INVESTIGAR: verificar contra "
                                                      "código, journal y planillas por qué apareció "
                                                      "un hallazgo"},
-    "asistente_diagnostico_concluir": {"tier": "pro", "max_tokens": 1500, "timeout_s": 90,
+    "asistente_diagnostico_concluir": {"tier": "pro", "max_tokens": 4000, "timeout_s": 120,
                                        "para_que": "el diagnóstico, CONCLUIR: causa, acción y qué "
                                                    "no hacer, con esquema cerrado"},
     "asistente_ruteo": {"tier": "flash", "max_tokens": 200, "timeout_s": 30,

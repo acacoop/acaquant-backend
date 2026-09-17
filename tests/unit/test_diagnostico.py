@@ -130,6 +130,7 @@ def test_la_conclusion_se_lee_como_json_o_adentro_de_prosa():
     j = '{"causa": "incidente", "accion": "escalar_a"}'
     assert DG.leer_conclusion(j)["causa"] == "incidente"
     assert DG.leer_conclusion("Acá va mi conclusión:\n" + j + "\nGracias.")["accion"] == "escalar_a"
+    assert DG.leer_conclusion("```json\n" + j + "\n```")["causa"] == "incidente", "con cerco de código"
     assert DG.leer_conclusion("no hay json") is None and DG.leer_conclusion(None) is None
     assert DG.leer_conclusion('{"otra": 1}') is None
 

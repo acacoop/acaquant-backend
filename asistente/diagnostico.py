@@ -267,6 +267,8 @@ def leer_conclusion(texto: str | None) -> dict | None:
     t = (texto or "").strip()
     if not t:
         return None
+    # Cercos de código (```json … ```) y prosa alrededor: se busca el objeto.
+    t = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", t).strip()
     candidatos = [t]
     i, j = t.find("{"), t.rfind("}")
     if i >= 0 and j > i:
@@ -395,6 +397,9 @@ def correr(hallazgo_id: int, *, run_id: str, usuario: str = T.ACTOR_AGENTE) -> d
         **ok, "version": VERSION, "run_id": run_id, "at": datetime.now(UTC).isoformat(),
         "estado_hallazgo": d["hallazgo"].get("estado"),
         "notas": (inv.get("notas") or "")[:4000],
+        # Si la conclusión no parseó, el texto crudo es lo único que explica por qué.
+        "conclusion_cruda": (con.get("crudo") or "")[:4000] if con.get("conclusion") is None else None,
+        "modelos": _modelos_usados(),
         "error_investigacion": inv.get("error"), "error_conclusion": con.get("error"),
         "control": {"ok": control["ok"], "hallazgos": control["hallazgos"]},
         "tokens_in": inv["tokens_in"] + con.get("tokens_in", 0),
@@ -414,6 +419,21 @@ def correr(hallazgo_id: int, *, run_id: str, usuario: str = T.ACTOR_AGENTE) -> d
         "llamadas": list(inv["llamadas"]) + list(con.get("llamadas") or []),
         "agentes": [AGENTE_NOMBRE], "estado": {},
     }
+
+
+def _modelos_usados() -> dict:
+    """Con qué corrió cada etapa (lo decide el panel): queda en el diagnóstico
+    para que «no parseó» se pueda leer junto con «lo contestó tal modelo»."""
+    out = {}
+    for etapa, tarea in (("lector", "asistente_diagnostico_lector"),
+                         ("investigar", "asistente_diagnostico_investigar"),
+                         ("concluir", TAREA_CONCLUIR)):
+        try:
+            t = modelos.resolver(tarea)
+            out[etapa] = f"{t.proveedor}/{t.modelo}" + ("" if t.elegido else " (default, sin elegir en el panel)")
+        except Exception as e:
+            out[etapa] = f"? ({e})"
+    return out
 
 
 def correr_run(run: dict) -> dict:

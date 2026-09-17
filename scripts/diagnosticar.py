@@ -41,8 +41,15 @@ def _imprimir(d: dict) -> None:
     if ctl and not ctl.get("ok", True):
         print("  control: " + " · ".join(h.get("que_paso", "") for h in ctl.get("hallazgos") or []))
     print(f"  tokens: {d.get('tokens_in')} in / {d.get('tokens_out')} out · {d.get('vueltas')} vuelta(s)")
+    if d.get("modelos"):
+        print("  modelos: " + " · ".join(f"{k}={v}" for k, v in d["modelos"].items()))
     if d.get("error_investigacion") or d.get("error_conclusion"):
         print(f"  errores: {d.get('error_investigacion')} / {d.get('error_conclusion')}")
+    if d.get("conclusion_cruda"):
+        print("\n  LA CONCLUSIÓN NO PARSEÓ. Texto crudo del modelo (recortado):\n  "
+              + str(d["conclusion_cruda"])[:1500].replace("\n", "\n  "))
+    if d.get("causa") == "sin_verificar" and d.get("notas"):
+        print("\n  NOTAS DEL INVESTIGADOR (recortadas):\n  " + str(d["notas"])[:1500].replace("\n", "\n  "))
 
 
 def main() -> int:

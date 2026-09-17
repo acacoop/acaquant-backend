@@ -68,8 +68,8 @@ load_dotenv()
 from core.logs import configurar  # noqa: E402
 from core.rofex_orders_session import (  # noqa: E402
     cerrar_ws,
+    cuenta_rofex_confirmada,
     inicializar_para_motor,
-    resolver_cuenta_rofex,
 )
 
 # El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
@@ -285,13 +285,31 @@ def _upsert_ordenes_dia(rep: dict[str, Any]) -> None:
 
 
 def _cuentas_a_sincronizar(cuenta_master: str) -> list[str]:
-    """`clientes.cuentas.id_cuenta` completo, sin la cuenta master (que ya está
-    suscripta desde `inicializar_para_motor`). No filtra por "actividad" —
-    la tabla no tiene ese flag (ver `sql/schema.sql`) y suscribirse de más no
-    tiene costo recurrente (a diferencia de pollear REST, acá es push)."""
+    """Universo de cuentas ROFEX candidatas, sin la master (ya suscripta desde
+    `inicializar_para_motor`).
+
+    INCIDENTE 2026-09-17: la primera versión de esto recorría
+    `clientes.cuentas` completa (~800 filas) — un espejo crudo de "todo lo
+    que Aunesa mandó alguna vez", con basura histórica (cuentas cerradas,
+    de custodio, con formatos que ROFEX nunca aceptó). Cuando
+    `order_report_subscription` manda un número de cuenta inválido, ROFEX
+    no rechaza esa suscripción puntual: **cierra el WS entero**, cortando
+    también a la cuenta que sí opera en vivo (1839) mientras el loop seguía
+    con la próxima cuenta rota.
+
+    Fix: mismo filtro que `jobs/control_saldos.py::obtener_cuentas` (que ya
+    resolvió este problema para el universo de saldos) — solo cuentas
+    `tipo IN ('Comitente','Propia')` y `estado = 'Activa'` en
+    `clientes.comitentes` (sync'ado por `jobs/sync_comitentes.py` con el
+    mismo criterio). Reduce el universo a las cuentas que ROFEX puede
+    reconocer, no a todo lo que el custodio nombró alguna vez."""
     from core.postgres import get_pool
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id_cuenta FROM clientes.cuentas ORDER BY id_cuenta")
+        cur.execute(
+            "SELECT id_cuenta FROM clientes.comitentes "
+            "WHERE tipo IN ('Comitente', 'Propia') AND estado = 'Activa' "
+            "ORDER BY id_cuenta"
+        )
         rows = [r[0] for r in cur.fetchall()]
     return [r for r in rows if r and str(r) != str(cuenta_master)]
 
@@ -304,16 +322,18 @@ SYNC_PACE_S = 0.35
 
 
 def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
-    """Al arrancar (una vez, en thread propio): por cada cuenta de la ALyC,
-    (1) backfill REST de las órdenes de HOY (`get_all_orders_status`, ya
-    probado inofensivo — no toca el WS) y (2) suma la cuenta a la MISMA
-    suscripción WS ya abierta por `inicializar_para_motor` (snapshot=True:
-    no reproduce histórico por WS — el histórico de hoy ya lo trajo el
-    backfill REST; de acá en más el push cubre lo que pase)."""
+    """Al arrancar (una vez, en thread propio): por cada cuenta comitente
+    activa (ver `_cuentas_a_sincronizar`), (1) backfill REST de las órdenes
+    de HOY (`get_all_orders_status`, ya probado inofensivo — no toca el WS)
+    y (2), SOLO si el broker confirmó el número de cuenta
+    (`cuenta_rofex_confirmada`), suma la cuenta a la MISMA suscripción WS ya
+    abierta por `inicializar_para_motor` (snapshot=True: no reproduce
+    histórico por WS — el histórico de hoy ya lo trajo el backfill REST; de
+    acá en más el push cubre lo que pase)."""
     try:
         cuentas = _cuentas_a_sincronizar(cuenta_master)
     except Exception as e:
-        logger.error("Órdenes del día: no pude leer clientes.cuentas: %s", e)
+        logger.error("Órdenes del día: no pude leer clientes.comitentes: %s", e)
         return
     logger.info("Órdenes del día: sincronizando %d cuenta(s) (+ master %s)",
                 len(cuentas), cuenta_master)
@@ -336,12 +356,20 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
     except Exception as e:
         logger.warning("Órdenes del día: backfill de la master (%s) falló: %s", cuenta_master, e)
 
-    ok = err = 0
+    ok = err = skip = 0
     for id_cuenta in cuentas:
         if not _running:
             return
+        rofex_acc = cuenta_rofex_confirmada(str(id_cuenta))
+        if rofex_acc is None:
+            # Sin confirmación del broker (`get_account_report` no la reconoció):
+            # NUNCA se manda a `order_report_subscription` — mandar un número
+            # inválido por WS no falla puntual, cierra la conexión entera (ver
+            # incidente 2026-09-17 arriba). Se salta y sigue con el resto.
+            skip += 1
+            time.sleep(SYNC_PACE_S)
+            continue
         try:
-            rofex_acc = resolver_cuenta_rofex(str(id_cuenta))
             _backfill(rofex_acc)
             pyRofex.order_report_subscription(account=rofex_acc, snapshot=True)
             ok += 1
@@ -350,7 +378,8 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
             logger.warning("Órdenes del día: cuenta %s falló (sigo con el resto): %s",
                            id_cuenta, e)
         time.sleep(SYNC_PACE_S)
-    logger.info("Órdenes del día: sincronización inicial terminada (%d ok, %d error)", ok, err)
+    logger.info("Órdenes del día: sincronización inicial terminada (%d ok, %d error, %d sin cuenta ROFEX)",
+                ok, err, skip)
 
 
 def _purgar_ordenes_dia() -> None:

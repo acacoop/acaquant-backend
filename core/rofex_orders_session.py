@@ -145,6 +145,23 @@ def resolver_cuenta_rofex(account: str | None) -> str:
     return s
 
 
+def cuenta_rofex_confirmada(account: str | None) -> str | None:
+    """Como `resolver_cuenta_rofex`, pero devuelve `None` (no la cuenta cruda)
+    cuando el broker nunca confirmó esa cuenta con `get_account_report`.
+
+    Existe para el caller que va a mandar `order_report_subscription` (WS):
+    ahí un número no confirmado no falla "silencioso" como en REST — ROFEX
+    cierra la conexión WS ENTERA (incidente 2026-09-17, ver
+    `engines/motor_ordenes.py::_sincronizar_ordenes_dia`). `resolver_cuenta_rofex`
+    sigue devolviendo el valor crudo para sus otros callers (REST: `send_order`,
+    `cancel_order`), donde un fallo aguas abajo es aceptable y visible."""
+    s = (account or "").strip()
+    if not s or not s.isdigit():
+        return None
+    resuelta = resolver_cuenta_rofex(s)
+    return resuelta if _cuenta_rofex_cache.get(s) == resuelta else None
+
+
 def _do_initialize() -> tuple[str, pyRofex.Environment]:
     """Setea env params + llama pyRofex.initialize. Devuelve (account, env).
 

@@ -2,8 +2,8 @@
 Contacto, documento, operador, segmento, estado, grupo. Nada de plata ni de
 tenencias. Sus herramientas y su agente, en un solo archivo. Doc: docs/AvAgentAI.md.
 
-Dato PERSONAL: la tarea corre con `datos: "personal"` (nunca a un proveedor
-que entrena, sin extracto en la traza). El documento se muestra recortado.
+Dato PERSONAL: la tarea lleva `traza_sin_texto` (la traza guarda tokens y
+latencia, no el pedido ni la respuesta). El documento se muestra recortado.
 """
 from __future__ import annotations
 

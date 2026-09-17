@@ -63,6 +63,24 @@ def _aplicar_solo() -> None:
         logger.debug("agente: no apliqué SOLO (%s)", e)
 
 
+def _diagnosticar() -> None:
+    """**EL DIAGNÓSTICO**: cada hallazgo abierto sin diagnóstico vigente encola
+    un run del asistente que investiga por qué apareció (`asistente/diagnostico.py`).
+    Acá solo se ENCOLA; el worker del asistente lo corre. Nada de esto puede
+    tirar abajo al agente: el import va adentro del try."""
+    try:
+        from config import DIAGNOSTICO_AUTOMATICO
+        if not DIAGNOSTICO_AUTOMATICO:
+            return
+        from asistente import diagnostico
+        r = diagnostico.encolar_pendientes()
+        if r["encolados"]:
+            logger.info("agente: DIAGNÓSTICO · %d encolado(s) · %d hoy",
+                        len(r["encolados"]), r["hoy"])
+    except Exception as e:
+        logger.debug("agente: no encolé diagnósticos (%s)", e)
+
+
 def _una_pasada() -> dict:
     from agente import motor
     r = motor.tick()
@@ -70,6 +88,7 @@ def _una_pasada() -> dict:
     # Va DESPUÉS del tick, porque los detectores de esta pasada ya guardaron
     # sus hallazgos.
     _aplicar_solo()
+    _diagnosticar()
     if r["corridas"]:
         logger.info("agente: %d habilidad(es) · %d nuevos · %d reincidencias · %dms",
                     len(r["corridas"]), r["nuevos"], r["reincidencias"], r["ms"])

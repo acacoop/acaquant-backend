@@ -18,8 +18,10 @@ ACTIVOS = {"queued", "running", "waiting_approval", "cancel_requested"}
 
 
 def crear(pregunta: str, *, usuario: str, rol: str, portal: str,
-          sesion: str | None = None) -> dict:
-    """Crea un run queued y decide su sesión sin aceptar una sesión ajena."""
+          sesion: str | None = None, tipo: str = "pregunta") -> dict:
+    """Crea un run queued y decide su sesión sin aceptar una sesión ajena.
+    `tipo`: `pregunta` (una conversación) o `diagnostico` (lo dispara el AV
+    AGENT sobre un hallazgo; el worker lo despacha distinto)."""
     sesion_valida = None
     if sesion and sesiones.es_valida(sesion):
         previa, _ = sesiones.cargar(sesion, usuario)
@@ -28,9 +30,9 @@ def crear(pregunta: str, *, usuario: str, rol: str, portal: str,
     sesion_id = sesion_valida or uuid.uuid4().hex
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "INSERT INTO ia.ejecuciones (run_id, sesion, usuario, rol, portal, pregunta) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
-            (run_id, sesion_id, usuario, rol, portal, pregunta),
+            "INSERT INTO ia.ejecuciones (run_id, sesion, usuario, rol, portal, pregunta, tipo) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
+            (run_id, sesion_id, usuario, rol, portal, pregunta, tipo),
         )
         return _publica(cur.fetchone())
 

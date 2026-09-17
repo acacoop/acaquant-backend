@@ -73,7 +73,7 @@ def _evento(agente: Agente, tipo: str, **datos) -> dict:
     return EV.emitir({"tipo": tipo, "agente": agente.nombre, **datos})
 
 
-NO_SALE = (KeyError, modelos.SinClave, modelos.RuteoInseguro)
+NO_SALE = (KeyError, modelos.SinClave)
 
 
 def _modelo(tarea: str, s: dict, traza: Traza, *, esquema: dict | None = None):
@@ -87,7 +87,7 @@ def _traza(tarea: str, s: dict) -> Traza:
     t = modelos.resolver(tarea)
     return Traza(t.nombre, t.modelo, usuario=s.get("usuario"), sesion=s.get("sesion"),
                  run_id=s.get("run_id"),
-                 guardar_texto=not t.datos_personales)
+                 guardar_texto=not t.traza_sin_texto)
 
 
 def _modelo_de(agente: Agente, s: dict, traza: Traza, *, esquema: dict | None = None):

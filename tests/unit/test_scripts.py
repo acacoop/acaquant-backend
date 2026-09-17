@@ -53,6 +53,9 @@ HERRAMIENTAS: dict[str, str] = {
                              "abierto y alimenta /api/ingest/eikon/*. Sin esto la tab REUTERS no tiene datos.",
     "ext_ver":               "inspector de la API externa (/ext): qué ve un accionista con SU token.",
     # contratos y auditoría (dan un veredicto, no una opinión)
+    "diagnosticar":           "correr o encolar EL DIAGNÓSTICO del AV AGENT sobre un hallazgo desde "
+                             "la consola (asistente/diagnostico.py): es cómo se prueba contra un "
+                             "aviso real sin esperar al daemon, y cómo se relee lo que concluyó.",
     "diag_asistente_control": "el peso de cada hallazgo del control del asistente sobre los runs "
                              "GUARDADOS: se corre después de cada cambio a control/evidencia para "
                              "ver si bajó lo que se quiso bajar. Read-only, solo SELECT.",

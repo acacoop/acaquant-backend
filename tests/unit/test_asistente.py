@@ -46,14 +46,13 @@ def test_cada_agente_es_un_objeto_con_su_tarea_declarada_en_el_ruteo():
         assert mod.instruccion({}).strip()
 
 
-def test_solo_el_agente_cuenta_ve_datos_del_negocio_y_aprende_el_foco():
-    from asistente import ruteo as RUT
+def test_el_agente_cuenta_aprende_el_foco_y_ninguna_tarea_nombra_un_proveedor():
     from asistente.agentes import AGENTES
     from core import modelos
 
-    assert modelos.resolver(AGENTES["cartera"].tarea).datos_negocio
-    assert not modelos.resolver(AGENTES["renta_fija"].tarea).datos_negocio
-    assert not modelos.resolver(RUT.TAREA).datos_negocio
+    # Con qué corre cada tarea lo decide el panel (ia.config), no el código.
+    for cfg in modelos.TAREAS.values():
+        assert "proveedor" not in cfg and "datos" not in cfg
     assert AGENTES["cartera"].foco == ("cuenta",) and AGENTES["renta_fija"].foco == ("ticker",)
 
 
@@ -1272,9 +1271,9 @@ def test_el_ruteo_resuelve_por_tarea_y_una_desconocida_no_corre():
 
     with patch.object(modelos, "ajustes", return_value={}):
         t = modelos.resolver("asistente_cartera")
-        assert (t.proveedor, t.datos_negocio, t.usa_herramientas) == ("openai", True, True)
+        assert (t.proveedor, t.usa_herramientas) == (modelos.PROVEEDOR_DEFAULT, True)
         m = modelos.resolver("asistente_renta_fija")
-        assert (m.proveedor, m.datos_negocio) == (modelos.PROVEEDOR_DEFAULT, False)
+        assert (m.proveedor, m.usa_herramientas) == (modelos.PROVEEDOR_DEFAULT, True)
         assert not t.elegido
     with patch.object(modelos, "ajustes", return_value={"tarea:asistente_renta_fija": "openai/gpt-x"}):
         e = modelos.resolver("asistente_renta_fija")
@@ -1285,19 +1284,16 @@ def test_el_ruteo_resuelve_por_tarea_y_una_desconocida_no_corre():
         modelos.resolver("no_existe")
 
 
-def test_sin_clave_o_con_ruteo_inseguro_la_llamada_no_sale():
+def test_sin_clave_la_llamada_no_sale_y_con_clave_sale_a_cualquier_proveedor():
     from core import modelos
 
     t = modelos.resolver("asistente_cartera")
     with patch.object(modelos, "configurado", return_value=False), pytest.raises(modelos.SinClave):
         modelos.permitido_salir(t)
-    inseguro = modelos.Tarea(**{**t.__dict__, "proveedor": "deepseek"})
-    with patch.object(modelos, "configurado", return_value=True), \
-         patch("config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA", False), pytest.raises(modelos.RuteoInseguro):
-        modelos.permitido_salir(inseguro)
-    with patch.object(modelos, "configurado", return_value=True), \
-         patch("config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA", True):
-        modelos.permitido_salir(inseguro)
+    for proveedor in modelos.proveedores():
+        otro = modelos.Tarea(**{**t.__dict__, "proveedor": proveedor})
+        with patch.object(modelos, "configurado", return_value=True):
+            modelos.permitido_salir(otro)
 
 
 def test_el_modelo_se_arma_con_el_proveedor_de_langchain_y_el_esquema_solo_si_lo_soporta():
@@ -1806,7 +1802,7 @@ def test_la_ficha_de_una_tarea_dice_lo_declarado_para_el_panel():
 
     with patch.object(modelos, "ajustes", return_value={}):
         f = modelos.ficha_de("asistente_cartera")
-    assert f["declarado"] == {"proveedor": "openai", "tier": "pro"} and f["elegido"] is False
+    assert f["declarado"] == {"proveedor": modelos.PROVEEDOR_DEFAULT, "tier": "pro"} and f["elegido"] is False
 
 
 # ── panel ───────────────────────────────────────────────────────────────────
@@ -2055,18 +2051,12 @@ def test_la_ficha_del_cliente_recorta_el_documento_y_lleva_el_permiso(permiso):
     assert "{permitido.FILTRO_SQL}" in fuente
 
 
-def test_el_dato_personal_nunca_sale_a_quien_entrena_y_no_deja_texto_en_la_traza():
+def test_el_dato_personal_no_deja_texto_en_la_traza():
     from core import modelos
     from core import traza as TR
 
     t = modelos.resolver("asistente_cliente")
-    assert t.datos == "personal" and t.datos_negocio and t.datos_personales
-    with patch.object(modelos, "clave", return_value="k"), \
-         patch("config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA", True):
-        modelos.permitido_salir(t)                      # openai: sale
-        inseguro = modelos.Tarea(**{**t.__dict__, "proveedor": "deepseek"})
-        with pytest.raises(modelos.RuteoInseguro):
-            modelos.permitido_salir(inseguro)           # el flag no alcanza
+    assert t.traza_sin_texto and not modelos.resolver("asistente_cartera").traza_sin_texto
     # Por el camino real: la traza que arma el grafo para el agente cliente.
     from asistente import grafo
     from asistente.agentes import AGENTES

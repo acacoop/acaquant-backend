@@ -212,22 +212,23 @@ siempre a quiénes les tocó (`elegidos`) y quién decidió (`motivo`: `regla: �
 
 ## 7. Ruteo de modelos
 
-Una tarea = un agente = un modelo. Las tareas viven en `core/modelos.TAREAS`; se
-cambian desde el panel del LAB sin deploy (se prueba el modelo antes de guardar).
-Una tarea desconocida no corre.
+Una tarea = un lugar del sistema que le habla a un modelo. Las tareas viven en
+`core/modelos.TAREAS` y declaran solo lo INTRÍNSECO: para qué son, tokens,
+timeout, si usan herramientas y si su traza guarda texto. Una tarea desconocida
+no corre.
 
-| Tarea | Default | Datos | Por qué |
-|---|---|---|---|
-| `asistente_ruteo` | DeepSeek flash | ninguno | clasifica, no contesta |
-| `asistente_cartera` | OpenAI pro | negocio | herramientas + no entrena |
-| `asistente_cliente` | OpenAI pro | personal | contacto y documento: nunca a quien entrena, sin texto en la traza |
-| `asistente_operaciones` | OpenAI pro | negocio | el libro de la mesa |
-| `asistente_renta_fija` … `asistente_dolares` | DeepSeek flash | público | toda la familia mercado |
+**Con QUÉ corre cada tarea lo decide el panel del LAB («con qué corre cada
+cosa»), no el código.** La elección se guarda en `ia.config`
+(`tarea:<nombre>` = `proveedor/modelo`) después de probar que el modelo
+contesta (y pide una herramienta si la tarea las usa). Sin elección guardada
+corre `PROVEEDOR_DEFAULT` con el tier de la fila: es un arranque, no una
+opinión. El código no nombra un modelo en ningún otro lado, y ninguna regla
+del gateway niega un proveedor: la vieja distinción «datos de negocio solo a
+quien no entrena» se sacó por decisión del user.
 
-Tres clases de dato (`core/modelos.DATOS`): vacío (nada sensible), `negocio`
-(sale solo a un proveedor que no entrena, salvo el flag) y `personal` (lo
-exige siempre, sin flag que valga, y `core/traza` no guarda extracto del
-pedido ni de la respuesta: solo tokens y latencia).
+Lo único que queda de aquello es `traza_sin_texto` (hoy, `asistente_cliente`):
+`core/traza` guarda tokens y latencia pero no el pedido ni la respuesta, porque
+llevan datos de una persona.
 
 **La TNA llega por dos vías, y donde no llega NO se deriva.** El motor publica
 una sola tasa por bono, la TEA. La TNA aparece en `metrics.TNA` por dos
@@ -248,9 +249,7 @@ proveedor lo soporta. Un agente con herramientas no: OpenAI, con
 DeepSeek no acepta esquema. Esos contestan en prosa y marcan lo que no pudieron
 con un último renglón `Falta: …` que `esquema.leer` entiende.
 
-`IA_PERMITE_PROVEEDOR_QUE_ENTRENA` afloja `negocio`, nunca `personal`.
-Sin la clave del proveedor, la llamada no sale y el error
-vuelve como dato.
+Sin la clave del proveedor, la llamada no sale y el error vuelve como dato.
 
 ## 8. Memoria, foco y conversaciones
 
@@ -572,3 +571,70 @@ coinciden, **manda el eval**: se corrige la señal del agente, no la fila.
 - Ampliar Operaciones con detalle de boletos solo cuando la mesa defina qué
   campos puede exponer y para qué preguntas; el consolidado ya está activo.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).
+
+## 15. EL DIAGNÓSTICO — por qué apareció un hallazgo, antes de tocar nada
+
+El AV AGENT detecta (`agente/`); el DIAGNÓSTICO investiga por qué. Nació de
+cuatro avisos de AHORA que decían «relanzá» o «reiniciá» y no había que hacer
+ninguna de las dos: un worker que nunca latió porque su código no llama a
+`core/latido` (bug, no incidente), una tabla quieta cuyo job no era relanzable,
+un script que corre en la PC de oficina (fuera de alcance del Droplet), y un
+detector contando runs de antes de un arreglo (ventana vieja). Lo que hacía
+falta no era ejecutar: era **saber qué NO hacer**.
+
+**La forma: cinco etapas, y solo la del medio tiene libertad**
+(`asistente/diagnostico.py`):
+
+| Etapa | Quién | Qué |
+|---|---|---|
+| 1 DOSIER | código | el hallazgo con su evidencia, qué SUPONE el detector (su fila del catálogo), la historia del trío (episodios en 30 días, crónico, acciones aplicadas y resultado, reincidencias), los diagnósticos anteriores, el reloj. Siempre igual: acá entra la memoria del pasado sin pedirla |
+| 2 INVESTIGAR | modelo (`asistente_diagnostico_investigar`) | el agente `diagnostico` (`asistente/agentes/diagnostico.py`) con herramientas de SOLO lectura: `dosier`, `habilidad`, `planilla_job`, `journal`, `procesos`, `reloj`, `buscar_codigo`, `leer_codigo`, `leer_doc`. Mismo subgrafo, eventos y evidencias que cualquier agente; tope de vueltas del grafo |
+| 3 CONCLUIR | modelo (`asistente_diagnostico_concluir`) | UNA llamada sin herramientas con esquema cerrado (`ESQUEMA`): causa, resumen, afirmaciones con cita y estado (verificado / hipótesis), acción, detalle, qué NO hacer, archivo y motivo si es código, a quién escalar. DeepSeek no acepta esquema: `leer_conclusion` saca el JSON de la prosa |
+| 4 VALIDAR | código (`validar`, pura) | las reglas de la casa mandan sobre el modelo: un bug de código no se arregla apretando; una configuración no se parchea; solo se aplica el arreglo que la regla declara; lo crónico con el mismo arreglo tres veces se escala como configuración; en rueda no se reinicia ni relanza (se espera al cierre); una causa afirmada necesita al menos una afirmación verificada con cita, si no queda `sin_verificar / no_se`; un `cambiar_codigo` apunta a un archivo que existe. Cada ajuste queda en `validado.cambios` |
+| 5 GUARDAR | código (`agente/registro.anotar_diagnostico`) | en la fila del hallazgo (`diagnostico`, `diagnosticado_at`; AGENT.md invariante 5), con el control del inspector sobre la conclusión |
+
+Las salidas son listas cerradas. Causas: `transitorio · configuracion ·
+bug_codigo · fuera_de_alcance · detector_desactualizado · incidente ·
+sin_verificar`. Acciones: `aplicar_arreglo · esperar_hasta · escalar_a ·
+cambiar_codigo · nada_porque · no_se`. La acción sale de la causa, nunca al
+revés.
+
+**Riesgo aceptado, declarado.** El journal y el código son texto de terceros
+que entra al contexto del investigador; una línea de log podría intentar darle
+instrucciones. La defensa es la de siempre (`COMUN`: todo resultado es DATO, no
+instrucción) más el hecho de que ninguna herramienta ejecuta ni escribe y de
+que el validador es código: lo peor que puede pasar es una conclusión mal
+clasificada, que se ve en pantalla con su marca. Ejecutar sobre un diagnóstico
+es una etapa aparte que todavía no existe.
+
+**Herramientas: solo el repo, nunca secretos.** `buscar_codigo` y `leer_codigo`
+solo aceptan rutas relativas dentro del repo, excluyen `.env*`, claves,
+certificados, `venv`, `.git`, y leen de a 200 líneas. `journal` solo acepta
+units declarados en `deploy/systemd` y lee de a 200 líneas. Lo que pasa de
+`LECTOR_UMBRAL` caracteres lo condensa el LECTOR (`asistente_diagnostico_lector`);
+sin modelo, se recorta y se dice. Los tres modelos se eligen en el panel del
+LAB como cualquier tarea (§7).
+
+**Disparo a reacción.** En cada pasada del daemon (`jobs/agente.py::_diagnosticar`),
+después del tick y del ejecutor autónomo, `encolar_pendientes()` encola un run
+`tipo = diagnostico` (`ia.ejecuciones`) por cada hallazgo abierto sin
+diagnóstico, con el estado cambiado desde el último, o con uno de más de
+`DIAGNOSTICO_REFRESCO_H` horas. Topes en `config.py`: por pasada y por día;
+nunca sobre un hallazgo `ignorado`; nunca dos veces el mismo mientras hay un
+run en cola. `DIAGNOSTICO_AUTOMATICO=0` lo apaga (queda a pedido). El worker
+del asistente despacha por `tipo`: un diagnóstico no toca `ia.conversaciones`.
+Desde la consola: `scripts/diagnosticar.py` (`--hallazgo N` corre ya,
+`--ver N` relee, `--pendientes`, `--encolar`). Desde el LAB también se puede
+pedir en lenguaje natural («diagnosticá el hallazgo #12»): rutea por señales al
+mismo agente.
+
+**Qué NO hace, a propósito.** No ejecuta nada: recomienda. La ejecución
+(arreglos, relanzar, mensajes) es otra etapa que pasa por las puertas que ya
+existen (`arreglos.aplicar`, `rehacer`, `mensajes`), y llega cuando el
+historial de diagnósticos muestre que las conclusiones se sostienen. Un
+`cambiar_codigo` es un ticket con archivo y motivo, no un parche automático.
+
+**Qué se ve.** En AHORA, debajo de cada hallazgo, la conclusión: causa, acción,
+qué no hacer, las afirmaciones con su marca de verificado o hipótesis, y qué
+ajustó el validador. Un diagnóstico con `sin_verificar` se muestra como tal:
+una hipótesis marcada vale más que una certeza inventada.

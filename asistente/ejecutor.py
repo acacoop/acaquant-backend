@@ -23,6 +23,9 @@ class Acceso(StrEnum):
     READ_PUBLIC = "READ_PUBLIC"
     READ_BUSINESS = "READ_BUSINESS"
     READ_PERSONAL = "READ_PERSONAL"
+    # Lo que ve el sistema por dentro: código del repo, journal de un unit,
+    # planillas de jobs, hallazgos del agente. Solo admin (y el propio agente).
+    READ_SISTEMA = "READ_SISTEMA"
     PROPOSE = "PROPOSE"
     WRITE = "WRITE"
 
@@ -78,6 +81,16 @@ ACCESO_POR_TOOL: dict[str, Acceso] = {
     "cauciones_vigentes": Acceso.READ_PUBLIC,
     "tasa_referencia": Acceso.READ_PUBLIC,
     "tipos_de_cambio": Acceso.READ_PUBLIC,
+    # EL DIAGNÓSTICO (asistente/agentes/diagnostico.py): todo de solo lectura.
+    "dosier": Acceso.READ_SISTEMA,
+    "habilidad": Acceso.READ_SISTEMA,
+    "planilla_job": Acceso.READ_SISTEMA,
+    "journal": Acceso.READ_SISTEMA,
+    "procesos": Acceso.READ_SISTEMA,
+    "reloj": Acceso.READ_SISTEMA,
+    "buscar_codigo": Acceso.READ_SISTEMA,
+    "leer_codigo": Acceso.READ_SISTEMA,
+    "leer_doc": Acceso.READ_SISTEMA,
 }
 
 _ROLES_NEGOCIO = {"admin", "trader", "asistente_comercial"}
@@ -97,6 +110,8 @@ def _autorizar(nombre: str, acceso: Acceso, args: dict, contexto: RunContext) ->
         return {"error": f"el rol {contexto.rol!r} no puede leer datos del negocio"}
     if acceso == Acceso.READ_PERSONAL and contexto.rol not in _ROLES_PERSONALES:
         return {"error": f"el rol {contexto.rol!r} no puede leer datos personales"}
+    if acceso == Acceso.READ_SISTEMA and contexto.rol not in _ROLES_PERSONALES:
+        return {"error": f"el rol {contexto.rol!r} no puede mirar el sistema por dentro"}
     if acceso in (Acceso.PROPOSE, Acceso.WRITE):
         return {"error": f"las herramientas {acceso.value} todavía requieren aprobación explícita"}
     cuenta = str(args.get("cuenta") or "").strip() if "cuenta" in args else ""

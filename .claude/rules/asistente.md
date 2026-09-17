@@ -27,7 +27,9 @@ agente + su `AGENTE`, en un solo archivo; `agentes/__init__.py` tiene los
 registros `AGENTES` y `FAMILIAS`. `ruteo.py` decide quién va (reglas primero,
 modelo después), `junta.py` cruza, `grafo.py` enchufa. El resto son
 piezas de un solo uso: `memoria`, `estado`, `evidencia`, `control`, `esquema`,
-`permitido`, `sesiones`, `panel`.
+`permitido`, `sesiones`, `panel`. `diagnostico.py` es EL DIAGNÓSTICO (doc §15):
+cinco etapas sobre un hallazgo del AV AGENT, con el agente `diagnostico` en la
+del medio; sus herramientas son de solo lectura y nunca leen secretos.
 
 ## Las invariantes (cada una tiene un test)
 
@@ -92,9 +94,10 @@ piezas de un solo uso: `memoria`, `estado`, `evidencia`, `control`, `esquema`,
    (test). El evento `ruteo` dice siempre a quiénes les tocó y quién decidió.
 6. **Las conversaciones tienen dueño** (`ia.conversaciones`, filtradas por
    email en cada query). El navegador manda pregunta + sesión, nada más.
-7. **Una tarea = un agente = un modelo**, declarada en `core/modelos.TAREAS`;
-   `datos: "negocio"` solo a proveedores que no entrenan (o con el flag);
-   `datos: "personal"` nunca a quien entrena y sin texto en la traza.
+7. **Una tarea = un agente**, declarada en `core/modelos.TAREAS` con lo
+   intrínseco (para qué, tokens, timeout, herramientas, `traza_sin_texto`).
+   **Con qué modelo corre lo decide el panel del LAB (`ia.config`)**, nunca el
+   código: ninguna fila nombra proveedor ni modelo (test).
 8. **El tiempo es una convención** (`docs/AvAgentAI.md` §9): `fecha` para una
    foto, `periodo` de lista cerrada más `desde`/`hasta` para un rango. El
    modelo nunca calcula días.

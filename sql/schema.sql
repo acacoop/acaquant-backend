@@ -3650,6 +3650,11 @@ CREATE TABLE IF NOT EXISTS ia.ejecuciones (
     actualizada_at       timestamptz NOT NULL DEFAULT now(),
     cancel_solicitada_at timestamptz
 );
+-- `pregunta` es una conversación (lo que hace la persona en el LAB);
+-- `diagnostico` es un run que dispara el AV AGENT sobre un hallazgo
+-- (asistente/diagnostico.py). El worker los despacha distinto y no se mezclan
+-- con las conversaciones de nadie.
+ALTER TABLE ia.ejecuciones ADD COLUMN IF NOT EXISTS tipo text NOT NULL DEFAULT 'pregunta';
 CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_usuario ON ia.ejecuciones (usuario, creada_at DESC);
 CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_estado ON ia.ejecuciones (estado, creada_at);
 CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_sesion ON ia.ejecuciones (sesion, creada_at);
@@ -5486,6 +5491,12 @@ ALTER TABLE agente.hallazgos DROP COLUMN IF EXISTS ia_llamada CASCADE;
 -- `visto_ultima_vez`. NULL = se aplicó antes de que existiera la columna, o
 -- sea hace mucho: ahí el detector ya volvió seguro. Historia: `AGENT.md` §0.fe.
 ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS arreglo_aplicado_at timestamptz;
+-- EL DIAGNÓSTICO (asistente/diagnostico.py): lo que el agente de diagnóstico
+-- concluyó sobre este hallazgo — causa, acción, qué no hacer, evidencia — y
+-- cuándo. Vive acá y no en una tabla aparte (AGENT.md §8, invariante 5). Se
+-- rehace cuando cambia el estado o pasa un día con el hallazgo abierto.
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS diagnostico jsonb;
+ALTER TABLE agente.hallazgos ADD COLUMN IF NOT EXISTS diagnosticado_at timestamptz;
 -- UN SOLO hallazgo ABIERTO por problema. Reemplaza al "modo reemplazo" del
 -- agente viejo: si el trío ya está abierto se actualiza `veces`, no nace otro.
 --
@@ -5704,7 +5715,8 @@ CREATE OR REPLACE VIEW agente.v_ahora AS
 SELECT f.id, f.habilidad, f.sujeto, f.regla, f.nombre, f.severidad,
        f.problema, f.detalle, f.que_hacer, f.arreglo, f.evidencia, f.detectado_at,
        f.visto_ultima_vez, f.veces, hab.dominio,
-       (f.arreglo <> '') AS accionable
+       (f.arreglo <> '') AS accionable,
+       f.estado, f.diagnostico, f.diagnosticado_at
   FROM agente.hallazgos f
   LEFT JOIN agente.habilidades hab ON hab.nombre = f.habilidad
  WHERE f.leido_at IS NULL

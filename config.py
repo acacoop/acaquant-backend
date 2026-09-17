@@ -312,36 +312,15 @@ EXT_ISSUER = os.getenv("EXT_ISSUER", "https://api.acaquant.com/ext").strip()
 # el que lo alcanza recibe un mensaje que le dice que consulte por mes.
 EXT_MAX_FILAS = int(os.getenv("EXT_MAX_FILAS", "20000"))
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# IA — el ruteo por proveedor del gateway
+# EL DIAGNÓSTICO (asistente/diagnostico.py) — cuánto puede gastar solo
 # ─────────────────────────────────────────────────────────────────────────────
-#
-# ⚠️⚠️ **ESTA CONSTANTE AFLOJA UNA GARANTÍA, A PROPÓSITO Y POR DECISIÓN DEL USER
-# (2026-09-13).** Leerla entera antes de tocarla.
-#
-# Qué apaga: `core/modelos.py::_ruteo_seguro()` niega una llamada cuando una tarea
-# marcada `datos: "negocio"` (ve tenencias, cuentas, plata de la casa) va hacia
-# un proveedor cuya ficha dice `no_entrena: False`. Con esto en True, sale igual
-# y queda un WARNING en el log.
-#
-# Por qué se aflojó, con las palabras del user: *«en esta etapa es fundamental
-# poder usarla por lo barata que es (…) la restricción la agregaré más adelante
-# cuando esto escale, de momento lo estoy usando solo con cuentas habilitadas y
-# permitidas»*.
-#
-# Qué SIGUE acotando el alcance, y no es poco: el asistente ve únicamente las
-# cuentas de `ASISTENTE_CUENTAS` (`asistente/permitido.py`, fail-closed) y la
-# tab es admin-only. Lo que puede salir está limitado a un puñado de cuentas
-# elegidas a mano, no a la cartera de la casa.
-#
-# ⚠️ **CUÁNDO VUELVE A `False`**: cuando el asistente deje de ser una
-# herramienta del admin sobre cuentas elegidas a mano. Si `ASISTENTE_CUENTAS`
-# empieza a crecer, si lo usa alguien más, o si aparece una herramienta que lee
-# la cartera entera. El mecanismo entero sigue en pie e intacto — por eso no se
-# borró: volver atrás es esta línea, no reconstruirlo.
-#
-# El registro de qué se mandó, a quién y con qué modelo queda igual en
-# `ia.llamadas`.
-IA_PERMITE_PROVEEDOR_QUE_ENTRENA = os.getenv(
-    "IA_PERMITE_PROVEEDOR_QUE_ENTRENA", "1").strip().lower() in ("1", "true", "yes")
+# Se dispara a REACCIÓN: cada hallazgo abierto sin diagnóstico vigente encola un
+# run. Un detector que canta cada 2 minutos no puede generar un diagnóstico
+# cada 2 minutos, así que hay tope por pasada del daemon y por día, y no se
+# rehace sobre el mismo hallazgo salvo que cambie de estado o pase un día.
+DIAGNOSTICO_TOPE_PASADA = int(os.getenv("DIAGNOSTICO_TOPE_PASADA", "3"))
+DIAGNOSTICO_TOPE_DIA = int(os.getenv("DIAGNOSTICO_TOPE_DIA", "40"))
+DIAGNOSTICO_REFRESCO_H = int(os.getenv("DIAGNOSTICO_REFRESCO_H", "24"))
+# Prendido = el daemon encola solo. Apagado = solo a pedido (scripts.diagnosticar).
+DIAGNOSTICO_AUTOMATICO = os.getenv("DIAGNOSTICO_AUTOMATICO", "1").strip().lower() in ("1", "true", "yes")

@@ -234,21 +234,14 @@ def tareas_y_proveedores() -> dict:
     dos lados, y cuando se desincronicen la pantalla mostraría un modelo y el
     sistema usaría otro sin que nada falle.
     """
-    from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
-
     provs = []
     for p in modelos.proveedores():
-        seguro = modelos.no_entrena(p)
         provs.append({
             "proveedor": p,
             "configurado": modelos.configurado(p),
-            "usable": seguro or IA_PERMITE_PROVEEDOR_QUE_ENTRENA,
-            # ⚠️ `aviso` NO es «no se puede»: dice qué implica usarlo. Un
-            # permiso que no se explica se vuelve un default que nadie recuerda
-            # haber decidido.
-            "aviso": None if seguro else (
-                "entrena con lo que se le manda: los datos de las cuentas "
-                "habilitadas pueden quedar en un modelo de un tercero"),
+            # Con qué corre cada cosa lo decide quien mira este panel. El código
+            # ya no opina sobre proveedores: solo dice si la clave está.
+            "usable": modelos.configurado(p),
             "modelos": modelos.disponibles(p) if modelos.configurado(p) else [],
         })
     return {"tareas": [modelos.ficha_de(t) for t in modelos.tareas()], "proveedores": provs}
@@ -304,18 +297,6 @@ def elegir_modelo(tarea: str, proveedor: str, modelo: str, *, por: str) -> dict:
         return {"ok": False, "error": f"proveedor {proveedor!r} desconocido"}
 
     ficha = modelos.ficha_de(tarea)
-    # ⚠️ El MISMO criterio que aplica el gateway en cada llamada, leyendo la
-    # MISMA constante: con dos reglas para lo mismo, la pantalla dejaría elegir
-    # algo que el gateway después rechaza en cada pregunta, sin que nadie
-    # entienda por qué.
-    from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
-
-    if (ficha["datos_negocio"] and not modelos.no_entrena(proveedor)
-            and not IA_PERMITE_PROVEEDOR_QUE_ENTRENA):
-        return {"ok": False, "error": (
-            f"{proveedor} puede entrenar con lo que se le manda y «{tarea}» ve "
-            "datos del negocio (config.IA_PERMITE_PROVEEDOR_QUE_ENTRENA)")}
-
     prueba = probar(modelo, proveedor=proveedor,
                     exigir_herramienta=ficha["usa_herramientas"])
     if not prueba["ok"]:

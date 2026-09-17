@@ -9,6 +9,7 @@ from asistente.agentes import (
     cartera,
     cliente,
     derivados,
+    diagnostico,
     dolares,
     financiamiento,
     fondos,
@@ -31,7 +32,7 @@ AGENTES: dict[str, Agente] = {
     a.nombre: a for a in (
         cartera.AGENTE, cliente.AGENTE, operaciones.AGENTE,
         renta_fija.AGENTE, renta_variable.AGENTE, fondos.AGENTE, derivados.AGENTE,
-        financiamiento.AGENTE, dolares.AGENTE,
+        financiamiento.AGENTE, dolares.AGENTE, diagnostico.AGENTE,
     )
 }
 

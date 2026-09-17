@@ -53,10 +53,19 @@ def procesar(run: dict, grafo_compilado) -> None:
             raise EV.TiempoAgotado(run_id)
         return ejecuciones.emitir(run_id, evento)
     try:
-        resultado = sesiones.preguntar(
-            run["pregunta"], usuario=run["usuario"], sesion=run["sesion"],
-            rol=run["rol"], portal=run["portal"], run_id=run_id,
-            grafo_compilado=grafo_compilado, event_sink=sink, forzar_sesion=True)
+        if run.get("tipo") == "diagnostico":
+            # Un run del AV AGENT sobre un hallazgo: no es una conversación de
+            # nadie, no toca ia.conversaciones. Mismo worker, misma cancelación,
+            # mismo timeout, mismos eventos.
+            from asistente import diagnostico
+
+            with EV.capturar(sink):
+                resultado = diagnostico.correr_run(run)
+        else:
+            resultado = sesiones.preguntar(
+                run["pregunta"], usuario=run["usuario"], sesion=run["sesion"],
+                rol=run["rol"], portal=run["portal"], run_id=run_id,
+                grafo_compilado=grafo_compilado, event_sink=sink, forzar_sesion=True)
         actual = ejecuciones.obtener(run_id)
         if actual and actual["estado"] == "cancel_requested":
             ejecuciones.terminar(run_id, "cancelled", error="cancelada por el usuario")

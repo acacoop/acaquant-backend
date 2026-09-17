@@ -2233,15 +2233,18 @@ sin reconciliar).
 
 ---
 
-## 4.11 IA — EL MOTOR SIN NINGÚN AUTO
+## 4.11 IA — EL GATEWAY, EL ASISTENTE Y EL DIAGNÓSTICO
 
-**No hay una sola feature de IA corriendo.** Ni una llamada a un modelo, ni una
-pantalla, ni un job. Lo que SÍ quedó, a propósito, es el **núcleo del gateway**:
+Lo que corre solo con un modelo es UNA cosa: EL DIAGNÓSTICO del AV AGENT
+(`asistente/diagnostico.py`, `AvAgentAI.md` §15), que investiga por qué apareció
+cada hallazgo abierto y recomienda sin ejecutar nada; se apaga con
+`DIAGNOSTICO_AUTOMATICO=0`. Todo lo demás es a pedido de una persona (la tab
+LAB). El **núcleo del gateway**:
 
 | Pieza | Qué es | Estado |
 |---|---|---|
-| `core/modelos.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor, más el **ruteo fail-closed** (una tarea marcada `datos:"negocio"` SOLO corre en un proveedor con `no_entrena=True`; si no, el gateway **niega la llamada**) | en uso: 3 tareas |
-| `core/modelos.py` | tareas registradas, ruteo seguro por proveedor, y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 11 tareas (`agente_emisor`, `asistente_ruteo`, y una por agente del asistente: `asistente_cartera`, `asistente_cliente`, `asistente_operaciones`, `asistente_renta_fija`, `asistente_renta_variable`, `asistente_fondos`, `asistente_derivados`, `asistente_financiamiento`, `asistente_dolares`) |
+| `core/modelos.py` | la única puerta al modelo: HTTP, reintentos y el idioma de cada proveedor. **Con qué proveedor y modelo corre cada tarea lo decide solo el panel del LAB (`ia.config`)**; el código no nombra modelos ni niega proveedores (la vieja regla «datos de negocio solo a quien no entrena» se sacó por decisión del user). Queda `traza_sin_texto` para lo personal | en uso |
+| `core/modelos.py` | tareas registradas y el registro obligatorio de cada llamada. **El presupuesto diario se sacó el 2026-09-12**: nadie lo miraba y pedía una consulta a la base por llamada | en uso: 15 tareas (`agente_emisor`, `asistente_ruteo`, una por agente del asistente: `asistente_cartera`, `asistente_cliente`, `asistente_operaciones`, `asistente_renta_fija`, `asistente_renta_variable`, `asistente_fondos`, `asistente_derivados`, `asistente_financiamiento`, `asistente_dolares`, `asistente_diagnostico_investigar`; y las dos del diagnóstico sin herramientas: `asistente_diagnostico_lector`, `asistente_diagnostico_concluir`) |
 | `ia.llamadas` | el libro de llamadas: una fila por vez que el sistema le habla a un modelo — tarea, modelo, usuario, tokens in/out, latencia, cuánto pegó en el caché, la pregunta y la respuesta, y `sesion` (a qué conversación del asistente pertenece; NULL en las demás tareas). Se llamaba `ia.trazas` | la lee la tab LAB |
 | `ia.config` | ajustes editables sin deploy: qué proveedor/modelo corre cada tarea (`tarea:<nombre>`) y la tarifa de cada modelo (`precio:<modelo>`) | la escribe la tab LAB |
 | `ia.conversaciones` | las conversaciones del asistente: dueño, título, la memoria que ve el modelo (podada), el foco y los turnos que ve la persona (enteros). 90 días sin retomar y se borra | la escribe y la lee la tab LAB |

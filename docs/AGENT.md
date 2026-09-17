@@ -93,6 +93,7 @@ Campos que lleva sí o sí:
 | `evidencia` | Los números congelados de ese momento (jsonb). |
 | `estado` | Ver 1.4. |
 | `cerrado_at` / `cerrado_como` / `cerrado_por` | Cómo terminó. |
+| `diagnostico` / `diagnosticado_at` | Lo que concluyó EL DIAGNÓSTICO (`asistente/diagnostico.py`, `AvAgentAI.md` §15): causa, acción, qué no hacer, evidencia. Lo escribe solo `registro.anotar_diagnostico`. Vive acá y no en una tabla aparte (§8, invariante 5). |
 
 **La identidad del PROBLEMA no es el `id`**: es el trío
 `habilidad + sujeto + regla`. Ese trío es lo que permite decir "esto ya lo

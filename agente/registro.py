@@ -414,6 +414,22 @@ def _arreglo_de(habilidad: str, regla: str) -> str:
     return h.arreglo_de(regla) if h else ""
 
 
+def anotar_diagnostico(hallazgo_id: int, diagnostico: dict) -> bool:
+    """EL DIAGNÓSTICO del agente sobre un hallazgo (asistente/diagnostico.py).
+    Vive en la fila del hallazgo (invariante 5: ninguna otra tabla guarda
+    estado de problemas). Se pisa: el vigente es el último."""
+    import json
+
+    from psycopg.types.json import Jsonb
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE agente.hallazgos SET diagnostico = %s, diagnosticado_at = now() WHERE id = %s",
+            (Jsonb(diagnostico, dumps=lambda v: json.dumps(v, ensure_ascii=False, default=str)),
+             int(hallazgo_id)))
+        return cur.rowcount > 0
+
+
 def anotar_accion(*, arreglo: str, habilidad: str, sujeto: str, regla: str,
                   hallazgo_id: int | None = None, por: str = "",
                   donde: str = "", campo: str = "", antes: str = "",

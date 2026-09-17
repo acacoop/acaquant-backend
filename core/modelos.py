@@ -1,9 +1,12 @@
 """Los modelos de lenguaje: proveedores (LangChain), tareas de ruteo y la puerta
 por la que sale cada llamada. Doc: docs/AvAgentAI.md.
 
-Una tarea es un lugar del sistema que le habla a un modelo. Su fila decide
-proveedor, modelo y si ve datos del negocio. La elección guardada desde el
-panel (`ia.config`, `tarea:<nombre>` = `proveedor/modelo`) pisa el default."""
+Una tarea es un lugar del sistema que le habla a un modelo. Su fila declara
+solo lo INTRÍNSECO: para qué es, tokens, timeout, si usa herramientas y si su
+traza guarda texto. **Con QUÉ corre (proveedor y modelo) lo decide el panel del
+LAB** (`ia.config`, `tarea:<nombre>` = `proveedor/modelo`), no el código: sin
+elección guardada corre `PROVEEDOR_DEFAULT` con el tier de la fila, y eso es un
+arranque, no una opinión. El código no nombra un modelo en ningún otro lado."""
 from __future__ import annotations
 
 import logging
@@ -31,8 +34,6 @@ PROVEEDORES: dict[str, dict] = {
         "url_default": "https://api.deepseek.com",
         "modelos": {"flash": ("AI_MODEL_FLASH", "deepseek-v4-flash"),
                     "pro": ("AI_MODEL_PRO", "deepseek-v4-pro")},
-        # No se compromete por contrato a no entrenar con lo que se le manda.
-        "no_entrena": False,
         # Rechaza `response_format: json_schema` (medido): la respuesta va en prosa.
         "soporta_esquema": False,
     },
@@ -42,29 +43,43 @@ PROVEEDORES: dict[str, dict] = {
         "url_default": "https://api.openai.com/v1",
         "modelos": {"flash": ("AI_MODEL_OPENAI_FLASH", "gpt-5.6-luna"),
                     "pro": ("AI_MODEL_OPENAI_PRO", "gpt-5.6-terra")},
-        "no_entrena": True,
         "soporta_esquema": True,
     },
 }
 
-# tier: flash (barato) | pro (capaz). datos: "negocio" exige un proveedor que
-# no entrena (salvo el flag); "personal" lo exige SIEMPRE y además no deja
-# extracto de texto en la traza. usa_herramientas: al elegir modelo desde el
-# panel se exige que sepa pedir una.
-DATOS = ("", "negocio", "personal")
+# tier: flash (barato) | pro (capaz), solo para el DEFAULT de arranque.
+# usa_herramientas: al elegir modelo desde el panel se exige que sepa pedir una.
+# traza_sin_texto: la traza (`ia.llamadas`) guarda tokens y latencia pero no el
+# pedido ni la respuesta — para lo que lleva datos de una persona.
 TAREAS: dict[str, dict] = {
     "agente_emisor": {"tier": "pro", "max_tokens": 2000, "timeout_s": 45,
                       "para_que": "las propuestas de emisor en «completar ficha» (ENCONTRÓ)"},
+    # EL DIAGNÓSTICO (asistente/diagnostico.py): tres tareas porque son tres
+    # trabajos distintos y conviene poder darles modelos distintos desde el
+    # panel. El LECTOR condensa una salida cruda (journal, código) en un
+    # extracto; INVESTIGAR es el loop con herramientas que verifica el
+    # supuesto del detector; CONCLUIR contesta con esquema cerrado.
+    "asistente_diagnostico_lector": {"tier": "flash", "max_tokens": 600, "timeout_s": 60,
+                                     "para_que": "el diagnóstico, LECTOR: resumir un journal o un "
+                                                 "archivo largo en lo que importa"},
+    "asistente_diagnostico_investigar": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
+                                         "usa_herramientas": True,
+                                         "para_que": "el diagnóstico, INVESTIGAR: verificar contra "
+                                                     "código, journal y planillas por qué apareció "
+                                                     "un hallazgo"},
+    "asistente_diagnostico_concluir": {"tier": "pro", "max_tokens": 1500, "timeout_s": 90,
+                                       "para_que": "el diagnóstico, CONCLUIR: causa, acción y qué "
+                                                   "no hacer, con esquema cerrado"},
     "asistente_ruteo": {"tier": "flash", "max_tokens": 200, "timeout_s": 30,
                         "para_que": "el asistente: decidir qué agentes atienden la pregunta"},
     "asistente_cartera": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
-                          "proveedor": "openai", "datos": "negocio", "usa_herramientas": True,
+                          "usa_herramientas": True,
                           "para_que": "el asistente, CARTERA: el patrimonio de una cuenta"},
     "asistente_cliente": {"tier": "pro", "max_tokens": 2000, "timeout_s": 120,
-                          "proveedor": "openai", "datos": "personal", "usa_herramientas": True,
+                          "traza_sin_texto": True, "usa_herramientas": True,
                           "para_que": "el asistente, CLIENTE: quién es el titular y cómo está"},
     "asistente_operaciones": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
-                              "proveedor": "openai", "datos": "negocio", "usa_herramientas": True,
+                              "usa_herramientas": True,
                               "para_que": "el asistente, OPERACIONES: qué operó la mesa"},
     "asistente_renta_fija": {"tier": "flash", "max_tokens": 3000, "timeout_s": 120,
                              "usa_herramientas": True,
@@ -93,10 +108,6 @@ class SinClave(Exception):
     """Falta la clave del proveedor: la llamada no sale."""
 
 
-class RuteoInseguro(Exception):
-    """Una tarea con datos del negocio no puede salir a un proveedor que entrena."""
-
-
 # ── proveedores ─────────────────────────────────────────────────────────────
 
 
@@ -116,10 +127,6 @@ def clave(proveedor: str) -> str | None:
 
 def configurado(proveedor: str) -> bool:
     return bool(clave(proveedor))
-
-
-def no_entrena(proveedor: str) -> bool:
-    return bool(_cfg(proveedor)["no_entrena"])
 
 
 def soporta_esquema(proveedor: str) -> bool:
@@ -189,20 +196,12 @@ class Tarea:
     modelo: str
     max_tokens: int
     timeout_s: int
-    # "", "negocio" o "personal" (`DATOS`).
-    datos: str
+    # La traza no guarda pedido ni respuesta: solo tokens y latencia.
+    traza_sin_texto: bool
     usa_herramientas: bool
     para_que: str
     # True si el modelo salió de una elección guardada en `ia.config`.
     elegido: bool
-
-    @property
-    def datos_negocio(self) -> bool:
-        return self.datos in ("negocio", "personal")
-
-    @property
-    def datos_personales(self) -> bool:
-        return self.datos == "personal"
 
 
 def tareas() -> list[str]:
@@ -215,9 +214,7 @@ def resolver(tarea: str) -> Tarea:
     if tarea not in TAREAS:
         raise KeyError(f"tarea desconocida: {tarea!r} (hay: {tareas()})")
     cfg = TAREAS[tarea]
-    if cfg.get("datos", "") not in DATOS:
-        raise ValueError(f"{tarea}: datos={cfg.get('datos')!r} no es uno de {DATOS}")
-    proveedor = cfg.get("proveedor") or PROVEEDOR_DEFAULT
+    proveedor = PROVEEDOR_DEFAULT
     modelo = modelo_del_tier(proveedor, cfg.get("tier", "flash"))
     elegido = False
     crudo = ajustes().get(CLAVE_TAREA.format(tarea=tarea))
@@ -229,7 +226,7 @@ def resolver(tarea: str) -> Tarea:
             logger.warning("modelos: elección guardada inválida para %r: %r", tarea, crudo)
     return Tarea(nombre=tarea, proveedor=proveedor, modelo=modelo,
                  max_tokens=cfg["max_tokens"], timeout_s=cfg["timeout_s"],
-                 datos=cfg.get("datos", ""),
+                 traza_sin_texto=bool(cfg.get("traza_sin_texto")),
                  usa_herramientas=bool(cfg.get("usa_herramientas")),
                  para_que=cfg.get("para_que", ""), elegido=elegido)
 
@@ -240,27 +237,15 @@ def ficha_de(tarea: str) -> dict:
     t = resolver(tarea)
     cfg = TAREAS[tarea]
     return {"tarea": t.nombre, "para_que": t.para_que, "proveedor": t.proveedor,
-            "modelo": t.modelo, "elegido": t.elegido, "datos": t.datos,
-            "datos_negocio": t.datos_negocio, "usa_herramientas": t.usa_herramientas,
-            "declarado": {"proveedor": cfg.get("proveedor") or PROVEEDOR_DEFAULT,
-                          "tier": cfg.get("tier", "flash")}}
+            "modelo": t.modelo, "elegido": t.elegido,
+            "traza_sin_texto": t.traza_sin_texto, "usa_herramientas": t.usa_herramientas,
+            "declarado": {"proveedor": PROVEEDOR_DEFAULT, "tier": cfg.get("tier", "flash")}}
 
 
 def permitido_salir(tarea: Tarea) -> None:
-    """Levanta si la llamada no puede salir: sin clave, o datos del negocio
-    hacia un proveedor que entrena (salvo `IA_PERMITE_PROVEEDOR_QUE_ENTRENA`)."""
+    """Levanta si la llamada no puede salir: sin la clave del proveedor."""
     if not configurado(tarea.proveedor):
         raise SinClave(f"falta {_cfg(tarea.proveedor)['key_env']} para {tarea.nombre}")
-    if tarea.datos_negocio and not no_entrena(tarea.proveedor):
-        from config import IA_PERMITE_PROVEEDOR_QUE_ENTRENA
-
-        # Dato personal: el flag no alcanza. Nunca sale a quien entrena.
-        if tarea.datos_personales or not IA_PERMITE_PROVEEDOR_QUE_ENTRENA:
-            logger.error("modelos: RUTEO INSEGURO — %s hacia %r (entrena). Se niega.",
-                         tarea.nombre, tarea.proveedor)
-            raise RuteoInseguro(f"{tarea.nombre} no puede salir a {tarea.proveedor}")
-        logger.warning("modelos: %s hacia %r, que entrena. Permitido por "
-                       "IA_PERMITE_PROVEEDOR_QUE_ENTRENA.", tarea.nombre, tarea.proveedor)
 
 
 # ── construir un modelo ─────────────────────────────────────────────────────
@@ -293,11 +278,11 @@ def armar(proveedor: str, nombre: str, *, max_tokens: int, timeout_s: int,
 def modelo(tarea: str, *, usuario: str | None = None, sesion: str | None = None,
            esquema: dict | None = None, traza: Traza | None = None) -> BaseChatModel:
     """El modelo de una tarea, listo para invocar, con su traza a `ia.llamadas`.
-    Levanta `KeyError`, `SinClave` o `RuteoInseguro` antes de salir."""
+    Levanta `KeyError` o `SinClave` antes de salir."""
     t = resolver(tarea)
     permitido_salir(t)
     tr = traza or Traza(t.nombre, t.modelo, usuario=usuario, sesion=sesion,
-                        guardar_texto=not t.datos_personales)
+                        guardar_texto=not t.traza_sin_texto)
     return armar(t.proveedor, t.modelo, max_tokens=t.max_tokens, timeout_s=t.timeout_s,
                  esquema=esquema, callbacks=[tr])
 

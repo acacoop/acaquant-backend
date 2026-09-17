@@ -16,9 +16,9 @@ que manda: `docs/AvAgentAI.md` (§3 los agentes, §6 el ruteo, §9 el tiempo, §
    del negocio, mercado = datos públicos). Si la función nueva habla del mismo
    tema y ve los mismos datos, es una herramienta más del agente que existe:
    una función en su archivo, sumada a `herramientas` de su `AGENTE`, y listo.
-2. **¿Ve datos del negocio?** Entonces su tarea lleva `datos: "negocio"` y va a
-   un proveedor que no entrena. Y toda consulta de cuentas lleva
-   `{permitido.FILTRO_SQL}` (test).
+2. **¿Ve datos de una persona?** Entonces su tarea lleva `traza_sin_texto`.
+   Con qué modelo corre lo elige el panel del LAB, no el código. Y toda
+   consulta de cuentas lleva `{permitido.FILTRO_SQL}` (test).
 
 ## 1. El archivo del agente: `asistente/agentes/<nombre>.py`
 
@@ -65,9 +65,9 @@ claves con `_` son para la pantalla. La ficha (docstring + firma) entra en
                        "para_que": "el asistente, agente <NOMBRE>: …"},
 ```
 
-`"proveedor": "openai", "datos": "negocio"` si ve cuentas; `"datos": "personal"`
-si ve contacto, documento o cualquier dato de una persona (nunca sale a un
-proveedor que entrena, y la traza no guarda texto).
+`"traza_sin_texto": True` si ve contacto, documento o cualquier dato de una
+persona (la traza guarda tokens y latencia, no texto). Nada de proveedor ni
+modelo: eso se elige en el panel.
 
 ## 3. El registro: `asistente/agentes/__init__.py`
 

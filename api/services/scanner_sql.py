@@ -29,7 +29,9 @@ from psycopg.rows import dict_row
 
 from api.cache import cached
 from api.services.scanner import get_ccl_live  # dolar live (Mongo) — reexport para el router
+from core import precios_acciones_sql
 from core.postgres import get_pool
+from quant.pivot_points import debug_4_timeframes, obtener_4_timeframes, ventana_lectura
 
 __all__ = [
     "get_ccl_live",
@@ -171,17 +173,29 @@ def get_universo() -> list[dict]:
     return out
 
 
+def _velas_pivot(underlying: str) -> tuple[list[dict], dict | None]:
+    """(velas de la ventana de pivots, última vela histórica si la ventana está
+    vacía). UNA query por ticker en el caso normal; la segunda solo para un
+    ticker sin cierres desde el año previo."""
+    velas = precios_acciones_sql.velas_eod(underlying, *ventana_lectura())
+    ultima = None if velas else precios_acciones_sql.ultima_vela(underlying)
+    return velas, ultima
+
+
+def debug_pivot_points(ticker: str) -> dict:
+    """Detalle paso a paso del cálculo de pivots (Manager → Validaciones)."""
+    return debug_4_timeframes(ticker, *_velas_pivot(ticker))
+
+
 @cached(ttl=60)
 def get_pivot_points(ticker: str) -> dict:
     """Pivot points en 4 timeframes del subyacente USD. Mismo cálculo
-    (quant.pivot_points.obtener_4_timeframes — lee mercado.precios_acciones SQL desde
-    el cutover 2026-06-24), con el `last` pisado por el live del ADR desde
+    (quant.pivot_points.obtener_4_timeframes sobre las velas de
+    core.precios_acciones_sql), con el `last` pisado por el live del ADR desde
     mercado.adr_snapshot.
     """
-    from quant.pivot_points import obtener_4_timeframes
-
     underlying = _resolve_underlying(ticker)
-    res = obtener_4_timeframes(underlying)
+    res = obtener_4_timeframes(underlying, *_velas_pivot(underlying))
 
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(

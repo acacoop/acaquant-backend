@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.services import portfolio_sql
+from api.services import portfolio_sql, scanner_sql
 from api.services.assets_sql import assets_rows
 from core import curvas_sql
 
@@ -103,7 +103,6 @@ def check_debug_pivot(
     Para los 4 timeframes (diario/semanal/mensual/anual) devuelve la ventana
     de fechas consultada, TODAS las velas usadas, de qué vela sale cada
     H/L/C, la fórmula Floor Trader con los números reales y los niveles
-    resultantes. Lee `Trading.PreciosAcciones`.
+    resultantes. Lee `mercado.precios_acciones`.
     """
-    from quant.pivot_points import debug_4_timeframes
-    return debug_4_timeframes(ticker.strip().upper())
+    return scanner_sql.debug_pivot_points(ticker.strip().upper())

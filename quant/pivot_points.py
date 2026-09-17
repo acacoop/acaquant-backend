@@ -1,4 +1,4 @@
-"""pivot_points.py — Floor Trader Pivot Points sobre mercado.precios_acciones (SQL).
+"""pivot_points.py — Floor Trader Pivot Points sobre velas EOD (cálculo puro).
 
 Filosofía: el cálculo NUNCA hardcodea fechas. Cada timeframe pide
 dinámicamente "el período anterior cerrado" (último día hábil, última
@@ -16,9 +16,11 @@ Fórmulas Floor Trader (las clásicas, las que usa Bloomberg / Reuters):
 
 Donde H/L/C son del período previo (día, semana, mes, año).
 
-Uso (puro Python):
-    from quant.pivot_points import obtener_4_timeframes
-    levels = obtener_4_timeframes("NVDA")
+Uso (puro Python — las velas se RECIBEN, este módulo no toca la base):
+    from core.precios_acciones_sql import velas_eod
+    from quant.pivot_points import obtener_4_timeframes, ventana_lectura
+    velas = velas_eod("NVDA", *ventana_lectura())
+    levels = obtener_4_timeframes("NVDA", velas)
     # → {
     #     ticker: "NVDA",
     #     last: 220.78,
@@ -32,7 +34,7 @@ Uso (puro Python):
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TypedDict
 
 
@@ -113,72 +115,23 @@ def _rango_anual_previo() -> tuple[datetime, datetime]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Lectura de SQL (mercado.precios_acciones) + cálculo
+# Agregación H/L/C sobre velas ya traídas
 # ──────────────────────────────────────────────────────────────────────────
-# `core.postgres` / `core.mongo` se importan dentro del cuerpo para que quant/
-# no dependa de la infra al import-time (regla de capas del CLAUDE.md).
 
 
-def _sql_docs_en_rango(ticker: str, fecha_desde: datetime, fecha_hasta: datetime) -> list[dict]:
-    """Velas EOD de mercado.precios_acciones en [desde, hasta), asc. `fecha` (DATE)
-    → datetime naive 00h para mantener el shape que tenían los docs de Mongo."""
-    from core.postgres import get_pool
-
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT fecha, high, low, close FROM mercado.precios_acciones "
-            "WHERE ticker = %s AND fecha >= %s AND fecha < %s ORDER BY fecha",
-            (ticker, fecha_desde.date(), fecha_hasta.date()),
-        )
-        rows = cur.fetchall()
-    return [
-        {"fecha": datetime(r[0].year, r[0].month, r[0].day),
-         "high":  float(r[1]) if r[1] is not None else None,
-         "low":   float(r[2]) if r[2] is not None else None,
-         "close": float(r[3]) if r[3] is not None else None}
-        for r in rows
-    ]
-
-
-def _sql_last_doc(ticker: str) -> dict | None:
-    """Última vela (cierre más reciente) de mercado.precios_acciones, o None."""
-    from core.postgres import get_pool
-
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT fecha, close FROM mercado.precios_acciones "
-            "WHERE ticker = %s ORDER BY fecha DESC LIMIT 1",
-            (ticker,),
-        )
-        r = cur.fetchone()
-    if not r:
-        return None
-    return {"fecha": datetime(r[0].year, r[0].month, r[0].day),
-            "close": float(r[1]) if r[1] is not None else None}
-
-
-def _ohlc_en_rango(
-    ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
-    solo_ultima: bool = False,
-) -> dict | None:
-    """Lee mercado.precios_acciones y agrega H/L/C del rango [desde, hasta).
-
-    H = max de todos los high del rango.
-    L = min de todos los low del rango.
-    C = close del último doc cronológicamente del rango.
-
-    Si `solo_ultima` es True usa SOLO la última vela del rango (el día
-    previo): el H/L/C sale todo del MISMO día. Lo usa el timeframe diario —
-    sus pivots se proyectan del día anterior, NO se agregan varios días.
-
-    Returns None si no hay docs en el rango.
-    """
-    docs = _sql_docs_en_rango(ticker, fecha_desde, fecha_hasta)
-    return _ohlc_de_docs(docs, solo_ultima=solo_ultima)
+def ventana_lectura() -> tuple[date, date]:
+    """[desde, hasta) que cubre los 4 timeframes y el último cierre: arranca en
+    el año previo (el rango más largo) y termina mañana (incluye la última
+    vela). Es lo que el service le pide a `core.precios_acciones_sql.velas_eod`
+    UNA vez por ticker — antes eran 5 queries, y esto se llama en loop
+    (scanner)."""
+    anual_desde, _ = _rango_anual_previo()
+    manana = _hoy_utc_00() + timedelta(days=1)
+    return anual_desde.date(), manana.date()
 
 
 def _ohlc_de_docs(docs: list[dict], solo_ultima: bool = False) -> dict | None:
-    """Parte PURA de `_ohlc_en_rango`: agrega H/L/C sobre velas ya traídas
+    """Agrega H/L/C sobre velas ya traídas
     (permite compartir UNA query entre los 4 timeframes)."""
     if not docs:
         return None
@@ -201,34 +154,19 @@ def _ohlc_de_docs(docs: list[dict], solo_ultima: bool = False) -> dict | None:
     }
 
 
-def _frame(
-    label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
-    solo_ultima: bool = False,
-) -> dict | None:
-    """Construye un frame (timeframe) con OHLC + levels. None si no hay data."""
-    ohlc = _ohlc_en_rango(ticker, fecha_desde, fecha_hasta, solo_ultima=solo_ultima)
-    if not ohlc:
-        return None
-    return {
-        "label":       label,
-        "fecha_desde": ohlc["fecha_desde"],
-        "fecha_hasta": ohlc["fecha_hasta"],
-        "n_velas":     ohlc["n_velas"],
-        "h":           ohlc["h"],
-        "l":           ohlc["l"],
-        "c":           ohlc["c"],
-        "levels":      calcular(high=ohlc["h"], low=ohlc["l"], close=ohlc["c"]),
-    }
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def obtener_4_timeframes(ticker: str) -> dict:
+def obtener_4_timeframes(ticker: str, velas: list[dict],
+                         ultima: dict | None = None) -> dict:
     """Devuelve los 4 timeframes de pivots para un ticker + el último close
     disponible (para calcular distancias en el frontend).
+
+    `velas`: las de `ventana_lectura()`, ascendentes. `ultima`: la última vela
+    histórica del ticker, usada SOLO si `velas` viene vacía (ticker delisted o
+    stale, sin cierres desde el año previo) para preservar el `last`.
 
     Returns:
         {
@@ -248,12 +186,7 @@ def obtener_4_timeframes(ticker: str) -> dict:
     mensual_desde, mensual_hasta = _rango_mensual_previo()
     anual_desde, anual_hasta     = _rango_anual_previo()
 
-    # UNA query cubre los 4 timeframes + el last close: el rango anual previo
-    # arranca antes que todos y el tope abierto (mañana) incluye la última vela.
-    # Antes eran 5 queries por ticker — y esto se llama en loop por ticker
-    # (scanner).
-    manana = _hoy_utc_00() + timedelta(days=1)
-    docs = _sql_docs_en_rango(ticker, anual_desde, manana)
+    docs = velas
 
     def _en(desde: datetime, hasta: datetime) -> list[dict]:
         # Por DATE: los rangos son aware (UTC) y `fecha` de los docs es naive —
@@ -279,9 +212,8 @@ def obtener_4_timeframes(ticker: str) -> dict:
 
     # Último close = última vela disponible en la serie (cierre del día
     # previo hasta que el cron diario meta el de hoy). Si el ticker no tiene
-    # velas desde el año previo (delisted/stale), cae a la última histórica
-    # para preservar el comportamiento original.
-    last_doc = docs[-1] if docs else _sql_last_doc(ticker)
+    # velas desde el año previo (delisted/stale), cae a la última histórica.
+    last_doc = docs[-1] if docs else ultima
 
     return {
         "ticker":     ticker,
@@ -302,7 +234,7 @@ def obtener_4_timeframes(ticker: str) -> dict:
 
 
 def _debug_frame(
-    label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
+    label: str, velas: list[dict], fecha_desde: datetime, fecha_hasta: datetime,
     solo_ultima: bool = False,
 ) -> dict:
     """Versión verbosa de `_frame` para el panel de debug.
@@ -314,7 +246,8 @@ def _debug_frame(
     Con `solo_ultima` (timeframe diario) deja únicamente la última vela: el
     pivot diario se proyecta del día previo, no agrega varios días.
     """
-    docs = _sql_docs_en_rango(ticker, fecha_desde, fecha_hasta)
+    d0, d1 = fecha_desde.date(), fecha_hasta.date()
+    docs = [d for d in velas if d0 <= d["fecha"].date() < d1]
     if solo_ultima and docs:
         docs = docs[-1:]
     base = {
@@ -358,11 +291,13 @@ def _debug_frame(
     }
 
 
-def debug_4_timeframes(ticker: str) -> dict:
+def debug_4_timeframes(ticker: str, velas: list[dict],
+                       ultima: dict | None = None) -> dict:
     """Como `obtener_4_timeframes` pero con el detalle COMPLETO del cálculo:
     ventana consultada, velas usadas, de qué vela sale cada H/L/C, fórmula
-    con números y niveles. Alimenta el panel de Manager → Validaciones."""
-    last_doc = _sql_last_doc(ticker)
+    con números y niveles. Alimenta el panel de Manager → Validaciones.
+    Mismos argumentos que `obtener_4_timeframes`."""
+    last_doc = velas[-1] if velas else ultima
 
     diario_desde, diario_hasta   = _rango_diario_previo()
     semanal_desde, semanal_hasta = _rango_semanal_previo()
@@ -374,9 +309,9 @@ def debug_4_timeframes(ticker: str) -> dict:
         "last":       last_doc.get("close") if last_doc else None,
         "last_fecha": last_doc.get("fecha") if last_doc else None,
         "frames": {
-            "diario":  _debug_frame("Diario",  ticker, diario_desde,  diario_hasta, solo_ultima=True),
-            "semanal": _debug_frame("Semanal", ticker, semanal_desde, semanal_hasta),
-            "mensual": _debug_frame("Mensual", ticker, mensual_desde, mensual_hasta),
-            "anual":   _debug_frame("Anual",   ticker, anual_desde,   anual_hasta),
+            "diario":  _debug_frame("Diario",  velas, diario_desde,  diario_hasta, solo_ultima=True),
+            "semanal": _debug_frame("Semanal", velas, semanal_desde, semanal_hasta),
+            "mensual": _debug_frame("Mensual", velas, mensual_desde, mensual_hasta),
+            "anual":   _debug_frame("Anual",   velas, anual_desde,   anual_hasta),
         },
     }

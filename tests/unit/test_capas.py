@@ -63,36 +63,16 @@ def test_core_no_sabe_que_existe_el_resto():
         f"`pnl_sql._deps_sql`.")
 
 
-# ── EL TRINQUETE ────────────────────────────────────────────────────────────
-#
-# Las listas de abajo son deuda que YA EXISTÍA cuando se escribió este
-# archivo. Se declaran en vez de arreglarse acá por una razón: el trabajo de
-# este test es **frenar lo nuevo**, y una regla que exige limpiar todo antes de
-# empezar a regir es una regla que no se activa nunca.
-#
-# Funcionan como trinquete: **solo pueden achicarse**. Sumar una entrada es una
-# decisión explícita que se ve en el diff; y si una deja de violar la regla, el
-# test de más abajo exige sacarla — así la lista no se pudre nombrando cosas que
-# ya se arreglaron.
-
-_QUANT_CON_INFRA = {
-    "quant/pivot_points.py":
-        "mezcla el cálculo de pivots con la lectura de mercado.precios_acciones "
-        "(`_sql_docs_en_rango`, `_sql_last_doc`). El import está ADENTRO de la "
-        "función con un comentario que dice que es «para no depender de la infra "
-        "al import-time» — pero la dependencia es real, solo llega más tarde. "
-        "Se arregla sacando esas dos funciones del módulo y pasándole las velas.",
-}
-
-
 def test_quant_es_calculo_puro():
     """`quant/` son fórmulas. Una fórmula que necesita la base para correr no es
-    una fórmula: es una consulta con matemática adentro."""
+    una fórmula: es una consulta con matemática adentro.
+
+    Sin excepciones: `pivot_points` era la única (leía `mercado.precios_acciones`
+    con el import adentro de la función) y hoy recibe las velas de
+    `core/precios_acciones_sql`."""
     malos = {}
     for f in _modulos("quant"):
         rel = f.relative_to(RAIZ).as_posix()
-        if rel in _QUANT_CON_INFRA:
-            continue
         m = _importa_de(ast.parse(f.read_text(encoding="utf-8")),
                         ("api", "jobs", "engines", "core", "scripts"))
         if m:
@@ -137,16 +117,3 @@ def test_los_routers_no_hablan_SQL():
         f"llama y devuelve. Sin lista de excepciones: los ocho que la tenían se "
         f"vaciaron (cuentas_sql, pyrofex_discovery_sql, renta_variable_admin_sql, "
         f"y funciones nuevas en portfolio_sql / operaciones_sql / manager_infra_sql).")
-
-
-def test_el_trinquete_SOLO_puede_achicarse():
-    """⚠️ **La lista de excepciones no puede pudrirse.** Si alguien arregla un
-    router y no lo saca de acá, la excepción queda tapando el próximo que se
-    cuele — y una lista que nombra cosas ya arregladas es peor que no tenerla,
-    porque nadie la vuelve a mirar.
-
-    Es el mismo criterio que `SIN_ACCION`: la excepción declarada tiene que
-    seguir siendo cierta."""
-    for rel, motivo in _QUANT_CON_INFRA.items():
-        assert (RAIZ / rel).exists(), f"«{rel}» ya no existe: sacalo de la lista"
-        assert motivo.strip(), f"«{rel}» sin motivo: la excusa hay que escribirla"

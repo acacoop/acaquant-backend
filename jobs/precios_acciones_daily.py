@@ -23,7 +23,7 @@ Defensa en dos capas:
 
 Cutover SQL-native 2026-06-24: antes escribía Trading.PreciosAcciones (Mongo) +
 espejo SQL; ahora escribe SOLO SQL (`pg_mirror.write_native`). Lectores (scanner,
-quant/pivot_points) leen SQL. Sin sync ni Mongo. Ver docs/SQL.md.
+core/precios_acciones_sql → quant/pivot_points) leen SQL. Sin sync ni Mongo. Ver docs/SQL.md.
 
 Cron:
     0 22 * * 1-5  python -m jobs.precios_acciones_daily

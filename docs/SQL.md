@@ -130,7 +130,7 @@ jsonb pisaría al otro motor.
 - **Renta variable** (cutover histórico 2026-06-24): `mercado.{cedears, cedears_snapshot,
   adr_snapshot, precios_acciones, cedears_time_sales, day_trading_stats}`. Los motores
   `motor_cedears`/`adr_live` y el job `precios_acciones_daily` escriben SQL-native;
-  scanner/day_trading/pivot_points leen SQL.
+  scanner/day_trading leen SQL; `quant/pivot_points` recibe las velas de `core/precios_acciones_sql`.
 - **Opciones** (GGAL): `mercado.options_{data, data_hist, snapshot, metadata, vr}`.
 - **FCI** (vista `/fci`, `docs/FCI.md`): `mercado.fci_gerentes` (las gerentes de la mesa, filtro
   duro del universo), `mercado.fci` (el fondo: símbolo Primary y/o unidad de assets; `categoria` la

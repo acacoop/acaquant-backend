@@ -625,7 +625,8 @@ def ops_consolidado(
     moneda: str = "ARS", mercado: str | None = None,
     excluir_segmento: str | None = None, operador_sel: str | None = None,
     denominacion: str | None = None, cartera_filtro: str | None = None,
-    top: int = 25,
+    top: int = 25, *, scope: tuple[str, ...] | None = None,
+    cuenta: str | None = None, instrumento: str | None = None,
 ) -> dict:
     """Consolidado de VOLUMEN ('bruto') o ARANCELES ('arancel') agrupado por
     una dimensión, en [desde, hasta]. MISMAS reglas que la vista Operaciones
@@ -635,7 +636,9 @@ def ops_consolidado(
     agrupa por el operador del comitente (join, mismo criterio que la vista
     Aranceles); `operador_sel` filtra a las cuentas de UN operador;
     `denominacion` filtra a UNA cuenta de cliente (es lo que responde
-    "¿cuánto operó tal cliente?" — que NO es su patrimonio)."""
+    "¿cuánto operó tal cliente?" — que NO es su patrimonio). `scope` limita
+    por los `id_cuenta` autorizados; `cuenta` e `instrumento` son filtros
+    exactos. Los tres se aplican antes de agrupar y limitar."""
     por_operador = por == "operador"
     por_cartera = por == "cartera"
     por_mes = por == "mes"
@@ -653,6 +656,17 @@ def ops_consolidado(
         expr = _bruto_expr(moneda)
     p.update({"desde": desde, "hasta": hasta})
     where = f"{where} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
+    if scope is not None:
+        if not scope:
+            return {"error": "el alcance de cuentas está vacío"}
+        where += " AND operaciones.id_cuenta = ANY(%(scope)s)"
+        p["scope"] = list(scope)
+    if cuenta:
+        where += " AND operaciones.id_cuenta = %(cuenta)s"
+        p["cuenta"] = cuenta
+    if instrumento:
+        where += " AND operaciones.instrumento = %(instrumento)s"
+        p["instrumento"] = instrumento
     if excluir_segmento:
         where += " AND COALESCE(segmento, '') <> %(excl_seg)s"
         p["excl_seg"] = excluir_segmento

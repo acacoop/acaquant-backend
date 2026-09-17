@@ -414,8 +414,8 @@ reemplaza por uno parecido.
 """
 
 
-def _instruccion(_foco: dict) -> str:
-    return COMUN + _INSTRUCCION
+def _instruccion(foco: dict) -> str:
+    return COMUN + _INSTRUCCION + EST.como_texto(foco)
 
 
 AGENTE = Agente(

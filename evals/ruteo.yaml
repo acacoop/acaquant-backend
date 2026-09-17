@@ -119,6 +119,9 @@
 - q: "cuánto rinde la caución a 7 días"
   agentes: [financiamiento]
 
+- q: "a cuánto están la TAMAR y la BADLAR"
+  agentes: [financiamiento]
+
 - q: "cómo cotiza YPF"
   agentes: [renta_variable]
   nota: "sin «curva» ni «ON», YPF es la acción."

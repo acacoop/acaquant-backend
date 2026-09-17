@@ -67,9 +67,10 @@ def test_el_agente_de_cada_herramienta_se_declara_y_los_dos_se_excluyen():
     for fn in AGENTES["cartera"].herramientas:
         p = inspect.signature(fn).parameters.get("cuenta")
         assert p is not None and p.default is inspect._empty, f"`{fn.__name__}`: cuenta obligatoria"
-    for fn in AGENTES["renta_fija"].herramientas:
-        assert "cuenta" not in inspect.signature(fn).parameters, (
-            f"`{fn.__name__}` es del mercado y recibe `cuenta`: alcance sin permiso")
+    for agente in (a for a in AGENTES.values() if a.familia == "mercado"):
+        for fn in agente.herramientas:
+            assert "cuenta" not in inspect.signature(fn).parameters, (
+                f"`{fn.__name__}` es del mercado y recibe `cuenta`: alcance sin permiso")
 
 
 def test_la_instruccion_de_cuenta_lleva_las_cuentas_y_el_foco_al_final(permiso):
@@ -81,6 +82,18 @@ def test_la_instruccion_de_cuenta_lleva_las_cuentas_y_el_foco_al_final(permiso):
     assert con.startswith(sin) and con.rstrip().endswith("cuenta = 805.")
     assert "preguntale cuál quiere" in sin
     assert "cuenta = 805" not in AGENTES["renta_fija"].instruccion({"cuenta": "805"})
+
+
+def test_cada_agente_que_declara_foco_lo_recibe_en_su_instruccion(permiso):
+    from asistente.agentes import AGENTES
+
+    valores = {"cuenta": "805", "ticker": "AL30"}
+    for agente in AGENTES.values():
+        foco = {clave: valores[clave] for clave in agente.foco}
+        texto = agente.instruccion(foco)
+        for clave, valor in foco.items():
+            assert f"{clave} = {valor}" in texto, (
+                f"`{agente.nombre}` declara foco `{clave}` pero no se lo muestra al modelo")
 
 
 def test_el_ruteo_describe_cada_agente_por_su_nombre():
@@ -213,6 +226,130 @@ def test_sin_cuentas_habilitadas_no_se_muestra_nada():
                          (MC.tenencia_actual, {"cuenta": "805"})):
             r = fn(**args)
             assert "error" in r and "habilitada" in r["error"]
+
+
+def test_resumen_operaciones_lleva_scope_filtros_y_ventana_al_servicio(permiso):
+    from asistente.agentes import operaciones as OP
+
+    respuesta = {
+        "metrica": "bruto", "por": "instrumento", "desde": "2026-09-01",
+        "hasta": "2026-09-16", "moneda": "ARS",
+        "filas": [{"clave": "AL30", "valor": 100.0, "n": 2}], "total": 100.0,
+    }
+    with patch("api.services.operaciones_sql.ops_consolidado", return_value=respuesta) as svc:
+        r = OP.resumen_operaciones(
+            cuenta="805", ticker="al30", desde="2026-09-01", hasta="2026-09-16")
+
+    assert r["ventana"] == {"desde": "2026-09-01", "hasta": "2026-09-16",
+                             "periodo": "explicito"}
+    assert r["alcance_cuentas"] == 2 and r["ticker"] == "AL30"
+    assert r["_tabla"]["titulo"].startswith("Bruto por instrumento")
+    assert svc.call_args.kwargs["scope"] == tuple(CUENTAS)
+    assert svc.call_args.kwargs["cuenta"] == "805"
+    assert svc.call_args.kwargs["instrumento"] == "AL30"
+
+
+def test_resumen_operaciones_valida_antes_de_consultar(permiso):
+    from asistente.agentes import operaciones as OP
+
+    with patch("api.services.operaciones_sql.ops_consolidado") as svc:
+        assert "error" in OP.resumen_operaciones(cuenta="999")
+        assert "error" in OP.resumen_operaciones(desde="2026-09-16")
+        assert "error" in OP.resumen_operaciones(
+            desde="2026-09-17", hasta="2026-09-16")
+    svc.assert_not_called()
+
+
+def test_ops_consolidado_aplica_scope_antes_de_agrupar_y_limitar():
+    from api.services import operaciones_sql as OPS
+
+    with patch.object(OPS, "_q", return_value=[]) as consulta:
+        OPS.ops_consolidado(
+            "bruto", "2026-09-01", "2026-09-16", por="instrumento",
+            scope=("805", "1346"), cuenta="805", instrumento="AL30")
+
+    sql, parametros = consulta.call_args.args
+    assert sql.index("operaciones.id_cuenta = ANY") < sql.index("GROUP BY")
+    assert sql.index("operaciones.instrumento =") < sql.index("GROUP BY")
+    assert parametros["scope"] == ["805", "1346"]
+    assert parametros["cuenta"] == "805" and parametros["instrumento"] == "AL30"
+
+    with patch.object(OPS, "_q") as consulta:
+        assert "error" in OPS.ops_consolidado(
+            "bruto", "2026-09-01", "2026-09-16", scope=())
+        consulta.assert_not_called()
+
+
+def test_panel_cedears_ordena_todo_el_universo_antes_de_truncar():
+    from asistente.agentes import renta_variable as RV
+
+    filas = [
+        {"ticker_corto": "AAA", "last": 10, "vs_1d_pct": 1, "total_money": 100},
+        {"ticker_corto": "BBB", "last": 20, "vs_1d_pct": -2, "total_money": 300},
+        {"ticker_corto": "CCC", "last": 30, "vs_1d_pct": 3, "total_money": 200},
+    ]
+    with patch("api.services.scanner_sql.get_cedears_scanner", return_value=filas):
+        ranking = RV.panel_cedears(ordenar_por="efectivo", top=2)
+        ficha = RV.panel_cedears(ticker="ccc")
+
+    assert [f["ticker_corto"] for f in ranking["cedears"]] == ["BBB", "CCC"]
+    assert ranking["cuantos"] == 3 and ranking["truncado"] is True
+    assert ficha["ticker"] == "CCC" and ficha["cedears"][0]["last"] == 30
+
+
+def test_ranking_fondos_filtra_y_convierte_fracciones_a_porcentaje():
+    from asistente.agentes import fondos as FO
+
+    datos = {"fecha_max": "2026-09-16", "fondos": [
+        {"fci_id": 1, "nombre": "A", "categoria": "MM ARS", "moneda": "ARS",
+         "gerente": "G", "r_30d": 0.01, "tna_30d": 0.12},
+        {"fci_id": 2, "nombre": "B", "categoria": "MM ARS", "moneda": "ARS",
+         "gerente": "G", "r_30d": 0.02, "tna_30d": 0.24},
+        {"fci_id": 3, "nombre": "USD", "categoria": "MM USD", "moneda": "USD",
+         "gerente": "G", "r_30d": 0.03, "tna_30d": 0.36},
+    ]}
+    with patch("api.services.fci_sql.tabla", return_value=datos):
+        r = FO.ranking_fondos(periodo="30d", categoria="MM ARS", top=1)
+
+    assert r["cuantos"] == 2 and r["truncado"] is True
+    assert r["fondos"][0]["nombre"] == "B" and r["fondos"][0]["r_30d_pct"] == 2.0
+
+
+def test_derivados_usa_tasa_y_griegas_persistidas():
+    from asistente.agentes import derivados as DE
+
+    futuros = [{"ticker": "DLRZ26", "vencimiento": "20261231", "dias_a_vto": 90,
+                "last": 1500, "tasa_implicita_tna": 31.5}]
+    opciones = [{"instrumento": "GFGC100", "tipo": "CALL", "vence": "2026-12-18",
+                 "strike": 100, "iv": 0.42, "delta": 0.6}]
+    with patch("api.services.mercado_hist_sql.get_futuros_dlr", return_value=futuros), \
+         patch("api.services.opciones_sql.get_opciones", return_value=opciones), \
+         patch("api.services.opciones_sql.get_opciones_meta", return_value={"tasa": 0.3}):
+        curva = DE.curva_futuros_dolar("dlrz26")
+        cadena = DE.cadena_opciones(instrumento="gfg", tipo="CALL")
+
+    assert curva["contratos"][0]["tasa_implicita_tna_pct"] == 31.5
+    assert cadena["contratos"][0]["iv"] == 0.42
+    assert cadena["metadata"] == {"tasa": 0.3}
+
+
+def test_financiamiento_filtra_plazo_y_oculta_serie_si_no_se_pide():
+    from asistente.agentes import financiamiento as FI
+
+    cauciones = [
+        {"moneda": "ARS", "plazo_dias": 1, "tna_last": 25.0},
+        {"moneda": "ARS", "plazo_dias": 7, "tna_last": 27.0},
+    ]
+    macro = {"variable": "tamar", "actual": 30.0, "fecha_actual": "2026-09-16",
+             "serie": [{"fecha": "2026-09-16", "valor": 30.0}], "percentil_actual": 60}
+    with patch("api.services.mercado_hist_sql.get_caucion", return_value=cauciones), \
+         patch("api.services.macro_sql.obtener_serie_macro", return_value=macro):
+        caucion = FI.cauciones_vigentes(moneda="ARS", plazo_dias=7)
+        tasa = FI.tasa_referencia("TAMAR")
+
+    assert [f["plazo_dias"] for f in caucion["cauciones"]] == [7]
+    assert tasa["actual"] == 30.0 and tasa["puntos_serie"] == 1
+    assert "serie" not in tasa
 
 
 def _posiciones_805():

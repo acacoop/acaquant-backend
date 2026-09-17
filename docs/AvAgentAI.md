@@ -49,18 +49,31 @@ eso «hasta fin de año» se calcula desde una fecha inventada.
 |---|---|---|---|---|---|
 | `cartera` | una cuenta | | qué TIENE (filtrable por tipo: bonos · acciones · fondos · derivados · caja), qué cobra, y qué opciones hay para rotar — a otro emisor, a otro tipo o a otro plazo | `tenencia_actual`, `cobros_futuros`, `alternativas_para_rotar` | cuenta |
 | `cliente` | una cuenta | | quién ES el titular: contacto, documento, operador, segmento, estado, grupos | `ficha_cliente` | cuenta |
-| `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | ninguna todavía | cuenta, ticker |
+| `operaciones` | la mesa | | qué HIZO: boletos, volumen, aranceles; la cuenta es un filtro | `resumen_operaciones` | cuenta, ticker |
 | `renta_fija` | un bono o una curva | mercado | cuánto rinde, qué hay en una curva (filtrable por emisor, tipo de emisor y ventana de vencimiento), qué es, cuándo paga | `instrumentos_de_la_curva`, `ficha_bono` | ticker |
-| `renta_variable` | una acción o un CEDEAR | mercado | cómo cotiza, cuánto varió, qué panel | ninguna todavía | ticker |
-| `fondos` | un FCI | mercado | qué es, cuánto rinde, qué tiene, cuánto tarda el rescate | ninguna todavía | ticker |
-| `derivados` | un futuro o una opción | mercado | dónde cotiza, tasa implícita, cadena de opciones | ninguna todavía | ticker |
-| `financiamiento` | la tasa | mercado | caución por plazo, tasas de referencia | ninguna todavía | |
+| `renta_variable` | una acción o un CEDEAR | mercado | cómo cotiza, cuánto varió, qué panel | `panel_cedears` | ticker |
+| `fondos` | un FCI | mercado | qué es, cuánto rinde, cuánto tarda el rescate | `ranking_fondos`, `ficha_fondo` | |
+| `derivados` | un futuro o una opción | mercado | dónde cotiza, tasa implícita, cadena de opciones | `curva_futuros_dolar`, `cadena_opciones` | ticker |
+| `financiamiento` | la tasa | mercado | caución por plazo, TAMAR y BADLAR | `cauciones_vigentes`, `tasa_referencia` | |
 | `dolares` | el tipo de cambio | mercado | MEP, CCL, oficial, brechas | `tipos_de_cambio` | |
 
-Un agente **sin herramientas** existe igual: el ruteo lo conoce, la
-presentación lo lista, y si le toca una pregunta contesta «todavía no puedo
-consultar esto» sin llamar a ningún modelo. Cada archivo anota las primeras
-herramientas que van a entrar y sobre qué servicio existente se apoyan.
+Los nueve agentes registrados tienen al menos una herramienta. Cada nueva
+función se agrega a `AGENTE.herramientas`; `herramientas.py` la convierte en
+una tool de LangChain y `grafo.py` construye su nodo de herramientas sin un
+registro adicional.
+
+| Agente | Servicio dueño del dato | Qué agrega la tool |
+|---|---|---|
+| `operaciones` | `api/services/operaciones_sql.py` | permiso por `id_cuenta`, ventana y contrato para el modelo |
+| `renta_variable` | `api/services/scanner_sql.py` | selección individual o ranking antes del tope |
+| `fondos` | `api/services/fci_sql.py` | filtros, resolución inequívoca y porcentajes legibles |
+| `derivados` | `api/services/mercado_hist_sql.py`, `opciones_sql.py` | proyección compacta de tasas y griegas ya calculadas |
+| `financiamiento` | `api/services/mercado_hist_sql.py`, `macro_sql.py` | plazo de caución y contexto histórico de TAMAR/BADLAR |
+
+La tool no contiene SQL ni una segunda fórmula: adapta el contrato del
+servicio al modelo. La excepción de seguridad es `operaciones_sql`: su API se
+amplió con `scope`, `cuenta` e `instrumento` para que el permiso se aplique
+antes de agrupar y truncar.
 
 **Cada agente tiene su sujeto.** Cartera y cliente hablan de UNA cuenta (la
 llave `cuenta` es obligatoria en sus herramientas). Operaciones habla de la
@@ -428,7 +441,7 @@ comparación.
 - Endpoints admin-only (`/api/agente/lab/*`). Una conversación solo la lee,
   retoma y borra su dueño.
 - Cuentas: solo `ASISTENTE_CUENTAS`, para todo agente que toque una cuenta
-  (cartera, cliente, y operaciones cuando tenga herramientas). Toda consulta
+  (cartera, cliente y operaciones). Toda consulta
   lleva `FILTRO_SQL`; la puerta corta cualquier `cuenta` no habilitada antes
   de ejecutar; una herramienta de mercado no puede recibir `cuenta` (test).
 - Datos de negocio solo salen por tareas `negocio`; los personales, por `personal`.
@@ -487,7 +500,8 @@ coinciden, **manda el eval**: se corrige la señal del agente, no la fila.
 ## 14. Lo que falta para el MVP
 
 - Probar en el LAB con los proveedores reales.
-- Las herramientas de los agentes modelados sin ellas, en el orden que pida la mesa.
 - Eval de HERRAMIENTAS: el del ruteo ya está (§13); falta el que fija, para cada
   pregunta, qué herramienta y con qué argumentos tiene que pedir el agente.
+- Ampliar Operaciones con detalle de boletos solo cuando la mesa defina qué
+  campos puede exponer y para qué preguntas; el consolidado ya está activo.
 - Alerta del AV AGENT sobre `ia.llamadas` (fallidas, latencia).

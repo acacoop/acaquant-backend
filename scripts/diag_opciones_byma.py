@@ -83,6 +83,12 @@ def main() -> int:
     subs = Counter(sub for *_, (sub, _l, _k, _m) in matchean)
     print("subyacentes:", ", ".join(f"{s}={n}" for s, n in subs.most_common(20)))
 
+    print("\nCON forma BYMA y CON clase (lo que la mesa ya decidió: la letra tiene que coincidir):")
+    for unidad, ticker, clase, en_cartera, (sub, letra, strike, mes) in matchean:
+        if clase:
+            print(f"  {'●' if en_cartera else '○'} {unidad:40} {ticker:16} {sub} {letra} {strike} {mes}"
+                  f"   clase={clase}")
+
     print("\nCON forma BYMA y SIN clase (los que la regla resolvería):")
     for unidad, ticker, clase, en_cartera, (sub, letra, strike, mes) in matchean:
         if not clase:

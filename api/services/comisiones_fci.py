@@ -126,11 +126,12 @@ def _tramos(ini: date, fin: date) -> dict[date, int]:
               "fci": _FCI_PARAMS})}
 
 
-def _scope_where(scope: tuple[str, ...] | None) -> tuple[str, dict]:
+def _scope_where(scope: tuple[str, ...] | None, alias: str = "t") -> tuple[str, dict]:
     """Predicado y parámetros para no escapar nunca del scope de cuentas autorizado."""
     if scope is None:
         return "", {}
-    return " AND t.id_cuenta = ANY(%(scope)s)", {"scope": list(scope)}
+    columna = f"{alias}." if alias else ""
+    return f" AND {columna}id_cuenta = ANY(%(scope)s)", {"scope": list(scope)}
 
 
 def _sql_agregado(group_by: str, extra_where: str = "") -> str:
@@ -270,9 +271,10 @@ def detalle_fondo(mes: str, unidad: str, scope: tuple[str, ...] | None = None,
     gerente_where = " AND coalesce(a.emisor, '(sin gerente)') = %(gerente)s" if gerente else ""
     rows = _q(_sql_agregado("t.id_cuenta", f" AND t.unidad = %(u)s{scope_where}{gerente_where}"),
               {**_p(ini, fin, corte, scope), **scope_params, "u": unidad, "gerente": gerente})
+    nombres_scope_where, _ = _scope_where(scope, alias="")
     nombres = {r["id_cuenta"]: r["cuenta"] for r in _q(
         "SELECT DISTINCT id_cuenta, cuenta FROM portafolio.tenencia "
-        f"WHERE unidad = %(u)s AND fecha >= %(ini)s AND fecha <= %(fin)s{scope_where}",
+        f"WHERE unidad = %(u)s AND fecha >= %(ini)s AND fecha <= %(fin)s{nombres_scope_where}",
         {"u": unidad, "ini": ini, "fin": fin, **scope_params})}
     cuentas = [{
         "id_cuenta": r["clave"],
@@ -352,15 +354,18 @@ def filtros(scope: tuple[str, ...] | None = None) -> dict:
     """Combinaciones reales de operador y niveles visibles para COMISIONES FCI."""
     _, scope_params = _scope_where(scope)
     rows = _q(
-        "SELECT c.operador_email, c.nivel_1, c.nivel_2, c.nivel_3, count(*) AS n "
+        "SELECT c.operador_email, o.nombre AS operador_nombre, "
+        "c.nivel_1, c.nivel_2, c.nivel_3, count(*) AS n "
         "FROM clientes.comitentes c "
+        "LEFT JOIN clientes.operadores o ON o.email = c.operador_email "
         "WHERE c.estado = 'Activa' AND c.id_cuenta IS NOT NULL"
         + (" AND c.id_cuenta = ANY(%(scope)s)" if scope is not None else "")
-        + " GROUP BY c.operador_email, c.nivel_1, c.nivel_2, c.nivel_3",
+        + " GROUP BY c.operador_email, o.nombre, c.nivel_1, c.nivel_2, c.nivel_3",
         scope_params,
     )
     return {"combos": [{
         "operador_email": r["operador_email"],
+        "operador_nombre": r["operador_nombre"],
         "nivel_1": r["nivel_1"],
         "nivel_2": r["nivel_2"],
         "nivel_3": r["nivel_3"],

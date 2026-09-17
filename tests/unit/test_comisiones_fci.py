@@ -135,6 +135,12 @@ def test_el_scope_de_cuentas_se_aplica_en_la_query():
     assert params == {"scope": []}
 
 
+def test_el_scope_sin_alias_funciona_en_la_consulta_de_nombres():
+    """El detalle lee nombres sin alias de tabla y debe conservar el filtro."""
+    where, _ = s._scope_where(("101",), alias="")
+    assert where == " AND id_cuenta = ANY(%(scope)s)"
+
+
 def test_la_serie_admite_el_mismo_scope_que_el_resumen():
     """El histórico no puede escapar al contexto de cuentas de la tabla."""
     assert "WHERE" in s._SQL_SERIE

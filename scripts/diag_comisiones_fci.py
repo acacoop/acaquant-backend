@@ -32,6 +32,13 @@ def _q(sql: str, params: dict | None = None) -> list[dict]:
         return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
 
 
+def _explain(sql: str, params: dict) -> dict:
+    """Plan real de Postgres para medir el gráfico antes de optimizarlo."""
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}", params)
+        return cur.fetchone()[0][0]
+
+
 _FCI = [x.upper() for x in svc.FCI]
 _WHERE_FCI = "upper(btrim(coalesce(t.cartera, ''))) = ANY(%(fci)s)"
 
@@ -144,12 +151,21 @@ def main() -> int:
     parser.add_argument("--desde", default="2026-05-01", help="fecha inicial YYYY-MM-DD")
     parser.add_argument("--mes", default="2026-05", help="mes cuyo salto se quiere explicar")
     parser.add_argument("--top", type=int, default=20, help="fondos principales por mes")
+    parser.add_argument("--gerente", help="sociedad gerente para medir el gráfico filtrado")
     args = parser.parse_args()
 
     desde = max(date.fromisoformat(args.desde), svc.INICIO_HISTORICO)
     params = {"desde": desde, "fci": _FCI}
     meses = _float_rows(_q(_SQL_MESES, params))
     cambios = _float_rows(_q(_SQL_TOP, params))
+    serie_sql = svc._SQL_SERIE
+    serie_params = {"inicio": svc.INICIO_HISTORICO, "fci": _FCI}
+    if args.gerente:
+        serie_sql = serie_sql.replace(
+            f"WHERE {svc._W_FCI}",
+            f"WHERE {svc._W_FCI} AND coalesce(a.emisor, '(sin gerente)') = %(gerente)s",
+        )
+        serie_params["gerente"] = args.gerente
 
     top_por_mes = {}
     for row in cambios:
@@ -178,6 +194,7 @@ def main() -> int:
         )),
         "mes_objetivo": args.mes,
         "inicio_historico": svc.INICIO_HISTORICO,
+        "plan_serie_historica": _explain(serie_sql, serie_params),
     }
     print(json.dumps(resultado, ensure_ascii=True, indent=2, default=_json_default))
     return 0

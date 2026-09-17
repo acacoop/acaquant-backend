@@ -126,6 +126,14 @@ def _tramos(ini: date, fin: date) -> dict[date, int]:
               "fci": _FCI_PARAMS})}
 
 
+def _scope_where(scope: tuple[str, ...] | None, alias: str = "t") -> tuple[str, dict]:
+    """Predicado y parámetros para no escapar nunca del scope de cuentas autorizado."""
+    if scope is None:
+        return "", {}
+    columna = f"{alias}." if alias else ""
+    return f" AND {columna}id_cuenta = ANY(%(scope)s)", {"scope": list(scope)}
+
+
 def _sql_agregado(group_by: str, extra_where: str = "") -> str:
     """Σ arancel del período y del día de corte, agrupado por lo que se pida.
 
@@ -157,9 +165,12 @@ def _f(x) -> float:
     return float(x or 0)
 
 
-def _p(ini: date, fin: date, corte: date) -> dict:
-    return {"ini": ini, "fin": fin, "corte": corte,
-            "inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS}
+def _p(ini: date, fin: date, corte: date, scope: tuple[str, ...] | None = None) -> dict:
+    _, scope_params = _scope_where(scope)
+    return {
+        "ini": ini, "fin": fin, "corte": corte,
+        "inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS, **scope_params,
+    }
 
 
 def _vacio(mes: str) -> dict:
@@ -170,7 +181,8 @@ def _vacio(mes: str) -> dict:
             "sin_datos": True}
 
 
-def resumen_mes(mes: str) -> dict:
+def resumen_mes(mes: str, scope: tuple[str, ...] | None = None,
+                gerente: str | None = None) -> dict:
     """Vista COMISIONES FCI para un mes: tabla por fondo + por gerente + totales.
 
     Una sola pasada por `tenencia`: la tabla por fondo trae el gerente y la moneda,
@@ -185,7 +197,11 @@ def resumen_mes(mes: str) -> dict:
     if corte is None:
         return _vacio(mes)
 
-    rows = _q(_sql_agregado("t.unidad"), _p(ini, fin, corte))
+    scope_where, scope_params = _scope_where(scope)
+    rows = _q(
+        _sql_agregado("t.unidad", scope_where),
+        _p(ini, fin, corte, scope) | scope_params,
+    )
     fondos, gerentes, tot = [], {}, {
         "ARS": {"dia": 0.0, "acum": 0.0}, "USD": {"dia": 0.0, "acum": 0.0}}
     sf_fondos, sf_val = [], 0.0
@@ -219,6 +235,13 @@ def resumen_mes(mes: str) -> dict:
         g["arancel_acum"] += fila["arancel_acum"]
         g["fondos"] += 1
 
+    if gerente:
+        fondos = [f for f in fondos if f["gerente"] == gerente]
+    tot = {"ARS": {"dia": 0.0, "acum": 0.0}, "USD": {"dia": 0.0, "acum": 0.0}}
+    for fila in fondos:
+        if not fila["sin_fee"]:
+            tot[fila["moneda"]]["dia"] += fila["arancel_dia"]
+            tot[fila["moneda"]]["acum"] += fila["arancel_acum"]
     fondos.sort(key=lambda x: x["arancel_acum"], reverse=True)
     lista_g = sorted(gerentes.values(), key=lambda x: x["arancel_acum"], reverse=True)
     return {
@@ -226,13 +249,15 @@ def resumen_mes(mes: str) -> dict:
         "dias_devengados": sum(_tramos(ini, fin).values()),
         "fondos": fondos, "gerentes": lista_g,
         "totales": {m: {k: round(v, 2) for k, v in d.items()} for m, d in tot.items()},
-        "sin_fee": {"n": len(sf_fondos), "valuacion": round(sf_val, 2),
-                    "fondos": sorted(sf_fondos)},
+        "sin_fee": {"n": sum(f["sin_fee"] for f in fondos),
+                    "valuacion": round(sum(f["valuacion"] for f in fondos if f["sin_fee"]), 2),
+                    "fondos": sorted(f["unidad"] for f in fondos if f["sin_fee"])},
         "sin_datos": False,
     }
 
 
-def detalle_fondo(mes: str, unidad: str) -> dict:
+def detalle_fondo(mes: str, unidad: str, scope: tuple[str, ...] | None = None,
+                  gerente: str | None = None) -> dict:
     """Las CUENTAS que tuvieron ese fondo en el mes — la trazabilidad de la fila.
 
     Mismo cálculo y mismos tramos que la tabla de arriba: el detalle no puede
@@ -242,12 +267,15 @@ def detalle_fondo(mes: str, unidad: str) -> dict:
     if corte is None:
         return {"mes": mes, "unidad": unidad, "corte": None, "cuentas": [],
                 "total_dia": 0.0, "total_acum": 0.0}
-    rows = _q(_sql_agregado("t.id_cuenta", " AND t.unidad = %(u)s"),
-              {**_p(ini, fin, corte), "u": unidad})
+    scope_where, scope_params = _scope_where(scope)
+    gerente_where = " AND coalesce(a.emisor, '(sin gerente)') = %(gerente)s" if gerente else ""
+    rows = _q(_sql_agregado("t.id_cuenta", f" AND t.unidad = %(u)s{scope_where}{gerente_where}"),
+              {**_p(ini, fin, corte, scope), **scope_params, "u": unidad, "gerente": gerente})
+    nombres_scope_where, _ = _scope_where(scope, alias="")
     nombres = {r["id_cuenta"]: r["cuenta"] for r in _q(
         "SELECT DISTINCT id_cuenta, cuenta FROM portafolio.tenencia "
-        "WHERE unidad = %(u)s AND fecha >= %(ini)s AND fecha <= %(fin)s",
-        {"u": unidad, "ini": ini, "fin": fin})}
+        f"WHERE unidad = %(u)s AND fecha >= %(ini)s AND fecha <= %(fin)s{nombres_scope_where}",
+        {"u": unidad, "ini": ini, "fin": fin, **scope_params})}
     cuentas = [{
         "id_cuenta": r["clave"],
         "cuenta": nombres.get(r["clave"]) or r["clave"],
@@ -301,16 +329,48 @@ GROUP BY 1, 2 ORDER BY 1
 
 
 @cached(ttl=1800)
-def serie_mensual() -> dict:
-    """Acumulado por MES y por moneda, toda la historia. Para el gráfico de barras."""
+def serie_mensual(scope: tuple[str, ...] | None = None, gerente: str | None = None) -> dict:
+    """Acumulado por mes para las cuentas y gerente del contexto activo."""
+    scope_where, scope_params = _scope_where(scope)
+    gerente_where = " AND coalesce(a.emisor, '(sin gerente)') = %(gerente)s" if gerente else ""
+    sql = _SQL_SERIE.replace(
+        f"WHERE {_W_FCI}",
+        f"WHERE {_W_FCI}{scope_where}{gerente_where}",
+    )
     por_mes: dict[str, dict] = {}
-    for r in _q(_SQL_SERIE, {"inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS}):
+    for r in _q(sql, {
+        "inicio": INICIO_HISTORICO, "fci": _FCI_PARAMS, **scope_params, "gerente": gerente,
+    }):
         mon = (r["moneda"] or "ARS").upper()
         m = por_mes.setdefault(r["mes"], {"mes": r["mes"], "ARS": 0.0, "USD": 0.0})
         m[mon if mon in ("ARS", "USD") else "ARS"] += _f(r["acum"])
     meses = [{"mes": k, "ARS": round(v["ARS"], 2), "USD": round(v["USD"], 2)}
              for k, v in sorted(por_mes.items())]
     return {"meses": meses}
+
+
+@cached(ttl=600)
+def filtros(scope: tuple[str, ...] | None = None) -> dict:
+    """Combinaciones reales de operador y niveles visibles para COMISIONES FCI."""
+    _, scope_params = _scope_where(scope)
+    rows = _q(
+        "SELECT c.operador_email, o.nombre AS operador_nombre, "
+        "c.nivel_1, c.nivel_2, c.nivel_3, count(*) AS n "
+        "FROM clientes.comitentes c "
+        "LEFT JOIN clientes.operadores o ON o.email = c.operador_email "
+        "WHERE c.estado = 'Activa' AND c.id_cuenta IS NOT NULL"
+        + (" AND c.id_cuenta = ANY(%(scope)s)" if scope is not None else "")
+        + " GROUP BY c.operador_email, o.nombre, c.nivel_1, c.nivel_2, c.nivel_3",
+        scope_params,
+    )
+    return {"combos": [{
+        "operador_email": r["operador_email"],
+        "operador_nombre": r["operador_nombre"],
+        "nivel_1": r["nivel_1"],
+        "nivel_2": r["nivel_2"],
+        "nivel_3": r["nivel_3"],
+        "n_cuentas": r["n"],
+    } for r in rows]}
 
 
 @cached(ttl=1800)

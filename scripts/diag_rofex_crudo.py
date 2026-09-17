@@ -46,6 +46,7 @@ Uso (desde la raíz del repo):
     python -m scripts.diag_rofex_crudo
     python -m scripts.diag_rofex_crudo --cuentas 100,255,805
     python -m scripts.diag_rofex_crudo --limite 20 --salida /tmp/rofex_crudo.jsonl   # default ya es /tmp
+    python -m scripts.diag_rofex_crudo --cuentas 238,1749,167,q01820 --mostrar 3     # imprime 3 reports/cuenta en pantalla
 """
 from __future__ import annotations
 
@@ -137,6 +138,9 @@ def main() -> None:
     ap.add_argument("--salida", help="ruta del JSONL (default: /tmp/diag_rofex_crudo_<ts>.jsonl)")
     ap.add_argument("--pausa", type=float, default=0.2,
                     help="segundos entre cuentas, para no martillar al broker (default 0.2)")
+    ap.add_argument("--mostrar", type=int, default=2,
+                    help="por cada cuenta, imprime en pantalla el orderReport COMPLETO "
+                         "de las primeras N órdenes (default 2; 0 = no mostrar ninguna)")
     args = ap.parse_args()
 
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -203,6 +207,10 @@ def main() -> None:
                     {"cuenta_pedida": id_cuenta, "cuenta_rofex": cuenta_rofex, "raw": rep},
                     ensure_ascii=False, default=str,
                 ) + "\n")
+                if args.mostrar and n_rep < args.mostrar:
+                    print(f"\n--- {etiqueta} → ROFEX {cuenta_rofex!r} — orderReport #{n_rep + 1} "
+                          f"(crudo, sin tocar) ---")
+                    print(json.dumps(rep, ensure_ascii=False, indent=2, default=str))
                 n_rep += 1
                 if isinstance(rep, dict):
                     if _es_ejecucion(rep):

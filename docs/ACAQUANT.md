@@ -1,6 +1,6 @@
 # ACAQUANT — cómo funciona todo
 
-**Última actualización:** 2026-09-16 22:18 (hora Buenos Aires) · huella `0f984b3f`
+**Última actualización:** 2026-09-17 14:38 (hora Buenos Aires) · huella `5f9528a5`
 > **Este es EL documento oficial de AcaQuant.** Tiene la posta de cómo está armado y
 > cómo funciona el sistema. Si algo de acá contradice al código, es un bug de uno de
 > los dos y se arregla en el mismo commit. Es **privado**: no sale de la empresa.
@@ -74,6 +74,7 @@ Horarios en **UTC** (Buenos Aires = UTC−3). La rueda es L-V, 13:20 a 20:05 UTC
 |---|---|---|---|
 | `agente` | — | `jobs.agente` | AV Agent — el agente de AcaQuant |
 | `api` | 8000 | `api.main:app` (uvicorn) | AcaQuant API (FastAPI + uvicorn) |
+| `asistente-worker` | — | `asistente.worker` | AcaQuant Asistente LangGraph Worker |
 <!-- /AUTOGEN:servicios -->
 
 **Motores y procesos de rueda** (cron los prende y los apaga; fuera de horario es normal verlos `inactive`):
@@ -192,11 +193,11 @@ Una sola base (Postgres en Supabase), un schema por dominio. El modelo completo 
 | `clientes` | 9 | Cuentas, comitentes, operadores, contrapartes, accionistas | jobs de Aunesa + Manager |
 | `ext` | 4 | API externa para accionistas (claves, cuentas, auditoría) | `api/ext` |
 | `home` | 2 | Cotizaciones, calendario y noticias de la portada | `jobs.market_quotes`, news |
-| `ia` | 4 | Briefing diario y conversaciones del ASISTENTE | `asistente/`, briefing |
+| `ia` | 7 | Briefing diario y conversaciones del ASISTENTE | `asistente/`, briefing |
 | `macro` | 3 | Series BCRA, UVA, REM, dólar A3500 | `jobs.bcra`, `jobs.argentina_datos` |
 | `manager` | 19 | Usuarios, roles, grupos, corridas de jobs, diagnóstico | la vista Manager y `JobRunLogger` |
 | `mercado` | 60 | Todo lo que producen los motores: curvas, snapshots, opciones, agro, FCI, cierres | `engines.*` y jobs de mercado |
-| `operaciones` | 49 | Boletos, movimientos, órdenes, tipos de operación | `operaciones_informes`, `negocio_movimientos`, `motor_ordenes` |
+| `operaciones` | 50 | Boletos, movimientos, órdenes, tipos de operación | `operaciones_informes`, `negocio_movimientos`, `motor_ordenes` |
 | `partner` | 0 | Reservado (sin tablas hoy) | — |
 | `portafolio` | 11 | Tenencias (AuM) y ficha de cada activo | `portafolio_backfill`, `tenencia_live`, AV AGENT |
 | `research` | 10 | Datos de 1816, BCRA y FRED para la vista Research | jobs de research |

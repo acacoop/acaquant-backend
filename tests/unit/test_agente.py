@@ -5213,7 +5213,8 @@ def test_toda_fila_sin_propuesta_dice_POR_QUE():
         {**base, "unidad": "u", "cartera": "NO APLICA", "ticker": "x"},
         # DERIVADOS que ninguna regla reconoce
         {**base, "unidad": "[WTI092026]", "cartera": "DERIVADOS", "ticker": "WTI092026"},
-        {**base, "unidad": "[GFGV6600OC]", "cartera": "DERIVADOS", "ticker": "GFGV6600OC"},
+        # (`GFGV6600OC` ya no va acá: desde §0.fn es un PUT reconocido)
+        {**base, "unidad": "[XYZ-2027-A]", "cartera": "DERIVADOS", "ticker": "XYZ-2027-A"},
         # FCI sin link y sin ficha
         {**base, "unidad": "u_fci", "cartera": "FCI", "ticker": "Fondo Raro"},
         # ARS: las cuatro razones
@@ -5240,7 +5241,7 @@ def test_toda_fila_sin_propuesta_dice_POR_QUE():
     notas = {f["unidad"]: f["nota"] for f in r}
     assert "CARTERA" in notas["[CRN.CME/ABR27]"]
     assert "WTI" in notas["[WTI092026]"]
-    assert "no tiene la forma" in notas["[GFGV6600OC]"]
+    assert "no tiene la forma" in notas["[XYZ-2027-A]"]
     assert "mercado.fci" in notas["u_fci"]
     assert "no está en mercado.curvas" in notas["u_ars"]
     assert "SIN EJES" in notas["u_ars2"], "un bono sin ejes no cae en ninguna curva"
@@ -5248,6 +5249,19 @@ def test_toda_fila_sin_propuesta_dice_POR_QUE():
         "cartera ARS contra curva en USD: dos fuentes contradiciéndose")
     assert "badlar" in notas["u_ars4"]
     assert "OTROS" in notas["u_otros"]
+
+
+def test_una_opcion_byma_se_propone_con_la_grafia_de_la_lista_cerrada():
+    """§0.fn: `GFGV6600OC` es un put de Galicia. Se propone por REGLA y, como
+    las demás, solo si `PUT OPCIONES` ya existe en `clase_activo`."""
+    from agente import clase
+
+    fila = {"unidad": "[GFGV6600OC]", "cartera": "DERIVADOS", "ticker": "GFGV6600OC",
+            "clase_activo": "", "emisor": ""}
+    con = clase.proponer([fila], [], usadas=["PUT OPCIONES", "CALL OPCIONES"], master=[], fci={})[0]
+    assert con["propuesto"] == "PUT OPCIONES" and con["fuente"] == clase.REGLA
+    sin = clase.proponer([fila], [], usadas=["CER"], master=[], fci={})[0]
+    assert sin["propuesto"] == "" and "todavía no existe" in sin["nota"]
 
 
 def test_la_clase_por_link_del_fci_es_deterministica():

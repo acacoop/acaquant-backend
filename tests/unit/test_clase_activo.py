@@ -94,3 +94,20 @@ def test_de_curva_solo_ars_ars_y_por_el_ajuste():
     assert ca.de_curva("ARS", "ARS", "caucion", None) == ""
     assert ca.de_curva("ARS", "ARS", "dolar_linked", None) == ""
     assert ca.de_curva("ARS", "ARS", "", None) == ""
+
+
+def test_opciones_sobre_acciones_con_nomenclatura_byma():
+    """§0.fn: `GFG C 4600 DI` es un call de Galicia; V es put. Medido sobre la
+    base antes de escribirlo: 13 sin clase, todas con esta forma."""
+    assert ca.de_derivado("DERIVADOS", "[GFGC4600DI]", "GFGC4600DI") == ca.CALL
+    assert ca.de_derivado("DERIVADOS", "", "GFGV6600AB") == ca.PUT
+    assert ca.de_derivado("DERIVADOS", "[COMC55.0AB]", "COMC55.0AB") == ca.CALL
+    assert ca.de_derivado("DERIVADOS", "[METC2900FE]", "") == ca.CALL
+    # Mes que no es un código BYMA: no se adivina.
+    assert ca.de_derivado("DERIVADOS", "[GFGC4600XX]", "GFGC4600XX") == ""
+    # Fuera de la cartera DERIVADOS, la forma no alcanza.
+    assert ca.de_derivado("RENTA VARIABLE", "[GFGC4600DI]", "GFGC4600DI") == ""
+    # Y `de_futuro` no la pisa: es una opción.
+    assert ca.es_opcion("[GFGC4600DI]", "") and ca.de_futuro("DERIVADOS", "[GFGC4600DI]", "") == ""
+    # Un futuro de dólar o de agro no tiene la forma: no es opción.
+    assert not ca.es_opcion("[DLR102026]", "DLR102026") and not ca.es_opcion("[SOJ.ROS/MAY27]", "")

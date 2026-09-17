@@ -7206,3 +7206,17 @@ pensar en un modelo: tres eran decisiones de la mesa que faltaba declarar (esta
 es la primera), y varias tienen su fuente ya en la base (`research.mkt_1816_instrumentos`
 para los bonos que la curva contradice). Una nota que dice «lo decide la mesa»
 es una regla esperando su criterio, no un caso para IA.
+
+**Mismo día, mismo listado: las opciones sobre acciones.** `GFGC4600DI` tenía
+la nota *«¿es una opción de acción local?»*. Antes de escribir la regla se
+midió con un diag de una corrida (borrado después, REGLA #5): de 490 assets en
+cartera DERIVADOS, **15** tienen la forma BYMA `<subyacente><C|V><strike><mes>`
+(Galicia 11, Metrogas 2, Comercial del Plata 1, TGS 1; meses AB/AG/DI/FE/OC);
+**13 sin clase** y **2 con clase «DOLAR FUTURO»** (`GFGC7200OC`, `GFGC8000OC`)
+que son calls de Galicia cargados mal a mano y están en cartera de cliente.
+La regla (`core.clase_activo._RE_OPCION_BYMA`: C = compra = call, V = venta =
+put, mes de una lista cerrada de doce códigos) resuelve las 13 y **no toca las
+2**: `completar_ficha` completa lo vacío, nunca pisa. Esas dos se corrigen en
+Manager → TÍTULOS · ASSETS. Que la clase cargada contradiga a la regla es un
+hallazgo que hoy nadie detecta: queda anotado como candidato a regla de
+`dato_partido`.

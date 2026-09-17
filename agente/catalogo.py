@@ -381,7 +381,7 @@ HABILIDADES: dict[str, Habilidad] = {h.nombre: h for h in (
         naturaleza={"sin_cartera": RECURRENTE, "sin_clase_activo": RECURRENTE,
                     "sin_emisor": RECURRENTE, "fci_sin_ticker": RECURRENTE},
         # Solo `sin_clase_activo`: son las CINCO reglas determinísticas de
-        # `core/clase_activo.py` (derivados con C/P → CALL/PUT OPCIONES,
+        # `core/clase_activo.py` (derivados con C/P y opciones BYMA → CALL/PUT OPCIONES,
         # futuros y OTC de agro/dólar por el prefijo del contrato, copia
         # de cartera — RENTA VARIABLE/HD/DL —, FCI por Primary — Mercado de
         # Dinero → MM, Renta Fija y Renta Mixta → T1, Renta Variable —, y ARS por la CURVA

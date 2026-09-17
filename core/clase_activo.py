@@ -13,6 +13,15 @@ la regla no aplica. La escritura y la lista cerrada las maneja `agente/clase.py`
        [SOJ.ROS/MAY27 340 P]         → PUT OPCIONES
        SOJ.ROS/MAY27                 → "" (un futuro, no una opción: nada que decir)
 
+   Y las OPCIONES SOBRE ACCIONES con la nomenclatura de BYMA (§0.fn, medido
+   el 2026-09-17 sobre `portafolio.assets`: 15 tickers, Galicia/Metrogas/
+   Comercial del Plata/TGS): subyacente + C (compra = call) / V (venta = put)
+   + strike + código de mes de dos letras:
+
+       [GFGC4600DI]                  → CALL OPCIONES   (Galicia, 4600, diciembre)
+       [GFGV6600AB]                  → PUT OPCIONES    (Galicia, 6600, abril)
+       GFGC4600XX                    → "" (mes que no existe: no se adivina)
+
 2. **FCI por Primary.** El `subyacente` y la `moneda` de la ficha del fondo
    en Primary (`core.instrumentos_validos.fichas()`):
 
@@ -108,6 +117,15 @@ DUAL = "DUAL"
 _RE_OPCION = re.compile(
     r"^(?:OTC\s*-\s*)?[A-Z]{2,4}\.[A-Z]{2,4}/[A-Z]{3}\d{2}\s+\d+(?:[.,]\d+)?\s+([CP])$")
 
+# Opciones sobre ACCIONES, nomenclatura BYMA: `GFG C 4600 DI`. La letra es
+# C (compra → call) o V (venta → put); el mes es un código cerrado de dos
+# letras. Medido (§0.fn): AB, AG, DI, FE, OC en la base; los otros siete son la
+# convención de BYMA y, si alguno estuviera mal, la fila queda con nota, no con
+# una clase inventada. `{3,4}` porque el subyacente puede ser de 3 o 4 letras.
+MESES_BYMA = ("EN", "FE", "MR", "AB", "MY", "JU", "JL", "AG", "SE", "OC", "NO", "DI")
+_RE_OPCION_BYMA = re.compile(
+    r"^([A-Z]{3,4})([CV])(\d+(?:[.,]\d+)?)(" + "|".join(MESES_BYMA) + r")$")
+
 # La forma OTC de un contrato: `OTC - <resto>`. Lo que sigue del guion es el
 # contrato — sea agro (`SOJ.ROS/...`) o dólar (`DLR012027`).
 _RE_OTC = re.compile(r"^OTC\s*-\s*(.+)$")
@@ -140,9 +158,13 @@ def de_derivado(cartera: str, unidad: str, ticker: str) -> str:
     if (cartera or "").strip().upper() != CARTERA_DERIVADOS:
         return ""
     for candidato in (unidad, ticker):
-        m = _RE_OPCION.match(_sin_corchetes(candidato).upper())
+        c = _sin_corchetes(candidato).upper()
+        m = _RE_OPCION.match(c)
         if m:
             return CALL if m.group(1) == "C" else PUT
+        m = _RE_OPCION_BYMA.match(c)
+        if m:
+            return CALL if m.group(2) == "C" else PUT
     return ""
 
 
@@ -173,6 +195,7 @@ def es_opcion(unidad: str, ticker: str) -> bool:
     explicación, que necesita distinguir «es una opción que no reconocí» de
     «no es un contrato»."""
     return any(_RE_OPCION.match(_sin_corchetes(c or "").upper())
+               or _RE_OPCION_BYMA.match(_sin_corchetes(c or "").upper())
                for c in (unidad, ticker) if (c or "").strip())
 
 

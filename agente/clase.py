@@ -188,8 +188,8 @@ def _nota_derivado(unidad: str, ticker: str) -> str:
         return "tiene forma de opción y aun así ninguna regla la reconoció"
     prefijo, _otc = contrato_de(unidad, ticker)
     if not prefijo:
-        return ("el contrato no tiene la forma XXX.YYY/MMMAA: ninguna regla de "
-                "derivados lo reconoce (¿es una opción de acción local?)")
+        return ("el contrato no tiene la forma XXX.YYY/MMMAA ni la de una opción "
+                "BYMA <sub><C|V><strike><mes>: ninguna regla de derivados lo reconoce")
     if prefijo not in PRODUCTO:
         return (f"el prefijo «{prefijo}» del contrato no tiene producto "
                 f"declarado (hoy: {'/'.join(sorted(set(PRODUCTO)))})")

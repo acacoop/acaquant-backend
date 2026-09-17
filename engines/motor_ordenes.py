@@ -69,7 +69,6 @@ from core.logs import configurar  # noqa: E402
 from core.rofex_orders_session import (  # noqa: E402
     cerrar_ws,
     inicializar_para_motor,
-    resolver_cuenta_rofex,
 )
 
 # El formato (con NIVEL) vive en core/logs — ver `AGENT.md` §0.ac.
@@ -284,16 +283,40 @@ def _upsert_ordenes_dia(rep: dict[str, Any]) -> None:
         conn.commit()
 
 
-def _cuentas_a_sincronizar(cuenta_master: str) -> list[str]:
-    """`clientes.cuentas.id_cuenta` completo, sin la cuenta master (que ya está
-    suscripta desde `inicializar_para_motor`). No filtra por "actividad" —
-    la tabla no tiene ese flag (ver `sql/schema.sql`) y suscribirse de más no
-    tiene costo recurrente (a diferencia de pollear REST, acá es push)."""
+def _cuentas_a_sincronizar(cuenta_master: str) -> list[tuple[str, str]]:
+    """Universo de cuentas ROFEX ya CONFIRMADAS offline, sin la master (ya
+    suscripta desde `inicializar_para_motor`). Devuelve pares
+    `(id_cuenta, rofex_account)`.
+
+    INCIDENTE 2026-09-17 (dos rounds): la v1 recorría `clientes.cuentas`
+    completa (~800 filas, espejo crudo de Aunesa con basura histórica); la
+    v2 filtraba por `clientes.comitentes` (tipo/estado) pero seguía
+    RESOLVIENDO cada cuenta en caliente contra el broker
+    (`get_account_report`, uno por uno) para decidir si suscribir. Los dos
+    rounds tiraron abajo el WS de la master (1839) — resultó que el
+    problema no es SOLO `order_report_subscription` con una cuenta inválida
+    (que ya era grave), sino cualquier interacción con el broker sobre una
+    cuenta que no reconoce, incluido el simple PROBING por REST: ROFEX
+    cierra la conexión WS ENTERA de ese usuario, no rechaza el pedido
+    puntual.
+
+    Fix definitivo: la resolución contra el broker se hace UNA SOLA VEZ,
+    OFFLINE, con el motor de órdenes PARADO (`jobs/resolver_cuentas_rofex.py`,
+    corrido fuera de rueda por cron) y el resultado queda cacheado en
+    `clientes.comitentes.rofex_account/rofex_valida`. Este motor, con la
+    sesión en vivo arriba, NUNCA vuelve a llamar a ROFEX para resolver nada:
+    solo LEE lo ya confirmado. Si una cuenta nueva no fue resuelta todavía,
+    simplemente no aparece acá hasta la próxima corrida del resolver."""
     from core.postgres import get_pool
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id_cuenta FROM clientes.cuentas ORDER BY id_cuenta")
-        rows = [r[0] for r in cur.fetchall()]
-    return [r for r in rows if r and str(r) != str(cuenta_master)]
+        cur.execute(
+            "SELECT id_cuenta, rofex_account FROM clientes.comitentes "
+            "WHERE tipo IN ('Comitente', 'Propia') AND estado = 'Activa' "
+            "AND rofex_valida IS TRUE AND rofex_account IS NOT NULL "
+            "ORDER BY id_cuenta"
+        )
+        rows = cur.fetchall()
+    return [(str(r[0]), str(r[1])) for r in rows if r[0] and str(r[0]) != str(cuenta_master)]
 
 
 # Pausa entre cuentas al sumar suscripciones/backfill — nada de ráfaguear al
@@ -304,18 +327,25 @@ SYNC_PACE_S = 0.35
 
 
 def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
-    """Al arrancar (una vez, en thread propio): por cada cuenta de la ALyC,
-    (1) backfill REST de las órdenes de HOY (`get_all_orders_status`, ya
-    probado inofensivo — no toca el WS) y (2) suma la cuenta a la MISMA
-    suscripción WS ya abierta por `inicializar_para_motor` (snapshot=True:
-    no reproduce histórico por WS — el histórico de hoy ya lo trajo el
-    backfill REST; de acá en más el push cubre lo que pase)."""
+    """Al arrancar (una vez, en thread propio): por cada cuenta comitente ya
+    CONFIRMADA offline (ver `_cuentas_a_sincronizar`), (1) backfill REST de
+    las órdenes de HOY (`get_all_orders_status`, ya probado inofensivo — no
+    toca el WS) y (2) suma la cuenta a la MISMA suscripción WS ya abierta
+    por `inicializar_para_motor` (snapshot=True: no reproduce histórico por
+    WS — el histórico de hoy ya lo trajo el backfill REST; de acá en más el
+    push cubre lo que pase).
+
+    Cero llamadas de RESOLUCIÓN contra el broker acá — eso es justo lo que
+    causó el incidente 2026-09-17 (ver docstring de `_cuentas_a_sincronizar`).
+    Las únicas dos llamadas por cuenta (`get_all_orders_status`,
+    `order_report_subscription`) son sobre un `rofex_account` YA CONFIRMADO
+    por `jobs/resolver_cuentas_rofex.py` fuera de rueda."""
     try:
         cuentas = _cuentas_a_sincronizar(cuenta_master)
     except Exception as e:
-        logger.error("Órdenes del día: no pude leer clientes.cuentas: %s", e)
+        logger.error("Órdenes del día: no pude leer clientes.comitentes: %s", e)
         return
-    logger.info("Órdenes del día: sincronizando %d cuenta(s) (+ master %s)",
+    logger.info("Órdenes del día: sincronizando %d cuenta(s) confirmada(s) (+ master %s)",
                 len(cuentas), cuenta_master)
 
     def _backfill(rofex_acc: str) -> None:
@@ -337,18 +367,17 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
         logger.warning("Órdenes del día: backfill de la master (%s) falló: %s", cuenta_master, e)
 
     ok = err = 0
-    for id_cuenta in cuentas:
+    for id_cuenta, rofex_acc in cuentas:
         if not _running:
             return
         try:
-            rofex_acc = resolver_cuenta_rofex(str(id_cuenta))
             _backfill(rofex_acc)
             pyRofex.order_report_subscription(account=rofex_acc, snapshot=True)
             ok += 1
         except Exception as e:
             err += 1
-            logger.warning("Órdenes del día: cuenta %s falló (sigo con el resto): %s",
-                           id_cuenta, e)
+            logger.warning("Órdenes del día: cuenta %s (rofex=%s) falló (sigo con el resto): %s",
+                           id_cuenta, rofex_acc, e)
         time.sleep(SYNC_PACE_S)
     logger.info("Órdenes del día: sincronización inicial terminada (%d ok, %d error)", ok, err)
 
@@ -680,16 +709,33 @@ def main() -> None:
     _recovery(account)
 
     # Órdenes del día (OPERAR, 2026-09-17): purga la ventana vieja y arranca en
-    # thread aparte la sincronización de TODA la ALyC (backfill REST + suma de
+    # thread aparte la sincronización de la ALyC (backfill REST + suma de
     # suscripciones sobre esta MISMA sesión WS, no una nueva). En thread propio
     # porque puede tardar (una llamada REST por cuenta, paceada) y no debe
     # demorar el arranque del heartbeat ni el procesamiento de ER de la master.
-    _purgar_ordenes_dia()
-    threading.Thread(
-        target=_sincronizar_ordenes_dia,
-        args=(account,),
-        daemon=True,
-    ).start()
+    #
+    # Incidente 2026-09-17 (dos rounds, WS de la master caído en rueda):
+    # resuelto de raíz sacando TODA resolución/probing contra el broker de
+    # este proceso. `_cuentas_a_sincronizar` ya no llama a
+    # `resolver_cuenta_rofex`/`get_account_report` en caliente — solo lee
+    # `clientes.comitentes.rofex_account/rofex_valida`, poblado OFFLINE por
+    # `jobs/resolver_cuentas_rofex.py` (corrido por cron con el motor
+    # PARADO, fuera de rueda). Con eso, prender el sync durante rueda es
+    # seguro: no hay ninguna llamada nueva al broker con cuentas no
+    # confirmadas, solo backfill REST + suscripción WS de cuentas YA
+    # validadas. Igual queda apagado por defecto (ORDENES_DIA_SYNC=1 para
+    # prender) hasta correr el resolver por primera vez y confirmar en un
+    # deploy fuera de rueda que el arranque queda limpio.
+    if os.getenv("ORDENES_DIA_SYNC", "").strip() == "1":
+        _purgar_ordenes_dia()
+        threading.Thread(
+            target=_sincronizar_ordenes_dia,
+            args=(account,),
+            daemon=True,
+        ).start()
+    else:
+        logger.info("Órdenes del día: sync de la ALyC DESACTIVADO "
+                     "(ORDENES_DIA_SYNC≠1) — ver nota en main().")
 
     # Heartbeat para monitoreo desde /manager → DIAG.
     threading.Thread(

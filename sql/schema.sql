@@ -670,6 +670,42 @@ CREATE TABLE IF NOT EXISTS operaciones.motor_heartbeat (
     data       jsonb
 );
 
+-- ÓRDENES DEL DÍA (OPERAR → tab nueva, 2026-09-17): TODA la casa, no solo lo
+-- que salió por `/api/ordenes`. `operaciones.ordenes_live` de arriba es "lo que
+-- ESTE sistema mandó" (PK cl_ord_id, que solo nosotros generamos); esta tabla es
+-- "lo que el broker vio de cualquier cuenta/terminal" (PK broker: account+order_id,
+-- que existe también para órdenes de otros operadores/ISV). Alimentada por
+-- `engines/motor_ordenes.py` sobre la MISMA sesión WS existente — no hay una
+-- segunda conexión al broker (ver docstring del motor: un solo login por
+-- usuario). Ventana rodante hoy + día hábil anterior (purga en cada arranque
+-- del motor vía `core.calendario.restar_habiles`, sin consultar la tabla
+-- `mercado.dias_habiles` para el corte porque esa función es pura).
+CREATE TABLE IF NOT EXISTS operaciones.ordenes_dia (
+    account              text NOT NULL,      -- accountId.id (número que ROFEX aceptó)
+    order_id             text NOT NULL,      -- orderId (broker), único por cuenta
+    fecha                date NOT NULL,      -- día de negocio, derivado de transactTime
+    cl_ord_id            text,
+    proprietary          text,
+    symbol               text,               -- instrumentId.symbol
+    price                numeric,
+    order_qty            numeric,
+    ord_type             text,
+    side                 text,
+    transact_time        timestamptz,
+    avg_px               numeric,
+    last_px              numeric,
+    last_qty             numeric,
+    cum_qty              numeric,
+    status               text,
+    originating_username text,
+    updated_at           timestamptz NOT NULL DEFAULT now(),
+    data                 jsonb NOT NULL,     -- orderReport COMPLETO, sin normalizar
+    PRIMARY KEY (account, order_id)
+);
+CREATE INDEX IF NOT EXISTS ix_ordenes_dia_fecha   ON operaciones.ordenes_dia (fecha, account);
+CREATE INDEX IF NOT EXISTS ix_ordenes_dia_symbol  ON operaciones.ordenes_dia (fecha, symbol);
+CREATE INDEX IF NOT EXISTS ix_ordenes_dia_updated ON operaciones.ordenes_dia (updated_at DESC);
+
 -- LICITACIONES (2026-09-02): dos tablas que NACIERON y MURIERON en la misma
 -- noche. Las creó el deploy de 218638c (`mercado.licitaciones` +
 -- `mercado.licitaciones_mail`, para que la IA leyera los mails de 1816) y el

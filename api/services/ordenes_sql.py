@@ -176,3 +176,46 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
     return _merge_broker(acc, local)
 
 
+# ── ÓRDENES DEL DÍA (OPERAR) — TODA la ALyC, tabla `operaciones.ordenes_dia` ──
+# A diferencia de `list_orders_dia` de arriba (una cuenta propia + merge con
+# broker por REST), acá la fuente es 100% la tabla que alimenta
+# `engines/motor_ordenes.py` por WS (push): no hay merge con el broker porque
+# ya está actualizada en vivo — pedirle a pyRofex por cada cuenta en cada
+# request del frontend sería justamente el polling que se quiso evitar.
+CAMPOS_ORDENES_DIA = (
+    "account, order_id, fecha, cl_ord_id, proprietary, symbol, price, order_qty, "
+    "ord_type, side, transact_time, avg_px, last_px, last_qty, cum_qty, status, "
+    "originating_username, updated_at, data"
+)
+
+
+def list_ordenes_dia(
+    cuentas: tuple[str, ...] | None = None,
+    fecha: Any = None,
+    solo_ejecuciones: bool = False,
+) -> list[dict]:
+    """Lectura de "Órdenes del día" (todas las cuentas de la ALyC, crudo del
+    broker). `cuentas=None` → sin filtro (caller sin restricción de scope);
+    tupla vacía → ninguna fila (caller con scope pero sin cuentas visibles,
+    nunca "todo" por accidente). `fecha=None` → toda la ventana retenida (hoy
+    + día hábil anterior — la purga del motor ya recorta el resto, no hace
+    falta filtrar acá); si se pasa, filtra a esa fecha exacta."""
+    where = ["1 = 1"]
+    params: dict[str, Any] = {}
+    if cuentas is not None:
+        if not cuentas:
+            return []
+        where.append("account = ANY(%(cuentas)s)")
+        params["cuentas"] = list(cuentas)
+    if fecha is not None:
+        where.append("fecha = %(fecha)s")
+        params["fecha"] = fecha
+    if solo_ejecuciones:
+        where.append("last_qty > 0")
+    rows = _q(
+        f"SELECT {CAMPOS_ORDENES_DIA} FROM operaciones.ordenes_dia "
+        f"WHERE {' AND '.join(where)} ORDER BY transact_time DESC NULLS LAST, updated_at DESC",
+        params,
+    )
+    return rows
+

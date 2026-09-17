@@ -13,6 +13,8 @@ Endpoints:
     y persiste un bracket; el motor_ordenes dispara la salida automática
     cuando la entrada llega a FILLED.
   GET  /api/operar/brackets/dia          → brackets activos/históricos del día.
+  GET  /api/operar/ordenes-dia           → órdenes crudas de TODA la ALyC (tab
+    "Órdenes del día" del dashboard), no solo lo que salió por /api/ordenes.
 
 Gate RBAC se aplica en api/main.py vía `_OPERAR`.
 """
@@ -30,6 +32,7 @@ from api.auth import get_user_email
 from api.deps import scope_cuentas, verificar_account
 from api.services._idempotencia import ejecutar_idempotente
 from api.services.ordenes import send_order, ticker_existe
+from api.services.ordenes_sql import list_ordenes_dia
 from api.services.order_book import get_order_book
 from core.adhoc_subscriptions import bump_last_used, subscribe
 from core.brackets import create_bracket, ensure_indexes
@@ -278,3 +281,24 @@ def brackets_dia(
     """Lista de brackets — todos los estados, ordenados por created_at desc."""
     verificar_account(account, scope)
     return list_brackets_dia(account=account)
+
+
+@router.get("/ordenes-dia")
+def ordenes_dia(
+    account: str | None = Query(None, description="Filtra a una cuenta puntual (id_cuenta)."),
+    fecha: str | None = Query(None, description="YYYY-MM-DD. Sin esto: hoy + día hábil anterior."),
+    solo_ejecuciones: bool = Query(False, description="Solo reports con lastQty > 0."),
+    _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+) -> list[dict[str, Any]]:
+    """"Órdenes del día" — orderReport CRUDO de ROFEX/Primary tal cual lo manda
+    el broker, de TODA la ALyC (o del scope del usuario), no solo lo que salió
+    por `/api/ordenes`. Alimentado por `engines/motor_ordenes.py` vía la MISMA
+    sesión WS existente (push, no polling) — ver `sql/schema.sql` tabla
+    `operaciones.ordenes_dia`. Las ejecuciones no son un endpoint aparte: son
+    estos mismos reports con `last_qty > 0` (`solo_ejecuciones=true`)."""
+    verificar_account(account, scope)
+    cuentas = (str(account),) if account else scope
+    fecha_d = datetime.strptime(fecha, "%Y-%m-%d").date() if fecha else None
+    return list_ordenes_dia(cuentas=cuentas, fecha=fecha_d, solo_ejecuciones=solo_ejecuciones)
+

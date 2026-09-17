@@ -26,7 +26,7 @@ Un nodo del grafo = un módulo. `agentes/<nombre>.py` = las herramientas de un
 agente + su `AGENTE`, en un solo archivo; `agentes/__init__.py` tiene los
 registros `AGENTES` y `FAMILIAS`. `ruteo.py` decide quién va (reglas primero,
 modelo después), `junta.py` cruza, `grafo.py` enchufa. El resto son
-piezas de un solo uso: `memoria`, `estado`, `puerta`, `control`, `esquema`,
+piezas de un solo uso: `memoria`, `estado`, `evidencia`, `control`, `esquema`,
 `permitido`, `sesiones`, `panel`.
 
 ## Las invariantes (cada una tiene un test)

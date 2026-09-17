@@ -9,8 +9,8 @@ Mapa del paquete (un nodo del grafo = un módulo):
   herramientas.py función → tool del modelo (docstring = descripción, firma = esquema)
   memoria.py     poda y achicado del historial; dicts del proveedor ⇄ mensajes
   estado.py      el foco (lo que se sabe, aparte de lo que se dijo)
-  puerta.py      controles antes de ejecutar una herramienta
-  control.py     control de números sobre la respuesta final
+  evidencia.py   el contrato herramienta↔evidencia: de quién es cada dato (sujeto declarado)
+  control.py     el inspector: números y citas de la respuesta final, con explicación
   esquema.py     la forma de la respuesta: {respuesta, falta}
   permitido.py   las cuentas habilitadas (ASISTENTE_CUENTAS, fail-closed)
   sesiones.py    conversaciones guardadas (ia.conversaciones)

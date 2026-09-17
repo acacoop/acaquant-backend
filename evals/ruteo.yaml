@@ -147,3 +147,11 @@
   agentes: [cartera]
   nota: "rotar por PLAZO, pregunta real del LAB. La contesta entera
     `alternativas_para_rotar`, que vive en cartera porque necesita la cuenta."
+
+- q: "hola"
+  agentes: []
+  nota: "saludo: lo contesta una regla, sin modelo de ruteo ni agente."
+
+- q: "hola, ¿cómo va?"
+  agentes: []
+  nota: "sigue siendo un saludo: fórmulas de cortesía y nada más."

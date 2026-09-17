@@ -9,7 +9,7 @@ from typing import Annotated, Literal, get_args
 from pydantic import Field
 
 from asistente import estado as EST
-from asistente import pantalla, permitido
+from asistente import evidencia, pantalla, permitido
 from asistente.agente import COMUN, Agente
 from asistente.agentes.renta_fija import (
     EmisorTipo,
@@ -231,6 +231,7 @@ def cobros_futuros(cuenta: str, dias: Annotated[int, Field(ge=1, le=MAX_DIAS)] =
     return {
         "ventana": {"desde": params["desde"], "hasta": params["hasta"], "dias": n},
         "cuenta": {"id_cuenta": pedida, "nombre": nombre},
+        "_sujeto": evidencia.sujeto("cuenta", pedida),
         "tenencia_del": snapshot,
         "total": {_mon(m): round(float(v or 0), 2) for m, v in tot},
         "por_mes": _por_mes(meses, _mon),
@@ -378,6 +379,7 @@ def tenencia_actual(cuenta: str, horizonte: Literal["t1", "t0"] = "t1",
         total_tipo = round(sum(p.get("valuacion") or 0 for p in mostradas), 2)
     return {
         "cuenta": {"id_cuenta": pedida, "nombre": nombres.get(pedida, "")},
+        "_sujeto": evidencia.sujeto("cuenta", pedida),
         "fecha": r.get("fecha"),
         "horizonte": h,
         "tipo": pedido,

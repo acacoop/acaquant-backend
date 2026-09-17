@@ -85,6 +85,26 @@ def regla_meta(pregunta: str) -> Decision | None:
     return None
 
 
+# Un SALUDO es solo eso: una o más fórmulas de cortesía y nada más. «hola, cuánto
+# tengo en la 805» no es un saludo. Mandarlo a un agente costó, medido en el
+# LAB, un modelo de ruteo más 1.477 tokens para preguntar qué cuenta mirar.
+SALUDOS = ("hola", "buenas", "buen dia", "buenos dias", "buenas tardes", "buenas noches",
+           "como va", "como andas", "como estas", "que tal", "todo bien", "gracias",
+           "muchas gracias", "chau", "hasta luego", "nos vemos")
+_SALUDO_RE = re.compile(r"(?:(?:" + "|".join(map(re.escape, SALUDOS)) + r")\s*)+")
+SALUDO = ("Hola. Preguntame por una cuenta (qué tiene, qué cobra, quién es el titular, "
+          "qué operó), por un bono, un fondo, un CEDEAR, el dólar, una caución, futuros u "
+          "opciones. Con «¿qué sabés hacer?» te muestro la lista completa.")
+
+
+def regla_saludo(pregunta: str) -> Decision | None:
+    """Un saludo se contesta con una línea fija: ni modelo de ruteo ni agente."""
+    limpia = re.sub(r"[^\w\s]", " ", pregunta).strip()
+    if limpia and _SALUDO_RE.fullmatch(limpia):
+        return Decision.contesta(SALUDO, "regla: saludo")
+    return None
+
+
 def regla_senales(pregunta: str) -> Decision | None:
     """Las señales propias nombran a uno o más agentes: van esos. Si solo hay
     genéricas de UNA familia («cuánto rinde»), es de esa familia y cuál de sus
@@ -102,7 +122,7 @@ def regla_senales(pregunta: str) -> Decision | None:
     return None
 
 
-REGLAS: tuple[Callable[[str], Decision | None], ...] = (regla_meta, regla_senales)
+REGLAS: tuple[Callable[[str], Decision | None], ...] = (regla_meta, regla_saludo, regla_senales)
 
 
 def por_reglas(pregunta: str) -> Decision | None:

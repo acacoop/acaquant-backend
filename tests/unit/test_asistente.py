@@ -390,7 +390,8 @@ def test_el_ejecutor_genera_evidencia_por_sujeto_y_campo(permiso):
     with patch("api.services.scanner_sql.get_cedears_scanner", return_value=filas):
         ejecutada = EXE.ejecutar(
             AGENTES["renta_variable"], "panel_cedears", {"ticker": "AL30"}, contexto)
-    evidencia = next(e for e in ejecutada.evidencias if e["sujeto"] == "AL30")
+    # La raíz también es de AL30 (el ticker del argumento); la fila es la que trae `last`.
+    evidencia = next(e for e in ejecutada.evidencias if e["sujeto"] == "AL30" and "last" in e["campos"])
     assert evidencia["campos"]["last"] == 123.4
     assert evidencia["fecha"] == "2026-09-16T15:00:00Z"
 
@@ -1122,30 +1123,7 @@ def test_la_ficha_de_un_bono_no_adivina_otro_ticker_y_usa_la_pata_principal():
     assert "pata_principal" in inspect.getsource(BD.get_bono)
 
 
-# ── puerta, control, esquema, estado ────────────────────────────────────────
-
-
-def test_la_puerta_corta_una_cuenta_inventada_y_no_nombra_herramientas(permiso):
-    from asistente import herramientas as H
-    from asistente import puerta
-
-    assert puerta.revisar("x", {"cuenta": "805"}) is None
-    assert puerta.revisar("x", {"curva": "cer"}) is None
-    corte = puerta.revisar("x", {"cuenta": "999"})
-    assert corte and "999" in corte["error"]
-    codigo = (RAIZ / "asistente" / "puerta.py").read_text(encoding="utf-8")
-    for nombre in H.POR_NOMBRE:
-        assert nombre not in codigo
-
-
-def test_la_puerta_no_corta_la_conversacion_si_un_control_revienta():
-    from asistente import puerta
-
-    def roto(nombre, args):
-        raise RuntimeError("x")
-
-    with patch.object(puerta, "CONTROLES", (roto,)):
-        assert puerta.revisar("x", {"cuenta": "1"}) is None
+# ── control, esquema, estado ────────────────────────────────────────
 
 
 def test_el_control_detecta_un_numero_inventado_y_tolera_redondeos():
@@ -1529,11 +1507,11 @@ def test_si_el_ruteo_no_se_entiende_van_todos_los_agentes(permiso):
     from asistente.agentes import AGENTES
 
     for raro in ("no sé", "no hace falta la cuenta, alcanza con mercado", ""):
-        r = _correr("hola", ruteo=raro)
+        r = _correr("¿y en dólares?", ruteo=raro)
         assert r["agentes"] == list(AGENTES), raro
         assert "van todos" in next(e for e in r["eventos"] if e["tipo"] == "ruteo")["motivo"]
-    assert _correr("hola", ruteo="Renta_fija.")["agentes"] == ["renta_fija"]
-    assert _correr("hola", ruteo="cartera y renta_fija")["agentes"] == ["cartera", "renta_fija"]
+    assert _correr("¿y en dólares?", ruteo="Renta_fija.")["agentes"] == ["renta_fija"]
+    assert _correr("¿y en dólares?", ruteo="cartera y renta_fija")["agentes"] == ["cartera", "renta_fija"]
 
 
 def test_al_tope_de_vueltas_ningun_pedido_queda_sin_su_tool(permiso):
@@ -1589,7 +1567,7 @@ def test_sin_clave_no_rompe_y_deja_la_sesion(permiso):
     from core import modelos
 
     with patch.object(modelos, "configurado", return_value=False):
-        r = grafo.preguntar("hola", usuario="t", sesion="b" * 32)
+        r = grafo.preguntar("¿y en dólares?", usuario="t", sesion="b" * 32)
     assert r["error"] and r["respuesta"] is None and r["sesion"] == "b" * 32
     assert r["agentes"] == list(AGENTES), "sin ruteo, van todos"
 
@@ -1909,7 +1887,7 @@ def test_las_reglas_del_ruteo_deciden_lo_obvio_y_dejan_el_resto_al_modelo(permis
     from asistente import ruteo as R
     from asistente.agentes import AGENTES
 
-    assert R.por_reglas("hola, ¿cómo va?") is None
+    assert R.por_reglas("hola, ¿cómo va?").motivo == "regla: saludo"
     meta = R.por_reglas("¿Qué sabés hacer?")
     assert meta.tipo == "contesta" and meta.agentes == ()
     assert "cobros_futuros" in meta.respuesta and "curva" in meta.respuesta
@@ -1979,7 +1957,7 @@ def test_una_regla_que_contesta_no_llama_a_ningun_modelo(permiso):
 
 
 def test_una_pregunta_sin_senales_va_al_modelo_de_ruteo(permiso):
-    r = _correr("hola, ¿cómo va?", ruteo="renta_fija")
+    r = _correr("¿y en dólares?", ruteo="renta_fija")
     ev = next(e for e in r["eventos"] if e["tipo"] == "ruteo")
     assert ev["motivo"] == "eligió el modelo" and r["agentes"] == ["renta_fija"]
 
@@ -2160,3 +2138,119 @@ def test_el_ticker_queda_en_foco_y_lo_leen_los_agentes_que_lo_declaran(permiso):
     assert AGENTES["operaciones"].foco == ("cuenta", "ticker") and AGENTES["dolares"].foco == ()
     r = _correr("¿qué es el AL30?", ruteo="renta_fija", pide="ficha_bono")
     assert r["agentes"] == ["renta_fija"] and r["estado"] == {"ticker": "AL30"}
+
+
+# ── el inspector: lo dado, lo mostrado, dos canales, sujeto declarado ──────
+
+
+def test_el_control_cuenta_lo_dado_como_fuente():
+    """Las cuentas habilitadas viven en el SYSTEM, que el contexto excluye. Sin
+    `dado`, el control acusaba al modelo de inventar los números que el sistema
+    mismo le había listado (medido en el LAB: 4 de 4 marcados eran cuentas)."""
+    from asistente import control as CTL
+
+    respuesta = "¿Qué cuenta querés mirar: 805, 1839, 1230 o 1346?"
+    assert not CTL.revisar(respuesta, contexto="", pregunta="")["ok"]
+    assert CTL.revisar(respuesta, contexto="", pregunta="", dado="805 1839 1230 1346")["ok"]
+
+
+def test_un_numero_que_la_tabla_muestra_no_exige_cita():
+    from asistente import control as CTL
+
+    ev = [{"ref": "a1b2c3d4e5f6", "sujeto": "805", "campos": {"total": 32068507.39}}]
+    tabla = json.dumps({"titulo": "Tenencia de la 805", "total": 32068507.39, "filas": []})
+    sin = CTL.revisar("total ARS 32.068.507,39", contexto=tabla, pregunta="", evidencias=ev)
+    assert [h["que_paso"] for h in sin["hallazgos"]] == [
+        "la respuesta usa números importantes sin citar su evidencia"]
+    assert CTL.revisar("total ARS 32.068.507,39", contexto=tabla, pregunta="",
+                       evidencias=ev, mostrado=tabla)["ok"]
+
+
+def test_cada_hallazgo_explica_que_significa_y_que_hacer():
+    from asistente import control as CTL
+
+    h = CTL.revisar("cobrás 9.999,99", contexto="", pregunta="")["hallazgos"][0]
+    assert h["control"] == "numeros_fundados" and h["significa"] and h["que_hacer"]
+    assert all(significa and que_hacer for significa, que_hacer in CTL._EXPLICA.values())
+
+
+def test_las_citas_van_al_control_y_la_persona_recibe_la_frase_limpia():
+    from asistente import control as CTL
+
+    crudo = ("Total ARS 100 en 8 posiciones [E:a1b2c3d4e5f6:total]. "
+             "Hay 5 en HD [E:a1b2c3d4e5f6:posiciones].")
+    assert CTL.sin_citas(crudo) == "Total ARS 100 en 8 posiciones. Hay 5 en HD."
+    assert CTL.citas(crudo) == [{"ref": "a1b2c3d4e5f6", "campo": "total"},
+                                {"ref": "a1b2c3d4e5f6", "campo": "posiciones"}]
+    assert CTL.sin_citas(None) is None and CTL.sin_citas("[E:a1b2c3d4e5f6:x]") is None
+    # Una cita que arranca el renglón no se lleva el salto de línea (un ítem por renglón).
+    lista = "[E:a1b2c3d4e5f6:tir] AL30 rinde 12%.\n[E:a1b2c3d4e5f6:tir] GD30 rinde 15%."
+    assert CTL.sin_citas(lista) == "AL30 rinde 12%.\nGD30 rinde 15%."
+    assert CTL.sin_citas("sin citas  y con   espacios") == "sin citas  y con   espacios"
+
+
+def test_finalizar_separa_las_citas_y_le_da_al_control_lo_dado_y_lo_mostrado():
+    from asistente import grafo, pantalla
+
+    resultado = {"total": 100.5, "posiciones": [{"ticker": "AO28", "valuacion": 100.5}],
+                 "_tabla": pantalla.tabla("posiciones", ["ticker", "valuacion"],
+                                          "Tenencia de la 805", total="total")}
+    s = {"historial": [], "pregunta": "tenencia de la 805", "agentes": ["cartera"],
+         "salidas": {"cartera": {"mensajes": [], "crudo": None}},
+         "respuesta": "La 805 concentra todo en AO28 [E:a1b2c3d4e5f6:ticker]. Mirá la 1346.",
+         "falta": None, "cuentas": ("805", "1346"),
+         "evidencias": [{"ref": "a1b2c3d4e5f6", "sujeto": "AO28",
+                         "campos": {"ticker": "AO28", "valuacion": 100.5}}],
+         "eventos": [{"tipo": "resultado", "agente": "cartera", "resultado": resultado}]}
+    r = grafo.finalizar(s)
+    assert r["respuesta"] == "La 805 concentra todo en AO28. Mirá la 1346."
+    assert r["control"]["ok"], r["control"]
+    assert r["control"]["citas"] == [{"ref": "a1b2c3d4e5f6", "campo": "ticker"}]
+    # sin lo dado, la 1346 (que solo está en el SYSTEM) sería «inventada»
+    r = grafo.finalizar({**s, "cuentas": ()})
+    assert [h["detalle"] for h in r["control"]["hallazgos"]] == [["1346"]]
+
+
+def test_el_sujeto_de_una_evidencia_es_un_escalar_declarado_nunca_un_diccionario(permiso):
+    """`tenencia_actual` devuelve `cuenta` como diccionario (id + nombre). Antes el
+    sujeto era `str()` de eso: imposible de encontrar en la respuesta, y con el
+    nombre del titular adentro guardado en `ia.evidencias`."""
+    from asistente import control as CTL
+    from asistente import evidencia as EVI
+
+    raiz = {"cuenta": {"id_cuenta": "805", "nombre": "MOLLO"}, "total": 1,
+            "carteras": [{"cartera": "HD", "posiciones": 5}]}
+    evs = EVI.extraer("tenencia_actual", "READ_BUSINESS", {"cuenta": "805"}, raiz)
+    assert {e["sujeto"] for e in evs} == {"805"}, "sin declarar cae al ARGUMENTO, que es escalar"
+    assert all("MOLLO" not in json.dumps(e) for e in evs)
+    evs = EVI.extraer("t", "READ_BUSINESS", {}, {**raiz, "_sujeto": EVI.sujeto("cuenta", "805")})
+    assert {e["sujeto"] for e in evs} == {"805"}
+    # La raíz (la del total) entra aunque la tabla supere el tope de evidencias.
+    larga = {"total": 1, "filas": [{"ticker": f"T{i}", "v": i} for i in range(EVI.MAX_EVIDENCIAS + 50)]}
+    evs = EVI.extraer("t", "READ_BUSINESS", {"cuenta": "805"}, larga)
+    assert evs[0]["ruta"] == "$" and len(evs) == EVI.MAX_EVIDENCIAS
+    with pytest.raises(ValueError):
+        EVI.sujeto("cuenta", {"id_cuenta": "805"})
+    r = _tenencia()
+    assert r["_sujeto"] == {"clave": "cuenta", "valor": "805"}
+    ev = EVI.extraer("tenencia_actual", "READ_BUSINESS", {"cuenta": "805"}, r)
+    total = next(e for e in ev if e["ruta"] == "$")
+    assert total["sujeto"] == "805" and "total" in total["campos"]
+    assert CTL.revisar(f"Tenencia de la 805: el total está en la tabla [E:{total['ref']}:total]",
+                       contexto="805", pregunta="", evidencias=ev)["ok"]
+
+
+def test_un_saludo_lo_contesta_una_regla_sin_modelo(permiso):
+    from asistente import grafo
+    from asistente import ruteo as R
+    from core import modelos
+
+    for q in ("hola", "Hola!", "buenas tardes", "hola, ¿cómo va?", "gracias"):
+        d = R.por_reglas(q)
+        assert d.tipo == "contesta" and d.motivo == "regla: saludo", q
+    assert R.por_reglas("hola, cuánto tengo en la 805").agentes == ("cartera",)
+    assert R.por_reglas("hola, ¿qué sabés hacer vos?").motivo == "regla: meta"
+    with patch.object(modelos, "modelo", side_effect=AssertionError("no tenía que llamar")):
+        r = grafo.preguntar("hola", usuario="t")
+    assert r["agentes"] == [] and r["control"]["ok"] and r["tokens_in"] == 0
+    assert "cuenta" in r["respuesta"]

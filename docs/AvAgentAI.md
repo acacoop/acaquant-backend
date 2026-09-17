@@ -37,7 +37,7 @@ pregunta ─► preparar ─► ruteo ─► [cartera · cliente · operaciones]
 | `ruteo` | `ruteo.py` | reglas primero; si ninguna decide, el modelo elige agentes | `asistente_ruteo` solo si las reglas no deciden |
 | cada agente | `agentes/<nombre>.py` | su bucle modelo ↔ herramientas, tope de 6 vueltas | su tarea (§6) |
 | `junta` | `junta.py` | con un agente, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cartera` |
-| `finalizar` | `grafo.py` + `control.py` | arma el historial de salida y corre el control de números | ninguno |
+| `finalizar` | `grafo.py` + `control.py` | arma el historial de salida, corre el inspector (números y citas, con lo DADO y lo MOSTRADO) y separa las citas de la frase | ninguno |
 
 Los agentes corren en paralelo. **Un nodo del grafo = un módulo del paquete.**
 El SYSTEM de cada agente termina con la fecha de hoy (`agente.sistema`): sin
@@ -137,8 +137,8 @@ asistente/
   herramientas.py  función → tool (docstring = descripción, firma = esquema); TODAS, POR_NOMBRE
   memoria.py       poda, achicado, marcas por agente, dicts ⇄ mensajes de LangChain
   estado.py        el foco: claves con normalizador y validador
-  puerta.py        controles antes de ejecutar una herramienta, por argumento
-  control.py       control de números sobre la respuesta final
+  evidencia.py     el contrato herramienta↔evidencia: de quién es cada dato (`_sujeto`)
+  control.py       el inspector: números y citas de la respuesta final, con explicación
   esquema.py       {respuesta, falta}: esquema del proveedor o renglón «Falta:»
   pantalla.py      el contrato tabla↔pantalla: cómo se declara, qué dibuja la
                    pantalla y qué se le avisa al modelo que ya se dibujó
@@ -359,8 +359,14 @@ línea o no es una regla: si no, es un modelo escrito a mano. Una regla NO ve el
 foco — el foco no cambia de qué habla la pregunta, solo de qué cuenta; quien lo
 necesita es el modelo de la capa 2.
 
-**Un control antes de una herramienta**: una función en `puerta.py`, por
-argumento, sumada a `CONTROLES`.
+**Un chequeo antes de una herramienta**: vive en `ejecutor._autorizar` (rol,
+portal, cuenta habilitada). `puerta.py` fue eso mismo y quedó desconectado
+cuando el ejecutor lo absorbió; se borró.
+
+**Una herramienta que habla de un sujeto** (una cuenta, un bono) declara ese
+sujeto en su resultado con `evidencia.sujeto("cuenta", pedida)` en la clave
+`_sujeto`, igual que declara su tabla en `_tabla`. Sin eso, la evidencia de la
+raíz cae a la cuenta o el ticker del ARGUMENTO. Un diccionario nunca es sujeto.
 
 **Un proveedor**: una fila en `core/modelos.PROVEEDORES` y su rama en `armar()`.
 
@@ -481,8 +487,8 @@ comparación.
   retoma y borra su dueño.
 - Cuentas: solo `ASISTENTE_CUENTAS`, para todo agente que toque una cuenta
   (cartera, cliente y operaciones). Toda consulta
-  lleva `FILTRO_SQL`; la puerta corta cualquier `cuenta` no habilitada antes
-  de ejecutar; una herramienta de mercado no puede recibir `cuenta` (test).
+  lleva `FILTRO_SQL`; `ejecutor._autorizar` corta cualquier `cuenta` no
+  habilitada antes de ejecutar; una herramienta de mercado no puede recibir `cuenta` (test).
 - Datos de negocio solo salen por tareas `negocio`; los personales, por `personal`.
   El documento del cliente se muestra recortado a sus últimos dígitos.
 - Lo que llega del navegador (pregunta, sesión) se valida por forma.
@@ -499,6 +505,28 @@ comparación.
 - **Toda tabla declara su sujeto.** `pantalla.tabla()` exige `titulo` por firma:
   en un turno pueden correr dos herramientas y salir dos tablas pegadas; sin
   título no se sabe cuál es de cuál. Un test prohíbe armar el dict a mano.
+- **Toda evidencia tiene UN sujeto escalar** (`evidencia.py`). La raíz lo toma
+  de `_sujeto`, que declara la herramienta; las filas, de su propia clave
+  (ticker, cartera) o heredan la raíz. Antes se adivinaba con `str()` sobre lo
+  primero que pareciera un nombre y `tenencia_actual` dejó como sujeto el
+  diccionario `{id_cuenta, nombre}` entero: el control exigía ese texto en la
+  respuesta (imposible, 2 de 2 avisos medidos eran eso) y el nombre del
+  titular quedaba en `ia.evidencias`.
+- **El inspector (`control.py`) mira la misma foto que el modelo.** Su fuente
+  son los resultados, la pregunta y lo DADO (las cuentas habilitadas y la
+  fecha, que viven en el SYSTEM y el contexto excluye a propósito). Sin lo
+  dado, acusaba de inventadas a las cuentas que el sistema mismo listaba (4
+  de 4 medidos). Un número que una tabla ya MUESTRA no exige cita: la
+  persona tiene la fuente a la vista. Cada hallazgo trae `significa` y
+  `que_hacer`; la pantalla los muestra, no los inventa.
+- **Dos canales.** El modelo escribe las citas `[E:ref:campo]` dentro de la
+  frase (con herramientas atadas no hay otra forma de pedírselas). `finalizar`
+  las separa: a la persona le llega la frase limpia (`respuesta`), las citas
+  quedan en `control.citas` y en el historial del modelo. Un corchete en un
+  texto que alguien lee es ruido.
+- **Un saludo lo contesta una regla** (`ruteo.regla_saludo`), sin modelo de
+  ruteo ni agente. Medido: «hola» fue al agente de clientes y costó 1.477
+  tokens para preguntar qué cuenta mirar, más un aviso rojo del inspector.
 - `eventos` en cada respuesta: `pregunta`, `podado`, `achicado`, `ruteo`,
   `vuelta`, `pide`, `resultado`, `estado`, `texto`, `corte`, `junta`, con `agente`.
 - `ia.llamadas`: una fila por llamada con tarea, modelo, tokens, caché, latencia,
@@ -512,7 +540,7 @@ comparación.
 ## 13. Tests y eval
 
 **Tests** (`tests/unit/test_asistente.py`): cubren agentes y familias, el
-registro, las reglas del ruteo, el foco, esquemas, permisos, puerta, control,
+registro, las reglas del ruteo, el foco, esquemas, permisos, evidencia, control,
 memoria, el ruteo de modelos, la traza, las sesiones y el grafo de punta a punta
 con un proveedor falso. `python -m pytest -q tests/unit/test_asistente.py`.
 

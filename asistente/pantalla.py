@@ -93,7 +93,9 @@ def aviso(resultado) -> str | None:
         return None
     decl, filas = d
     cols = ", ".join(decl.get("columnas") or [])
+    con_total = " y su total" if decl.get("total") else ""
     return (f"La pantalla YA le está mostrando al usuario la tabla «{decl.get('titulo')}» "
-            f"con {len(filas)} fila(s) y estas columnas: {cols}. No la repitas en el texto, "
+            f"con {len(filas)} fila(s){con_total} y estas columnas: {cols}. No repitas en el "
+            f"texto ningún número de la tabla (tampoco el total ni cuántas filas tiene), "
             f"y NO llames otra herramienta para volver a mostrar lo mismo: serían dos tablas "
             f"pegadas de lo mismo.")

@@ -8,6 +8,7 @@ import logging
 import operator
 import re
 import uuid
+from datetime import date
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -23,7 +24,7 @@ from asistente import estado as EST
 from asistente import eventos as EV
 from asistente import herramientas as H
 from asistente import junta as JU
-from asistente import memoria
+from asistente import memoria, pantalla
 from asistente import ruteo as RUT
 from asistente.agente import Agente
 from asistente.agentes import AGENTES
@@ -406,9 +407,22 @@ def finalizar(s: Estado) -> dict:
     contexto = memoria.contexto(mensajes)
     for c in crudos:
         contexto = contexto.replace(c, "")
+    # Lo DADO: lo que el sistema le entregó aparte de los resultados. Vive en el
+    # SYSTEM, que el contexto excluye a propósito; sin esto el control acusaba
+    # al modelo de inventar las cuentas que el sistema mismo le había listado.
+    dado = " ".join([*(s.get("cuentas") or ()), date.today().isoformat()])
+    # Lo MOSTRADO: las tablas que la pantalla dibuja en este mismo turno. Un
+    # número que está ahí no exige cita: la persona tiene la fuente a la vista.
+    tablas = [t for e in s.get("eventos") or [] if e.get("tipo") == "resultado"
+              and (t := pantalla.para_dibujar(e.get("resultado"))) is not None]
+    mostrado = json.dumps(tablas, ensure_ascii=False, default=str)
     control = CTL.revisar(s.get("respuesta"), contexto=contexto, pregunta=s["pregunta"],
-                          evidencias=s.get("evidencias") or [])
-    return {"mensajes": mensajes, "control": control}
+                          evidencias=s.get("evidencias") or [], dado=dado, mostrado=mostrado)
+    # Dos canales: la cita `[E:…]` es para el control y para el ciclo (queda en
+    # `control.citas` y en el historial del modelo). A la persona le llega la
+    # frase limpia: en un texto que alguien lee, la marca es ruido.
+    return {"mensajes": mensajes, "control": control,
+            "respuesta": CTL.sin_citas(s.get("respuesta")), "falta": CTL.sin_citas(s.get("falta"))}
 
 
 def _armar(checkpointer=None):

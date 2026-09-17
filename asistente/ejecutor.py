@@ -10,10 +10,10 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
 
 from pydantic import ValidationError
 
+from asistente import evidencia as EVI
 from asistente import herramientas as H
 from asistente import permitido
 from asistente.agente import Agente
@@ -82,9 +82,6 @@ ACCESO_POR_TOOL: dict[str, Acceso] = {
 
 _ROLES_NEGOCIO = {"admin", "trader", "asistente_comercial"}
 _ROLES_PERSONALES = {"admin"}
-_SUJETOS = ("cuenta", "ticker", "ticker_corto", "instrumento", "fci_id", "nombre", "clave", "moneda")
-_FECHAS = ("fecha", "fecha_actual", "updated_at", "tenencia_del", "hasta", "vencimiento")
-_MAX_EVIDENCIAS = 120
 
 
 def acceso_de(nombre: str) -> Acceso | None:
@@ -156,7 +153,7 @@ def ejecutar(agente: Agente, nombre: str, args: dict | None, contexto: RunContex
             resultado = {"resultado": resultado}
     except Exception as error:
         resultado = {"error": f"la herramienta falló: {type(error).__name__}: {error}"}
-    evidencias = tuple(_extraer_evidencias(nombre, acceso, validados, resultado))
+    evidencias = tuple(EVI.extraer(nombre, acceso.value, validados, resultado))
     if evidencias:
         resultado = {**resultado, "_evidencias": list(evidencias)}
     return _resultado(resultado, validados, acceso, inicio, evidencias)
@@ -171,42 +168,3 @@ def _resultado(resultado: dict, argumentos: dict | None, acceso: Acceso | None,
         duracion_ms=max(0, int((time.perf_counter() - inicio) * 1000)),
         evidencias=evidencias,
     )
-
-
-def _extraer_evidencias(nombre: str, acceso: Acceso, args: dict, resultado: dict) -> list[dict]:
-    if resultado.get("error"):
-        return []
-    registros: list[tuple[str, dict]] = []
-    for campo, valor in resultado.items():
-        if str(campo).startswith("_"):
-            continue
-        if isinstance(valor, list):
-            registros.extend((f"$.{campo}[{indice}]", fila) for indice, fila in enumerate(valor)
-                             if isinstance(fila, dict))
-    registros.append(("$", resultado))
-    evidencias: list[dict] = []
-    for ruta, registro in registros:
-        campos = {str(k): v for k, v in registro.items()
-                  if not str(k).startswith("_") and _es_escalar(v)}
-        if not campos:
-            continue
-        sujeto = next((str(registro[k]) for k in _SUJETOS if registro.get(k) not in (None, "")), None)
-        if sujeto is None:
-            sujeto = next((str(args[k]) for k in _SUJETOS if args.get(k) not in (None, "")), "general")
-        fecha = next((str(registro[k]) for k in _FECHAS if registro.get(k) not in (None, "")), None)
-        evidencias.append({
-            "ref": uuid.uuid4().hex[:12],
-            "herramienta": nombre,
-            "acceso": acceso.value,
-            "sujeto": sujeto,
-            "fecha": fecha,
-            "ruta": ruta,
-            "campos": campos,
-        })
-        if len(evidencias) >= _MAX_EVIDENCIAS:
-            break
-    return evidencias
-
-
-def _es_escalar(valor: Any) -> bool:
-    return valor is None or isinstance(valor, (str, int, float, bool))

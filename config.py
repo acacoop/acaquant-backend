@@ -319,8 +319,12 @@ EXT_MAX_FILAS = int(os.getenv("EXT_MAX_FILAS", "20000"))
 # run. Un detector que canta cada 2 minutos no puede generar un diagnóstico
 # cada 2 minutos, así que hay tope por pasada del daemon y por día, y no se
 # rehace sobre el mismo hallazgo salvo que cambie de estado o pase un día.
+#
+# ⚠️ Prendido o apagado NO vive acá. Lo decide el LAB (fila
+# `diagnostico:automatico` de `ia.config`, `asistente/diagnostico.automatico()`)
+# y nace APAGADO: cambiarlo no requiere tocar el `.env` ni reiniciar el daemon.
+# Una variable `DIAGNOSTICO_AUTOMATICO` en el `.env` ya no hace nada. Acá quedan
+# sólo los topes que acotan al daemon cuando está prendido.
 DIAGNOSTICO_TOPE_PASADA = int(os.getenv("DIAGNOSTICO_TOPE_PASADA", "3"))
 DIAGNOSTICO_TOPE_DIA = int(os.getenv("DIAGNOSTICO_TOPE_DIA", "40"))
 DIAGNOSTICO_REFRESCO_H = int(os.getenv("DIAGNOSTICO_REFRESCO_H", "24"))
-# Prendido = el daemon encola solo. Apagado = solo a pedido (scripts.diagnosticar).
-DIAGNOSTICO_AUTOMATICO = os.getenv("DIAGNOSTICO_AUTOMATICO", "1").strip().lower() in ("1", "true", "yes")

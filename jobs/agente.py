@@ -64,14 +64,16 @@ def _aplicar_solo() -> None:
 
 
 def _diagnosticar() -> None:
-    """**EL DIAGNÓSTICO**: cada hallazgo abierto sin diagnóstico vigente encola
-    un run del asistente que investiga por qué apareció (`asistente/diagnostico.py`).
-    Acá solo se ENCOLA; el worker del asistente lo corre. Nada de esto puede
-    tirar abajo al agente: el import va adentro del try."""
+    """**EL DIAGNÓSTICO**: si el interruptor del LAB está prendido
+    (`diagnostico.automatico()`, fila `diagnostico:automatico` de `ia.config`),
+    cada hallazgo abierto sin diagnóstico vigente encola un run del asistente
+    que investiga por qué apareció (`asistente/diagnostico.py`). Apagado, que
+    es como nace, acá no pasa nada: los diagnósticos son sólo a pedido. El
+    interruptor lo mira `encolar_pendientes` en cada pasada, así que apagarlo
+    vale en la siguiente, sin reiniciar nada. Acá solo se ENCOLA; el worker
+    del asistente lo corre. Nada de esto puede tirar abajo al agente: el
+    import va adentro del try."""
     try:
-        from config import DIAGNOSTICO_AUTOMATICO
-        if not DIAGNOSTICO_AUTOMATICO:
-            return
         from asistente import diagnostico
         r = diagnostico.encolar_pendientes()
         if r["encolados"]:

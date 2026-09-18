@@ -643,14 +643,22 @@ units declarados en `deploy/systemd` y lee de a 200 líneas. Lo que pasa de
 sin modelo, se recorta y se dice. Los tres modelos se eligen en el panel del
 LAB como cualquier tarea (§7).
 
-**Disparo a reacción.** En cada pasada del daemon (`jobs/agente.py::_diagnosticar`),
-después del tick y del ejecutor autónomo, `encolar_pendientes()` encola un run
-`tipo = diagnostico` (`ia.ejecuciones`) por cada hallazgo abierto sin
-diagnóstico, con el estado cambiado desde el último, o con uno de más de
-`DIAGNOSTICO_REFRESCO_H` horas. Topes en `config.py`: por pasada y por día;
-nunca sobre un hallazgo `ignorado`; nunca dos veces el mismo mientras hay un
-run en cola. `DIAGNOSTICO_AUTOMATICO=0` lo apaga (queda a pedido). El worker
-del asistente despacha por `tipo`: un diagnóstico no toca `ia.conversaciones`.
+**Disparo a reacción, sólo con el interruptor prendido.** En cada pasada del
+daemon (`jobs/agente.py::_diagnosticar`), después del tick y del ejecutor
+autónomo, `encolar_pendientes()` encola un run `tipo = diagnostico`
+(`ia.ejecuciones`) por cada hallazgo abierto sin diagnóstico, con el estado
+cambiado desde el último, o con uno de más de `DIAGNOSTICO_REFRESCO_H` horas.
+Topes en `config.py`: por pasada y por día; nunca sobre un hallazgo
+`ignorado`; nunca dos veces el mismo mientras hay un run en cola. **El
+interruptor vive en el LAB, no en el `.env`**: la fila `diagnostico:automatico`
+de `ia.config` (`diagnostico.automatico()`, `POST /api/agente/diagnostico/automatico`,
+sub-tab DIAGNÓSTICOS). Nace APAGADO, o sea MANUAL: el daemon no encola nada y
+sólo corre lo que pide una persona. Se lee en cada pasada, sin caché ni
+restart, y es fail-closed: sin fila o con la base sin contestar, apagado. Las
+otras puertas no pasan por él —el botón «diagnosticar», la consola con
+`--encolar`, que fuerza— porque ahí hay una persona pidiendo. Apagarlo no
+cancela lo que ya estaba en cola: eso se hace desde la lista. El worker del
+asistente despacha por `tipo`: un diagnóstico no toca `ia.conversaciones`.
 Desde la consola: `scripts/diagnosticar.py` (`--hallazgo N` corre ya,
 `--ver N` relee, `--pendientes`, `--encolar`). Desde el LAB también se puede
 pedir en lenguaje natural («diagnosticá el hallazgo #12»): rutea por señales al
@@ -697,6 +705,9 @@ panel decía «7 atascados» y no había forma de saber qué eran: eran runs en 
 que un solo worker, de a uno y el más viejo primero, no había llegado a tomar.
 `POST /api/agente/diagnostico/runs/{run_id}/cancelar` (`diagnostico.cancelar`)
 corta uno: en cola muere ya, corriendo el worker corta en el próximo paso. Solo
-runs de este tipo y del agente. Y el diagnóstico automático quedó **apagado a
-pedido del user** (`DIAGNOSTICO_AUTOMATICO=0` en el `.env` del Droplet) hasta
-que la traza demuestre que una corrida vale lo que cuesta.
+runs de este tipo y del agente. Y el diagnóstico automático es **MANUAL salvo
+que el LAB lo prenda**: el interruptor de la sub-tab DIAGNÓSTICOS («automático:
+prendido / apagado · hoy N de M») es la única forma de que el daemon encole
+solo. Nació apagado a pedido del user —cada corrida gasta tokens y hasta que la
+traza demuestre que vale lo que cuesta, se pide de a uno— y antes vivía en el
+`.env` del Droplet, donde apagarlo requería entrar y reiniciar el daemon.

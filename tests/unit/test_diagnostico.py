@@ -161,6 +161,75 @@ def test_el_disparo_elige_lo_sin_diagnostico_o_cambiado_y_respeta_topes():
     assert DG._elegir(abiertos, set(), 40, ahora, tope_pasada=3, tope_dia=40, refresco_h=24) == []
 
 
+def _pool(cur):
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cur
+    return pool
+
+
+def test_el_automatico_nace_apagado_y_lo_prende_el_lab():
+    """Sin fila en `ia.config` es MANUAL, y con la base caída también: un
+    diagnóstico gasta tokens, así que «no pude leer el interruptor» no puede
+    significar «prendido». Prenderlo deja la fila con quién lo tocó."""
+    cur = MagicMock()
+    cur.fetchone.return_value = None
+    with patch.object(DG, "get_pool", return_value=_pool(cur)):
+        assert DG.automatico() is False
+    cur.fetchone.return_value = ("1",)
+    with patch.object(DG, "get_pool", return_value=_pool(cur)):
+        assert DG.automatico() is True
+    cur.fetchone.return_value = ("0",)
+    with patch.object(DG, "get_pool", return_value=_pool(cur)):
+        assert DG.automatico() is False
+    with patch.object(DG, "get_pool", side_effect=RuntimeError("sin base")):
+        assert DG.automatico() is False
+
+    cur = MagicMock()
+    cur.fetchone.side_effect = [(3,), ("1",)]  # _encolados_hoy, automatico()
+    with patch.object(DG, "get_pool", return_value=_pool(cur)):
+        r = DG.poner_automatico(True, por="nico@x")
+    sql, params = cur.execute.call_args_list[0].args
+    assert "INSERT INTO ia.config" in sql and params == (DG.CLAVE_AUTOMATICO, "1", "nico@x")
+    assert r["ok"] is True and r["automatico"] is True and r["hoy"] == 3
+    assert r["tope_dia"] > 0 and r["tope_pasada"] > 0
+
+
+def test_apagado_el_daemon_no_encola_y_la_consola_si():
+    """El daemon llama sin `forzar`: apagado, ni lee la base. La consola fuerza:
+    una persona escribiendo un comando es manual."""
+    with patch.object(DG, "automatico", return_value=False), \
+         patch.object(DG, "get_pool", side_effect=AssertionError("no tenía que leer nada")):
+        r = DG.encolar_pendientes()
+    assert r["encolados"] == [] and r["apagado"] is True
+
+    cur = MagicMock()
+    cur.fetchall.side_effect = [[], []]
+    cur.fetchone.return_value = {"count": 0}
+    with patch.object(DG, "automatico", return_value=False), \
+         patch.object(DG, "get_pool", return_value=_pool(cur)):
+        r = DG.encolar_pendientes(forzar=True)
+    assert r["encolados"] == [] and r["apagado"] is False and r["abiertos"] == 0
+
+
+def test_la_pasada_del_daemon_pasa_por_el_interruptor_y_nunca_fuerza():
+    from jobs import agente as daemon
+
+    with patch.object(DG, "encolar_pendientes",
+                      return_value={"encolados": [], "apagado": True, "hoy": None}) as e:
+        daemon._diagnosticar()
+    assert e.call_count == 1 and e.call_args.kwargs == {}, "el interruptor manda: el daemon no fuerza"
+
+
+def test_la_lista_del_lab_trae_el_interruptor():
+    from asistente import ejecuciones
+
+    estado = {"automatico": False, "hoy": 0, "tope_dia": 40, "tope_pasada": 3, "refresco_h": 24}
+    with patch.object(ejecuciones, "runs_de_tipo", return_value=[]), \
+         patch.object(DG, "estado_automatico", return_value=estado):
+        r = DG.listado()
+    assert r == {"diagnosticos": [], "activos": 0, "automatico": estado}
+
+
 def test_un_run_de_diagnostico_se_entiende_por_su_pregunta():
     with patch.object(DG, "correr", return_value={"respuesta": "ok"}) as c:
         assert DG.correr_run({"run_id": "r", "pregunta": "diagnosticar hallazgo #42", "usuario": "u"})["respuesta"] == "ok"

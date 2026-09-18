@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **537 endpoints** montados en `api.main.app`, en **35 routers**.
-- **199 escriben** (POST/PUT/PATCH/DELETE); 338 son de solo lectura.
+- **538 endpoints** montados en `api.main.app`, en **35 routers**.
+- **200 escriben** (POST/PUT/PATCH/DELETE); 338 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -49,7 +49,7 @@
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 30 | 15 | `ia` + `require_admin` | `ia` |  |
+| `/api/agente` | 31 | 16 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
 | `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
@@ -2235,11 +2235,13 @@ sin reconciliar).
 
 ## 4.11 IA — EL GATEWAY, EL ASISTENTE Y EL DIAGNÓSTICO
 
-Lo que corre solo con un modelo es UNA cosa: EL DIAGNÓSTICO del AV AGENT
+Lo único que puede correr solo con un modelo es EL DIAGNÓSTICO del AV AGENT
 (`asistente/diagnostico.py`, `AvAgentAI.md` §15), que investiga por qué apareció
-cada hallazgo abierto y recomienda sin ejecutar nada; se apaga con
-`DIAGNOSTICO_AUTOMATICO=0`. Todo lo demás es a pedido de una persona (la tab
-LAB). **Su ciclo se ve en el LAB**: `GET /api/agente/diagnostico/{id}` (los runs del hallazgo y los eventos de uno, sin filtro de dueño porque son del agente) y `POST /api/agente/diagnostico/{id}/pedir` (encola uno a mano, misma puerta que el automático, sin topes). Desde AHORA, «ver cómo lo pensó → LAB» / «diagnosticar → LAB». **El LAB tiene tres sub-tabs: CONVERSACIONES · DIAGNÓSTICOS · MODELO Y GASTO** (cuál está abierta vive en el modal; AHORA abre en la segunda). **En DIAGNÓSTICOS, la lista** (`GET /api/agente/diagnostico`, `diagnostico.listado`): una fila por corrida, creada sola al encolarse, con hallazgo, estado, causa → acción y tokens; abrirla muestra su ciclo; `POST /api/agente/diagnostico/runs/{run_id}/cancelar` corta uno en cola o corriendo. Es la cola a la vista: lo que el contador «atascados» contaba sin decir qué era.
+cada hallazgo abierto y recomienda sin ejecutar nada — **y sólo si el
+interruptor del LAB está prendido**: `POST /api/agente/diagnostico/automatico`
+(`{prendido}`, fila `diagnostico:automatico` de `ia.config`), que nace APAGADO.
+Apagado, todo es a pedido de una persona (el botón, la consola, la tab LAB).
+**Su ciclo se ve en el LAB**: `GET /api/agente/diagnostico/{id}` (los runs del hallazgo y los eventos de uno, sin filtro de dueño porque son del agente) y `POST /api/agente/diagnostico/{id}/pedir` (encola uno a mano, misma puerta que el automático, sin topes). Desde AHORA, «ver cómo lo pensó → LAB» / «diagnosticar → LAB». **El LAB tiene tres sub-tabs: CONVERSACIONES · DIAGNÓSTICOS · MODELO Y GASTO** (cuál está abierta vive en el modal; AHORA abre en la segunda). **En DIAGNÓSTICOS, la lista** (`GET /api/agente/diagnostico`, `diagnostico.listado`): arriba el interruptor **«automático: prendido / apagado · hoy N de M»** (el estado viaja con la lista, en `automatico`); una fila por corrida, creada sola al encolarse, con hallazgo, estado, causa → acción y tokens; abrirla muestra su ciclo; `POST /api/agente/diagnostico/runs/{run_id}/cancelar` corta uno en cola o corriendo. Es la cola a la vista: lo que el contador «atascados» contaba sin decir qué era.
 
 El **núcleo del gateway**:
 

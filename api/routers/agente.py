@@ -254,6 +254,21 @@ def diagnostico_listado(limite: int = 50):
     return diagnostico.listado(limite)
 
 
+class Automatico(BaseModel):
+    prendido: bool
+
+
+@router.post("/diagnostico/automatico")
+def diagnostico_automatico(body: Automatico, email: str = Depends(get_user_email)):
+    """El interruptor del diagnóstico AUTOMÁTICO. Prendido, el daemon del AV
+    AGENT encola solo, con los topes de `config.py`; apagado —como nace— sólo
+    corre lo que pide una persona (el botón, la consola). Vive en `ia.config`
+    y vale en la pasada siguiente del daemon, sin restart. Lo que ya está en
+    cola no se cancela solo. El estado viaja con la lista (`GET /diagnostico`)."""
+    from asistente import diagnostico
+    return diagnostico.poner_automatico(body.prendido, por=email)
+
+
 @router.post("/diagnostico/runs/{run_id}/cancelar")
 def diagnostico_cancelar(run_id: str):
     from asistente import diagnostico

@@ -9,7 +9,9 @@ Uso (Droplet, raíz):
     python -m scripts.diagnosticar --hallazgo 123        # corre ya, sincrónico, imprime
     python -m scripts.diagnosticar --ver 123             # muestra el diagnóstico guardado
     python -m scripts.diagnosticar --pendientes          # qué encolaría el daemon ahora
-    python -m scripts.diagnosticar --encolar             # encola (topes de config.py)
+    python -m scripts.diagnosticar --encolar             # encola (topes de config.py), aunque
+                                                         # el automático del LAB esté apagado:
+                                                         # una persona en la consola es MANUAL
 """
 from __future__ import annotations
 
@@ -85,7 +87,7 @@ def main() -> int:
         return 0
     if a.pendientes or a.encolar:
         if a.encolar:
-            r = diagnostico.encolar_pendientes()
+            r = diagnostico.encolar_pendientes(forzar=True)
             print(json.dumps(r, ensure_ascii=False, indent=1, default=str))
             return 0
         from datetime import UTC, datetime

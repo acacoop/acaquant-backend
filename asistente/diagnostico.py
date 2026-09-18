@@ -558,7 +558,9 @@ def listado(limite: int = 50) -> dict:
             "tokens_out": res.get("tokens_out"),
         })
     activos = sum(1 for f in filas if f["estado"] in ejecuciones.ACTIVOS)
-    return {"diagnosticos": filas, "activos": activos}
+    # El interruptor viaja con la lista: es la misma pantalla, y así el front no
+    # tiene una segunda lectura que pueda quedar desfasada de la primera.
+    return {"diagnosticos": filas, "activos": activos, "automatico": estado_automatico()}
 
 
 def cancelar(run_id: str) -> dict:
@@ -577,11 +579,79 @@ def _pregunta(hallazgo_id: int) -> str:
     return f"diagnosticar hallazgo #{int(hallazgo_id)}"
 
 
-def encolar_pendientes() -> dict:
-    """Encola un run por hallazgo que toque, con los topes de `config.py`."""
+# ── el interruptor: MANUAL, salvo que el LAB diga lo contrario ──────────────
+#
+# El daemon encola solo ÚNICAMENTE si `ia.config` tiene `diagnostico:automatico`
+# = "1". Sin fila, con otro valor, o con la base sin contestar: MANUAL. Es
+# fail-closed a propósito: un diagnóstico gasta tokens de verdad, y «no pude
+# leer el interruptor» no puede significar «prendido». Vivía en el `.env`
+# (`DIAGNOSTICO_AUTOMATICO`), y para apagarlo había que entrar al Droplet y
+# reiniciar el daemon; ahora lo prende y apaga el LAB, y vale en la pasada
+# siguiente. Las otras puertas (el botón «diagnosticar», la consola) son una
+# persona pidiendo: no pasan por acá.
+CLAVE_AUTOMATICO = "diagnostico:automatico"
+_SQL_ENCOLADOS_HOY = ("SELECT count(*) FROM ia.ejecuciones WHERE tipo = 'diagnostico'"
+                      " AND creada_at >= date_trunc('day', now())")
+
+
+def automatico() -> bool:
+    """¿El daemon encola solo? Se lee en cada pasada, sin caché: apagar tiene
+    que valer en la pasada siguiente, no dentro de un minuto."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT valor FROM ia.config WHERE clave = %s", (CLAVE_AUTOMATICO,))
+            fila = cur.fetchone()
+    except Exception as e:
+        logger.warning("diagnostico: no pude leer el interruptor (%s) — queda MANUAL", e)
+        return False
+    return bool(fila) and str(fila[0]).strip() == "1"
+
+
+def estado_automatico() -> dict:
+    """El interruptor y sus topes, como los muestra el LAB: prendido o no,
+    cuántos se encolaron hoy y hasta cuántos puede."""
+    from config import DIAGNOSTICO_REFRESCO_H, DIAGNOSTICO_TOPE_DIA, DIAGNOSTICO_TOPE_PASADA
+
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(_SQL_ENCOLADOS_HOY)
+            hoy = int(cur.fetchone()[0])
+    except Exception as e:
+        logger.warning("diagnostico: no pude contar los de hoy (%s)", e)
+        hoy = None
+    return {"automatico": automatico(), "hoy": hoy, "tope_dia": DIAGNOSTICO_TOPE_DIA,
+            "tope_pasada": DIAGNOSTICO_TOPE_PASADA, "refresco_h": DIAGNOSTICO_REFRESCO_H}
+
+
+def poner_automatico(prendido: bool, *, por: str) -> dict:
+    """Prende o apaga el automático desde el LAB. Queda en `ia.config` con quién
+    lo tocó. Apagar no cancela lo que ya está en cola: eso se hace desde la
+    lista, de a uno, porque ahí puede haber pedidos de una persona."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s)"
+                " ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor,"
+                "  updated_at = now(), updated_by = EXCLUDED.updated_by",
+                (CLAVE_AUTOMATICO, "1" if prendido else "0", por))
+    except Exception as e:
+        return {"ok": False, "error": f"no pude guardar el interruptor: {type(e).__name__}: {e}"}
+    logger.info("diagnostico: automático %s por %s", "PRENDIDO" if prendido else "APAGADO", por)
+    return {"ok": True, **estado_automatico()}
+
+
+def encolar_pendientes(*, forzar: bool = False) -> dict:
+    """Encola un run por hallazgo que toque, con los topes de `config.py`.
+
+    Sin `forzar` es el daemon: sólo encola si el interruptor del LAB está
+    prendido (`automatico()`); apagado, devuelve `apagado: True` sin leer
+    nada. `forzar=True` es una persona en la consola (`scripts.diagnosticar
+    --encolar`): manual, como apretar el botón."""
     from asistente import ejecuciones
     from config import DIAGNOSTICO_REFRESCO_H, DIAGNOSTICO_TOPE_DIA, DIAGNOSTICO_TOPE_PASADA
 
+    if not forzar and not automatico():
+        return {"encolados": [], "apagado": True, "hoy": None, "abiertos": None, "en_cola": []}
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             "SELECT id, estado, severidad, detectado_at, diagnosticado_at, diagnostico"
@@ -592,9 +662,7 @@ def encolar_pendientes() -> dict:
             (list(ejecuciones.ACTIVOS),))
         en_cola = {int(m.group(1)) for r in cur.fetchall()
                    if (m := _RE_PREGUNTA.search(r["pregunta"] or ""))}
-        cur.execute(
-            "SELECT count(*) FROM ia.ejecuciones WHERE tipo = 'diagnostico'"
-            " AND creada_at >= date_trunc('day', now())")
+        cur.execute(_SQL_ENCOLADOS_HOY)
         hoy = int(cur.fetchone()["count"])
     ids = _elegir(abiertos, en_cola, hoy, datetime.now(UTC), tope_pasada=DIAGNOSTICO_TOPE_PASADA,
                   tope_dia=DIAGNOSTICO_TOPE_DIA, refresco_h=DIAGNOSTICO_REFRESCO_H)
@@ -603,5 +671,5 @@ def encolar_pendientes() -> dict:
         run = ejecuciones.crear(_pregunta(hid), usuario=T.ACTOR_AGENTE, rol="admin",
                                 portal="trading", tipo="diagnostico")
         encolados.append({"hallazgo_id": hid, "run_id": run.get("run_id")})
-    return {"encolados": encolados, "hoy": hoy + len(encolados), "abiertos": len(abiertos),
-            "en_cola": sorted(en_cola)}
+    return {"encolados": encolados, "apagado": False, "hoy": hoy + len(encolados),
+            "abiertos": len(abiertos), "en_cola": sorted(en_cola)}

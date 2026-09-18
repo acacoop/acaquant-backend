@@ -78,6 +78,11 @@ TAREAS: dict[str, dict] = {
     "asistente_cliente": {"tier": "pro", "max_tokens": 2000, "timeout_s": 120,
                           "traza_sin_texto": True, "usa_herramientas": True,
                           "para_que": "el asistente, CLIENTE: quién es el titular y cómo está"},
+    "asistente_junta_personal": {
+        "tier": "pro", "max_tokens": 3000, "timeout_s": 120,
+        "traza_sin_texto": True,
+        "para_que": "el asistente: cruzar respuestas cuando participa CLIENTE",
+    },
     "asistente_operaciones": {"tier": "pro", "max_tokens": 3000, "timeout_s": 120,
                               "usa_herramientas": True,
                               "para_que": "el asistente, OPERACIONES: qué operó la mesa"},

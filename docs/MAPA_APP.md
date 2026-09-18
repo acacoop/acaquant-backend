@@ -37,8 +37,8 @@
 > `python -m scripts.gen_mapa_app --full`.
 
 <!-- AUTOGEN:resumen -->
-- **538 endpoints** montados en `api.main.app`, en **35 routers**.
-- **200 escriben** (POST/PUT/PATCH/DELETE); 338 son de solo lectura.
+- **537 endpoints** montados en `api.main.app`, en **35 routers**.
+- **199 escriben** (POST/PUT/PATCH/DELETE); 338 son de solo lectura.
 - **22 módulos** canónicos y **7 roles** en `core/roles.py`.
 <!-- /AUTOGEN:resumen -->
 
@@ -48,14 +48,14 @@
 | Router | Rutas | Escriben | Gate efectivo | Módulo declarado | |
 |---|---:|---:|---|---|---|
 | `(raíz)` | 2 | 0 | — · 1 ruta con gate extra | — | ⚠️ |
-| `/api/aca` | 18 | 8 | — · 9 rutas con gate extra | `aca` | ⚠️ |
-| `/api/agente` | 31 | 16 | `ia` + `require_admin` | `ia` |  |
+| `/api/aca` | 18 | 8 | — · 8 rutas con gate extra | `aca` | ⚠️ |
+| `/api/agente` | 30 | 15 | `ia` + `require_admin` | `ia` |  |
 | `/api/analitica` | 11 | 1 | — | — | ⚠️ |
-| `/api/ap5` | 8 | 2 | `operaciones` · 3 rutas con gate extra | — |  |
+| `/api/ap5` | 8 | 2 | `operaciones` · 1 ruta con gate extra | — |  |
 | `/api/avisos` | 2 | 1 | —`require_no_invitado` | — |  |
 | `/api/back-office` | 73 | 39 | `back-office` · 38 rutas con gate extra | `back-office` |  |
 | `/api/back-office/custodia` | 2 | 0 | `back-office` | `back-office` |  |
-| `/api/back-office/interbanking` | 27 | 18 | `back-office` · 23 rutas con gate extra | `back-office` |  |
+| `/api/back-office/interbanking` | 27 | 18 | `back-office` | `back-office` |  |
 | `/api/back-office/senebis` | 22 | 14 | `back-office` · 4 rutas con gate extra | `back-office` |  |
 | `/api/cotizaciones` | 34 | 1 | — · 1 ruta con gate extra | — | ⚠️ |
 | `/api/cuentas` | 2 | 0 | `operaciones` | `operaciones` |  |
@@ -65,13 +65,13 @@
 | `/api/ingest` | 15 | 11 | —`verify_ingest_token` | — |  |
 | `/api/manager` | 120 | 59 | varía por ruta (todas gateadas)`require_any_module_manager_manager_comercial_manager_clientes_manager_clientes_bulk` | `manager` |  |
 | `/api/market` | 2 | 0 | — | — | ⚠️ |
-| `/api/mesa-dinero` | 10 | 5 | — · 9 rutas con gate extra | — | ⚠️ |
+| `/api/mesa-dinero` | 10 | 5 | — · 8 rutas con gate extra | — | ⚠️ |
 | `/api/news` | 3 | 0 | — | — | ⚠️ |
 | `/api/operaciones` | 58 | 9 | `operaciones` · 25 rutas con gate extra | `operaciones` |  |
 | `/api/operar` | 4 | 1 | `operar` · 3 rutas con gate extra | `operar` |  |
 | `/api/operativa` | 6 | 2 | `operar` · 4 rutas con gate extra | `operar` |  |
 | `/api/ordenes` | 8 | 3 | `operar` · 5 rutas con gate extra | `operar` |  |
-| `/api/portfolio` | 16 | 3 | `portfolios` · 14 rutas con gate extra | `portfolios` |  |
+| `/api/portfolio` | 16 | 3 | `portfolios` · 12 rutas con gate extra | `portfolios` |  |
 | `/api/pulso` | 1 | 1 | —`require_no_invitado` | — |  |
 | `/api/research-bcra` | 2 | 0 | `research` | — |  |
 | `/api/research-docs` | 2 | 0 | `research` | — |  |
@@ -2314,15 +2314,19 @@ nadie lo miraba.
 > `docs/AvAgentAI.md`). Un grafo LangGraph: ruteo → agentes (`cartera`,
 > `cliente`, `operaciones` y la familia mercado: `renta_fija`, `renta_variable`,
 > `fondos`, `derivados`, `financiamiento`, `dolares`) en paralelo → junta. Cada
-> agente tiene su tarea de ruteo y sus herramientas; los datos del negocio salen
-> por tareas `negocio`, los personales por `personal`, y el alcance de cuentas
-> es `ASISTENTE_CUENTAS` (fail-closed).
+> agente tiene su tarea de ruteo y sus herramientas; las tareas que reciben
+> texto personal usan `traza_sin_texto`, y el alcance de cuentas es
+> `ASISTENTE_CUENTAS` (fail-closed).
 >
 > **Endpoints, `require_admin` heredado del router de `/api/agente`:**
 >
 > | Endpoint | Qué hace |
 > |---|---|
-> | `POST /api/agente/lab/preguntar` | una pregunta, síncrona, dentro de una conversación (`sesion`; vacía = nueva). La memoria vive en `ia.conversaciones`. Devuelve la respuesta, `eventos` (cada paso del grafo, con el agente), `agentes`, `titulo` y `sesion` con el costo de la charla |
+> | `POST /api/agente/lab/runs` | encola una pregunta durable dentro de una conversación (`sesion`; vacía = nueva) |
+> | `GET /api/agente/lab/runs/{run_id}` | estado y resultado durable del run, sólo para su dueño |
+> | `GET /api/agente/lab/runs/{run_id}/events` | eventos SSE recuperables mediante `Last-Event-ID` |
+> | `POST /api/agente/lab/runs/{run_id}/cancelar` | solicita la cancelación cooperativa del run |
+> | `GET /api/agente/lab/metricas/runs` | estados, latencias, tools y controles de los runs |
 > | `GET /api/agente/lab/sesiones` | las conversaciones del usuario, la más reciente primero, con preguntas y tokens |
 > | `GET /api/agente/lab/sesiones/{sesion}` | una conversación entera para reabrirla: turnos, foco y costo. 404 si no es del usuario |
 > | `POST /api/agente/lab/sesiones/{sesion}/borrar` | la borra (solo el dueño) |

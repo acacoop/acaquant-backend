@@ -369,16 +369,6 @@ def lab_run_metricas(dias: int = 30):
     return ejecuciones.metricas(dias)
 
 
-@router.post("/lab/preguntar")
-def lab_preguntar(body: Preguntar, email: str = Depends(get_user_email)):
-    """Una pregunta dentro de una conversación del usuario. Devuelve la
-    respuesta, los eventos del grafo paso a paso, el foco y el costo de la
-    conversación; la conversación queda guardada."""
-    from asistente import sesiones
-
-    return sesiones.preguntar(body.pregunta, usuario=email, sesion=body.sesion or None)
-
-
 @router.get("/lab/sesiones")
 def lab_sesiones(email: str = Depends(get_user_email)):
     """Las conversaciones del usuario, la más reciente primero."""

@@ -39,6 +39,7 @@ def test_cada_agente_es_un_objeto_con_su_tarea_declarada_en_el_ruteo():
         assert a.instruccion({}).strip()
     assert AGENTES["cartera"].tarea != AGENTES["renta_fija"].tarea, "cada agente tiene su propio ruteo"
     assert AGENTES["cartera"].tarea == JU.TAREA, "la junta ve datos del negocio"
+    assert modelos.resolver(JU.TAREA_PERSONAL).traza_sin_texto
     # El ruteo y la junta NO son agentes: no tienen herramientas ni bucle, son
     # una tarea y una función. Un `Agente` sin herramientas sería un agente falso.
     for mod in (RUT, JU):
@@ -1463,6 +1464,29 @@ def test_una_pregunta_cruzada_corre_los_dos_agentes_y_la_junta_redacta(permiso):
     assert next(e for e in r["eventos"] if e["tipo"] == "ruteo")["motivo"].startswith("regla")
 
 
+def test_una_junta_cliente_cartera_es_personal_y_no_deja_texto_en_traza(permiso):
+    from asistente import grafo, junta
+    from core import modelos
+
+    tareas = []
+    trazas = []
+    proveedor = _proveedor("cliente, cartera")
+
+    def espiar_modelo(tarea, **kwargs):
+        tareas.append(tarea)
+        trazas.append(kwargs.get("traza"))
+        return proveedor(tarea, **kwargs)
+
+    with patch.object(modelos, "modelo", espiar_modelo), \
+         patch.object(grafo, "_ejecutar_detalle", _ejecucion_falsa):
+        r = grafo.preguntar("¿quién es el titular y cuál es su tenencia?", usuario="t")
+
+    assert tareas[-1] == junta.TAREA_PERSONAL
+    assert modelos.resolver(tareas[-1]).traza_sin_texto
+    assert trazas[-1].guardar_texto is False
+    assert r["mensajes"][-1]["agente"] == "cliente"
+
+
 def test_cada_agente_ve_del_historial_solo_lo_suyo(permiso):
     """Lo que trajo el agente cartera (tenencias, plata) no puede llegar al
     proveedor del agente mercado en la pregunta siguiente."""
@@ -1558,6 +1582,60 @@ def test_una_herramienta_desconocida_o_un_error_vuelven_como_dato(permiso):
         assert "ZeroDivisionError" in grafo._ejecutar(roto, "rota", {"curva": "cer"})["error"]
 
 
+def test_un_resultado_grande_se_recorta_antes_de_serializar_y_sigue_siendo_json():
+    from asistente import grafo
+
+    grande = {
+        "posiciones": [{"ticker": f"T{i}", "detalle": "x" * 500} for i in range(200)],
+        "cuantos": 200,
+        "truncado": False,
+    }
+    texto = grafo._json_presupuestado(grande)
+    recibido = json.loads(texto)
+
+    assert len(texto) <= grafo.MAX_RESULTADO_CHARS
+    assert recibido["cuantos"] == 200 and recibido["truncado"] is True
+    assert 0 < len(recibido["posiciones"]) < 200
+    assert recibido["recortes"]["posiciones"] == {
+        "disponibles": 200, "incluidos": len(recibido["posiciones"])}
+    assert "orden original" in recibido["criterio_recorte"]
+    extremo = json.loads(grafo._json_presupuestado({
+        "nota": "x" * 30_000, "posiciones": grande["posiciones"], "cuantos": 200,
+    }))
+    assert extremo["truncado"] is True and extremo["cuantos"] == 200
+    assert isinstance(extremo["posiciones"], list)
+
+
+def test_la_junta_recibe_un_solo_payload_json_valido_dentro_del_presupuesto():
+    from langchain_core.messages import AIMessage
+
+    from asistente import grafo
+
+    visto = []
+
+    class Modelo:
+        def invoke(self, mensajes):
+            visto.append(mensajes[-1].content)
+            return AIMessage(content='{"respuesta":"ok","falta":null}')
+
+    datos = [{"herramienta": "tenencia_actual", "resultado": {
+        "posiciones": [{"ticker": f"T{i}", "detalle": "x" * 500} for i in range(200)],
+        "cuantos": 200,
+    }}]
+    estado = {"pregunta": "compará", "agentes": ["cartera", "renta_fija"],
+              "salidas": {nombre: {"respuesta": "ok", "error": None, "datos": datos}
+                          for nombre in ("cartera", "renta_fija")},
+              "foco": {}, "usuario": "t", "sesion": "a" * 32, "run_id": "b" * 32}
+    with patch.object(grafo, "_modelo", return_value=Modelo()), \
+         patch.object(grafo, "_traza", return_value=MagicMock(ids=[])):
+        respuesta = grafo.junta(estado)
+
+    payload = json.loads(visto[0])
+    assert respuesta["respuesta"] == "ok"
+    assert len(visto[0]) <= grafo.MAX_RESULTADO_CHARS
+    assert payload["truncado"] is True and payload["criterio_recorte"]
+
+
 def test_sin_clave_no_rompe_y_deja_la_sesion(permiso):
     from asistente import grafo
     from asistente.agentes import AGENTES
@@ -1596,13 +1674,59 @@ def test_un_checkpoint_terminado_se_reutiliza_sin_invocar_el_grafo():
     compilado.invoke.assert_not_called()
 
 
-def test_el_router_solo_recibe_pregunta_y_sesion_y_delega_en_sesiones():
-    from api.routers import agente as R
-    from asistente import sesiones
+def test_borrar_threads_delega_todos_los_datos_del_run_al_checkpointer_oficial():
+    from asistente import checkpoints
 
-    with patch.object(sesiones, "preguntar", return_value={"respuesta": "ok"}) as p:
-        r = R.lab_preguntar(R.Preguntar(pregunta="x", sesion=""), email="e")
-    assert r == {"respuesta": "ok"} and p.call_args.kwargs == {"usuario": "e", "sesion": None}
+    saver = MagicMock()
+    contexto = MagicMock()
+    contexto.__enter__.return_value = saver
+    with patch.object(checkpoints, "dsn", return_value="postgresql://test"), \
+         patch.object(checkpoints.PostgresSaver, "from_conn_string", return_value=contexto):
+        borrados = checkpoints.borrar_threads(["run-1", "run-1", "run-2"])
+
+    assert borrados == 2
+    assert [call.args[0] for call in saver.delete_thread.call_args_list] == ["run-1", "run-2"]
+
+
+def test_retencion_borra_checkpoints_antes_que_la_ejecucion():
+    from datetime import UTC, datetime
+
+    from asistente import checkpoints
+    from jobs import cleanup_retencion as retencion
+
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [("run-1",), ("run-2",)]
+    cursor.rowcount = 2
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+    regla = next(r for r in retencion.TABLAS if r.tabla == "ia.ejecuciones")
+    orden = []
+
+    def borrar_threads(run_ids):
+        orden.append(("checkpoints", list(run_ids)))
+        return len(run_ids)
+
+    def ejecutar(sql, params):
+        if sql.startswith("DELETE"):
+            orden.append(("ejecuciones", list(params[0])))
+
+    cursor.execute.side_effect = ejecutar
+    with patch.object(retencion, "get_pool", return_value=pool), \
+         patch.object(checkpoints, "borrar_threads", side_effect=borrar_threads):
+        borradas, cortado = retencion._borrar_ejecuciones_en_lotes(
+            regla, datetime.now(UTC), batch=3, sleep_s=0)
+
+    assert (borradas, cortado) == (2, False)
+    assert orden == [("checkpoints", ["run-1", "run-2"]),
+                     ("ejecuciones", ["run-1", "run-2"])]
+
+
+def test_el_router_solo_expone_preguntas_como_runs_durables():
+    from api.routers import agente as R
+
+    metodos = {(metodo, ruta.path) for ruta in R.router.routes for metodo in ruta.methods}
+    assert ("POST", "/api/agente/lab/runs") in metodos
+    assert ("POST", "/api/agente/lab/preguntar") not in metodos
     assert set(R.Preguntar.model_fields) == {"pregunta", "sesion"}, "la memoria vive en la base"
 
 
@@ -1679,6 +1803,48 @@ def test_reintentar_el_mismo_run_no_duplica_el_turno_guardado():
     assert [turno["run_id"] for turno in base.filas["e" * 32]["turnos"]] == [run_id]
 
 
+def test_dos_preguntas_concurrentes_de_la_misma_sesion_no_pierden_turnos():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+
+    from asistente import grafo, panel, sesiones
+
+    base = _Base()
+    sesion = "f" * 32
+    base.filas[sesion] = {"sesion": sesion, "usuario": "t", "titulo": "inicio",
+                          "memoria": [], "foco": {}, "turnos": []}
+    locks: dict[str, threading.Lock] = {}
+    inicio = threading.Barrier(2)
+
+    @contextmanager
+    def serializar(sid):
+        with locks.setdefault(sid, threading.Lock()):
+            yield
+
+    def responder(pregunta, **kwargs):
+        historial = list(kwargs["historial"])
+        return {"respuesta": pregunta, "falta": None, "error": None, "agentes": [],
+                "eventos": [], "mensajes": historial + [{"role": "user", "content": pregunta}],
+                "estado": {}, "sesion": kwargs["sesion"]}
+
+    def preguntar(texto):
+        inicio.wait()
+        return sesiones.preguntar(texto, usuario="t", sesion=sesion)
+
+    with patch.object(sesiones, "_serializar", serializar), \
+         patch.object(sesiones, "cargar", base.cargar), \
+         patch.object(sesiones, "guardar", base.guardar), \
+         patch.object(panel, "conversacion", lambda sid: {"id": sid}), \
+         patch.object(grafo, "preguntar", side_effect=responder), \
+         ThreadPoolExecutor(max_workers=2) as executor:
+        resultados = list(executor.map(preguntar, ("uno", "dos")))
+
+    assert all(resultado["guardada"] for resultado in resultados)
+    assert {turno["pregunta"] for turno in base.filas[sesion]["turnos"]} == {"uno", "dos"}
+    assert len(base.filas[sesion]["memoria"]) == 2
+
+
 def test_la_persistencia_personal_guarda_forma_pero_no_valores():
     from asistente import ejecuciones
 
@@ -1728,6 +1894,24 @@ def test_abrir_listar_y_borrar_validan_la_sesion_por_forma():
     assert sesiones.cargar("raro", "t") == (None, None)
     assert sesiones.borrar("raro", "t")["ok"] is False
     assert sesiones._titulo("  x  " * 60).endswith("…") and len(sesiones._titulo("hola")) == 4
+
+
+def test_borrar_una_conversacion_elimina_los_checkpoints_de_sus_runs():
+    from asistente import checkpoints, sesiones
+
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [("run-1",), ("run-2",)]
+    cursor.rowcount = 1
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+    with patch.object(sesiones, "get_pool", return_value=pool), \
+         patch.object(checkpoints, "borrar_threads", return_value=2) as borrar:
+        respuesta = sesiones.borrar("a" * 32, "t")
+
+    assert respuesta == {"ok": True, "borradas": 1}
+    borrar.assert_called_once_with(["run-1", "run-2"])
+    deletes = [call for call in cursor.execute.call_args_list if call.args[0].startswith("DELETE")]
+    assert [call.args[0].split()[2] for call in deletes] == ["ia.ejecuciones", "ia.conversaciones"]
 
 
 # ── historial por agente, esquema y herramientas ─────────────────────────────

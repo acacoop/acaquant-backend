@@ -36,7 +36,7 @@ pregunta ─► preparar ─► ruteo ─► [cartera · cliente · operaciones]
 | `preparar` | `memoria.py` | poda y achica el historial, sanea el foco | ninguno |
 | `ruteo` | `ruteo.py` | reglas primero; si ninguna decide, el modelo elige agentes | `asistente_ruteo` solo si las reglas no deciden |
 | cada agente | `agentes/<nombre>.py` | su bucle modelo ↔ herramientas, tope de 6 vueltas | su tarea (§6) |
-| `junta` | `junta.py` | con un agente, pasa su respuesta; con varios, redacta cruzándolos | `asistente_cartera` |
+| `junta` | `junta.py` | con un agente, pasa su respuesta; con varios, redacta cruzándolos | tarea con la protección de traza más restrictiva de los participantes |
 | `finalizar` | `grafo.py` + `control.py` | arma el historial de salida, corre el inspector (números y citas, con lo DADO y lo MOSTRADO) y separa las citas de la frase | ninguno |
 
 Los agentes corren en paralelo. **Un nodo del grafo = un módulo del paquete.**
@@ -62,7 +62,20 @@ Todas las piezas operativas comparten un `run_id`:
 El checkpointer es complementario: es la fuente para **reanudar el grafo**, no
 la API de negocio para listar corridas o medirlas. Su `thread_id` es el
 `run_id`, así dos preguntas simultáneas de una conversación no mezclan estado.
-Al terminar, el turno se incorpora una sola vez a `ia.conversaciones`.
+Sus snapshots contienen el estado interno necesario para reanudar, incluidos
+mensajes y resultados de herramientas; por eso pueden contener datos de
+negocio o personales. Al terminar, el turno se incorpora una sola vez a
+`ia.conversaciones`.
+
+**Durabilidad y retención son capas distintas.** `ia.conversaciones` conserva
+la charla visible; `ia.ejecuciones` conserva el estado y resultado de una
+pregunta; el checkpointer conserva el avance interno de esa ejecución; eventos
+y evidencias explican qué ocurrió y con qué datos. A los 90 días,
+`jobs.cleanup_retencion` elimina cada `thread_id` mediante
+`PostgresSaver.delete_thread()` y después borra `ia.ejecuciones`; eventos y
+evidencias caen por FK. El borrado manual de una conversación aplica el mismo
+borrado oficial a todos sus runs. No se consulta ni se acopla código propio a
+`checkpoints`, `checkpoint_blobs` o `checkpoint_writes`.
 
 Estados de una ejecución: `queued`, `running`, `waiting_approval`, `succeeded`,
 `failed`, `cancel_requested`, `cancelled` y `timed_out`. Los eventos son
@@ -226,9 +239,10 @@ opinión. El código no nombra un modelo en ningún otro lado, y ninguna regla
 del gateway niega un proveedor: la vieja distinción «datos de negocio solo a
 quien no entrena» se sacó por decisión del user.
 
-Lo único que queda de aquello es `traza_sin_texto` (hoy, `asistente_cliente`):
-`core/traza` guarda tokens y latencia pero no el pedido ni la respuesta, porque
-llevan datos de una persona.
+Lo único que queda de aquello es `traza_sin_texto` (hoy,
+`asistente_cliente` y `asistente_junta_personal`): `core/traza` guarda tokens
+y latencia pero no el pedido ni la respuesta, porque llevan datos de una
+persona.
 
 **La TNA llega por dos vías, y donde no llega NO se deriva.** El motor publica
 una sola tasa por bono, la TEA. La TNA aparece en `metrics.TNA` por dos
@@ -242,8 +256,11 @@ medida** para bonos que amortizan. ⚠️ PENDIENTE: medirla contra 1816 (mismo
 método que se usó para tasa fija) antes de copiarla a ningún lado. Mientras
 tanto la tasa comparable de todas las curvas es `tea_pct`.
 
-La junta (sin herramientas) recibe el esquema `{respuesta, falta}` si el
-proveedor lo soporta. Un agente con herramientas no: OpenAI, con
+La junta (sin herramientas) toma la protección de traza más restrictiva de los
+agentes participantes. Si participa `cliente`, usa `asistente_junta_personal`,
+no guarda extractos de entrada ni respuesta y su salida queda marcada para que
+no la relea un agente sin esa protección. Recibe el esquema `{respuesta, falta}` si
+el proveedor lo soporta. Un agente con herramientas no: OpenAI, con
 `response_format` en Chat Completions, exige que toda herramienta sea `strict`
 (medido en el LAB: «Only `strict` function tools can be auto-parsed»), y
 DeepSeek no acepta esquema. Esos contestan en prosa y marcan lo que no pudieron
@@ -261,11 +278,12 @@ Sin la clave del proveedor, la llamada no sale y el error vuelve como dato.
   poda). El ciclo (eventos) no se guarda. El navegador manda solo la pregunta
   y el id; sin id empieza una nueva. Retención 90 días sin retomar
   (`jobs/cleanup_retencion`).
-- No se usa el checkpointer de LangGraph: guarda el estado interno de una
-  corrida del grafo, y una corrida es una pregunta. La conversación es un dato
-  del negocio, con dueño, lista y borrado: una tabla nuestra.
-- Cada mensaje de la memoria lleva la marca `agente` (la junta queda como
-  cartera; una regla que contestó, `ruteo`) y cada pregunta la marca
+- El checkpointer de LangGraph sí se usa para reanudar una pregunta durable
+  desde un nodo; no reemplaza la conversación. La conversación es un dato del
+  negocio, con dueño, lista y borrado en una tabla nuestra.
+- Cada mensaje de la memoria lleva la marca `agente` (la junta queda con un
+  agente de su clasificación más restrictiva; una regla que contestó,
+  `ruteo`) y cada pregunta la marca
   `agentes` (quiénes la atendieron). Un agente recibe solo lo marcado con su
   nombre y las preguntas que atendió: lo que trajo cartera nunca llega al
   proveedor de renta fija, y una pregunta que fue solo a cartera no la ve
@@ -282,6 +300,10 @@ Sin la clave del proveedor, la llamada no sale y el error vuelve como dato.
   queda el del último en terminar: el foco es una ayuda, no una verdad.
 - La sesión es el uuid de la conversación; cada llamada al modelo lo escribe en
   `ia.llamadas.sesion`, y de ahí sale el costo por conversación.
+- `sesiones.preguntar()` toma un advisory lock PostgreSQL por sesión antes de
+  cargar y lo libera después de guardar. Así dos runs, la CLI o futuras
+  réplicas no pueden sobrescribir memoria, foco y turnos con una lectura vieja;
+  el `run_id` sigue evitando duplicar un turno al reintentar.
 
 ## 9. El tiempo (convención)
 
@@ -475,6 +497,11 @@ los primeros 15…») terminó repetido al usuario como «la curva está truncad
 ven 15 de 125». Lo que es cómo-usar-la-herramienta va al **docstring**, que es
 su canal; en el resultado queda el dato estructurado (`truncado`, `cuantos`).
 
+**El presupuesto se aplica antes de serializar.** Un resultado grande nunca se
+corta por caracteres después de `json.dumps`: se conservan prefijos de listas
+en su orden original y se agregan `truncado`, conteos y `criterio_recorte`. La
+junta recibe un único payload JSON bajo el mismo presupuesto total.
+
 **Todo lo que haya que restar, promediar u ordenar lo hace la herramienta**, y
 viaja ya resuelto (`delta_tea_pp`, `resumen`): el modelo no calcula, así que un
 cruce sin los deltas hechos termina en dos párrafos pegados en vez de una
@@ -488,8 +515,9 @@ comparación.
   (cartera, cliente y operaciones). Toda consulta
   lleva `FILTRO_SQL`; `ejecutor._autorizar` corta cualquier `cuenta` no
   habilitada antes de ejecutar; una herramienta de mercado no puede recibir `cuenta` (test).
-- Datos de negocio solo salen por tareas `negocio`; los personales, por `personal`.
-  El documento del cliente se muestra recortado a sus últimos dígitos.
+- Las tareas que reciben texto personal (`asistente_cliente` y una junta en la
+  que participa) usan `traza_sin_texto`: `ia.llamadas` conserva métricas, nunca
+  extractos. El documento del cliente se muestra recortado a sus últimos dígitos.
 - Lo que llega del navegador (pregunta, sesión) se valida por forma.
 
 ## 12. Observabilidad

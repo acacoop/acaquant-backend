@@ -12,11 +12,9 @@ import threading
 import time
 
 from langgraph.checkpoint.postgres import PostgresSaver
-from psycopg.conninfo import make_conninfo
 
-from asistente import ejecuciones, grafo, sesiones
+from asistente import checkpoints, ejecuciones, grafo, sesiones
 from asistente import eventos as EV
-from core.postgres import get_postgres_uri
 
 logger = logging.getLogger(__name__)
 _POLL_S = 0.5
@@ -26,10 +24,6 @@ _detener = threading.Event()
 
 def _senal(_signum, _frame) -> None:
     _detener.set()
-
-
-def _checkpoint_dsn() -> str:
-    return make_conninfo(get_postgres_uri(), options="-c search_path=ia")
 
 
 def _resultado_publico(resultado: dict) -> dict:
@@ -96,7 +90,7 @@ def main() -> int:
     reencoladas = ejecuciones.reencolar_interrumpidas()
     if reencoladas:
         logger.warning("asistente worker: %s run(s) interrumpidos vuelven a queued", reencoladas)
-    with PostgresSaver.from_conn_string(_checkpoint_dsn()) as checkpointer:
+    with PostgresSaver.from_conn_string(checkpoints.dsn()) as checkpointer:
         checkpointer.setup()
         grafo_compilado = grafo._armar(checkpointer)
         logger.info("asistente worker listo")

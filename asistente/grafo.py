@@ -44,6 +44,63 @@ def _unir(a: dict, b: dict) -> dict:
     return {**(a or {}), **(b or {})}
 
 
+def _json(valor: Any) -> str:
+    return json.dumps(valor, ensure_ascii=False, default=str)
+
+
+def _presupuestar(valor: Any, max_chars: int = MAX_RESULTADO_CHARS) -> Any:
+    """Recorta colecciones, nunca el JSON serializado."""
+    if len(_json(valor)) <= max_chars:
+        return valor
+    if isinstance(valor, list):
+        return _presupuestar({"items": valor, "cuantos": len(valor)}, max_chars)
+    if not isinstance(valor, dict):
+        texto = str(valor)
+        disponible = max(0, max_chars - 140)
+        return {"texto": texto[:disponible], "truncado": True,
+                "cuantos_caracteres": len(texto),
+                "criterio_recorte": f"prefijo hasta {max_chars} caracteres de JSON"}
+
+    listas = {clave: lista for clave, lista in valor.items() if isinstance(lista, list)}
+    salida = {clave: ([] if clave in listas else dato) for clave, dato in valor.items()}
+    salida["truncado"] = True
+    salida["criterio_recorte"] = f"prefijo en orden original hasta {max_chars} caracteres de JSON"
+    if len(listas) == 1 and "cuantos" not in salida:
+        salida["cuantos"] = len(next(iter(listas.values())))
+    salida["recortes"] = {
+        clave: {"disponibles": len(lista), "incluidos": 0} for clave, lista in listas.items()
+    }
+
+    if len(_json(salida)) > max_chars:
+        preservadas = {
+            clave: dato for clave, dato in valor.items()
+            if clave.startswith("cuantos") or clave in {"total", "fecha", "ventana", "error"}
+        }
+        salida = {**preservadas, **{clave: [] for clave in listas}, "truncado": True,
+                  "criterio_recorte": f"campos escalares hasta {max_chars} caracteres de JSON",
+                  "recortes": {clave: {"disponibles": len(lista), "incluidos": 0}
+                                for clave, lista in listas.items()}}
+
+    for clave, lista in listas.items():
+        for item in lista:
+            presupuesto_item = max(500, max_chars // max(2, min(len(lista), 8)))
+            candidato = _presupuestar(item, presupuesto_item)
+            salida[clave].append(candidato)
+            salida["recortes"][clave]["incluidos"] += 1
+            if len(_json(salida)) > max_chars:
+                salida[clave].pop()
+                salida["recortes"][clave]["incluidos"] -= 1
+                break
+    return salida
+
+
+def _json_presupuestado(valor: Any, max_chars: int = MAX_RESULTADO_CHARS) -> str:
+    texto = _json(_presupuestar(valor, max_chars))
+    if len(texto) <= max_chars:
+        return texto
+    return _json({"truncado": True, "criterio_recorte": "payload omitido por presupuesto"})
+
+
 # ── el subgrafo de un agente: modelo ↔ herramientas ──────────────────────────
 
 
@@ -168,7 +225,7 @@ def subgrafo(agente: Agente):
             datos.append({"herramienta": nombre, "argumentos": args, "resultado": limpio})
             nuevos.append(ToolMessage(
                 tool_call_id=cid or "",
-                content=json.dumps(limpio, ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]))
+                content=_json_presupuestado(limpio)))
         return {"mensajes": nuevos, "foco": foco, "eventos": eventos, "datos": datos,
             "evidencias": evidencias}
 
@@ -372,13 +429,14 @@ def junta(s: Estado) -> dict:
     for m in orden:
         u = salidas[m]
         dijo = u.get("respuesta") or (f"no contestó ({u['error']})" if u.get("error") else "(sin respuesta)")
-        partes.append(f"## {m}\nrespuesta: {dijo}\n"
-                      f"datos: {json.dumps(u.get('datos') or [], ensure_ascii=False, default=str)[:MAX_RESULTADO_CHARS]}")
+        partes.append({"agente": m, "respuesta": dijo, "datos": u.get("datos") or []})
+    payload = _json_presupuestado({"pregunta": s["pregunta"], "agentes": partes})
     entrada = [SystemMessage(content=AGT.sistema(JU.instruccion, s.get("foco") or {})),
-               HumanMessage(content=f"Pregunta: {s['pregunta']}\n\n" + "\n\n".join(partes))]
+               HumanMessage(content=payload)]
     try:
-        tr = _traza(JU.TAREA, s)
-        msg = _modelo(JU.TAREA, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
+        tarea = JU.tarea(orden)
+        tr = _traza(tarea, s)
+        msg = _modelo(tarea, s, tr, esquema=ESQ.FORMATO).invoke(entrada)
     except Exception as e:
         return {"error": f"La junta no pudo redactar: {e}",
                 "eventos": [{"tipo": "corte", "agente": "junta", "motivo": str(e)}]}
@@ -404,7 +462,7 @@ def finalizar(s: Estado) -> dict:
     for m in [*s["agentes"], "junta"]:
         # Cada mensaje queda marcado con su agente; la junta corre como el agente
         # de su tarea. La marca no viaja al proveedor (`memoria.desde_dicts`).
-        agente = JU.COMO if m == "junta" else m
+        agente = JU.como(list(s["agentes"])) if m == "junta" else m
         mensajes += [{**d, "agente": agente} for d in (salidas.get(m) or {}).get("mensajes") or []]
     if not s["agentes"] and s.get("respuesta"):
         # Contestó una regla del ruteo: queda en el historial de la persona y

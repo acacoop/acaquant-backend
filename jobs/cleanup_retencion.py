@@ -124,6 +124,35 @@ def _borrar_en_lotes(r: Retencion, cutoff: datetime, batch: int, sleep_s: float)
     return total, True
 
 
+def _borrar_ejecuciones_en_lotes(
+        r: Retencion, cutoff: datetime, batch: int, sleep_s: float) -> tuple[int, bool]:
+    """Elimina primero el estado interno usando la API pública de LangGraph."""
+    from asistente import checkpoints
+
+    total = 0
+    for _ in range(MAX_VUELTAS):
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT run_id FROM {r.tabla} WHERE {r.col} < %s LIMIT %s",
+                (cutoff, batch),
+            )
+            run_ids = [row[0] for row in cur.fetchall()]
+        if not run_ids:
+            return total, False
+        checkpoints.borrar_threads(run_ids)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {r.tabla} WHERE run_id = ANY(%s) AND {r.col} < %s",
+                (run_ids, cutoff),
+            )
+            n = cur.rowcount or 0
+        total += n
+        if len(run_ids) < batch:
+            return total, False
+        time.sleep(sleep_s)
+    return total, True
+
+
 def run(dry: bool = False, tablas: list[str] | None = None,
         batch: int = BATCH_DEFAULT, sleep_s: float = SLEEP_DEFAULT) -> dict:
     objetivo = [_TABLAS_POR_NOMBRE[t] for t in tablas] if tablas else list(TABLAS)
@@ -153,7 +182,8 @@ def run(dry: bool = False, tablas: list[str] | None = None,
             )
             continue
 
-        borradas, cortado = _borrar_en_lotes(r, cutoff, batch, sleep_s)
+        borrar = _borrar_ejecuciones_en_lotes if r.tabla == "ia.ejecuciones" else _borrar_en_lotes
+        borradas, cortado = borrar(r, cutoff, batch, sleep_s)
         dt = time.perf_counter() - t0
         reporte[r.tabla] = {
             "dias": r.dias, "col": r.col, "candidatas": candidatas,

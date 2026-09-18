@@ -6,13 +6,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 
+from psycopg import connect
 from psycopg.types.json import Jsonb
 
 from asistente import eventos as EV
 from asistente import grafo, panel, pantalla
-from core.postgres import get_pool
+from core.postgres import get_pool, get_postgres_uri
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +28,64 @@ def es_valida(sesion: str | None) -> bool:
     return bool(_SESION_RE.fullmatch(str(sesion or "")))
 
 
+@contextmanager
+def _serializar(sesion: str):
+    """Una conversación por vez, incluso con varias réplicas del worker."""
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(connect(get_postgres_uri(), autocommit=True))
+            cur = stack.enter_context(conn.cursor())
+            cur.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (f"asistente:{sesion}",))
+        except Exception as error:
+            logger.warning("sesiones: no pude serializar %s (%s)", sesion, error)
+            yield
+            return
+        try:
+            yield
+        finally:
+            try:
+                cur.execute(
+                    "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+                    (f"asistente:{sesion}",),
+                )
+            except Exception as error:
+                logger.warning("sesiones: no pude liberar la serialización de %s (%s)", sesion, error)
+
+
 def preguntar(pregunta: str, *, usuario: str, sesion: str | None = None,
               rol: str = "admin", portal: str = "trading", run_id: str | None = None,
               grafo_compilado=None, event_sink=None, forzar_sesion: bool = False) -> dict:
     """Una pregunta dentro de una conversación. Sin `sesion` (o con una que no
     es del usuario) empieza una nueva. Nunca levanta: si la base no contesta,
     la pregunta se responde igual, sin memoria, y `guardada` lo dice."""
-    previa, aviso = (cargar(sesion, usuario) if sesion else (None, None))
-    sesion_objetivo = previa["sesion"] if previa else (sesion if forzar_sesion else None)
+    pedida = sesion if es_valida(sesion) else None
+    aviso_nueva = None
+    if pedida:
+        with _serializar(pedida):
+            previa, aviso = cargar(pedida, usuario)
+            if previa or forzar_sesion:
+                return _preguntar_guardar(
+                    pregunta, usuario=usuario, sesion=pedida, previa=previa, aviso=aviso,
+                    rol=rol, portal=portal, run_id=run_id, grafo_compilado=grafo_compilado,
+                    event_sink=event_sink,
+                )
+            aviso_nueva = aviso
+    nueva = uuid.uuid4().hex
+    with _serializar(nueva):
+        return _preguntar_guardar(
+            pregunta, usuario=usuario, sesion=nueva, previa=None, aviso=aviso_nueva,
+            rol=rol, portal=portal, run_id=run_id, grafo_compilado=grafo_compilado,
+            event_sink=event_sink,
+        )
+
+
+def _preguntar_guardar(pregunta: str, *, usuario: str, sesion: str, previa: dict | None,
+                       aviso: str | None, rol: str, portal: str, run_id: str | None,
+                       grafo_compilado, event_sink) -> dict:
     with EV.capturar(event_sink):
         r = grafo.preguntar(
             pregunta, usuario=usuario, historial=previa["memoria"] if previa else [],
-            estado=previa["foco"] if previa else {}, sesion=sesion_objetivo,
+            estado=previa["foco"] if previa else {}, sesion=sesion,
             rol=rol, portal=portal, run_id=run_id, grafo_compilado=grafo_compilado)
     turno = {"run_id": run_id, "pregunta": pregunta, "respuesta": r["respuesta"], "falta": r["falta"],
              "error": r["error"], "agentes": r["agentes"], "tablas": tablas_de(r["eventos"]),
@@ -148,6 +197,18 @@ def borrar(sesion: str, usuario: str) -> dict:
         return {"ok": False, "error": "sesión inválida"}
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT run_id FROM ia.ejecuciones WHERE sesion = %s AND usuario = %s",
+                (sesion, usuario),
+            )
+            run_ids = [row[0] for row in cur.fetchall()]
+        from asistente import checkpoints
+        checkpoints.borrar_threads(run_ids)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM ia.ejecuciones WHERE sesion = %s AND usuario = %s",
+                (sesion, usuario),
+            )
             cur.execute("DELETE FROM ia.conversaciones WHERE sesion = %s AND usuario = %s",
                         (sesion, usuario))
             n = cur.rowcount

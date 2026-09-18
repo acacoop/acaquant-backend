@@ -2240,7 +2240,10 @@ Lo único que puede correr solo con un modelo es EL DIAGNÓSTICO del AV AGENT
 cada hallazgo abierto y recomienda sin ejecutar nada — **y sólo si el
 interruptor del LAB está prendido**: `POST /api/agente/diagnostico/automatico`
 (`{prendido}`, fila `diagnostico:automatico` de `ia.config`), que nace APAGADO.
-Apagado, todo es a pedido de una persona (el botón, la consola, la tab LAB).
+Apagado, todo es a pedido de una persona (el botón, la consola, la tab LAB), y
+lo hace cumplir el worker, no el daemon: cada run lleva `origen` (`daemon`, el
+email de quien apretó, `consola`) y un run del daemon con el interruptor apagado
+se cancela al reclamarlo, sin llamar a ningún modelo.
 **Su ciclo se ve en el LAB**: `GET /api/agente/diagnostico/{id}` (los runs del hallazgo y los eventos de uno, sin filtro de dueño porque son del agente) y `POST /api/agente/diagnostico/{id}/pedir` (encola uno a mano, misma puerta que el automático, sin topes). Desde AHORA, «ver cómo lo pensó → LAB» / «diagnosticar → LAB». **El LAB tiene tres sub-tabs: CONVERSACIONES · DIAGNÓSTICOS · MODELO Y GASTO** (cuál está abierta vive en el modal; AHORA abre en la segunda). **En DIAGNÓSTICOS, la lista** (`GET /api/agente/diagnostico`, `diagnostico.listado`): arriba el interruptor **«automático: prendido / apagado · hoy N de M»** (el estado viaja con la lista, en `automatico`); una fila por corrida, creada sola al encolarse, con hallazgo, estado, causa → acción y tokens; abrirla muestra su ciclo; `POST /api/agente/diagnostico/runs/{run_id}/cancelar` corta uno en cola o corriendo. Es la cola a la vista: lo que el contador «atascados» contaba sin decir qué era.
 
 El **núcleo del gateway**:

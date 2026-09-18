@@ -3706,6 +3706,14 @@ CREATE TABLE IF NOT EXISTS ia.ejecuciones (
 -- (asistente/diagnostico.py). El worker los despacha distinto y no se mezclan
 -- con las conversaciones de nadie.
 ALTER TABLE ia.ejecuciones ADD COLUMN IF NOT EXISTS tipo text NOT NULL DEFAULT 'pregunta';
+-- QUIÉN LO PIDIÓ: 'daemon' (el disparo automático del AV AGENT), el email de
+-- la persona (el botón, una conversación del LAB) o 'consola'. `usuario` no
+-- sirve para esto: el daemon y el botón firman los dos como `av-agent`, y sin
+-- esta columna la lista del LAB no podía decir de dónde salió un run. El
+-- DEFAULT es 'daemon' a propósito, fail-closed: una fila que no dice quién la
+-- pidió se trata como automática, y el worker no corre un diagnóstico
+-- automático con el interruptor del LAB apagado (asistente/worker.py).
+ALTER TABLE ia.ejecuciones ADD COLUMN IF NOT EXISTS origen text NOT NULL DEFAULT 'daemon';
 CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_usuario ON ia.ejecuciones (usuario, creada_at DESC);
 CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_estado ON ia.ejecuciones (estado, creada_at);
 CREATE INDEX IF NOT EXISTS ix_ia_ejecuciones_sesion ON ia.ejecuciones (sesion, creada_at);

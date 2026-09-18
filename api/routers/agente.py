@@ -282,12 +282,13 @@ def diagnostico_traza(hallazgo_id: int, run_id: str | None = None):
 
 
 @router.post("/diagnostico/{hallazgo_id}/pedir")
-def diagnostico_pedir(hallazgo_id: int):
+def diagnostico_pedir(hallazgo_id: int, email: str = Depends(get_user_email)):
     """Encola el diagnóstico de UN hallazgo ahora, por la misma puerta que el
     disparo automático (invariante 14 de AGENT.md §8). Sin topes: los topes son
-    del daemon. Si ya hay uno en cola, devuelve ese."""
+    del daemon. Si ya hay uno en cola, devuelve ese. El run queda firmado con
+    quién lo pidió, y por eso corre aunque el automático esté apagado."""
     from asistente import diagnostico
-    return diagnostico.pedir(hallazgo_id)
+    return diagnostico.pedir(hallazgo_id, por=email)
 
 
 # ── EL LABORATORIO — el asistente (asistente/, docs/AvAgentAI.md) ──────────
@@ -312,7 +313,7 @@ def lab_run_crear(body: Preguntar, request: Request,
     return ejecuciones.crear(
         body.pregunta, usuario=email, rol=get_user_role(email),
         portal="guest" if is_guest_portal(request) else "trading",
-        sesion=body.sesion or None)
+        sesion=body.sesion or None, origen=email)
 
 
 @router.get("/lab/runs/{run_id}")

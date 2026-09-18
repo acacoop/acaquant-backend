@@ -18,10 +18,14 @@ ACTIVOS = {"queued", "running", "waiting_approval", "cancel_requested"}
 
 
 def crear(pregunta: str, *, usuario: str, rol: str, portal: str,
-          sesion: str | None = None, tipo: str = "pregunta") -> dict:
+          sesion: str | None = None, tipo: str = "pregunta",
+          origen: str = "daemon") -> dict:
     """Crea un run queued y decide su sesión sin aceptar una sesión ajena.
     `tipo`: `pregunta` (una conversación) o `diagnostico` (lo dispara el AV
-    AGENT sobre un hallazgo; el worker lo despacha distinto)."""
+    AGENT sobre un hallazgo; el worker lo despacha distinto).
+    `origen`: QUIÉN lo pidió — `daemon`, el email de la persona, o `consola`.
+    El default es `daemon` a propósito: lo que no dice quién lo pidió se trata
+    como automático, y eso no corre con el interruptor del LAB apagado."""
     sesion_valida = None
     if sesion and sesiones.es_valida(sesion):
         previa, _ = sesiones.cargar(sesion, usuario)
@@ -30,9 +34,10 @@ def crear(pregunta: str, *, usuario: str, rol: str, portal: str,
     sesion_id = sesion_valida or uuid.uuid4().hex
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "INSERT INTO ia.ejecuciones (run_id, sesion, usuario, rol, portal, pregunta, tipo) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
-            (run_id, sesion_id, usuario, rol, portal, pregunta, tipo),
+            "INSERT INTO ia.ejecuciones (run_id, sesion, usuario, rol, portal, pregunta, tipo,"
+            " origen) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+            (run_id, sesion_id, usuario, rol, portal, pregunta, tipo,
+             (origen or "").strip() or "daemon"),
         )
         return _publica(cur.fetchone())
 
@@ -136,8 +141,8 @@ def runs_de(pregunta: str, limite: int = 20) -> list[dict]:
     se identifica por su pregunta `diagnosticar hallazgo #N`)."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT run_id, tipo, estado, error, creada_at, iniciada_at, finalizada_at, intentos"
-            " FROM ia.ejecuciones WHERE pregunta = %s ORDER BY creada_at DESC LIMIT %s",
+            "SELECT run_id, tipo, estado, error, origen, creada_at, iniciada_at, finalizada_at,"
+            " intentos FROM ia.ejecuciones WHERE pregunta = %s ORDER BY creada_at DESC LIMIT %s",
             (pregunta, max(1, min(int(limite), 100))))
         return [_publica(row) for row in cur.fetchall()]
 
@@ -148,8 +153,8 @@ def runs_de_tipo(tipo: str, limite: int = 50) -> list[dict]:
     una ruta admin-only."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT run_id, tipo, estado, error, pregunta, resultado, creada_at, iniciada_at,"
-            " finalizada_at, intentos FROM ia.ejecuciones WHERE tipo = %s"
+            "SELECT run_id, tipo, estado, error, origen, pregunta, resultado, creada_at,"
+            " iniciada_at, finalizada_at, intentos FROM ia.ejecuciones WHERE tipo = %s"
             " ORDER BY creada_at DESC LIMIT %s", (tipo, max(1, min(int(limite), 200))))
         return [_publica(row) for row in cur.fetchall()]
 

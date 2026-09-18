@@ -477,11 +477,14 @@ def _elegir(abiertos: list[dict], en_cola: set[int], hoy: int, ahora: datetime, 
     return [int(h["id"]) for h in candidatos[:cupo]]
 
 
-def pedir(hallazgo_id: int) -> dict:
+def pedir(hallazgo_id: int, *, por: str = "") -> dict:
     """Una persona pide el diagnóstico de UN hallazgo desde AHORA. Misma puerta
     que el disparo automático (un run `tipo = diagnostico`), sin los topes:
     los topes acotan al daemon, no a quien mira la pantalla. No encola dos
-    veces el mismo mientras hay uno en cola, y no diagnostica lo ignorado."""
+    veces el mismo mientras hay uno en cola, y no diagnostica lo ignorado.
+    `por` es el email de quien apretó: queda como `origen` del run, que es lo
+    que lo distingue de uno del daemon y lo que hace que corra aunque el
+    automático esté apagado."""
     from asistente import ejecuciones
 
     hid = int(hallazgo_id)
@@ -500,7 +503,8 @@ def pedir(hallazgo_id: int) -> dict:
     if activo:
         return {"ok": True, "run_id": activo["run_id"], "ya_estaba": True}
     run = ejecuciones.crear(_pregunta(hid), usuario=T.ACTOR_AGENTE, rol="admin",
-                            portal="trading", tipo="diagnostico")
+                            portal="trading", tipo="diagnostico",
+                            origen=(por or "").strip() or "persona")
     return {"ok": True, "run_id": run.get("run_id"), "ya_estaba": False}
 
 
@@ -548,6 +552,9 @@ def listado(limite: int = 50) -> dict:
         d = res.get("diagnostico") if isinstance(res.get("diagnostico"), dict) else {}
         filas.append({
             "run_id": r["run_id"], "estado": r["estado"], "error": r.get("error"),
+            # Quién lo pidió: `daemon`, un email o `consola`. Es lo que contesta
+            # «¿y este de dónde salió?» sin adivinar por la hora.
+            "origen": r.get("origen") or "daemon",
             "creada_at": r.get("creada_at"), "iniciada_at": r.get("iniciada_at"),
             "finalizada_at": r.get("finalizada_at"),
             "hallazgo_id": hid, "habilidad": h.get("habilidad"), "sujeto": h.get("sujeto"),
@@ -669,7 +676,8 @@ def encolar_pendientes(*, forzar: bool = False) -> dict:
     encolados = []
     for hid in ids:
         run = ejecuciones.crear(_pregunta(hid), usuario=T.ACTOR_AGENTE, rol="admin",
-                                portal="trading", tipo="diagnostico")
+                                portal="trading", tipo="diagnostico",
+                                origen="consola" if forzar else "daemon")
         encolados.append({"hallazgo_id": hid, "run_id": run.get("run_id")})
     return {"encolados": encolados, "apagado": False, "hoy": hoy + len(encolados),
             "abiertos": len(abiertos), "en_cola": sorted(en_cola)}

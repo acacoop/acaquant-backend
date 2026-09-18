@@ -656,9 +656,18 @@ sub-tab DIAGNÓSTICOS). Nace APAGADO, o sea MANUAL: el daemon no encola nada y
 sólo corre lo que pide una persona. Se lee en cada pasada, sin caché ni
 restart, y es fail-closed: sin fila o con la base sin contestar, apagado. Las
 otras puertas no pasan por él —el botón «diagnosticar», la consola con
-`--encolar`, que fuerza— porque ahí hay una persona pidiendo. Apagarlo no
-cancela lo que ya estaba en cola: eso se hace desde la lista. El worker del
-asistente despacha por `tipo`: un diagnóstico no toca `ia.conversaciones`.
+`--encolar`, que fuerza— porque ahí hay una persona pidiendo. **Cada run dice
+quién lo pidió** (`ia.ejecuciones.origen`: `daemon`, el email de la persona o
+`consola`; `usuario` no servía porque el daemon y el botón firman los dos
+`av-agent`), y la lista del LAB lo muestra. **La guarda real está en el
+worker**, que es el único que ejecuta: un run de `origen = daemon` —o sin
+origen, fail-closed— con el interruptor apagado se cancela al reclamarlo
+(`worker._automatico_apagado`), sin llamar a ningún modelo. Así apagar vale
+también para lo que ya estaba en cola y para un daemon que siguiera corriendo
+código viejo (pasó el 2026-09-18: tres runs por pasada con el interruptor
+apagado, porque `agente.service` no se había reiniciado). Lo que pidió una
+persona corre siempre. El worker del asistente despacha por `tipo`: un
+diagnóstico no toca `ia.conversaciones`.
 Desde la consola: `scripts/diagnosticar.py` (`--hallazgo N` corre ya,
 `--ver N` relee, `--pendientes`, `--encolar`). Desde el LAB también se puede
 pedir en lenguaje natural («diagnosticá el hallazgo #12»): rutea por señales al

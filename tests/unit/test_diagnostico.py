@@ -220,6 +220,29 @@ def test_la_pasada_del_daemon_pasa_por_el_interruptor_y_nunca_fuerza():
     assert e.call_count == 1 and e.call_args.kwargs == {}, "el interruptor manda: el daemon no fuerza"
 
 
+def test_el_worker_no_corre_un_diagnostico_del_daemon_con_el_automatico_apagado():
+    """La guarda real está en el que EJECUTA: un run del daemon (o sin origen,
+    fail-closed) con el interruptor apagado se cancela sin llamar a ningún
+    modelo. Lo que pidió una persona corre siempre; una conversación también."""
+    from asistente import ejecuciones, worker
+
+    with patch.object(DG, "automatico", return_value=False), \
+         patch.object(ejecuciones, "terminar") as t, patch.object(ejecuciones, "emitir") as e, \
+         patch.object(DG, "correr_run", side_effect=AssertionError("no tenía que correr")):
+        worker.procesar({"run_id": "r1", "tipo": "diagnostico", "origen": "daemon",
+                         "pregunta": "diagnosticar hallazgo #7"}, grafo_compilado=None)
+        worker.procesar({"run_id": "r2", "tipo": "diagnostico",
+                         "pregunta": "diagnosticar hallazgo #8"}, grafo_compilado=None)
+    assert [c.args[:2] for c in t.call_args_list] == [("r1", "cancelled"), ("r2", "cancelled")]
+    assert all("apagado" in c.kwargs["error"] for c in t.call_args_list)
+    assert e.call_count == 2
+    with patch.object(DG, "automatico", return_value=False):
+        assert worker._automatico_apagado({"tipo": "diagnostico", "origen": "nico@x"}) is False
+        assert worker._automatico_apagado({"tipo": "pregunta", "origen": "daemon"}) is False
+    with patch.object(DG, "automatico", return_value=True):
+        assert worker._automatico_apagado({"tipo": "diagnostico", "origen": "daemon"}) is False
+
+
 def test_la_lista_del_lab_trae_el_interruptor():
     from asistente import ejecuciones
 
@@ -240,8 +263,11 @@ def test_un_run_de_diagnostico_se_entiende_por_su_pregunta():
 def test_el_worker_despacha_por_tipo():
     from asistente import worker
 
+    # Lo pidió una persona (`origen`), así que corre aunque el automático esté
+    # apagado; el run del daemon con el interruptor apagado se prueba aparte.
     run = {"run_id": "r1", "tipo": "diagnostico", "pregunta": "diagnosticar hallazgo #1",
-           "usuario": "av-agent", "sesion": "s", "rol": "admin", "portal": "trading"}
+           "usuario": "av-agent", "sesion": "s", "rol": "admin", "portal": "trading",
+           "origen": "nico@x"}
     with patch.object(DG, "correr_run", return_value={"respuesta": "x", "error": None}) as c, \
          patch.object(worker.ejecuciones, "obtener", return_value={"estado": "running"}), \
          patch.object(worker.ejecuciones, "terminar") as t, \
@@ -377,9 +403,12 @@ def test_pedir_a_mano_usa_la_misma_puerta_y_no_encola_dos_veces():
     cur.fetchone.side_effect = [{"estado": "nuevo"}, None]
     with patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)), \
          patch.object(ejecuciones, "crear", return_value={"run_id": "nuevo1"}) as c:
-        r = DG.pedir(42)
+        r = DG.pedir(42, por="nico@x")
     assert r == {"ok": True, "run_id": "nuevo1", "ya_estaba": False}
     assert c.call_args.args == ("diagnosticar hallazgo #42",) and c.call_args.kwargs["tipo"] == "diagnostico"
+    # Firmado con quién lo pidió: es lo que lo distingue del daemon y lo que
+    # hace que corra con el automático apagado.
+    assert c.call_args.kwargs["origen"] == "nico@x"
     # ya hay uno en cola → devuelve ese, sin crear.
     cur.fetchone.side_effect = [{"estado": "nuevo"}, {"run_id": "viejo1"}]
     with patch("asistente.diagnostico.get_pool", return_value=_pool_con(cur)), \

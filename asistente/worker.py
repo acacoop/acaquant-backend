@@ -37,6 +37,19 @@ def _timeout_s() -> int:
         return _TIMEOUT_DEFAULT_S
 
 
+def _automatico_apagado(run: dict) -> bool:
+    """¿Es un diagnóstico que pidió el DAEMON con el interruptor del LAB
+    apagado? Entonces no corre. El worker es el único que ejecuta, así que
+    esta es la guarda real: no depende de que el daemon tenga el código nuevo
+    ni de que alguien lo haya reiniciado. Un run sin `origen` cuenta como del
+    daemon (fail-closed); lo que pidió una persona corre siempre."""
+    if run.get("tipo") != "diagnostico" or (run.get("origen") or "daemon") != "daemon":
+        return False
+    from asistente import diagnostico
+
+    return not diagnostico.automatico()
+
+
 def procesar(run: dict, grafo_compilado) -> None:
     run_id = run["run_id"]
     timeout_s = _timeout_s()
@@ -47,6 +60,11 @@ def procesar(run: dict, grafo_compilado) -> None:
             raise EV.TiempoAgotado(run_id)
         return ejecuciones.emitir(run_id, evento)
     try:
+        if _automatico_apagado(run):
+            mensaje = "no corrió: el automático está apagado y nadie lo pidió"
+            ejecuciones.terminar(run_id, "cancelled", error=mensaje)
+            ejecuciones.emitir(run_id, {"tipo": "cancelled", "agente": "run", "error": mensaje})
+            return
         if run.get("tipo") == "diagnostico":
             # Un run del AV AGENT sobre un hallazgo: no es una conversación de
             # nadie, no toca ia.conversaciones. Mismo worker, misma cancelación,

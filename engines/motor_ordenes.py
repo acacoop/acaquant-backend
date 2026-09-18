@@ -387,6 +387,94 @@ SYNC_PACE_S = 0.35
 SYNC_PACE_FRIA_S = 0.15
 
 
+# ── EXPERIMENTO MEDIBLE (2026-09-18): ¿el WS ya trae el historial del día? ──
+#
+# `order_report_subscription(snapshot=...)` viaja al broker como
+# `{"type":"os","account":{"id":X},"snapshotOnlyActive":<snapshot>}`. Según la
+# doc de Primary y el docstring de pyRofex, el nombre real invierte el sentido
+# del nuestro:
+#     snapshot=True  → snapshot con SOLO las órdenes ACTIVAS
+#     snapshot=False → snapshot con TODAS las del día (ejecutadas, canceladas,
+#                      rechazadas)
+# Si eso es cierto, el backfill REST (`get_all_orders_status`, ~1 s por cuenta
+# y la razón de que el barrido tardara 43 min) es REDUNDANTE: pide por REST lo
+# mismo que el WS ya regala por una conexión abierta.
+#
+# NO está verificado contra NUESTRA cuenta — solo leído en la doc, y con este
+# broker ya nos costó caro asumir (incidente 2026-09-17). Se mide primero, en
+# el único lugar donde equivocarse no cuesta nada: las cuentas FRÍAS, que hoy
+# no reciben ningún backfill. Peor caso = siguen sin recibir nada (idéntico a
+# hoy). Mejor caso = queda probado con datos de prod y se borra el REST para
+# todas, y el barrido entero baja a ~4 minutos sin dos fases ni priorización.
+#
+# El contador de abajo es el instrumento de medida: cuenta los reports que
+# llegan por WS atribuibles a cuentas frías, que por definición NO pueden
+# venir de un backfill REST (no se les hace) → si llegan, vinieron del
+# snapshot del WS. Se reporta en el log y se borra cuando el experimento
+# concluya.
+SNAPSHOT_FRIAS = False  # False = pedile al broker TODAS las del día
+
+# Las frías solas dan evidencia DÉBIL: por definición no operan hace 30 días,
+# así que lo más probable es que hoy tampoco y el resultado sea "0 reports",
+# que no distingue "el WS no trae historial" de "no había nada que traer".
+#
+# Sonda concluyente, sobre cuentas que SÍ operan: a las primeras
+# `SONDA_PRIORITARIAS` prioritarias se les invierte el orden — primero se
+# suscribe con snapshot=False, se escucha `SONDA_ESPERA_S`, y RECIÉN DESPUÉS
+# se hace el backfill REST de siempre. Todo lo que llegue en esa ventana vino
+# por WS y solo por WS. No se pierde nada: el backfill se hace igual, apenas
+# unos segundos más tarde, y el upsert es idempotente.
+SONDA_PRIORITARIAS = 15
+SONDA_ESPERA_S = 2.0
+
+_medicion_lock = threading.Lock()
+_frias_suscriptas: set[str] = set()
+_sonda_escuchando: set[str] = set()
+_frias_reports: dict[str, int] = {}
+_sonda_reports: dict[str, int] = {}
+
+
+def _contar_si_fria(rep: dict[str, Any]) -> None:
+    """Instrumento del experimento `SNAPSHOT_FRIAS` (ver arriba). Barato y en
+    memoria: no toca SQL ni puede frenar el camino de plata real."""
+    account_raw = rep.get("accountId")
+    account = account_raw.get("id") if isinstance(account_raw, dict) else account_raw
+    if not account:
+        return
+    acc = str(account)
+    with _medicion_lock:
+        if acc in _sonda_escuchando:
+            _sonda_reports[acc] = _sonda_reports.get(acc, 0) + 1
+        elif acc in _frias_suscriptas:
+            _frias_reports[acc] = _frias_reports.get(acc, 0) + 1
+
+
+def _reportar_experimento_snapshot() -> None:
+    """Resultado del experimento, al log. Se llama un rato DESPUÉS de terminar
+    el barrido: el broker manda los snapshots de forma asincrónica, medir en
+    el instante de la última suscripción daría un falso negativo."""
+    with _medicion_lock:
+        s_cuentas, s_total = len(_sonda_reports), sum(_sonda_reports.values())
+        f_cuentas, f_total = len(_frias_reports), sum(_frias_reports.values())
+        suscriptas = len(_frias_suscriptas)
+    if s_total or f_total:
+        logger.info(
+            "Órdenes del día [EXPERIMENTO snapshot=%s]: VEREDICTO = el WS SÍ trae "
+            "historial. SONDA (prioritarias, antes de su backfill REST): %d report(s) "
+            "de %d cuenta(s). FRÍAS (sin backfill nunca): %d report(s) de %d cuenta(s), "
+            "sobre %d suscriptas. → el backfill REST es redundante: se puede borrar y "
+            "el barrido baja a ~4 min.",
+            SNAPSHOT_FRIAS, s_total, s_cuentas, f_total, f_cuentas, suscriptas)
+    else:
+        logger.info(
+            "Órdenes del día [EXPERIMENTO snapshot=%s]: VEREDICTO = SIN evidencia — "
+            "0 reports tanto en la sonda (%d prioritarias escuchadas %.0fs antes de su "
+            "backfill) como en las %d frías. Si las prioritarias sondeadas tenían "
+            "órdenes hoy, esto indica que el WS NO reproduce historial y el backfill "
+            "REST hay que dejarlo. Contrastar con las filas que trajo el backfill.",
+            SNAPSHOT_FRIAS, SONDA_PRIORITARIAS, SONDA_ESPERA_S, len(_frias_suscriptas))
+
+
 def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
     """Al arrancar (una vez, en thread propio): suscribe las cuentas ya
     CONFIRMADAS offline (ver `_cuentas_a_sincronizar`) a la MISMA sesión WS
@@ -441,6 +529,7 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
         logger.warning("Órdenes del día: backfill de la master (%s) falló: %s", cuenta_master, e)
 
     ok = err = 0
+    n_sonda = 0
     fase_fria_anunciada = False
     for i, (id_cuenta, rofex_acc, prioritaria) in enumerate(cuentas, 1):
         if not _running:
@@ -452,8 +541,27 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
                         "sigo con las frías (solo suscripción)", time.monotonic() - t0)
         try:
             if prioritaria:
-                _backfill(rofex_acc)
-            pyRofex.order_report_subscription(account=rofex_acc, snapshot=True)
+                if n_sonda < SONDA_PRIORITARIAS:
+                    # Sonda: escuchar por WS ANTES del backfill REST, para que
+                    # lo que llegue sea atribuible al WS y nada más. El backfill
+                    # se hace igual unas líneas abajo — no se pierde nada.
+                    n_sonda += 1
+                    with _medicion_lock:
+                        _sonda_escuchando.add(rofex_acc)
+                    pyRofex.order_report_subscription(account=rofex_acc, snapshot=False)
+                    time.sleep(SONDA_ESPERA_S)
+                    with _medicion_lock:
+                        _sonda_escuchando.discard(rofex_acc)  # congela el conteo
+                    _backfill(rofex_acc)
+                else:
+                    _backfill(rofex_acc)
+                    pyRofex.order_report_subscription(account=rofex_acc, snapshot=True)
+            else:
+                # Fría: sin backfill REST. Se registra ANTES de suscribir para
+                # no perder el snapshot, que puede llegar de inmediato.
+                with _medicion_lock:
+                    _frias_suscriptas.add(rofex_acc)
+                pyRofex.order_report_subscription(account=rofex_acc, snapshot=SNAPSHOT_FRIAS)
             ok += 1
         except Exception as e:
             err += 1
@@ -465,6 +573,15 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
         time.sleep(SYNC_PACE_S if prioritaria else SYNC_PACE_FRIA_S)
     logger.info("Órdenes del día: sincronización inicial terminada "
                 "(%d ok, %d error, %.1fs)", ok, err, time.monotonic() - t0)
+
+    # Colchón para que lleguen los snapshots que el broker manda asincrónicamente
+    # (ver `_reportar_experimento_snapshot`). Estamos en thread propio: dormir
+    # acá no frena ni el heartbeat ni el procesamiento de reports.
+    for _ in range(120):
+        if not _running:
+            return
+        time.sleep(1)
+    _reportar_experimento_snapshot()
 
 
 def _purgar_ordenes_dia() -> None:
@@ -513,6 +630,7 @@ def _make_er_handler():
             # nunca bloquee el camino de plata real (ordenes_live/brackets).
             try:
                 _upsert_ordenes_dia(rep)
+                _contar_si_fria(rep)
             except Exception as e:
                 logger.warning("ordenes_dia upsert falló (cl_ord_id=%s): %s", cl_ord_id, e)
             logger.log(

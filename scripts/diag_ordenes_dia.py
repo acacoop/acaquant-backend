@@ -138,14 +138,14 @@ def _diag_ordenes() -> None:
     por_fecha = _rows(
         """
         SELECT fecha, count(*) AS reports, count(*) FILTER (WHERE last_qty > 0) AS ejecuciones,
-               max(updated_at) AS ultimo_update
+               count(DISTINCT account) AS cuentas, max(updated_at) AS ultimo_update
         FROM operaciones.ordenes_dia
         GROUP BY fecha
         ORDER BY fecha DESC
         LIMIT 10
         """
     )
-    _print_tabla(por_fecha, ("fecha", "reports", "last_qty>0", "ultimo_update"))
+    _print_tabla(por_fecha, ("fecha", "reports", "last_qty>0", "cuentas", "ultimo_update"))
     por_cuenta_hoy = _rows(
         """
         SELECT account, count(*) AS reports, count(*) FILTER (WHERE last_qty > 0) AS ejecuciones,
@@ -160,6 +160,36 @@ def _diag_ordenes() -> None:
     )
     print("\nTop cuentas HOY:")
     _print_tabla(por_cuenta_hoy, ("account", "reports", "last_qty>0", "ultimo_transact", "ultimo_update"))
+
+
+def _diag_ws_vivo() -> None:
+    """¿El WS está trayendo algo HOY? Separa "el motor no captura" de "todavía
+    no operó nadie": `ordenes_live`/`ordenes_audit` los escribe el MISMO
+    handler que alimenta `ordenes_dia`, pero solo para NUESTRAS órdenes."""
+    _print_titulo("3b) ¿Llega algo por el WS hoy?")
+    hoy_ar = datetime.now(TZ_AR).date()
+    live = _rows(
+        """
+        SELECT account, count(*) AS ordenes, max(updated_at) AS ultimo
+        FROM operaciones.ordenes_live
+        WHERE updated_at::date = %s
+        GROUP BY account ORDER BY ultimo DESC LIMIT 10
+        """,
+        (hoy_ar,),
+    )
+    print("ordenes_live de hoy (nuestras órdenes por el API):")
+    _print_tabla(live, ("account", "ordenes", "ultimo"))
+    audit = _rows(
+        """
+        SELECT kind, count(*) AS eventos, max(ts) AS ultimo
+        FROM operaciones.ordenes_audit
+        WHERE ts::date = %s
+        GROUP BY kind ORDER BY ultimo DESC LIMIT 10
+        """,
+        (hoy_ar,),
+    )
+    print("\nordenes_audit de hoy (execution reports auditados):")
+    _print_tabla(audit, ("kind", "eventos", "ultimo"))
 
 
 def _diag_job_runs() -> None:
@@ -225,6 +255,7 @@ def main() -> int:
     _diag_entorno()
     _diag_schema_y_cache()
     _diag_ordenes()
+    _diag_ws_vivo()
     _diag_job_runs()
     _diag_logs()
     _veredicto()

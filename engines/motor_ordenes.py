@@ -283,17 +283,64 @@ def _upsert_ordenes_dia(rep: dict[str, Any]) -> None:
         conn.commit()
 
 
-def _cuentas_a_sincronizar(cuenta_master: str) -> list[tuple[str, str]]:
-    """Universo de cuentas ROFEX ya CONFIRMADAS offline, sin la master (ya
-    suscripta desde `inicializar_para_motor`). Devuelve pares
-    `(id_cuenta, rofex_account)`.
+# Ventana para decidir "esta cuenta opera": el negocio real de los últimos N
+# días corridos. Es la misma señal que usa el tablero comercial para decir si
+# un cliente está activo — no una heurística nueva.
+DIAS_ACTIVIDAD = 30
 
-    INCIDENTE 2026-09-17 (dos rounds): la v1 recorría `clientes.cuentas`
-    completa (~800 filas, espejo crudo de Aunesa con basura histórica); la
-    v2 filtraba por `clientes.comitentes` (tipo/estado) pero seguía
-    RESOLVIENDO cada cuenta en caliente contra el broker
-    (`get_account_report`, uno por uno) para decidir si suscribir. Los dos
-    rounds tiraron abajo el WS de la master (1839) — resultó que el
+
+def _cuentas_prioritarias() -> set[str]:
+    """Cuentas con actividad reciente: las que hay que cubrir PRIMERO.
+
+    MEDIDO 2026-09-18: el barrido plano de las 1743 cuentas confirmadas
+    tardaba ~43 minutos (≈1.4 s por cuenta: `get_all_orders_status` REST +
+    throttle), recorridas en orden de `id_cuenta`. Consecuencias reales:
+    (a) el 2026-09-17 el sync arrancó 19:42 UTC y el cron paró el motor a
+    las 20:05 **sin haber terminado**; (b) una cuenta que opera a las 10:35
+    podía no estar suscripta hasta 40 minutos después, según dónde cayera
+    alfabéticamente su número. Es exactamente lo que había que evitar: las
+    que operan son pocas y estaban esperando detrás de ~1.600 que no operan.
+
+    Dos fuentes que se suman:
+      - `operaciones.negocio_movimientos` (negocio real desde Aunesa,
+        últimos `DIAS_ACTIVIDAD` días) — quién efectivamente operó;
+      - `operaciones.ordenes_dia` de la ventana retenida — auto-aprendizaje:
+        si mandó una orden ayer, hoy arranca priorizada aunque el negocio
+        todavía no haya liquidado.
+
+    Si la consulta falla, devuelve un set vacío: el sync degrada al orden
+    plano de antes (más lento, pero funciona) en vez de no correr."""
+    from core.postgres import get_pool
+    out: set[str] = set()
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT id_cuenta FROM operaciones.negocio_movimientos "
+                "WHERE fecha >= current_date - %s::int AND id_cuenta IS NOT NULL "
+                "AND anulado_en IS NULL",
+                (DIAS_ACTIVIDAD,),
+            )
+            out |= {str(r[0]) for r in cur.fetchall() if r[0]}
+            cur.execute("SELECT DISTINCT account FROM operaciones.ordenes_dia")
+            out |= {str(r[0]) for r in cur.fetchall() if r[0]}
+    except Exception as e:
+        logger.warning("Órdenes del día: no pude calcular cuentas prioritarias "
+                       "(sigo con orden plano): %s", e)
+    return out
+
+
+def _cuentas_a_sincronizar(cuenta_master: str) -> list[tuple[str, str, bool]]:
+    """Universo de cuentas ROFEX ya CONFIRMADAS offline, sin la master (ya
+    suscripta desde `inicializar_para_motor`). Devuelve tripletas
+    `(id_cuenta, rofex_account, es_prioritaria)`, **con las prioritarias
+    primero** (ver `_cuentas_prioritarias`).
+
+    INCIDENTE 2026-09-17 (dos rounds): la v1 recorría
+    `clientes.cuentas` completa (~800 filas, espejo crudo de Aunesa con
+    basura histórica); la v2 filtraba por `clientes.comitentes`
+    (tipo/estado) pero seguía RESOLVIENDO cada cuenta en caliente contra el
+    broker (`get_account_report`, uno por uno) para decidir si suscribir.
+    Los dos rounds tiraron abajo el WS de la master (1839) — resultó que el
     problema no es SOLO `order_report_subscription` con una cuenta inválida
     (que ya era grave), sino cualquier interacción con el broker sobre una
     cuenta que no reconoce, incluido el simple PROBING por REST: ROFEX
@@ -316,37 +363,62 @@ def _cuentas_a_sincronizar(cuenta_master: str) -> list[tuple[str, str]]:
             "ORDER BY id_cuenta"
         )
         rows = cur.fetchall()
-    return [(str(r[0]), str(r[1])) for r in rows if r[0] and str(r[0]) != str(cuenta_master)]
+    prioritarias = _cuentas_prioritarias()
+    out: list[tuple[str, str, bool]] = []
+    for id_cuenta, rofex_account in rows:
+        if not id_cuenta or str(id_cuenta) == str(cuenta_master):
+            continue
+        ic, ra = str(id_cuenta), str(rofex_account)
+        out.append((ic, ra, ic in prioritarias or ra in prioritarias))
+    # Estable: prioritarias primero, cada grupo en su orden original.
+    out.sort(key=lambda t: not t[2])
+    return out
 
 
 # Pausa entre cuentas al sumar suscripciones/backfill — nada de ráfaguear al
 # broker con centenares de llamadas REST/WS seguidas (mismo espíritu que el
-# throttle de `jobs/control_saldos.py`, pero acá no hace falta rotación por
-# prioridad: suscribirse es un costo ÚNICO al arrancar, no recurrente).
+# throttle de `jobs/control_saldos.py`).
+#
+# Dos ritmos, porque los dos tramos NO cuestan lo mismo: la cuenta
+# prioritaria paga un `get_all_orders_status` REST (lo caro, ~1 s) y la fría
+# solo manda una suscripción por el WS que YA está abierto (barato). Poner el
+# mismo pace a las dos era pagar el precio del tramo caro 1.743 veces.
 SYNC_PACE_S = 0.35
+SYNC_PACE_FRIA_S = 0.15
 
 
 def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
-    """Al arrancar (una vez, en thread propio): por cada cuenta comitente ya
-    CONFIRMADA offline (ver `_cuentas_a_sincronizar`), (1) backfill REST de
-    las órdenes de HOY (`get_all_orders_status`, ya probado inofensivo — no
-    toca el WS) y (2) suma la cuenta a la MISMA suscripción WS ya abierta
-    por `inicializar_para_motor` (snapshot=True: no reproduce histórico por
-    WS — el histórico de hoy ya lo trajo el backfill REST; de acá en más el
-    push cubre lo que pase).
+    """Al arrancar (una vez, en thread propio): suscribe las cuentas ya
+    CONFIRMADAS offline (ver `_cuentas_a_sincronizar`) a la MISMA sesión WS
+    abierta por `inicializar_para_motor`, **en dos tramos**:
+
+      1. PRIORITARIAS (operaron en los últimos `DIAS_ACTIVIDAD` días o ya
+         aparecen en la ventana de `ordenes_dia`): backfill REST de lo que
+         pasó hoy ANTES de que arrancara el proceso (`get_all_orders_status`)
+         + suscripción. Son las que importan y se cubren en los primeros
+         minutos.
+      2. FRÍAS (el resto): SOLO suscripción, sin backfill REST. Una cuenta
+         que no operó en 30 días casi seguro tampoco operó hoy antes de que
+         arrancara el motor, así que ese REST devolvía vacío — pagarlo 1.600
+         veces era lo que estiraba el barrido a ~43 minutos (medido
+         2026-09-18) y dejaba a las que sí operan esperando detrás.
+
+    Si una fría opera durante el día, igual queda cubierta: está suscripta y
+    el push del WS trae sus reports en vivo.
 
     Cero llamadas de RESOLUCIÓN contra el broker acá — eso es justo lo que
     causó el incidente 2026-09-17 (ver docstring de `_cuentas_a_sincronizar`).
-    Las únicas dos llamadas por cuenta (`get_all_orders_status`,
-    `order_report_subscription`) son sobre un `rofex_account` YA CONFIRMADO
-    por `jobs/resolver_cuentas_rofex.py` fuera de rueda."""
+    Las llamadas son sobre un `rofex_account` YA CONFIRMADO por
+    `jobs/resolver_cuentas_rofex.py` fuera de rueda."""
     try:
         cuentas = _cuentas_a_sincronizar(cuenta_master)
     except Exception as e:
         logger.error("Órdenes del día: no pude leer clientes.comitentes: %s", e)
         return
-    logger.info("Órdenes del día: sincronizando %d cuenta(s) confirmada(s) (+ master %s)",
-                len(cuentas), cuenta_master)
+    n_prior = sum(1 for _, _, p in cuentas if p)
+    logger.info("Órdenes del día: sincronizando %d cuenta(s) confirmada(s) — "
+                "%d prioritaria(s) con backfill, %d fría(s) solo suscripción (+ master %s)",
+                len(cuentas), n_prior, len(cuentas) - n_prior, cuenta_master)
 
     def _backfill(rofex_acc: str) -> None:
         resp = pyRofex.get_all_orders_status(account=rofex_acc)
@@ -361,25 +433,38 @@ def _sincronizar_ordenes_dia(cuenta_master: str) -> None:
 
     # Master: ya está suscripta (inicializar_para_motor) — solo falta el
     # backfill de lo que pasó hoy ANTES de que este proceso arrancara.
+    t0 = time.monotonic()
     try:
         _backfill(cuenta_master)
+        logger.info("Órdenes del día: backfill de la master (%s) OK", cuenta_master)
     except Exception as e:
         logger.warning("Órdenes del día: backfill de la master (%s) falló: %s", cuenta_master, e)
 
     ok = err = 0
-    for id_cuenta, rofex_acc in cuentas:
+    fase_fria_anunciada = False
+    for i, (id_cuenta, rofex_acc, prioritaria) in enumerate(cuentas, 1):
         if not _running:
+            logger.info("Órdenes del día: corte pedido — %d/%d procesadas", i - 1, len(cuentas))
             return
+        if not prioritaria and not fase_fria_anunciada:
+            fase_fria_anunciada = True
+            logger.info("Órdenes del día: prioritarias LISTAS en %.1fs — "
+                        "sigo con las frías (solo suscripción)", time.monotonic() - t0)
         try:
-            _backfill(rofex_acc)
+            if prioritaria:
+                _backfill(rofex_acc)
             pyRofex.order_report_subscription(account=rofex_acc, snapshot=True)
             ok += 1
         except Exception as e:
             err += 1
             logger.warning("Órdenes del día: cuenta %s (rofex=%s) falló (sigo con el resto): %s",
                            id_cuenta, rofex_acc, e)
-        time.sleep(SYNC_PACE_S)
-    logger.info("Órdenes del día: sincronización inicial terminada (%d ok, %d error)", ok, err)
+        if i % 250 == 0:
+            logger.info("Órdenes del día: progreso %d/%d (%.1fs)", i, len(cuentas),
+                        time.monotonic() - t0)
+        time.sleep(SYNC_PACE_S if prioritaria else SYNC_PACE_FRIA_S)
+    logger.info("Órdenes del día: sincronización inicial terminada "
+                "(%d ok, %d error, %.1fs)", ok, err, time.monotonic() - t0)
 
 
 def _purgar_ordenes_dia() -> None:
